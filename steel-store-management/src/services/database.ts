@@ -34,6 +34,7 @@ interface StockMovement {
   created_by?: string;
   created_at: string;
   updated_at: string;
+  unit_type?: string; // ADDED: always track the unit type for correct display
 }
 
 interface LedgerEntry {
@@ -1191,11 +1192,14 @@ unit_type: 'kg-grams',
 
       if (!isTauri()) {
         const newId = Math.max(...this.mockStockMovements.map(m => m.id || 0), 0) + 1;
+        // Always attach the correct unit_type to the movement for later display/logic
+        const product = this.mockProducts.find(p => p.id === movement.product_id);
         const newMovement: StockMovement = {
           ...movement,
           id: newId,
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          unit_type: product?.unit_type || 'kg-grams'
         };
         
         this.mockStockMovements.push(newMovement);
@@ -1411,188 +1415,248 @@ unit_type: 'kg-grams',
     
     return parseUnit(input, unitType as any);
   }
+// CRITICAL FIX: Stock adjustment with proper unit type support
+async adjustStock(
+  productId: number, 
+  quantity: number, 
+  reason: string, 
+  notes: string,
+  customer_id?: number,
+  customer_name?: string
+): Promise<boolean> {
+  try {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
 
-  // CRITICAL FIX: Stock adjustment with proper unit type support
-  async adjustStock(
-    productId: number, 
-    quantity: number, 
-    reason: string, 
-    notes: string,
-    customer_id?: number,
-    customer_name?: string
-  ): Promise<boolean> {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+    const time = now.toLocaleTimeString('en-PK', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+
+    if (!isTauri()) {
+      const productIndex = this.mockProducts.findIndex(p => p.id === productId);
+      if (productIndex === -1) {
+        throw new Error('Product not found');
       }
 
-      const now = new Date();
-      const date = now.toISOString().split('T')[0];
-      const time = now.toLocaleTimeString('en-PK', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: true 
+      const product = this.mockProducts[productIndex];
+      
+      // CRITICAL: Validate product unit_type first
+      this.validateProductUnitType(product);
+      
+      // Parse current stock based on product's unit type using safe parsing
+      const currentStockData = this.safeParseUnit(product.current_stock, product.unit_type, product.name);
+      const previousStock = currentStockData.numericValue;
+      
+      // CRITICAL FIX: Handle the adjustment quantity based on unit type
+      let adjustmentQuantityInBaseUnit: number;
+      
+      if (product.unit_type === 'kg-grams' || product.unit_type === 'kg') {
+        // For weight-based units, quantity is already in grams from StockAdjustment component
+        adjustmentQuantityInBaseUnit = quantity;
+      } else {
+        // For non-weight units (bags, pieces, etc.), quantity is the actual count
+        // No conversion needed - use directly
+        adjustmentQuantityInBaseUnit = quantity;
+      }
+      
+      // Calculate new stock
+      const newStock = Math.max(0, previousStock + adjustmentQuantityInBaseUnit);
+      
+      // Convert back to the proper unit format based on unit type
+      const newStockString = this.formatStockValue(newStock, product.unit_type);
+
+      // CRITICAL: Update product stock FIRST
+      this.mockProducts[productIndex].current_stock = newStockString;
+      this.mockProducts[productIndex].updated_at = now.toISOString();
+
+      // Create stock movement record with correct quantity display
+      let movementType: 'in' | 'out' | 'adjustment';
+      let displayQuantity: number;
+      
+      if (adjustmentQuantityInBaseUnit > 0) {
+        movementType = 'in';
+        displayQuantity = Math.abs(adjustmentQuantityInBaseUnit);
+      } else if (adjustmentQuantityInBaseUnit < 0) {
+        movementType = 'out';
+        displayQuantity = Math.abs(adjustmentQuantityInBaseUnit);
+      } else {
+        movementType = 'adjustment';
+        displayQuantity = 0;
+      }
+
+      await this.createStockMovement({
+        product_id: productId,
+        product_name: product.name,
+        movement_type: movementType,
+        quantity: displayQuantity,
+        previous_stock: previousStock,
+        new_stock: newStock,
+        unit_price: product.rate_per_unit,
+        total_value: Math.abs(adjustmentQuantityInBaseUnit) * product.rate_per_unit,
+        reason: reason,
+        reference_type: 'adjustment',
+        reference_number: `ADJ-${date}-${Date.now()}`,
+        customer_id: customer_id,
+        customer_name: customer_name,
+        notes: notes,
+        date,
+        time,
+        created_by: 'manual'
       });
 
-      if (!isTauri()) {
-        const productIndex = this.mockProducts.findIndex(p => p.id === productId);
-        if (productIndex === -1) {
-          throw new Error('Product not found');
-        }
-
-        const product = this.mockProducts[productIndex];
-        
-        // CRITICAL: Validate product unit_type first
-        this.validateProductUnitType(product);
-        
-        // Parse current stock based on product's unit type using safe parsing
-        const currentStockData = this.safeParseUnit(product.current_stock, product.unit_type, product.name);
-        const previousStock = currentStockData.numericValue;
-        
-        // Calculate new stock (quantity is already in normalized format)
-        const newStock = Math.max(0, previousStock + quantity);
-        
-        // Convert back to the proper unit format based on unit type
-        const newStockString = this.formatStockValue(newStock, product.unit_type);
-
-        // CRITICAL: Update product stock FIRST
-        this.mockProducts[productIndex].current_stock = newStockString;
-        this.mockProducts[productIndex].updated_at = now.toISOString();
-
-        // Create stock movement record with customer info
-        await this.createStockMovement({
-          product_id: productId,
-          product_name: product.name,
-          movement_type: quantity > 0 ? 'in' : quantity < 0 ? 'out' : 'adjustment',
-          quantity: Math.abs(quantity),
-          previous_stock: previousStock,
-          new_stock: newStock,
-          unit_price: product.rate_per_unit,
-          total_value: Math.abs(quantity) * product.rate_per_unit,
-          reason: reason,
-          reference_type: 'adjustment',
-          reference_number: `ADJ-${date}-${Date.now()}`,
-          customer_id: customer_id,
-          customer_name: customer_name,
-          notes: notes,
-          date,
-          time,
-          created_by: 'manual'
-        });
-
-        // CRITICAL: Save to localStorage immediately
-        this.saveToLocalStorage();
-        console.log(`Stock adjusted for ${product.name}: ${previousStock} → ${newStock} (${quantity > 0 ? '+' : ''}${quantity})`);
-        
-        // Emit events for real-time component updates
-        try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('STOCK_UPDATED', {
-                productId,
-                productName: product.name,
-                action: 'stock_adjusted',
-                previousStock,
-                newStock,
-                adjustment: quantity
-              });
-              eventBus.emit('STOCK_ADJUSTMENT_MADE', {
-                productId,
-                productName: product.name,
-                reason,
-                adjustment: quantity
-              });
-            }
-          }
-        } catch (error) {
-          console.warn('Could not emit stock adjustment events:', error);
-        }
-        
-        return true;
+      // CRITICAL: Save to localStorage immediately
+      this.saveToLocalStorage();
+      
+      // Create user-friendly log message
+      let adjustmentDisplay: string;
+      if (product.unit_type === 'kg-grams') {
+        adjustmentDisplay = formatUnitString((Math.abs(adjustmentQuantityInBaseUnit) / 1000).toString(), 'kg');
+      } else if (product.unit_type === 'kg') {
+        adjustmentDisplay = formatUnitString((Math.abs(adjustmentQuantityInBaseUnit) / 1000).toString(), 'kg');
+      } else {
+        adjustmentDisplay = `${Math.abs(adjustmentQuantityInBaseUnit)} ${product.unit_type}${Math.abs(adjustmentQuantityInBaseUnit) !== 1 ? 's' : ''}`;
       }
-
-      // Real database implementation with transaction
-      await this.database?.execute('BEGIN TRANSACTION');
-
+      
+      console.log(`Stock adjusted for ${product.name}: ${this.formatStockValue(previousStock, product.unit_type)} → ${this.formatStockValue(newStock, product.unit_type)} (${adjustmentQuantityInBaseUnit > 0 ? '+' : '-'}${adjustmentDisplay})`);
+      
+      // Emit events for real-time component updates
       try {
-        const product = await this.getProduct(productId);
-        
-        // Parse current stock based on product's unit type
-        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-        const previousStock = currentStockData.numericValue;
-        
-        // Calculate new stock (quantity is already in normalized format)
-        const newStock = Math.max(0, previousStock + quantity);
-        
-        // Convert back to the proper unit format based on unit type
-        const newStockString = this.formatStockValue(newStock, product.unit_type || 'kg-grams');
-
-        // Update product stock
-        await this.database?.execute(
-          'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [newStockString, productId]
-        );
-
-        // Create stock movement record with customer info
-        await this.createStockMovement({
-          product_id: productId,
-          product_name: product.name,
-          movement_type: quantity > 0 ? 'in' : quantity < 0 ? 'out' : 'adjustment',
-          quantity: Math.abs(quantity),
-          previous_stock: previousStock,
-          new_stock: newStock,
-          unit_price: product.rate_per_unit,
-          total_value: Math.abs(quantity) * product.rate_per_unit,
-          reason: reason,
-          reference_type: 'adjustment',
-          reference_number: `ADJ-${date}-${Date.now()}`,
-          customer_id: customer_id,
-          customer_name: customer_name,
-          notes: notes,
-          date,
-          time,
-          created_by: 'manual'
-        });
-
-        await this.database?.execute('COMMIT');
-        
-        // Emit events for real-time component updates
-        try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('STOCK_UPDATED', {
-                productId,
-                productName: product.name,
-                action: 'stock_adjusted',
-                previousStock,
-                newStock,
-                adjustment: quantity
-              });
-              eventBus.emit('STOCK_ADJUSTMENT_MADE', {
-                productId,
-                productName: product.name,
-                reason,
-                adjustment: quantity
-              });
-            }
+        if (typeof window !== 'undefined') {
+          const eventBus = (window as any).eventBus;
+          if (eventBus && eventBus.emit) {
+            eventBus.emit('STOCK_UPDATED', {
+              productId,
+              productName: product.name,
+              action: 'stock_adjusted',
+              previousStock,
+              newStock,
+              adjustment: adjustmentQuantityInBaseUnit
+            });
+            eventBus.emit('STOCK_ADJUSTMENT_MADE', {
+              productId,
+              productName: product.name,
+              reason,
+              adjustment: adjustmentQuantityInBaseUnit
+            });
           }
-        } catch (error) {
-          console.warn('Could not emit stock adjustment events:', error);
         }
-        
-        return true;
       } catch (error) {
-        await this.database?.execute('ROLLBACK');
-        throw error;
+        console.warn('Could not emit stock adjustment events:', error);
       }
+      
+      return true;
+    }
+
+    // Real database implementation with transaction
+    await this.database?.execute('BEGIN TRANSACTION');
+
+    try {
+      const product = await this.getProduct(productId);
+      
+      // Parse current stock based on product's unit type
+      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+      const previousStock = currentStockData.numericValue;
+      
+      // Handle the adjustment quantity based on unit type
+      let adjustmentQuantityInBaseUnit: number;
+      
+      if (product.unit_type === 'kg-grams' || product.unit_type === 'kg') {
+        // For weight-based units, quantity is already in grams from StockAdjustment component
+        adjustmentQuantityInBaseUnit = quantity;
+      } else {
+        // For non-weight units (bags, pieces, etc.), quantity is the actual count
+        adjustmentQuantityInBaseUnit = quantity;
+      }
+      
+      // Calculate new stock
+      const newStock = Math.max(0, previousStock + adjustmentQuantityInBaseUnit);
+      
+      // Convert back to the proper unit format based on unit type
+      const newStockString = this.formatStockValue(newStock, product.unit_type || 'kg-grams');
+
+      // Update product stock
+      await this.database?.execute(
+        'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [newStockString, productId]
+      );
+
+      // Create stock movement record
+      let movementType: 'in' | 'out' | 'adjustment';
+      let displayQuantity: number;
+      
+      if (adjustmentQuantityInBaseUnit > 0) {
+        movementType = 'in';
+        displayQuantity = Math.abs(adjustmentQuantityInBaseUnit);
+      } else if (adjustmentQuantityInBaseUnit < 0) {
+        movementType = 'out';
+        displayQuantity = Math.abs(adjustmentQuantityInBaseUnit);
+      } else {
+        movementType = 'adjustment';
+        displayQuantity = 0;
+      }
+
+      await this.createStockMovement({
+        product_id: productId,
+        product_name: product.name,
+        movement_type: movementType,
+        quantity: displayQuantity,
+        previous_stock: previousStock,
+        new_stock: newStock,
+        unit_price: product.rate_per_unit,
+        total_value: Math.abs(adjustmentQuantityInBaseUnit) * product.rate_per_unit,
+        reason: reason,
+        reference_type: 'adjustment',
+        reference_number: `ADJ-${date}-${Date.now()}`,
+        customer_id: customer_id,
+        customer_name: customer_name,
+        notes: notes,
+        date,
+        time,
+        created_by: 'manual'
+      });
+
+      await this.database?.execute('COMMIT');
+      
+      // Emit events for real-time component updates
+      try {
+        if (typeof window !== 'undefined') {
+          const eventBus = (window as any).eventBus;
+          if (eventBus && eventBus.emit) {
+            eventBus.emit('STOCK_UPDATED', {
+              productId,
+              productName: product.name,
+              action: 'stock_adjusted',
+              previousStock,
+              newStock,
+              adjustment: adjustmentQuantityInBaseUnit
+            });
+            eventBus.emit('STOCK_ADJUSTMENT_MADE', {
+              productId,
+              productName: product.name,
+              reason,
+              adjustment: adjustmentQuantityInBaseUnit
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Could not emit stock adjustment events:', error);
+      }
+      
+      return true;
     } catch (error) {
-      console.error('Error adjusting stock:', error);
+      await this.database?.execute('ROLLBACK');
       throw error;
     }
+  } catch (error) {
+    console.error('Error adjusting stock:', error);
+    throw error;
   }
-
+}
   /**
    * CRITICAL FIX: Recalculate product stock from movement history
    * This fixes corrupted current_stock values by calculating from actual movements

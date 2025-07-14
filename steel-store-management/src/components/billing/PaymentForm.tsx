@@ -123,7 +123,7 @@ export default function PaymentForm() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
           <div>
             <label className="label">Payment Amount</label>
             <input

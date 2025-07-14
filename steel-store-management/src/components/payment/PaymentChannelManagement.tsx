@@ -616,7 +616,7 @@ const PaymentChannelManagement: React.FC = () => {
                 </button>
               </div>
               
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Channel Name *

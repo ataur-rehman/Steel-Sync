@@ -238,7 +238,7 @@ const StockReceivingPayment: React.FC = () => {
       </div>
 
       {/* Payment Form */}
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">Payment Details</h3>
           

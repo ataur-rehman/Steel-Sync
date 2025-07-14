@@ -423,7 +423,7 @@ const VendorManagement: React.FC = () => {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+            <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-120px)]" autoComplete="off">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Vendor Name <span className="text-red-500">*</span>

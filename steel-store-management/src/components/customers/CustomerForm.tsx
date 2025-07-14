@@ -72,13 +72,13 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
 
   return (
     <div className="max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
         {/* Customer Name */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-name">
             Customer Name <span className="text-red-500">*</span>
           </label>
-          <input
+          <input autoComplete="off"
             id="customer-name"
             type="text"
             name="name"
@@ -99,7 +99,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
           <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-phone">
             Phone Number <span className="text-red-500">*</span>
           </label>
-          <input
+          <input autoComplete="off"
           
             id="customer-phone"
             type="tel"
@@ -145,7 +145,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-address">
                   Address
                 </label>
-                <input
+                <input autoComplete="off"
                   id="customer-address"
                   type="text"
                   name="address"
@@ -160,7 +160,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-cnic">
                   CNIC
                 </label>
-                <input
+                <input autoComplete="off"
                   id="customer-cnic"
                   type="text"
                   name="cnic"

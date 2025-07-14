@@ -71,9 +71,8 @@ const ProductMovementDetails: React.FC = () => {
 
       // Transform data to match our interface
       const transformedMovements: ProductMovement[] = (movementData || []).map(movement => {
-        // Use the product's unit type for formatting
-        const unitType = product?.unit_type || 'kg-grams';
-        
+        // Use the movement's own unit_type for formatting (fixes bag/other unit display)
+        const unitType = movement.unit_type || product?.unit_type || 'kg-grams';
         return {
           id: movement.id || 0,
           product_id: movement.product_id,

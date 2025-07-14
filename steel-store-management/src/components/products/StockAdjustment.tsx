@@ -29,25 +29,44 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
         return;
       }
       
-      // Parse the adjustment quantity using the product's unit type
-      const adjustmentData = parseUnit(adjustment.quantity, product.unit_type);
+      // CRITICAL FIX: Handle unit conversion properly based on unit type
+      let adjustmentQuantity: number;
       
-      if (adjustmentData.numericValue <= 0) {
-        toast.error('Please enter a valid quantity');
-        return;
+      if (product.unit_type === 'kg-grams' || product.unit_type === 'kg') {
+        // For weight-based units, use parseUnit to convert to grams
+        const adjustmentData = parseUnit(adjustment.quantity, product.unit_type);
+        
+        if (adjustmentData.numericValue <= 0) {
+          toast.error('Please enter a valid quantity');
+          return;
+        }
+        
+        // Additional validation for unit mismatch
+        if (adjustmentData.unit_type !== product.unit_type) {
+          toast.error('Unit type mismatch detected. Please check product configuration.');
+          return;
+        }
+        
+        adjustmentQuantity = adjustmentData.numericValue;
+      } else {
+        // CRITICAL FIX: For non-weight units (bags, pieces, etc.), use direct numeric conversion
+        const numericValue = parseFloat(adjustment.quantity);
+        
+        if (isNaN(numericValue) || numericValue <= 0) {
+          toast.error('Please enter a valid quantity');
+          return;
+        }
+        
+        // For bags, pieces, etc., no conversion needed - use the value directly
+        adjustmentQuantity = numericValue;
       }
       
-      // Additional validation for unit mismatch
-      if (adjustmentData.unit_type !== product.unit_type) {
-        toast.error('Unit type mismatch detected. Please check product configuration.');
-        return;
-      }
-      
-      const quantity = adjustment.type === 'add' ? adjustmentData.numericValue : -adjustmentData.numericValue;
+      // Apply the adjustment direction (add or subtract)
+      const finalQuantity = adjustment.type === 'add' ? adjustmentQuantity : -adjustmentQuantity;
       
       await db.adjustStock(
         product.id, 
-        quantity,
+        finalQuantity,
         'manual_adjustment', 
         adjustment.notes
       );
@@ -62,18 +81,18 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" autoComplete="off">
       <div className="bg-gray-50 p-4 rounded">
         <h3 className="font-semibold">{product.name}</h3>
-      <div>
-        <label className="label">Current Stock</label>
-        <p className="text-sm text-gray-600">{formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}</p>
-      </div>
+        <div>
+          <label className="label">Current Stock</label>
+          <p className="text-sm text-gray-600">{formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}</p>
+        </div>
       </div>
 
       <div>
         <label className="label">Adjustment Type</label>
-        <select
+        <select autoComplete="off"
           value={adjustment.type}
           onChange={(e) => setAdjustment({ ...adjustment, type: e.target.value as 'add' | 'subtract' })}
           className="input"
@@ -85,24 +104,43 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
 
       <div>
         <label className="label">Quantity</label>
-        <input
+        <input autoComplete="off"
           type="text"
           value={adjustment.quantity}
           onChange={(e) => setAdjustment({ ...adjustment, quantity: e.target.value })}
           className="input"
-          placeholder={`Enter quantity (e.g., ${product.unit_type === 'kg-grams' ? '10 or 10-500' : '10'})`}
+          placeholder={`Enter quantity (e.g., ${
+            product.unit_type === 'kg-grams' ? '10 or 10-500' : 
+            product.unit_type === 'kg' ? '10.5' :
+            product.unit_type === 'bag' ? '5' :
+            product.unit_type === 'piece' ? '100' :
+            '10'
+          })`}
           required
         />
         {adjustment.quantity && adjustment.quantity !== '0' && (
           <p className="mt-1 text-sm text-gray-500">
-            Preview: {formatUnitString(adjustment.quantity, product.unit_type || 'kg-grams')}
+            Preview: {(() => {
+              try {
+                if (product.unit_type === 'kg-grams' || product.unit_type === 'kg') {
+                  return formatUnitString(adjustment.quantity, product.unit_type || 'kg-grams');
+                } else {
+                  // For non-weight units, show the value with unit symbol
+                  const numericValue = parseFloat(adjustment.quantity);
+                  if (isNaN(numericValue)) return 'Invalid quantity';
+                  return `${numericValue} ${product.unit_type}${numericValue !== 1 ? 's' : ''}`;
+                }
+              } catch (error) {
+                return 'Invalid quantity';
+              }
+            })()}
           </p>
         )}
       </div>
 
       <div>
         <label className="label">Notes</label>
-        <textarea
+        <textarea autoComplete="off"
           value={adjustment.notes}
           onChange={(e) => setAdjustment({ ...adjustment, notes: e.target.value })}
           className="input"
@@ -116,12 +154,20 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
           New Stock: {' '}
           <span className="font-semibold">
             {(() => {
-              const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-              const currentStock = currentStockData.numericValue;
-              
               try {
-                const adjustmentData = parseUnit(adjustment.quantity, product.unit_type || 'kg-grams');
-                const adjustmentValue = adjustmentData.numericValue;
+                const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+                const currentStock = currentStockData.numericValue;
+                
+                let adjustmentValue: number;
+                
+                if (product.unit_type === 'kg-grams' || product.unit_type === 'kg') {
+                  // For weight units, parse the adjustment quantity
+                  const adjustmentData = parseUnit(adjustment.quantity, product.unit_type || 'kg-grams');
+                  adjustmentValue = adjustmentData.numericValue;
+                } else {
+                  // For non-weight units, use direct conversion
+                  adjustmentValue = parseFloat(adjustment.quantity) || 0;
+                }
                 
                 const newStock = adjustment.type === 'add' 
                   ? currentStock + adjustmentValue 
@@ -133,8 +179,11 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
                   const newStockGrams = newStock % 1000;
                   const displayValue = newStockGrams > 0 ? `${newStockKg}-${newStockGrams}` : `${newStockKg}`;
                   return formatUnitString(displayValue, product.unit_type);
+                } else if (product.unit_type === 'kg') {
+                  return formatUnitString((newStock / 1000).toString(), product.unit_type);
                 } else {
-                  return formatUnitString(newStock.toString(), product.unit_type || 'kg-grams');
+                  // For bags, pieces, etc.
+                  return `${newStock} ${product.unit_type}${newStock !== 1 ? 's' : ''}`;
                 }
               } catch (error) {
                 return formatUnitString(product.current_stock, product.unit_type || 'kg-grams');

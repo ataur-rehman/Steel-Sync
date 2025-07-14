@@ -166,13 +166,13 @@ const handleSubmit = async (e: React.FormEvent) => {
 
   return (
     <div className="max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
         {/* Product Name */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="product-name">
             Product Name <span className="text-red-500">*</span>
           </label>
-          <input
+          <input autoComplete="off"
             id="product-name"
             type="text"
             name="name"
@@ -194,7 +194,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="product-category">
               Category
             </label>
-            <select
+            <select autoComplete="off"
               id="product-category"
               name="category"
               value={formData.category}
@@ -213,7 +213,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="unit-type">
               Unit Type <span className="text-red-500">*</span>
             </label>
-            <select
+            <select autoComplete="off"
               id="unit-type"
               name="unit_type"
               value={formData.unit_type}
@@ -236,7 +236,7 @@ const handleSubmit = async (e: React.FormEvent) => {
           <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="rate-per-unit">
             Rate Per Unit (Rs.) <span className="text-red-500">*</span>
           </label>
-          <input
+          <input autoComplete="off"
             id="rate-per-unit"
             type="number"
             name="rate_per_unit"
@@ -261,7 +261,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             </label>
             {formData.unit_type === 'kg-grams' ? (
               <div>
-                <input
+                <input autoComplete="off"
                   id="current-stock"
                   type="text"
                   name="current_stock"
@@ -276,7 +276,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               </div>
             ) : formData.unit_type === 'kg' ? (
               <div>
-                <input
+                <input autoComplete="off"
                   id="current-stock"
                   type="text"
                   name="current_stock"
@@ -291,7 +291,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               </div>
             ) : (
               <div className="relative">
-                <input
+                <input autoComplete="off"
                   id="current-stock"
                   type="number"
                   name="current_stock"
@@ -320,7 +320,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             </label>
             {formData.unit_type === 'kg-grams' ? (
               <div>
-                <input
+                <input autoComplete="off"
                   id="min-stock-alert"
                   type="text"
                   name="min_stock_alert"
@@ -335,7 +335,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               </div>
             ) : formData.unit_type === 'kg' ? (
               <div>
-                <input
+                <input autoComplete="off"
                   id="min-stock-alert"
                   type="text"
                   name="min_stock_alert"
@@ -350,7 +350,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               </div>
             ) : (
               <div className="relative">
-                <input
+                <input autoComplete="off"
                   id="min-stock-alert"
                   type="number"
                   name="min_stock_alert"
@@ -404,7 +404,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="product-size">
                   Size
                 </label>
-                <input
+                <input autoComplete="off"
                   id="product-size"
                   type="text"
                   name="size"
@@ -419,7 +419,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="product-grade">
                   Grade
                 </label>
-                <select
+                <select autoComplete="off"
                   id="product-grade"
                   name="grade"
                   value={formData.grade}

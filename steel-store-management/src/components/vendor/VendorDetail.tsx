@@ -1,15 +1,3 @@
-import Modal from '../../components/common/Modal';
-  const [previewType, setPreviewType] = useState<'receiving' | 'payment' | null>(null);
-  const [previewRecord, setPreviewRecord] = useState<any>(null);
-  // Preview modal open handler
-  const openPreview = (type: 'receiving' | 'payment', record: any) => {
-    setPreviewType(type);
-    setPreviewRecord(record);
-  };
-  const closePreview = () => {
-    setPreviewType(null);
-    setPreviewRecord(null);
-  };
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -275,7 +263,6 @@ const VendorDetail: React.FC = () => {
             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Total</th>
             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Balance</th>
             <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Status</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Preview</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">
@@ -285,13 +272,7 @@ const VendorDetail: React.FC = () => {
               {r.date ? new Date(r.date).toLocaleDateString() : '-'}
               </td>
               <td className="px-2 py-3 text-sm text-gray-900 whitespace-normal break-words">
-                <button
-                  className="font-mono text-blue-600 underline hover:text-blue-800 focus:outline-none"
-                  onClick={() => openPreview('receiving', r)}
-                  title="Preview Stock Receiving"
-                >
-                  {formatReceivingNumber(r.receiving_number)}
-                </button>
+              <span className="font-mono text-blue-600">{formatReceivingNumber(r.receiving_number)}</span>
               </td>
               <td className="px-2 py-3 text-sm font-semibold text-gray-900 whitespace-normal break-words">
               {formatCurrency(r.total_amount)}
@@ -309,9 +290,6 @@ const VendorDetail: React.FC = () => {
               }`}>
                 {r.payment_status.charAt(0).toUpperCase() + r.payment_status.slice(1)}
               </span>
-              </td>
-              <td className="px-2 py-3">
-                <button className="btn btn-xs btn-outline" onClick={() => openPreview('receiving', r)}>Preview</button>
               </td>
             </tr>
             ))}
@@ -345,105 +323,45 @@ const VendorDetail: React.FC = () => {
           <p className="text-gray-500">No payments found</p>
           </div>
         ) : (
-          <table className="w-full divide-y divide-gray-200">
+          <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Date</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Amount</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Method</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Reference</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Preview</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Method</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Reference</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">
             {vendorPayments.map((p, idx) => (
             <tr key={p.id || idx} className="hover:bg-gray-50 transition-colors">
-              <td className="px-2 py-3 text-sm text-gray-900 whitespace-normal break-words">
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
               {p.date ? new Date(p.date).toLocaleDateString() : '-'}
               </td>
-              <td className="px-2 py-3 text-sm font-semibold text-green-600 whitespace-normal break-words">
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
               {p.amount ? formatCurrency(p.amount) : '-'}
               </td>
-              <td className="px-2 py-3 text-sm text-gray-900 whitespace-normal break-words">
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
               {p.payment_method || (
                 <span className="text-gray-400 italic">Not specified</span>
               )}
               </td>
-              <td className="px-2 py-3 text-sm text-gray-900 whitespace-normal break-words">
-                {p.receiving_number ? (
-                  <button
-                    className="font-mono text-blue-600 underline hover:text-blue-800 focus:outline-none"
-                  onClick={() => {
-                    const found = vendorReceivings.find(r => r.receiving_number === p.receiving_number);
-                    if (found) {
-                      openPreview('receiving', found);
-                    } else {
-                      openPreview('receiving', {
-                        receiving_number: p.receiving_number,
-                        date: p.date,
-                        total_amount: p.amount,
-                        payment_amount: p.amount,
-                        remaining_balance: 0,
-                        payment_status: 'Unknown',
-                        notFound: true
-                      });
-                    }
-                  }}
-                    title="Preview Stock Receiving"
-                  >
-                    {formatReceivingNumber(p.receiving_number)}
-                  </button>
-                ) : (
-                  <span className="text-gray-400 italic">No reference</span>
-                )}
-              </td>
-              <td className="px-2 py-3">
-                <button className="btn btn-xs btn-outline" onClick={() => openPreview('payment', p)}>Preview</button>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+              {p.receiving_number ? (
+                <span className="font-mono text-blue-600">{formatReceivingNumber(p.receiving_number)}</span>
+              ) : (
+                <span className="text-gray-400 italic">No reference</span>
+              )}
               </td>
             </tr>
             ))}
           </tbody>
           </table>
         )}
-      {/* Preview Modal (moved outside scrollable/table containers) */}
+        </div>
+      </div>
+      </div>
     </div>
-    {previewType && previewRecord && (
-      <Modal 
-        isOpen={!!previewType}
-        onClose={closePreview}
-        title={previewType === 'receiving' ? 'Stock Receiving Preview' : 'Payment Preview'}
-        size="lg"
-      >
-        <div className="space-y-4">
-          {previewType === 'receiving' ? (
-            <>
-              {previewRecord.notFound && (
-                <div className="text-red-600 font-semibold">Stock Receiving record not found. Showing reference details only.</div>
-              )}
-              <div><b>Date:</b> {previewRecord.date ? new Date(previewRecord.date).toLocaleDateString() : '-'}</div>
-              <div><b>Receiving #:</b> {formatReceivingNumber(previewRecord.receiving_number)}</div>
-              <div><b>Total Amount:</b> {formatCurrency(previewRecord.total_amount)}</div>
-              <div><b>Paid:</b> {formatCurrency(previewRecord.payment_amount)}</div>
-              <div><b>Balance:</b> {formatCurrency(previewRecord.remaining_balance)}</div>
-              <div><b>Status:</b> {previewRecord.payment_status}</div>
-              <div><b>Vendor:</b> {vendor?.name}</div>
-            </>
-          ) : (
-            <>
-              <div><b>Date:</b> {previewRecord.date ? new Date(previewRecord.date).toLocaleDateString() : '-'}</div>
-              <div><b>Amount:</b> {formatCurrency(previewRecord.amount)}</div>
-              <div><b>Method:</b> {previewRecord.payment_method || 'Not specified'}</div>
-              <div><b>Reference:</b> {previewRecord.receiving_number ? formatReceivingNumber(previewRecord.receiving_number) : 'No reference'}</div>
-              <div><b>Note:</b> {previewRecord.note || '-'}</div>
-            </>
-          )}
-        </div>
-      </Modal>
-    )}
-        </div>
-      </div>
-      </div>
-
   );
 };
 

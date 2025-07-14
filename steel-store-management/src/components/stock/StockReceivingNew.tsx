@@ -298,7 +298,7 @@ const StockReceivingNew: React.FC = () => {
         </button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
         {/* Vendor Selection */}
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">Vendor Information</h3>
