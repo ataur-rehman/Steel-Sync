@@ -91,7 +91,7 @@ export default function CustomerList() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-medium text-gray-900 tracking-tight">Customers</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customers</h1>
           <p className="mt-1 text-sm text-gray-500">Manage your customer database <span className="font-medium text-gray-700">({customers.length} customers)</span></p>
         </div>
         <button onClick={handleAddCustomer} className="btn btn-primary flex items-center px-3 py-1.5 text-sm">
