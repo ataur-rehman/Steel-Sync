@@ -1,0 +1,344 @@
+import React from "react";
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import VendorDetail from './components/vendor/VendorDetail';
+import { Toaster } from 'react-hot-toast';
+import { AuthProvider, useAuth } from './hooks/useAuth';
+import { DatabaseProvider } from './hooks/useDatabase';
+import { NavigationProvider } from './hooks/useNavigation';
+import { settingsService } from './services/settingsService';
+import AppLayout from './components/layout/AppLayout';
+import Dashboard from './components/dashboard/Dashboard';
+import ProductList from './components/products/ProductList';
+import CustomerList from './components/customers/CustomerList';
+import CustomerProfile from './components/customers/CustomerProfile';
+import InvoiceForm from './components/billing/InvoiceForm';
+import InvoiceList from './components/billing/InvoiceList';
+import DailyLedger from './components/reports/DailyLedger';
+import CustomerLedger from './components/reports/CustomerLedger';
+import StockReport from './components/reports/StockReport';
+import StockReceivingList from './components/stock/StockReceivingList';
+import StockReceivingNew from './components/stock/StockReceivingNew';
+import LoanLedger from './components/loan/LoanLedger';
+import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
+import StaffManagement from './components/staff/StaffManagement';
+import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
+import VendorManagement from './components/vendor/VendorManagement';
+import Returns from "./components/returns/Returns";
+import NotificationsPage from './components/notifications/NotificationsPage';
+import Settings from './components/settings/Settings';
+import toast from 'react-hot-toast';
+import './styles/globals.css';
+import StockReceivingDetail from './components/stock/StockReceivingDetail';
+import StockReceivingPayment from "./components/stock/StockReceivingPayment";
+
+
+function LoginForm() {
+  const { login } = useAuth();
+  const [username, setUsername] = React.useState('admin');
+  const [password, setPassword] = React.useState('admin123');
+  const [loading, setLoading] = React.useState(false);
+const [companyName, setCompanyName] = React.useState('Itehad Iron Store');
+
+  // Load company name from settings
+  React.useEffect(() => {
+    const generalSettings = settingsService.getSettings('general');
+    setCompanyName(generalSettings.companyName || 'Itehad Iron Store');
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    
+    try {
+      const success = await login(username, password);
+      if (success) {
+        toast.success('Login successful! Deep linking system ready.');
+      } else {
+        toast.error('Invalid credentials');
+      }
+    } catch (error) {
+      toast.error('Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+      <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full">
+        <div className="text-center mb-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">{companyName}</h2>
+          <p className="text-gray-600">Complete Business Management with Full Traceability</p>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+<label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
+            <input
+              type="text"
+              placeholder="Enter your username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              disabled={loading}
+            />
+          </div>
+
+          <div>
+<label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              disabled={loading}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors font-medium"
+          >
+            {loading ? (
+              <div className="flex items-center justify-center">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Signing in...
+              </div>
+            ) : (
+              'Sign In'
+            )}
+          </button>
+        </form>
+        
+        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+        <p className="text-xs text-gray-600 text-center mb-2">Test Credentials:</p>
+        <div className="text-xs text-gray-500 space-y-1">
+            <p><strong>Username:</strong> admin</p>
+            <p><strong>Password:</strong> admin123</p>
+          </div>
+        </div>
+        
+      
+      </div>
+          </div>
+  );
+}
+
+function AppContent() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+<p className="text-gray-600">Initializing Deep Linking System...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginForm />;
+  }
+
+  return (
+    <Router>
+      <NavigationProvider>
+        <AppLayout>
+          <Routes>
+            {/* Dashboard - Enhanced with drill-down capabilities */}
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            
+            {/* Products Management */}
+            <Route path="/products" element={<ProductList />} />
+            
+            
+            {/* Customer Management with Deep Linking */}
+            <Route path="/customers" element={<CustomerList />} />
+            <Route path="/customers/new" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Add New Customer</h2>
+                <p className="text-gray-600">Customer creation form will be implemented here.</p>
+              </div>
+            } />
+            <Route path="/customers/:id" element={<CustomerProfile />} />
+            
+            {/* Billing System with Full Traceability */}
+            <Route path="/billing/new" element={<InvoiceForm />} />
+            <Route path="/billing/list" element={<InvoiceList />} />
+            <Route path="/billing/view/:id" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Invoice Details</h2>
+                <p className="text-gray-600">Invoice details with customer & product links will be implemented here.</p>
+              </div>
+            } />
+            
+           
+<Route path="/stock/receiving/:id/add-payment" element={<StockReceivingPayment />} />
+
+            {/* Returns with Original Invoice Linking */}
+            <Route path="/returns" element={<Returns />} />
+            <Route path="/returns/new" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Process Return</h2>
+                <p className="text-gray-600">Return processing form will be implemented here.</p>
+              </div>
+            } />
+            <Route path="/returns/:id" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Return Details</h2>
+                <p className="text-gray-600">Return details with original invoice & customer links will be implemented here.</p>
+              </div>
+            } />
+            
+            {/* Reports with Drill-down Capabilities */}
+            <Route path="/reports/daily" element={<DailyLedger />} />
+            <Route path="/reports/customer" element={<CustomerLedger />} />
+            <Route path="/reports/stock" element={<StockReport />} />
+        
+            {/* Enhanced Customer Management */}
+           
+            
+            {/* Payment Channel Management */}
+            <Route path="/payment/channels" element={<PaymentChannelManagement />} />
+            
+            {/* Staff Management */}
+            <Route path="/staff" element={<StaffManagement />} />
+            
+            {/* Business Finance Dashboard */}
+            <Route path="/finance" element={<BusinessFinanceDashboard />} />
+            
+                 
+            
+            <Route path="/stock/receiving/:id" element={<StockReceivingDetail />} />
+            {/* Stock Management */}
+            <Route path="/stock/receiving" element={<StockReceivingList />} />
+            <Route path="/stock/receiving/new" element={<StockReceivingNew />} />
+            
+            {/* Vendor Management */}
+            <Route path="/vendors" element={<VendorManagement />} />
+            <Route path="/vendors/:id" element={<VendorDetail />} />
+            
+            {/* Loan Management */}
+            <Route path="/loan/ledger" element={<LoanLedger />} />
+            
+            {/* Activity Timeline */}
+            <Route path="/activity" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Activity Timeline</h2>
+                <p className="text-gray-600">Global activity timeline with entity links will be implemented here.</p>
+              </div>
+            } />
+            
+            {/* Notifications Center */}
+            <Route path="/notifications" element={<NotificationsPage />} />
+            
+            {/* Settings */}
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/*" element={<Settings />} />
+            
+            {/* Backwards compatibility for notification settings */}
+            <Route path="/settings/notifications" element={<Settings />} />
+            
+            {/* Notification Test (for development) */}
+            <Route path="/settings/notifications/test" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Notification Test</h2>
+                <div className="space-y-4">
+                  <button
+                    onClick={() => {
+                      import('./services/notifications').then(({ notificationService }) => {
+                        notificationService.createNotification({
+                          id: 'test-notification',
+                          type: 'system_alert',
+                          category: 'system',
+                          title: 'Test Notification',
+                          message: 'This is a test notification to verify the system is working correctly.',
+                          priority: 'medium',
+                          actionUrl: '/dashboard',
+                          actionText: 'Go to Dashboard'
+                        });
+                      });
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Create Test Notification
+                  </button>
+                  <button
+                    onClick={() => {
+                      import('./services/notifications').then(({ notificationService }) => {
+                        notificationService.notifyProductLowStock('test-product', 'Test Product', 2, 5);
+                      });
+                    }}
+                    className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700"
+                  >
+                    Test Low Stock Alert
+                  </button>
+                  <button
+                    onClick={() => {
+                      import('./services/notifications').then(({ notificationService }) => {
+                        notificationService.notifyCustomerHighBalance('test-customer', 'Test Customer', 75000);
+                      });
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                  >
+                    Test High Balance Alert
+                  </button>
+                </div>
+              </div>
+            } />
+            
+            {/* Catch-all redirect */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AppLayout>
+      </NavigationProvider>
+    </Router>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <DatabaseProvider>
+        <AppContent />
+      </DatabaseProvider>
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#333',
+            color: '#fff',
+          },
+success: {
+            style: {
+              background: '#10B981',
+              color: '#fff',
+            },
+            iconTheme: {
+              primary: '#fff',
+              secondary: '#10B981',
+            },
+          },
+          error: {
+            style: {
+              background: '#EF4444',
+              color: '#fff',
+            },
+            iconTheme: {
+              primary: '#fff',
+              secondary: '#EF4444',
+            },
+          },
+        }}
+      />
+    </AuthProvider>
+  );
+}
+
+export default App;
