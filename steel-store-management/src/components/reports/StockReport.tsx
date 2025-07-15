@@ -379,7 +379,8 @@ const StockReport: React.FC = () => {
           ...movement,
           quantity: convertQuantity(movement.quantity),
           previous_stock: convertQuantity(movement.previous_stock),
-          new_stock: convertQuantity(movement.new_stock)
+          new_stock: convertQuantity(movement.new_stock),
+          unit_type: productUnitType as UnitType
         };
       }));
       

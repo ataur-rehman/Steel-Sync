@@ -98,10 +98,13 @@ const LoginForm: React.FC = () => {
             </button>
           </form>
         </div>
+        
+  
+
         {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-xs text-gray-500">
-            © 2025 Itehad Iron Store. All rights reserved.
+            © 2024 Itehad Iron Store. All rights reserved.
           </p>
         </div>
       </div>

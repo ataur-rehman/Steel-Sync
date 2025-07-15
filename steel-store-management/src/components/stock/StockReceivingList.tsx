@@ -296,7 +296,7 @@ const StockReceivingList: React.FC = () => {
     from_date: '',
     to_date: ''
   });
-  const [showFilters, setShowFilters] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [showVendorModal, setShowVendorModal] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
