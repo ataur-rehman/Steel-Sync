@@ -198,7 +198,7 @@ const StockReceivingDetail: React.FC = () => {
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Quantity</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Unit Price</th>
                     <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Total</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Batch</th>
+                  
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
@@ -231,11 +231,7 @@ const StockReceivingDetail: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                           {formatCurrency(item.total_price)}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.batch_number || (
-                            <span className="text-gray-400 italic">No batch</span>
-                          )}
-                        </td>
+          
                       </tr>
                     ))
                   )}
@@ -351,11 +347,25 @@ const StockReceivingDetail: React.FC = () => {
               <div>
                 <span className="block text-sm font-medium text-gray-500 mb-1">Date</span>
                 <span className="text-sm text-gray-900">{new Date(receiving.date).toLocaleDateString()}</span>
+                  <div className="space-x-4"></div>
+                <span className="text-sm text-gray-800">{typeof receiving.time === 'string' && receiving.time.trim() ? receiving.time : '-'}</span>
               </div>
               {receiving.notes && (
                 <div>
                   <span className="block text-sm font-medium text-gray-500 mb-1">Notes</span>
                   <span className="text-sm text-gray-900">{receiving.notes}</span>
+                </div>
+              )}
+              {receiving.truck_number && (
+                <div>
+                  <span className="block text-sm font-medium text-gray-500 mb-1">Truck Number</span>
+                  <span className="text-sm text-gray-900">{receiving.truck_number}</span>
+                </div>
+              )}
+              {receiving.reference_number && (
+                <div>
+                  <span className="block text-sm font-medium text-gray-500 mb-1">Reference Number</span>
+                  <span className="text-sm text-gray-900">{receiving.reference_number}</span>
                 </div>
               )}
             </div>

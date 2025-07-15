@@ -13,6 +13,8 @@ const ProductList: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any | null>(null);
 
   useEffect(() => {
     initializeData();
@@ -98,19 +100,32 @@ const loadProducts = async () => {
     }
   };
 
+
   const handleAddProduct = () => {
     setShowAddModal(true);
   };
 
+  const handleEditProduct = (product: any) => {
+    setEditingProduct(product);
+    setShowEditModal(true);
+  };
+
+
   const handleProductAdded = async () => {
-    console.log('Product added callback triggered');
     setShowAddModal(false);
-    
+    await refreshProductsAndCategories();
+  };
+
+  const handleProductUpdated = async () => {
+    setShowEditModal(false);
+    setEditingProduct(null);
+    await refreshProductsAndCategories();
+  };
+
+  const refreshProductsAndCategories = async () => {
     try {
-      console.log('Refreshing product list...');
-      await loadProducts(); // Refresh the product list
-      await loadCategories(); // Refresh categories in case a new one was added
-      console.log('Product list refreshed');
+      await loadProducts();
+      await loadCategories();
     } catch (error) {
       console.error('Error refreshing products:', error);
       toast.error('Failed to refresh product list');
@@ -240,10 +255,24 @@ const loadProducts = async () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
-                        <button onClick={() => toast('Edit feature coming soon!')} className="btn btn-secondary flex items-center px-2 py-1 text-xs">
+                        <button onClick={() => handleEditProduct(product)} className="btn btn-secondary flex items-center px-2 py-1 text-xs">
                           <Edit className="h-4 w-4" />
                         </button>
-                        <button onClick={() => toast('Delete feature coming soon!')} className="btn btn-danger flex items-center px-2 py-1 text-xs">
+                        <button
+                          onClick={async () => {
+                            if (window.confirm(`Are you sure you want to delete product: ${product.name}?`)) {
+                              try {
+                                await db.deleteProduct(product.id);
+                                toast.success('Product deleted successfully!');
+                                await refreshProductsAndCategories();
+                              } catch (error) {
+                                console.error('Failed to delete product:', error);
+                                toast.error('Failed to delete product');
+                              }
+                            }
+                          }}
+                          className="btn btn-danger flex items-center px-2 py-1 text-xs"
+                        >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
@@ -266,6 +295,21 @@ const loadProducts = async () => {
           onSuccess={handleProductAdded}
           onCancel={() => setShowAddModal(false)}
         />
+      </Modal>
+
+      {/* Edit Product Modal */}
+      <Modal
+        isOpen={showEditModal}
+        onClose={() => { setShowEditModal(false); setEditingProduct(null); }}
+        title="Edit Product"
+      >
+        {editingProduct && (
+          <ProductForm
+            product={editingProduct}
+            onSuccess={handleProductUpdated}
+            onCancel={() => { setShowEditModal(false); setEditingProduct(null); }}
+          />
+        )}
       </Modal>
     </div>
   );

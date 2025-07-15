@@ -87,22 +87,29 @@ export default function CustomerProfile() {
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h2>
             <div className="space-y-3">
               <div>
-                <span className="text-sm font-medium text-gray-900">{customer.name}</span>
+                <span className="text-s font-medium text-gray-900">{customer.name}</span>
               </div>
               {customer.phone && (
                 <div>
-                  <span className="text-sm text-gray-600">📞 {customer.phone}</span>
+                  <span className="text-sm text-gray-800"> {customer.phone}</span>
                 </div>
               )}
               {customer.address && (
                 <div>
-                  <span className="text-sm text-gray-600">📍 {customer.address}</span>
+                  <span className="text-sm text-gray-800"> {customer.address}</span>
                 </div>
               )}
               {customer.cnic && (
                 <div>
-                  <span className="text-sm text-gray-600">🆔 {customer.cnic}</span>
+                  <span className="text-sm text-gray-800"> {customer.cnic}</span>
                 </div>
+              )}
+            
+              {customer.created_at && (
+                <div>
+                  <span className="block text-sm font-medium text-gray-500 mb-1">Date of Creation</span>
+                  <span className="text-sm text-gray-900">{new Date(customer.created_at).toLocaleDateString()}</span>
+              </div>
               )}
             </div>
           </div>

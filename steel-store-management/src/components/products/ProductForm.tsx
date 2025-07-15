@@ -139,21 +139,24 @@ const handleSubmit = async (e: React.FormEvent) => {
     
     let result;
     if (product) {
-      // For now, we don't support updating products, only creating new ones
-      toast.error('Product updating is not yet implemented. Please create a new product instead.');
-      return;
+      // Update existing product
+      result = await db.updateProduct(product.id, productData);
+      toast.success('Product updated successfully!');
     } else {
       // Create new product
       result = await db.createProduct(productData);
       toast.success('Product added successfully!');
     }
-    
+
     console.log('Product operation result:', result);
-    
-    if (result && result > 0) {
+
+    // For update, db.updateProduct returns void, so treat absence of error as success
+    if (product) {
+      onSuccess();
+    } else if (result && result > 0) {
       onSuccess();
     } else {
-      throw new Error(`Failed to ${product ? 'update' : 'create'} product - no valid result returned`);
+      throw new Error(`Failed to create product - no valid result returned`);
     }
   } catch (error) {
     console.error('Detailed error saving product:', error);

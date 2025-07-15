@@ -23,6 +23,8 @@ interface StockReceivingForm {
   total_amount: number;
   payment_amount: number;
   notes: string;
+  truck_number?: string;
+  reference_number?: string;
   items: StockReceivingItem[];
 }
 
@@ -39,13 +41,15 @@ const StockReceivingNew: React.FC = () => {
     total_amount: 0,
     payment_amount: 0,
     notes: '',
+    truck_number: '',
+    reference_number: '',
     items: []
   });
 
   const [newItem, setNewItem] = useState<StockReceivingItem>({
     product_id: 0,
     product_name: '',
-    quantity: '0',
+    quantity: '',
     unit_price: 0,
     total_price: 0,
     expiry_date: '',
@@ -64,23 +68,8 @@ const StockReceivingNew: React.FC = () => {
       }
     };
 
-    // Prevent backspace from navigating back when focus is on form elements
-    const handleBackspace = (e: KeyboardEvent) => {
-      if (e.key === 'Backspace') {
-        const target = e.target as HTMLElement;
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
-          e.stopPropagation();
-        }
-      }
-    };
-
     document.addEventListener('keydown', handleEscape);
-    document.addEventListener('keydown', handleBackspace);
-    
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.removeEventListener('keydown', handleBackspace);
-    };
+    return () => document.removeEventListener('keydown', handleEscape);
   }, []);
 
   useEffect(() => {
@@ -135,82 +124,99 @@ const StockReceivingNew: React.FC = () => {
     setShowProductSearch(false);
     setProductSearch('');
     
-    // Calculate total price when quantity or unit price changes
-    const quantity = parseUnit(newItem.quantity);
-    const totalPrice = (quantity.numericValue / 1000) * (product.rate_per_unit || 0);
-    setNewItem(prev => ({ ...prev, total_price: totalPrice }));
+    // Auto-calculate if quantity exists
+    if (newItem.quantity) {
+      const quantity = parseUnit(newItem.quantity);
+      const totalPrice = (quantity.numericValue / 1000) * (product.rate_per_unit || 0);
+      setNewItem(prev => ({ ...prev, total_price: totalPrice }));
+    }
   };
 
   const handleQuantityChange = (quantity: string) => {
-    setNewItem(prev => {
+    try {
       const quantityData = parseUnit(quantity);
-      const totalPrice = (quantityData.numericValue / 1000) * prev.unit_price;
-      return {
+      const totalPrice = (quantityData.numericValue / 1000) * newItem.unit_price;
+      setNewItem(prev => ({
         ...prev,
         quantity,
         total_price: totalPrice
-      };
-    });
+      }));
+    } catch (error) {
+      setNewItem(prev => ({
+        ...prev,
+        quantity,
+        total_price: 0
+      }));
+    }
   };
 
   const handleUnitPriceChange = (unitPrice: number) => {
-    setNewItem(prev => {
-      const quantity = parseUnit(prev.quantity);
+    try {
+      const quantity = parseUnit(newItem.quantity);
       const totalPrice = (quantity.numericValue / 1000) * unitPrice;
-      return {
+      setNewItem(prev => ({
         ...prev,
         unit_price: unitPrice,
         total_price: totalPrice
-      };
-    });
+      }));
+    } catch (error) {
+      setNewItem(prev => ({
+        ...prev,
+        unit_price: unitPrice,
+        total_price: 0
+      }));
+    }
   };
 
   const addItem = () => {
     if (!newItem.product_id || !newItem.quantity || newItem.unit_price <= 0) {
-      toast.error('Please fill in all required fields');
+      toast.error('Please fill in Product, Quantity and Unit Price');
       return;
     }
 
-    // Check if product already exists in items
     const existingItemIndex = form.items.findIndex(item => item.product_id === newItem.product_id);
     
     if (existingItemIndex !== -1) {
       // Update existing item
       const updatedItems = [...form.items];
       const existingItem = updatedItems[existingItemIndex];
-      const existingQuantity = parseUnit(existingItem.quantity);
-      const newQuantity = parseUnit(newItem.quantity);
-      const totalQuantity = existingQuantity.numericValue + newQuantity.numericValue;
       
-      // Convert back to unit format
-      const kg = Math.floor(totalQuantity / 1000);
-      const grams = totalQuantity % 1000;
-      const combinedQuantity = grams > 0 ? `${kg}-${grams}` : `${kg}`;
-      
-      updatedItems[existingItemIndex] = {
-        ...existingItem,
-        quantity: combinedQuantity,
-        unit_price: newItem.unit_price, // Use latest unit price
-        total_price: existingItem.total_price + newItem.total_price,
-        notes: existingItem.notes ? `${existingItem.notes}; ${newItem.notes}` : newItem.notes
-      };
-      
-      setForm(prev => ({ ...prev, items: updatedItems }));
-      toast.success('Item quantity updated');
+      try {
+        const existingQuantity = parseUnit(existingItem.quantity);
+        const newQuantity = parseUnit(newItem.quantity);
+        const totalQuantity = existingQuantity.numericValue + newQuantity.numericValue;
+        
+        const kg = Math.floor(totalQuantity / 1000);
+        const grams = totalQuantity % 1000;
+        const combinedQuantity = grams > 0 ? `${kg}-${grams}` : `${kg}`;
+        
+        updatedItems[existingItemIndex] = {
+          ...existingItem,
+          quantity: combinedQuantity,
+          unit_price: newItem.unit_price,
+          total_price: existingItem.total_price + newItem.total_price,
+          notes: existingItem.notes && newItem.notes ? `${existingItem.notes}; ${newItem.notes}` : existingItem.notes || newItem.notes
+        };
+        
+        setForm(prev => ({ ...prev, items: updatedItems }));
+        toast.success('Item quantity updated');
+      } catch (error) {
+        toast.error('Error updating item quantity');
+        return;
+      }
     } else {
-      // Add new item
       setForm(prev => ({
         ...prev,
         items: [...prev.items, { ...newItem }]
       }));
-      toast.success('Item added to receiving list');
+      toast.success('Item added');
     }
 
-    // Reset new item form
+    // Reset form
     setNewItem({
       product_id: 0,
       product_name: '',
-      quantity: '0',
+      quantity: '',
       unit_price: 0,
       total_price: 0,
       expiry_date: '',
@@ -218,7 +224,6 @@ const StockReceivingNew: React.FC = () => {
       notes: ''
     });
     setProductSearch('');
-    setShowOptional(false);
   };
 
   const removeItem = (index: number) => {
@@ -226,7 +231,7 @@ const StockReceivingNew: React.FC = () => {
       ...prev,
       items: prev.items.filter((_, i) => i !== index)
     }));
-    toast.success('Item removed from receiving list');
+    toast.success('Item removed');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -251,7 +256,9 @@ const StockReceivingNew: React.FC = () => {
         total_amount: form.total_amount,
         payment_amount: form.payment_amount,
         notes: form.notes,
-        created_by: 'admin', // In real app, get from auth context
+        truck_number: form.truck_number,
+        reference_number: form.reference_number,
+        created_by: 'admin',
         items: form.items
       });
 
@@ -273,11 +280,9 @@ const StockReceivingNew: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-8 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse"></div>
-          <div className="h-10 w-32 bg-gray-200 rounded animate-pulse"></div>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
-        <div className="h-96 bg-gray-200 rounded-lg animate-pulse"></div>
       </div>
     );
   }
@@ -287,7 +292,7 @@ const StockReceivingNew: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">New Stock Receiving</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Add Stock Receiving</h1>
           <p className="mt-1 text-sm text-gray-500">Record stock received from vendors</p>
         </div>
         <button
@@ -299,68 +304,54 @@ const StockReceivingNew: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
-        {/* Vendor Selection */}
+        {/* Step 1: Vendor Selection - Simple Card */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Vendor Information</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">1. Select Vendor</h3>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-semibold text-gray-700">
-                  Vendor <span className="text-red-500">*</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => navigate('/vendors/new')}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  + Add New Vendor
-                </button>
-              </div>
-              <select
-                value={form.vendor_id}
-                onChange={(e) => handleVendorChange(parseInt(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                required
+          <div className="max-w-md">
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-semibold text-gray-700">
+                Choose Vendor <span className="text-red-500">*</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => navigate('/vendors/new')}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
               >
-                <option value="">Select Vendor</option>
-                {vendors.map(vendor => (
-                  <option key={vendor.id} value={vendor.id}>
-                    {vendor.name} {vendor.company_name && `(${vendor.company_name})`}
-                  </option>
-                ))}
-              </select>
-              {vendors.length === 0 && (
-                <p className="mt-1 text-sm text-gray-500">
-                  No vendors found. <button type="button" onClick={() => navigate('/vendors/new')} className="text-blue-600 hover:text-blue-800 underline">Create your first vendor</button>
-                </p>
-              )}
+                + Add New
+              </button>
             </div>
-            
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
-              <textarea
-                value={form.notes}
-                onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value }))}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                placeholder="Additional notes about this receiving..."
-              />
-            </div>
+            <select
+              value={form.vendor_id}
+              onChange={(e) => handleVendorChange(parseInt(e.target.value))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              required
+            >
+              <option value="">Select Vendor</option>
+              {vendors.map(vendor => (
+                <option key={vendor.id} value={vendor.id}>
+                  {vendor.name} {vendor.company_name && `(${vendor.company_name})`}
+                </option>
+              ))}
+            </select>
+            {vendors.length === 0 && (
+              <p className="mt-1 text-sm text-gray-500">
+                No vendors found. <button type="button" onClick={() => navigate('/vendors/new')} className="text-blue-600 hover:text-blue-800 underline">Create your first vendor</button>
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Add Items */}
+        {/* Step 2: Add Items - Clean Layout */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Add Items</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">2. Add Items</h3>
           
-          <div className="space-y-4">
-            {/* Main row with essential fields */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="relative">
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Product <span className="text-red-500">*</span>
-                </label>
+          {/* Simple Add Item Form */}
+          <div className="bg-gray-50 p-4 rounded-lg mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+              {/* Product Search */}
+              <div className="md:col-span-2 relative">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
                   <input
@@ -377,16 +368,16 @@ const StockReceivingNew: React.FC = () => {
                   />
                   
                   {showProductSearch && filteredProducts.length > 0 && (
-                    <div className="absolute z-20 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="absolute z-20 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                       {filteredProducts.map(product => (
                         <div
                           key={product.id}
                           onClick={() => handleProductSelect(product)}
-                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer"
+                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
                         >
-                          <div className="font-medium">{product.name}</div>
-                          <div className="text-sm text-gray-500">
-                            {product.category} - Stock: {formatUnitString(product.current_stock, product.unit_type)}
+                          <div className="font-medium text-sm">{product.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {product.category} • Current: {formatUnitString(product.current_stock, product.unit_type)} • Rate: {formatCurrency(product.rate_per_unit)}
                           </div>
                         </div>
                       ))}
@@ -395,183 +386,108 @@ const StockReceivingNew: React.FC = () => {
                 </div>
               </div>
               
+              {/* Quantity */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Quantity <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
                 <input
                   type="text"
                   value={newItem.quantity}
                   onChange={(e) => handleQuantityChange(e.target.value)}
-                  placeholder="e.g., 100 or 50-500"
+                  placeholder="e.g., 100"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               
+              {/* Unit Price */}
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Unit Price <span className="text-red-500">*</span>
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price</label>
                 <input
                   type="number"
                   value={newItem.unit_price}
                   onChange={(e) => handleUnitPriceChange(parseFloat(e.target.value) || 0)}
                   step="0.01"
                   min="0"
+                  placeholder="0.00"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
               
-              <div className="flex items-end">
+              {/* Add Button */}
+              <div>
                 <button
                   type="button"
                   onClick={addItem}
                   disabled={!newItem.product_id || !newItem.quantity || newItem.unit_price <= 0}
                   className="btn btn-primary w-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Item
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add
                 </button>
               </div>
             </div>
 
-            {/* Total Price Display */}
+            {/* Show calculated total for current item */}
             {newItem.total_price > 0 && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="mt-3 text-right">
+                <span className="text-sm text-gray-600">Item Total: </span>
+                <span className="text-lg font-semibold text-blue-600">
+                  {formatCurrency(newItem.total_price)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Items List - Simple Table */}
+          {form.items.length > 0 && (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                <span className="text-sm font-medium text-gray-700">
+                  Added Items ({form.items.length})
+                </span>
+              </div>
+              
+              <div className="divide-y divide-gray-200">
+                {form.items.map((item, index) => (
+                  <div key={index} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-gray-900">{item.product_name}</div>
+                      <div className="text-sm text-gray-500">
+                        {formatUnitString(item.quantity, 'kg-grams')} × {formatCurrency(item.unit_price)} = {formatCurrency(item.total_price)}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeItem(index)}
+                      className="ml-4 p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                      title="Remove Item"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              
+              {/* Total */}
+              <div className="bg-blue-50 px-4 py-3 border-t border-gray-200">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-blue-700">Item Total:</span>
-                  <span className="text-lg font-bold text-blue-900">
-                    {formatCurrency(newItem.total_price)}
+                  <span className="text-sm font-medium text-gray-700">Total Amount:</span>
+                  <span className="text-xl font-bold text-blue-600">
+                    {formatCurrency(form.total_amount)}
                   </span>
                 </div>
               </div>
-            )}
-
-            {/* Optional Fields: Batch Number and Notes (Collapsible) */}
-            <div>
-              <button
-                type="button"
-                className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                onClick={() => setShowOptional((v) => !v)}
-                aria-expanded={showOptional}
-              >
-                <span className="tracking-wide">Optional Details</span>
-                <svg
-                  className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-              <div
-                className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
-                style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
-              >
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Batch Number</label>
-                    <input
-                      type="text"
-                      value={newItem.batch_number}
-                      onChange={(e) => setNewItem(prev => ({ ...prev, batch_number: e.target.value }))}
-                      placeholder="Optional"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Item Notes</label>
-                    <input
-                      type="text"
-                      value={newItem.notes}
-                      onChange={(e) => setNewItem(prev => ({ ...prev, notes: e.target.value }))}
-                      placeholder="Optional notes for this item"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                    />
-                  </div>
-                </div>
-              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Items List */}
-        {form.items.length > 0 && (
-          <div className="card p-0 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-              <h3 className="text-lg font-semibold text-gray-900">Items to Receive ({form.items.length})</h3>
-            </div>
-            
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Unit Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Batch</th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-100">
-                  {form.items.map((item, index) => (
-                    <tr key={index} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">{item.product_name}</div>
-                        {item.notes && (
-                          <div className="text-sm text-gray-500">{item.notes}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatUnitString(item.quantity, 'kg-grams')}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatCurrency(item.unit_price)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                        {formatCurrency(item.total_price)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.batch_number || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => removeItem(index)}
-                          className="btn btn-danger flex items-center px-2 py-1 text-xs"
-                          title="Remove Item"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-600">Total Amount:</span>
-                <span className="text-xl font-bold text-gray-900">
-                  {formatCurrency(form.total_amount)}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Payment Information */}
+        {/* Step 3: Payment & Additional Details - Simple Layout */}
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Payment Information</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">3. Payment & Additional Details</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Payment Amount
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Payment Amount (Optional)
               </label>
               <input
                 type="number"
@@ -580,33 +496,113 @@ const StockReceivingNew: React.FC = () => {
                 step="0.01"
                 min="0"
                 max={form.total_amount}
+                placeholder="0.00"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
               <p className="mt-1 text-sm text-gray-500">
-                Leave 0 for no immediate payment
+                Leave empty if paying later
               </p>
             </div>
             
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Remaining Balance
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Notes (Optional)
               </label>
-              <input
-                type="text"
-                value={formatCurrency(form.total_amount - form.payment_amount)}
-                readOnly
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
+              <textarea
+                value={form.notes}
+                onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                placeholder="Additional notes..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
-              {form.total_amount - form.payment_amount > 0 && (
-                <div className="mt-2 p-3 bg-orange-50 text-orange-700 rounded-lg text-sm">
-                  ⚠ This will be marked as partial payment
-                </div>
-              )}
             </div>
           </div>
+
+          {/* Optional Fields - Collapsible */}
+          <div className="mt-6">
+            <button
+              type="button"
+              className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              onClick={() => setShowOptional(!showOptional)}
+              aria-expanded={showOptional}
+            >
+              <span className="tracking-wide">Optional Details</span>
+              <svg
+                className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <div
+              className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
+              style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Truck/Vehicle Number</label>
+                  <input
+                    type="text"
+                    value={form.truck_number || ''}
+                    onChange={(e) => setForm(prev => ({ ...prev, truck_number: e.target.value }))}
+                    placeholder="e.g., ABC-123"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Reference Number</label>
+                  <input
+                    type="text"
+                    value={form.reference_number || ''}
+                    onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value }))}
+                    placeholder="Invoice/PO reference"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Payment Preview */}
+          {form.total_amount > 0 && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+              <div className="text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span>Total Amount:</span>
+                  <span className="font-semibold">{formatCurrency(form.total_amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Payment Now:</span>
+                  <span className="font-semibold">{formatCurrency(form.payment_amount)}</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-200 pt-1">
+                  <span>Remaining Balance:</span>
+                  <span className="font-semibold text-orange-600">
+                    {formatCurrency(form.total_amount - form.payment_amount)}
+                  </span>
+                </div>
+                {form.truck_number && (
+                  <div className="flex justify-between text-xs text-gray-600 pt-1 border-t border-gray-200">
+                    <span>Truck/Vehicle:</span>
+                    <span>{form.truck_number}</span>
+                  </div>
+                )}
+                {form.reference_number && (
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Reference:</span>
+                    <span>{form.reference_number}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Actions */}
+        {/* Actions - Simple Button Layout */}
         <div className="flex justify-end gap-3 pt-6 border-t border-gray-200">
           <button
             type="button"
@@ -617,7 +613,7 @@ const StockReceivingNew: React.FC = () => {
           </button>
           <button
             type="submit"
-            disabled={submitting || form.items.length === 0}
+            disabled={submitting || form.items.length === 0 || !form.vendor_id}
             className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? 'Creating...' : 'Create Receiving'}

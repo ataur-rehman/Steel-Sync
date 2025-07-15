@@ -159,11 +159,9 @@ const StockReceivingPayment: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-8 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse"></div>
-          <div className="h-10 w-32 bg-gray-200 rounded animate-pulse"></div>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
-        <div className="h-96 bg-gray-200 rounded-lg animate-pulse"></div>
       </div>
     );
   }
@@ -197,7 +195,7 @@ const StockReceivingPayment: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Add Payment</h1>
-          <p className="mt-1 text-sm text-gray-500">Record payment for stock receiving #{receiving.receiving_number}</p>
+          <p className="mt-1 text-sm text-gray-500">Record payment for receiving #{receiving.receiving_number}</p>
         </div>
         <button
           onClick={() => navigate('/stock/receiving')}
@@ -207,42 +205,43 @@ const StockReceivingPayment: React.FC = () => {
         </button>
       </div>
 
-      {/* Receiving Summary */}
+      {/* Receiving Summary - Clean Card */}
       <div className="card p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Receiving Summary</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Receiving Details</h3>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Receiving Number</label>
+            <label className="block text-sm text-gray-500 mb-1">Receiving #</label>
             <p className="text-sm font-semibold text-gray-900">{receiving.receiving_number}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Vendor</label>
+            <label className="block text-sm text-gray-500 mb-1">Vendor</label>
             <p className="text-sm font-semibold text-gray-900">{receiving.vendor_name}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Total Amount</label>
+            <label className="block text-sm text-gray-500 mb-1">Total Amount</label>
             <p className="text-sm font-semibold text-gray-900">{formatCurrency(receiving.total_amount)}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-500 mb-1">Remaining Balance</label>
+            <label className="block text-sm text-gray-500 mb-1">Outstanding</label>
             <p className="text-sm font-semibold text-red-600">{formatCurrency(receiving.remaining_balance)}</p>
           </div>
         </div>
         
         {receiving.notes && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-500 mb-1">Notes</label>
+          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+            <label className="block text-sm text-gray-500 mb-1">Notes</label>
             <p className="text-sm text-gray-900">{receiving.notes}</p>
           </div>
         )}
       </div>
 
-      {/* Payment Form */}
+      {/* Payment Form - Simple and Clean */}
       <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
         <div className="card p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-6">Payment Details</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-6">Payment Information</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Payment Amount */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Payment Amount <span className="text-red-500">*</span>
@@ -257,23 +256,28 @@ const StockReceivingPayment: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               />
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, amount: receiving.remaining_balance }))}
+                  className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
+                >
+                  Pay Full Amount
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm(prev => ({ ...prev, amount: receiving.remaining_balance / 2 }))}
+                  className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200"
+                >
+                  Pay Half
+                </button>
+              </div>
               <p className="mt-1 text-sm text-gray-500">
                 Maximum: {formatCurrency(receiving.remaining_balance)}
               </p>
-              
-              {remainingAfterPayment >= 0 && (
-                <div className={`mt-2 p-3 rounded-lg text-sm ${
-                  isFullPayment ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'
-                }`}>
-                  {isFullPayment ? (
-                    <>✓ This will mark the receiving as fully paid</>
-                  ) : (
-                    <>⚠ Remaining balance after payment: {formatCurrency(remainingAfterPayment)}</>
-                  )}
-                </div>
-              )}
             </div>
             
+            {/* Payment Date */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Payment Date <span className="text-red-500">*</span>
@@ -287,6 +291,7 @@ const StockReceivingPayment: React.FC = () => {
               />
             </div>
             
+            {/* Payment Method */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Payment Method <span className="text-red-500">*</span>
@@ -305,6 +310,7 @@ const StockReceivingPayment: React.FC = () => {
               </select>
             </div>
             
+            {/* Reference Number */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
                 Reference Number
@@ -313,11 +319,12 @@ const StockReceivingPayment: React.FC = () => {
                 type="text"
                 value={form.reference_number}
                 onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value }))}
-                placeholder="Transaction reference"
+                placeholder="Transaction reference (optional)"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
             </div>
             
+            {/* Cheque specific fields */}
             {form.payment_method === 'cheque' && (
               <>
                 <div>
@@ -349,6 +356,7 @@ const StockReceivingPayment: React.FC = () => {
             )}
           </div>
           
+          {/* Notes */}
           <div className="mt-6">
             <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
             <textarea
@@ -359,32 +367,62 @@ const StockReceivingPayment: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
           </div>
+
+          {/* Payment Summary */}
+          {form.amount > 0 && (
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Payment Summary</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Payment Amount:</span>
+                  <span className="font-semibold">{formatCurrency(form.amount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Remaining After Payment:</span>
+                  <span className={`font-semibold ${remainingAfterPayment > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                    {formatCurrency(remainingAfterPayment)}
+                  </span>
+                </div>
+                <div className="border-t border-gray-200 pt-2">
+                  <div className={`text-center p-2 rounded ${
+                    isFullPayment ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+                  }`}>
+                    {isFullPayment ? (
+                      <>✓ This will mark the receiving as fully paid</>
+                    ) : (
+                      <>⚠ Remaining balance: {formatCurrency(remainingAfterPayment)}</>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Vendor Information */}
+        {/* Vendor Information - Simple Display */}
         {vendor && (
           <div className="card p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Vendor Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <span className="block text-sm font-medium text-gray-500 mb-1">Name</span>
+                <span className="block text-sm text-gray-500 mb-1">Name</span>
                 <p className="text-sm text-gray-900">{vendor.name}</p>
               </div>
               {vendor.company_name && (
                 <div>
-                  <span className="block text-sm font-medium text-gray-500 mb-1">Company</span>
+                  <span className="block text-sm text-gray-500 mb-1">Company</span>
                   <p className="text-sm text-gray-900">{vendor.company_name}</p>
                 </div>
               )}
               {vendor.phone && (
                 <div>
-                  <span className="block text-sm font-medium text-gray-500 mb-1">Phone</span>
+                  <span className="block text-sm text-gray-500 mb-1">Phone</span>
                   <p className="text-sm text-gray-900">{vendor.phone}</p>
                 </div>
               )}
               {vendor.payment_terms && (
                 <div>
-                  <span className="block text-sm font-medium text-gray-500 mb-1">Payment Terms</span>
+                  <span className="block text-sm text-gray-500 mb-1">Payment Terms</span>
                   <p className="text-sm text-gray-900">{vendor.payment_terms}</p>
                 </div>
               )}
@@ -392,7 +430,7 @@ const StockReceivingPayment: React.FC = () => {
           </div>
         )}
 
-        {/* Actions */}
+        {/* Actions - Simple Button Layout */}
         <div className="flex items-center justify-end gap-3 pt-6 border-t border-gray-200">
           <button
             type="button"

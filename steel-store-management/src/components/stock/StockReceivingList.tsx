@@ -27,6 +27,7 @@ interface StockReceiving {
   vendor_name: string;
   vendor_id: number;
   date: string;
+  time?: string;
   total_amount: number;
   payment_amount: number;
   remaining_balance: number;
@@ -406,9 +407,9 @@ const StockReceivingList: React.FC = () => {
             <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
             <input
               type="text"
-              placeholder="Search receiving number, vendor..."
+              placeholder="Search receiving number..."
               value={filters.search}
-              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+              onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value.toUpperCase() }))}
               className="input pl-10"
               aria-label="Search stock receivings"
             />
@@ -496,7 +497,8 @@ const StockReceivingList: React.FC = () => {
                       {receiving.receiving_number}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(receiving.date).toLocaleDateString()}
+                      {new Date(receiving.date).toLocaleDateString()}<br />
+                      <span className="text-ms text-gray-500">{typeof receiving.time === 'string' && receiving.time.trim() ? receiving.time : '-'}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <button

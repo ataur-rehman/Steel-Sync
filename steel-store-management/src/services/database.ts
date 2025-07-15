@@ -174,18 +174,14 @@ export class DatabaseService {
       if (!isTauri()) {
         this.mockProducts = this.mockProducts.filter((p: any) => p.id !== id);
         // Remove from related mock tables
-        this.mockStockMovements = this.mockStockMovements.filter((m: any) => m.product_id !== id);
         this.mockLedgerEntries = this.mockLedgerEntries.filter((l: any) => l.product_id !== id);
-        this.mockStockReceivingItems = this.mockStockReceivingItems.filter((s: any) => s.product_id !== id);
         // Add more mock tables as needed
         this.saveToLocalStorage();
         return;
       }
 
       // Remove from related tables first (to avoid FK errors)
-      await this.database?.execute(`DELETE FROM stock_movements WHERE product_id = ?`, [id]);
       await this.database?.execute(`DELETE FROM invoice_items WHERE product_id = ?`, [id]);
-      await this.database?.execute(`DELETE FROM stock_receiving_items WHERE product_id = ?`, [id]);
       await this.database?.execute(`DELETE FROM ledger_entries WHERE product_id = ?`, [id]);
       // Remove from products
       await this.database?.execute(`DELETE FROM products WHERE id = ?`, [id]);
@@ -1034,6 +1030,9 @@ unit_type: 'kg-grams',
       `);
 
       // Stock receiving table
+      // Add truck_number and reference_number columns if they do not exist
+      await this.database?.execute(`ALTER TABLE stock_receiving ADD COLUMN truck_number TEXT`).catch(() => {});
+      await this.database?.execute(`ALTER TABLE stock_receiving ADD COLUMN reference_number TEXT`).catch(() => {});
       await this.database?.execute(`
         CREATE TABLE IF NOT EXISTS stock_receiving (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1045,7 +1044,10 @@ unit_type: 'kg-grams',
           remaining_balance REAL NOT NULL CHECK (remaining_balance >= 0),
           payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid')),
           notes TEXT,
+          truck_number TEXT,
+          reference_number TEXT,
           date TEXT NOT NULL,
+          time TEXT NOT NULL,
           created_by TEXT NOT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -5515,10 +5517,10 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   async resetDatabase(): Promise<boolean> {
     try {
       console.log('🔄 Starting database reset...');
-      
+
       if (!isTauri()) {
-        // Reset mock data to completely empty arrays
-        console.log('📝 Resetting mock data...');
+        // Reset all mock data arrays for every component
+        console.log('📝 Resetting all mock data arrays...');
         this.mockProducts = [];
         this.mockCustomers = [];
         this.mockInvoices = [];
@@ -5526,77 +5528,110 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         this.mockStockMovements = [];
         this.mockLedgerEntries = [];
         this.mockPayments = [];
-        
-        // Clear localStorage
-        console.log('🗑️ Clearing localStorage...');
+        this.mockPaymentChannels = [];
+        this.mockEnhancedPayments = [];
+        this.mockVendors = [];
+        this.mockStockReceiving = [];
+        this.mockStockReceivingItems = [];
+        this.mockVendorPayments = [];
+        this.mockStaff = [];
+        this.mockStaffLedgerEntries = [];
+        this.mockCustomerLedgerEntries = [];
+        this.mockBusinessExpenses = [];
+        this.mockBusinessIncome = [];
+
+        // Clear all relevant localStorage keys for every component
+        console.log('🗑️ Clearing all localStorage keys for every component...');
         if (typeof window !== 'undefined' && window.localStorage) {
-          // Clear all possible localStorage keys
+          // List all possible keys used by all components
           const keysToRemove = [
+            // Old keys
             'steel_store_products',
-            'steel_store_customers', 
+            'steel_store_customers',
             'steel_store_invoices',
             'steel_store_returns',
             'steel_store_movements',
             'steel_store_ledger',
             'steel_store_payments',
+            // Enhanced mock keys
             'enhanced_mock_products',
             'enhanced_mock_customers',
             'enhanced_mock_invoices',
             'enhanced_mock_returns',
             'enhanced_mock_payments',
             'enhanced_mock_stock_movements',
-            'enhanced_mock_ledger_entries'
-
+            'enhanced_mock_ledger_entries',
+            'enhanced_mock_payment_channels',
+            'enhanced_mock_enhanced_payments',
+            'enhanced_mock_vendors',
+            'enhanced_mock_stock_receiving',
+            'enhanced_mock_stock_receiving_items',
+            'enhanced_mock_vendor_payments',
+            'enhanced_mock_staff',
+            'enhanced_mock_staff_ledger_entries',
+            'enhanced_mock_customer_ledger_entries',
+            'enhanced_mock_business_expenses',
+            'enhanced_mock_business_income',
           ];
-          
+
           keysToRemove.forEach(key => {
             window.localStorage.removeItem(key);
           });
-          
-           // CRITICAL FIX: Clear all daily ledger entries with date-specific keys
+
+          // Remove all daily ledger and date-specific keys
           const allKeys = Object.keys(window.localStorage);
-          const dailyLedgerKeys = allKeys.filter(key => 
-            key.startsWith('daily_ledger_') || 
+          const extraKeys = allKeys.filter(key =>
+            key.startsWith('daily_ledger_') ||
             key.startsWith('daily_ledger_entries_') ||
             key.startsWith('ledger_')
           );
-          
-          dailyLedgerKeys.forEach(key => {
+          extraKeys.forEach(key => {
             window.localStorage.removeItem(key);
-            console.log(`🗑️ Removed daily ledger key: ${key}`);
+            console.log(`🗑️ Removed extra ledger key: ${key}`);
           });
-          
-          console.log(`✅ LocalStorage cleared (${keysToRemove.length} standard keys + ${dailyLedgerKeys.length} daily ledger keys)`);
-        
+
+          console.log(`✅ LocalStorage cleared (${keysToRemove.length} standard keys + ${extraKeys.length} extra keys)`);
         }
-        
-        
-        // Force save empty arrays to localStorage to prevent reloading hardcoded data
+
+        // Save empty arrays to localStorage to prevent reloading hardcoded data
         this.saveToLocalStorage();
-        
-        console.log('✅ Mock data reset complete - database is now empty');
+
+        console.log('✅ All mock data reset complete - local database is now empty');
         console.log('📊 Current state:');
         console.log(`   - Products: ${this.mockProducts.length}`);
         console.log(`   - Customers: ${this.mockCustomers.length}`);
         console.log(`   - Invoices: ${this.mockInvoices.length}`);
         console.log(`   - Stock Movements: ${this.mockStockMovements.length}`);
+        console.log(`   - Stock Receiving: ${this.mockStockReceiving.length}`);
+        console.log(`   - Vendors: ${this.mockVendors.length}`);
+        console.log(`   - Staff: ${this.mockStaff.length}`);
         return true;
       }
 
       // Real database reset
       console.log('🗄️ Resetting real database...');
-      
-      // Drop all tables
+
+      // Drop all tables (add any new tables here as needed)
       const tables = [
         'stock_movements',
-        'ledger_entries', 
+        'ledger_entries',
         'payments',
         'invoice_items',
         'invoices',
         'return_items',
         'returns',
         'products',
-        'customers'
+        'customers',
+        'payment_channels',
+        'vendors',
+        'stock_receiving',
+        'stock_receiving_items',
+        'vendor_payments',
+        'staff',
+        'staff_ledger_entries',
+        'customer_ledger_entries',
+        'business_expenses',
+        'business_income'
       ];
 
       for (const table of tables) {
@@ -5611,10 +5646,10 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       // Recreate all tables
       console.log('🏗️ Recreating database structure...');
       await this.createAllTables();
-      
+
       console.log('✅ Database reset and recreated successfully');
       return true;
-      
+
     } catch (error) {
       console.error('❌ Failed to reset database:', error);
       throw new Error(`Database reset failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -6616,6 +6651,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     total_amount: number;
     payment_amount?: number;
     notes?: string;
+    truck_number?: string;
+    reference_number?: string;
     created_by: string;
     items: Array<{
       product_id: number;
@@ -6633,29 +6670,44 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      const today = new Date().toISOString().split('T')[0];
+      // Use local date (not UTC) for correct local day
+      const now = new Date();
+      const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
       const paymentAmount = receiving.payment_amount || 0;
       const remainingBalance = receiving.total_amount - paymentAmount;
       const paymentStatus = remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partial' : 'pending');
 
       if (!isTauri()) {
         const newId = Math.max(...this.mockStockReceiving.map(r => r.id || 0), 0) + 1;
-        const receivingNumber = `RCV-${today.replace(/-/g, '')}-${String(newId).padStart(4, '0')}`;
-
+        // Generate S0001 series for mock data
+        // Find the highest Sxxxx number in all existing records
+        let maxNum = 0;
+        for (const r of this.mockStockReceiving) {
+          const match = (r.receiving_number || '').match(/^S(\d{4})$/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (num > maxNum) maxNum = num;
+          }
+        }
+        const receivingNumber = `S${(maxNum + 1).toString().padStart(4, '0')}`;
+        const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
         const newReceiving = {
           id: newId,
           vendor_id: receiving.vendor_id,
           vendor_name: receiving.vendor_name,
           receiving_number: receivingNumber,
           total_amount: receiving.total_amount,
-          payment_amount: paymentAmount,
+          payment_amount: paymentAmount,   
           remaining_balance: remainingBalance,
           payment_status: paymentStatus,
           notes: receiving.notes,
+          truck_number: receiving.truck_number,
+          reference_number: receiving.reference_number,
           date: today,
+          time,
           created_by: receiving.created_by,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: now.toISOString(),
+          updated_at: now.toISOString()
         };
 
         this.mockStockReceiving.push(newReceiving);
@@ -6668,8 +6720,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             id: itemId,
             receiving_id: newId,
             ...item,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            created_at: now.toISOString(),
+            updated_at: now.toISOString()
           });
 
           // Update product stock in mockProducts
@@ -6681,13 +6733,12 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             const newStockValue = currentStockData.numericValue + receivedStockData.numericValue;
             const newStockString = this.formatStockValue(newStockValue, product.unit_type);
             this.mockProducts[productIndex].current_stock = newStockString;
-            this.mockProducts[productIndex].updated_at = new Date().toISOString();
+            this.mockProducts[productIndex].updated_at = now.toISOString();
 
             // Create stock movement record in mock mode (mirrors real DB logic)
             // Use the receiving's date for all stock movements for consistency
             const movementDate = newReceiving.date;
-            const now = new Date();
-            const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const movementTime = time;
             // Defensive: Use product.name if available, else item.product_name
             const productName = product.name || item.product_name || '';
             this.createStockMovement({
@@ -6704,7 +6755,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
               reference_id: newId,
               reference_number: newReceiving.receiving_number,
               date: movementDate,
-              time,
+              time: movementTime,
               created_by: receiving.created_by
             });
           }
@@ -6723,12 +6774,35 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       // Real database implementation
-      const receivingNumber = `RCV-${today.replace(/-/g, '')}-${Date.now()}`;
-      
+      // Generate S0001 series receiving number
+      let receivingNumber = '';
+      const lastRow = await this.database?.select(`SELECT receiving_number FROM stock_receiving WHERE date = ? ORDER BY id DESC LIMIT 1`, [today]);
+      if (lastRow && lastRow.length > 0) {
+        const lastNum = parseInt((lastRow[0].receiving_number || '').replace(/^S/, '')) || 0;
+        receivingNumber = `S${(lastNum + 1).toString().padStart(4, '0')}`;
+      } else {
+        receivingNumber = 'S0001';
+      }
+      const nowDb = new Date();
+      const time = nowDb.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
       const result = await this.database?.execute(`
-        INSERT INTO stock_receiving (vendor_id, vendor_name, receiving_number, total_amount, payment_amount, remaining_balance, payment_status, notes, date, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [receiving.vendor_id, receiving.vendor_name, receivingNumber, receiving.total_amount, paymentAmount, remainingBalance, paymentStatus, receiving.notes, today, receiving.created_by]);
+        INSERT INTO stock_receiving (vendor_id, vendor_name, receiving_number, total_amount, payment_amount, remaining_balance, payment_status, notes, truck_number, reference_number, date, time, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        receiving.vendor_id,
+        receiving.vendor_name,
+        receivingNumber,
+        receiving.total_amount,
+        paymentAmount,
+        remainingBalance,
+        paymentStatus,
+        receiving.notes,
+        receiving.truck_number || null,
+        receiving.reference_number || null,
+        today,
+        time,
+        receiving.created_by
+      ]);
 
       const receivingId = result?.lastInsertId || 0;
 
@@ -6751,9 +6825,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.database?.execute(`UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newStockString, item.product_id]);
 
         // --- Create stock movement record ---
-        const now = new Date();
-        const date = now.toISOString().split('T')[0];
-        const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+        const nowMovement = new Date();
+        const date = nowMovement.toISOString().split('T')[0];
+        const time = nowMovement.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
         await this.createStockMovement({
           product_id: item.product_id,
           product_name: product.name,
@@ -6793,6 +6867,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     payment_status?: string;
     from_date?: string;
     to_date?: string;
+    search?: string;
   } = {}): Promise<any[]> {
     try {
       if (!this.isInitialized) {
@@ -6814,8 +6889,48 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         if (filters.to_date) {
           filtered = filtered.filter(r => r.date <= filters.to_date!);
         }
+        if (filters.search && filters.search.trim() !== '') {
+          const search = filters.search.trim().toUpperCase();
+          if (/^S\d{4}$/.test(search)) {
+            // Exact match
+            filtered = filtered.filter(r =>
+              r.receiving_number && r.receiving_number.toUpperCase() === search
+            );
+          } else if (/^\d{1,4}$/.test(search)) {
+            // Match any receiving_number ending with the digits (e.g., S0022)
+            const searchPattern = search.padStart(4, '0');
+            filtered = filtered.filter(r =>
+              r.receiving_number && r.receiving_number.toUpperCase().endsWith(searchPattern)
+            );
+          } else {
+            // Fallback: contains search
+            filtered = filtered.filter(r =>
+              r.receiving_number && r.receiving_number.toUpperCase().includes(search)
+            );
+          }
+        }
+        // Patch: Ensure S0001 series for mock data as well
+        filtered = filtered.map((r, idx) => {
+          let receiving_number = r.receiving_number;
+          if (!/^S\d{4}$/.test(receiving_number)) {
+            receiving_number = `S${(idx + 1).toString().padStart(4, '0')}`;
+          }
+          // Always return the actual time string, do not replace with '-'
+          return {
+            ...r,
+            receiving_number,
+            time: typeof r.time === 'string' ? r.time : null
+          };
+        });
 
-        return filtered.sort((a, b) => b.date.localeCompare(a.date));
+        // Sort by date and time descending
+        return filtered.sort((a, b) => {
+          const aDateTime = a.date + ' ' + (a.time || '00:00 AM');
+          const bDateTime = b.date + ' ' + (b.time || '00:00 AM');
+          if (aDateTime < bDateTime) return 1;
+          if (aDateTime > bDateTime) return -1;
+          return 0;
+        });
       }
 
       let query = `SELECT * FROM stock_receiving WHERE 1=1`;
@@ -6838,9 +6953,33 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         params.push(filters.to_date);
       }
 
-      query += ` ORDER BY date DESC, created_at DESC`;
+      // Only search by receiving_number, exact match or ends with digits
+      if (filters.search && filters.search.trim() !== '') {
+        const search = filters.search.trim().toUpperCase();
+        if (/^S\d{4}$/.test(search)) {
+          query += ` AND UPPER(receiving_number) = ?`;
+          params.push(search);
+        } else if (/^\d{1,4}$/.test(search)) {
+          // Search for receiving_number ending with the digits (e.g., S0022)
+          query += ` AND substr(receiving_number, -4) = ?`;
+          params.push(search.padStart(4, '0'));
+        } else {
+          // Fallback: contains search
+          query += ` AND UPPER(receiving_number) LIKE ?`;
+          params.push(`%${search}%`);
+        }
+      }
 
-      const result = await this.database?.select(query, params);
+      query += ` ORDER BY date DESC, time DESC, created_at DESC`;
+
+      let result = await this.database?.select(query, params);
+      // Always return time as a string (never undefined)
+      if (result && Array.isArray(result)) {
+        result = result.map(r => ({
+          ...r,
+          time: typeof r.time === 'string' ? r.time : null
+        }));
+      }
       return result || [];
     } catch (error) {
       console.error('Error getting stock receiving list:', error);
