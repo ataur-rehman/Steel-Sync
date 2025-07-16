@@ -148,113 +148,63 @@ useEffect(() => {
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
 
-  useEffect(() => {
-    loadCustomers();
-    
-    // ENHANCED: Listen to business events for real-time updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.on) {
-          const handleCustomerBalanceUpdate = async (data: any) => {
-            console.log('👤 [CustomerLedger] Customer balance update event:', data);
-            
-            // Always refresh the customer list to get updated balances
-            await loadCustomers();
-            
-            // Check if the update is for the currently selected customer
-            const eventCustomerId = data.customerId || data.customer_id;
-            if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
-              console.log(`🔄 [CustomerLedger] Refreshing ledger for selected customer: ${selectedCustomer.name} (ID: ${selectedCustomer.id})`);
-              
-              // Force refresh the selected customer data
-              const updatedCustomers = await db.getAllCustomers();
-              const refreshedCustomer = updatedCustomers.find((c: Customer) => c.id === selectedCustomer.id);
-              
-              if (refreshedCustomer) {
-                setSelectedCustomer(refreshedCustomer);
-                await loadCustomerLedger();
-                console.log(`✅ [CustomerLedger] Ledger refreshed. New balance: Rs. ${refreshedCustomer.total_balance}`);
-              }
-            }
-          };
-
-          const handleInvoiceUpdated = async (data: any) => {
-            console.log('👤 [CustomerLedger] Invoice update event:', data);
-            
-            // Always refresh customer list
-            await loadCustomers();
-            
-            // Handle both customerId and customer_id properties
-            const eventCustomerId = data.customerId || data.customer_id;
-            if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
-              console.log(`🔄 [CustomerLedger] Refreshing ledger due to invoice update for: ${selectedCustomer.name}`);
-              
-              // Refresh the selected customer and their ledger
-              const updatedCustomers = await db.getAllCustomers();
-              const refreshedCustomer = updatedCustomers.find((c: Customer) => c.id === selectedCustomer.id);
-              
-              if (refreshedCustomer) {
-                setSelectedCustomer(refreshedCustomer);
-                await loadCustomerLedger();
-              }
-            }
-          };
-
-          const handleLedgerUpdate = async (data: any) => {
-            console.log('👤 [CustomerLedger] Ledger update event:', data);
-            
-            // Handle both customerId and customer_id properties
-            const eventCustomerId = data.customerId || data.customer_id;
-            if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
-              console.log(`🔄 [CustomerLedger] Direct ledger refresh for: ${selectedCustomer.name}`);
-              
-              // Refresh customers and ledger
-              await loadCustomers();
-              const updatedCustomers = await db.getAllCustomers();
-              const refreshedCustomer = updatedCustomers.find((c: Customer) => c.id === selectedCustomer.id);
-              
-              if (refreshedCustomer) {
-                setSelectedCustomer(refreshedCustomer);
-                await loadCustomerLedger();
-              }
-            }
-          };
-
-          // Subscribe to events with enhanced handlers
-          eventBus.on('CUSTOMER_BALANCE_UPDATED', handleCustomerBalanceUpdate);
-          eventBus.on('INVOICE_UPDATED', handleInvoiceUpdated);
-          eventBus.on('CUSTOMER_LEDGER_UPDATED', handleLedgerUpdate);
-          eventBus.on('INVOICE_CREATED', handleInvoiceUpdated); // Reuse the same handler
-          eventBus.on('PAYMENT_RECORDED', handleCustomerBalanceUpdate); // Reuse the same handler
-          eventBus.on('INVOICE_PAYMENT_RECEIVED', handleCustomerBalanceUpdate); // Handle invoice payments
-          eventBus.on('INVOICE_DETAILS_UPDATED', handleLedgerUpdate); // Handle updates from invoice details modal
-          
-          // Store cleanup function
-          (window as any).customerLedgerCleanup = () => {
-            eventBus.off('CUSTOMER_BALANCE_UPDATED', handleCustomerBalanceUpdate);
-            eventBus.off('INVOICE_UPDATED', handleInvoiceUpdated);
-            eventBus.off('CUSTOMER_LEDGER_UPDATED', handleLedgerUpdate);
-            eventBus.off('INVOICE_CREATED', handleInvoiceUpdated);
-            eventBus.off('PAYMENT_RECORDED', handleCustomerBalanceUpdate);
-            eventBus.off('INVOICE_PAYMENT_RECEIVED', handleCustomerBalanceUpdate);
-            eventBus.off('INVOICE_DETAILS_UPDATED', handleLedgerUpdate);
-          };
-          
-          console.log('✅ [CustomerLedger] Enhanced event listeners set up');
-        }
+useEffect(() => {
+  loadCustomers();
+  // ENHANCED: Listen to business events for real-time updates
+  try {
+    if (typeof window !== 'undefined') {
+      const eventBus = (window as any).eventBus;
+      if (eventBus && eventBus.on) {
+        const handleCustomerBalanceUpdate = async (data: any) => {
+          await loadCustomers();
+          // Only refresh ledger if selectedCustomer matches
+          const eventCustomerId = data.customerId || data.customer_id;
+          if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
+            await loadCustomerLedger();
+          }
+        };
+        const handleInvoiceUpdated = async (data: any) => {
+          await loadCustomers();
+          const eventCustomerId = data.customerId || data.customer_id;
+          if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
+            await loadCustomerLedger();
+          }
+        };
+        const handleLedgerUpdate = async (data: any) => {
+          await loadCustomers();
+          const eventCustomerId = data.customerId || data.customer_id;
+          if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
+            await loadCustomerLedger();
+          }
+        };
+        eventBus.on('CUSTOMER_BALANCE_UPDATED', handleCustomerBalanceUpdate);
+        eventBus.on('INVOICE_UPDATED', handleInvoiceUpdated);
+        eventBus.on('CUSTOMER_LEDGER_UPDATED', handleLedgerUpdate);
+        eventBus.on('INVOICE_CREATED', handleInvoiceUpdated);
+        eventBus.on('PAYMENT_RECORDED', handleCustomerBalanceUpdate);
+        eventBus.on('INVOICE_PAYMENT_RECEIVED', handleCustomerBalanceUpdate);
+        eventBus.on('INVOICE_DETAILS_UPDATED', handleLedgerUpdate);
+        (window as any).customerLedgerCleanup = () => {
+          eventBus.off('CUSTOMER_BALANCE_UPDATED', handleCustomerBalanceUpdate);
+          eventBus.off('INVOICE_UPDATED', handleInvoiceUpdated);
+          eventBus.off('CUSTOMER_LEDGER_UPDATED', handleLedgerUpdate);
+          eventBus.off('INVOICE_CREATED', handleInvoiceUpdated);
+          eventBus.off('PAYMENT_RECORDED', handleCustomerBalanceUpdate);
+          eventBus.off('INVOICE_PAYMENT_RECEIVED', handleCustomerBalanceUpdate);
+          eventBus.off('INVOICE_DETAILS_UPDATED', handleLedgerUpdate);
+        };
+        console.log('✅ [CustomerLedger] Enhanced event listeners set up');
       }
-    } catch (error) {
-      console.warn('Could not set up enhanced customer ledger event listeners:', error);
     }
-
-    return () => {
-      // Clean up event listeners
-      if ((window as any).customerLedgerCleanup) {
-        (window as any).customerLedgerCleanup();
-      }
-    };
-  }, [selectedCustomer]); // Added selectedCustomer as dependency
+  } catch (error) {
+    console.warn('Could not set up enhanced customer ledger event listeners:', error);
+  }
+  return () => {
+    if ((window as any).customerLedgerCleanup) {
+      (window as any).customerLedgerCleanup();
+    }
+  };
+}, []); // Only run once on mount
 
   useEffect(() => {
     if (selectedCustomer && currentView === 'ledger') {

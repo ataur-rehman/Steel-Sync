@@ -18,7 +18,21 @@ import {
   CreditCard,
   FileText,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  Receipt,
+  Phone,
+  MapPin,
+  Tag,
+  TrendingUp,
+  ArrowLeft,
+  MoreHorizontal,
+  Download,
+  Printer,
+  Copy,
+  Eye,
+  Minus
 } from 'lucide-react';
 
 interface InvoiceDetailsProps {
@@ -339,11 +353,29 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     return 'pending';
   };
 
-  const getStatusColor = (status: string) => {
+  const getStatusInfo = (status: string) => {
     switch (status) {
-      case 'paid': return 'text-green-600 bg-green-100';
-      case 'partially_paid': return 'text-yellow-600 bg-yellow-100';
-      default: return 'text-red-600 bg-red-100';
+      case 'paid':
+        return { 
+          label: 'Paid', 
+          color: 'text-green-700 bg-green-50 border-green-200',
+          icon: CheckCircle,
+          dot: 'bg-green-500'
+        };
+      case 'partially_paid':
+        return { 
+          label: 'Partially Paid', 
+          color: 'text-yellow-700 bg-yellow-50 border-yellow-200',
+          icon: Clock,
+          dot: 'bg-yellow-500'
+        };
+      default:
+        return { 
+          label: 'Pending', 
+          color: 'text-red-700 bg-red-50 border-red-200',
+          icon: AlertTriangle,
+          dot: 'bg-red-500'
+        };
     }
   };
 
@@ -351,405 +383,626 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     return new Date(dateString).toLocaleDateString('en-PK', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success(`${label} copied to clipboard`);
     });
   };
 
   if (loading) {
     return (
-      <Modal isOpen={true} onClose={onClose} title="Loading Invoice...">
-        <div className="flex items-center justify-center h-64">
-          <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl p-8 shadow-2xl">
+          <div className="flex items-center space-x-3">
+            <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+            <span className="text-lg font-medium text-gray-900">Loading Invoice...</span>
+          </div>
         </div>
-      </Modal>
+      </div>
     );
   }
 
   if (!invoice) {
     return (
-      <Modal isOpen={true} onClose={onClose} title="Invoice Not Found">
-        <div className="text-center py-8">
-          <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
-          <p className="text-gray-600">Invoice could not be loaded.</p>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl p-8 shadow-2xl max-w-md w-full mx-4">
+          <div className="text-center">
+            <AlertTriangle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Invoice Not Found</h3>
+            <p className="text-gray-600 mb-6">This invoice could not be loaded or doesn't exist.</p>
+            <button
+              onClick={onClose}
+              className="w-full px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              Close
+            </button>
+          </div>
         </div>
-      </Modal>
+      </div>
     );
   }
 
   const status = getPaymentStatus();
+  const statusInfo = getStatusInfo(status);
+  const StatusIcon = statusInfo.icon;
 
   return (
-    <Modal 
-      isOpen={true} 
-      onClose={onClose} 
-      title={`Invoice ${invoice.bill_number}`}
-      size="xl"
-    >
-      <div className="space-y-6">
-        {/* Invoice Header */}
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="flex items-center space-x-2">
-              <User className="h-5 w-5 text-gray-500" />
-              <div>
-                <p className="text-sm text-gray-600">Customer</p>
-                <p className="font-semibold">{invoice.customer_name}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Calendar className="h-5 w-5 text-gray-500" />
-              <div>
-                <p className="text-sm text-gray-600">Date</p>
-                <p className="font-semibold">{formatDate(invoice.created_at)}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <FileText className="h-5 w-5 text-gray-500" />
-              <div>
-                <p className="text-sm text-gray-600">Status</p>
-                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(status)}`}>
-                  {status.replace('_', ' ').toUpperCase()}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Invoice Items */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold flex items-center">
-              <Package className="h-5 w-5 mr-2" />
-              Items ({invoice.items?.length || 0})
-            </h3>
-            <button
-              onClick={() => setShowAddItem(true)}
-              className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              disabled={saving}
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Item</span>
-            </button>
-          </div>
-
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {invoice.items?.map((item: InvoiceItem) => (
-                  <tr key={item.id}>
-                    <td className="px-4 py-3">{item.product_name}</td>
-                    <td className="px-4 py-3">
-                      {editingItem === item.id ? (
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="text"
-                            value={editQuantity}
-                            onChange={(e) => setEditQuantity(e.target.value)}
-                            className="w-20 px-2 py-1 border rounded text-sm"
-                          />
-                          <button
-                            onClick={() => handleUpdateItemQuantity(item.id, editQuantity)}
-                            className="text-green-600 hover:text-green-800"
-                            disabled={saving}
-                          >
-                            <Save className="h-4 w-4" />
-                          </button>
-                          <button
-                            onClick={() => setEditingItem(null)}
-                            className="text-gray-600 hover:text-gray-800"
-                          >
-                            <X className="h-4 w-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center space-x-2">
-                          <span>{item.quantity}</span>
-                          <button
-                            onClick={() => {
-                              setEditingItem(item.id);
-                              setEditQuantity(item.quantity.toString());
-                            }}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">{formatCurrency(item.unit_price)}</td>
-                    <td className="px-4 py-3 font-semibold">{formatCurrency(item.total_price)}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => handleRemoveItem(item.id)}
-                        className="text-red-600 hover:text-red-800"
-                        disabled={saving}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Invoice Totals */}
-        <div className="bg-gray-50 p-4 rounded-lg">
-          <div className="space-y-2 max-w-md ml-auto">
-            <div className="flex justify-between">
-              <span>Subtotal:</span>
-              <span>{formatCurrency(invoice.subtotal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Discount ({invoice.discount}%):</span>
-              <span>-{formatCurrency(invoice.discount_amount || 0)}</span>
-            </div>
-            <div className="flex justify-between font-semibold text-lg border-t pt-2">
-              <span>Grand Total:</span>
-              <span>{formatCurrency(invoice.grand_total)}</span>
-            </div>
-            <div className="flex justify-between text-green-600">
-              <span>Paid Amount:</span>
-              <span>{formatCurrency(invoice.payment_amount || 0)}</span>
-            </div>
-            <div className="flex justify-between font-semibold text-red-600">
-              <span>Remaining Balance:</span>
-              <span>{formatCurrency(invoice.remaining_balance)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Payment History */}
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-semibold flex items-center">
-              <DollarSign className="h-5 w-5 mr-2" />
-              Payment History ({invoice.payments?.length || 0})
-            </h3>
-            {invoice.remaining_balance > 0 && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[95vh] overflow-hidden flex flex-col">
+        {/* REDESIGNED: Header */}
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 text-white">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
               <button
-                onClick={() => setShowAddPayment(true)}
-                className="flex items-center space-x-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                disabled={saving}
+                onClick={onClose}
+                className="p-2 hover:bg-blue-500 rounded-lg transition-colors"
               >
-                <Plus className="h-4 w-4" />
-                <span>Add Payment</span>
+                <ArrowLeft className="h-5 w-5" />
               </button>
-            )}
+              <div>
+                <h1 className="text-xl font-bold">Invoice {invoice.bill_number}</h1>
+                <p className="text-blue-100 text-sm">{formatDate(invoice.created_at)}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <div className={`flex items-center px-3 py-1.5 rounded-full text-sm font-medium border ${statusInfo.color}`}>
+                <div className={`w-2 h-2 rounded-full mr-2 ${statusInfo.dot}`}></div>
+                {statusInfo.label}
+              </div>
+              
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => copyToClipboard(invoice.bill_number, 'Invoice number')}
+                  className="p-2 hover:bg-blue-500 rounded-lg transition-colors"
+                  title="Copy invoice number"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+                <button className="p-2 hover:bg-blue-500 rounded-lg transition-colors" title="Print">
+                  <Printer className="h-4 w-4" />
+                </button>
+                <button className="p-2 hover:bg-blue-500 rounded-lg transition-colors" title="Download">
+                  <Download className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
           </div>
-
-          {invoice.payments && invoice.payments.length > 0 ? (
-            <div className="border rounded-lg overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {invoice.payments.map((payment: Payment) => (
-                    <tr key={payment.id}>
-                      <td className="px-4 py-3">{formatDate(payment.date)}</td>
-                      <td className="px-4 py-3 font-semibold text-green-600">{formatCurrency(payment.amount)}</td>
-                      <td className="px-4 py-3 capitalize">{payment.payment_method.replace('_', ' ')}</td>
-                      <td className="px-4 py-3">{payment.reference || '-'}</td>
-                      <td className="px-4 py-3">{payment.notes || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              <CreditCard className="h-16 w-16 mx-auto mb-4 opacity-50" />
-              <p>No payments recorded yet</p>
-            </div>
-          )}
         </div>
 
-        {/* Add Item Modal */}
-        {showAddItem && (
-          <Modal
-            isOpen={showAddItem}
-            onClose={() => setShowAddItem(false)}
-            title="Add Item to Invoice"
-          >
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-                <select
-                  value={selectedProduct?.id || ''}
-                  onChange={(e) => {
-                    const product = products.find(p => p.id === parseInt(e.target.value));
-                    setSelectedProduct(product || null);
-                    setNewItemPrice(product?.rate_per_unit.toString() || '');
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a product</option>
-                  {products.map(product => (
-                    <option key={product.id} value={product.id}>
-                      {product.name} - Stock: {formatUnitString(product.current_stock, product.unit_type as any)}
-                    </option>
-                  ))}
-                </select>
+        {/* REDESIGNED: Content */}
+        <div className="flex-1 overflow-auto">
+          <div className="p-6 space-y-6">
+            {/* REDESIGNED: Quick Info Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-blue-600">Customer</p>
+                    <p className="text-lg font-bold text-blue-900">{invoice.customer_name}</p>
+                    {invoice.customer_phone && (
+                      <p className="text-sm text-blue-700">{invoice.customer_phone}</p>
+                    )}
+                  </div>
+                  <User className="h-8 w-8 text-blue-500" />
+                </div>
               </div>
-
-              {selectedProduct && (
-                <>
+              
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Quantity ({getUnitTypeConfig(selectedProduct.unit_type as any).symbol})
-                    </label>
-                    <input
-                      type="text"
-                      value={newItemQuantity}
-                      onChange={(e) => setNewItemQuantity(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      placeholder={`e.g., ${getUnitTypeConfig(selectedProduct.unit_type as any).examples[0]}`}
-                    />
+                    <p className="text-sm font-medium text-green-600">Total Amount</p>
+                    <p className="text-lg font-bold text-green-900">{formatCurrency(invoice.grand_total)}</p>
+                    {invoice.discount > 0 && (
+                      <p className="text-sm text-green-700">{invoice.discount}% discount</p>
+                    )}
                   </div>
-
+                  <Receipt className="h-8 w-8 text-green-500" />
+                </div>
+              </div>
+              
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price (Rs.)</label>
-                    <input
-                      type="number"
-                      value={newItemPrice}
-                      onChange={(e) => setNewItemPrice(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      step="0.01"
-                    />
+                    <p className="text-sm font-medium text-purple-600">Paid Amount</p>
+                    <p className="text-lg font-bold text-purple-900">{formatCurrency(invoice.payment_amount || 0)}</p>
+                    <p className="text-sm text-purple-700 capitalize">{invoice.payment_method?.replace('_', ' ')}</p>
                   </div>
-                </>
-              )}
-
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowAddItem(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddItem}
-                  disabled={saving || !selectedProduct || !newItemQuantity || !newItemPrice}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {saving ? 'Adding...' : 'Add Item'}
-                </button>
+                  <DollarSign className="h-8 w-8 text-purple-500" />
+                </div>
+              </div>
+              
+              <div className={`border rounded-lg p-4 ${invoice.remaining_balance > 0 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className={`text-sm font-medium ${invoice.remaining_balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      Balance Due
+                    </p>
+                    <p className={`text-lg font-bold ${invoice.remaining_balance > 0 ? 'text-red-900' : 'text-green-900'}`}>
+                      {formatCurrency(invoice.remaining_balance)}
+                    </p>
+                    <p className={`text-sm ${invoice.remaining_balance > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                      {invoice.remaining_balance > 0 ? 'Outstanding' : 'Fully Paid'}
+                    </p>
+                  </div>
+                  <TrendingUp className={`h-8 w-8 ${invoice.remaining_balance > 0 ? 'text-red-500' : 'text-green-500'}`} />
+                </div>
               </div>
             </div>
-          </Modal>
+
+            {/* REDESIGNED: Invoice Items */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-gray-50 border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Package className="h-5 w-5 text-gray-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Invoice Items ({invoice.items?.length || 0})
+                    </h3>
+                  </div>
+                  <button
+                    onClick={() => setShowAddItem(true)}
+                    disabled={saving}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add Item</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Product</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Quantity</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Unit Price</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Total</th>
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {invoice.items?.length > 0 ? (
+                      invoice.items.map((item: InvoiceItem) => (
+                        <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <Package className="h-5 w-5 text-blue-600" />
+                              </div>
+                              <div>
+                                <div className="text-sm font-medium text-gray-900">{item.product_name}</div>
+                                <div className="text-xs text-gray-500">Product ID: {item.product_id}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            {editingItem === item.id ? (
+                              <div className="flex items-center space-x-2">
+                                <input
+                                  type="text"
+                                  value={editQuantity}
+                                  onChange={(e) => setEditQuantity(e.target.value)}
+                                  className="w-24 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                  placeholder="Qty"
+                                />
+                                <button
+                                  onClick={() => handleUpdateItemQuantity(item.id, editQuantity)}
+                                  disabled={saving}
+                                  className="p-1 text-green-600 hover:text-green-800 disabled:opacity-50"
+                                  title="Save"
+                                >
+                                  <Save className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => setEditingItem(null)}
+                                  className="p-1 text-gray-600 hover:text-gray-800"
+                                  title="Cancel"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-2">
+                                <span className="text-sm font-medium text-gray-900">{item.quantity}</span>
+                                <button
+                                  onClick={() => {
+                                    setEditingItem(item.id);
+                                    setEditQuantity(item.quantity.toString());
+                                  }}
+                                  className="p-1 text-blue-600 hover:text-blue-800"
+                                  title="Edit quantity"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-medium text-gray-900">{formatCurrency(item.unit_price)}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-bold text-gray-900">{formatCurrency(item.total_price)}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <button
+                              onClick={() => handleRemoveItem(item.id)}
+                              disabled={saving}
+                              className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="Remove item"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center">
+                          <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No Items Added</h3>
+                          <p className="text-gray-500 mb-4">This invoice doesn't have any items yet.</p>
+                          <button
+                            onClick={() => setShowAddItem(true)}
+                            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Add First Item
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* REDESIGNED: Invoice Summary */}
+              <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
+                <div className="max-w-md ml-auto space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Subtotal:</span>
+                    <span className="font-medium">{formatCurrency(invoice.subtotal)}</span>
+                  </div>
+                  {invoice.discount > 0 && (
+                    <div className="flex justify-between text-sm text-green-600">
+                      <span>Discount ({invoice.discount}%):</span>
+                      <span>-{formatCurrency(invoice.discount_amount || 0)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-lg font-bold border-t pt-2">
+                    <span>Grand Total:</span>
+                    <span>{formatCurrency(invoice.grand_total)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* REDESIGNED: Payment History */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="bg-gray-50 border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <CreditCard className="h-5 w-5 text-gray-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Payment History ({invoice.payments?.length || 0})
+                    </h3>
+                  </div>
+                  {invoice.remaining_balance > 0 && (
+                    <button
+                      onClick={() => setShowAddPayment(true)}
+                      disabled={saving}
+                      className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>Add Payment</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {invoice.payments && invoice.payments.length > 0 ? (
+                <div className="divide-y divide-gray-200">
+                  {invoice.payments.map((payment: any) => {
+                    const key = payment.id || payment.payment_id || Math.random();
+                    const amount = payment.amount ?? 0;
+                    const method = payment.payment_method ?? 'cash';
+                    const reference = payment.reference ?? '';
+                    const notes = payment.notes ?? payment.payment_notes ?? '';
+                    const date = payment.date ?? payment.created_at ?? '';
+                    const createdAt = payment.created_at ?? payment.date ?? '';
+                    return (
+                      <div key={key} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                              <DollarSign className="h-5 w-5 text-green-600" />
+                            </div>
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <span className="text-lg font-bold text-green-600">{formatCurrency(amount)}</span>
+                                <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full capitalize">
+                                  {method.replace('_', ' ')}
+                                </span>
+                              </div>
+                              <div className="text-sm text-gray-600">
+                                {formatDate(date)} • {reference || 'No reference'}
+                              </div>
+                              {notes && (
+                                <div className="text-xs text-gray-500 mt-1">{notes}</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm text-gray-500">{formatDate(createdAt)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="px-6 py-12 text-center">
+                  <CreditCard className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Payments Recorded</h3>
+                  <p className="text-gray-500 mb-4">No payments have been made for this invoice yet.</p>
+                  {invoice.remaining_balance > 0 && (
+                    <button
+                      onClick={() => setShowAddPayment(true)}
+                      className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Record First Payment
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* REDESIGNED: Add Item Modal */}
+        {showAddItem && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4">
+              <div className="bg-blue-600 px-6 py-4 text-white rounded-t-xl">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Add Item to Invoice</h2>
+                  <button
+                    onClick={() => setShowAddItem(false)}
+                    className="p-1 hover:bg-blue-500 rounded transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Product</label>
+                  <select
+                    value={selectedProduct?.id || ''}
+                    onChange={(e) => {
+                      const product = products.find(p => p.id === parseInt(e.target.value));
+                      setSelectedProduct(product || null);
+                      setNewItemPrice(product?.rate_per_unit.toString() || '');
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select a product</option>
+                    {products.map(product => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} - Stock: {formatUnitString(product.current_stock, product.unit_type as any)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedProduct && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Quantity ({getUnitTypeConfig(selectedProduct.unit_type as any).symbol})
+                      </label>
+                      <input
+                        type="text"
+                        value={newItemQuantity}
+                        onChange={(e) => setNewItemQuantity(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        placeholder={`e.g., ${getUnitTypeConfig(selectedProduct.unit_type as any).examples[0]}`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Unit Price (Rs.)</label>
+                      <input
+                        type="number"
+                        value={newItemPrice}
+                        onChange={(e) => setNewItemPrice(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        step="0.01"
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => setShowAddItem(false)}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddItem}
+                    disabled={saving || !selectedProduct || !newItemQuantity || !newItemPrice}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {saving ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <span>Adding...</span>
+                      </div>
+                    ) : (
+                      'Add Item'
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
-        {/* Add Payment Modal */}
+        {/* REDESIGNED: Add Payment Modal */}
         {showAddPayment && (
-          <Modal
-            isOpen={showAddPayment}
-            onClose={() => setShowAddPayment(false)}
-            title="Add Payment"
-          >
-            <div className="space-y-4">
-              <div className="bg-yellow-50 p-3 rounded-lg">
-                <p className="text-sm">
-                  <span className="font-semibold">Remaining Balance: </span>
-                  <span className="text-red-600">{formatCurrency(invoice.remaining_balance)}</span>
-                </p>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4">
+              <div className="bg-green-600 px-6 py-4 text-white rounded-t-xl">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Record Payment</h2>
+                  <button
+                    onClick={() => setShowAddPayment(false)}
+                    className="p-1 hover:bg-green-500 rounded transition-colors"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
               </div>
+              
+              <div className="p-6 space-y-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center space-x-2">
+                    <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-yellow-800">Outstanding Balance</p>
+                      <p className="text-lg font-bold text-yellow-900">{formatCurrency(invoice.remaining_balance)}</p>
+                    </div>
+                  </div>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Amount (Rs.)</label>
-                <input
-                  type="number"
-                  value={newPayment.amount}
-                  onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  step="0.01"
-                  max={invoice.remaining_balance}
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Payment Amount (Rs.)</label>
+                  <input
+                    type="number"
+                    value={newPayment.amount}
+                    onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    step="0.01"
+                    max={invoice.remaining_balance}
+                    placeholder="0.00"
+                  />
+                  <div className="flex justify-between mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewPayment({ ...newPayment, amount: (invoice.remaining_balance / 2).toString() })}
+                      className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+                    >
+                      Half ({formatCurrency(invoice.remaining_balance / 2)})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPayment({ ...newPayment, amount: invoice.remaining_balance.toString() })}
+                      className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors"
+                    >
+                      Full Amount
+                    </button>
+                  </div>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
-                <select
-                  value={newPayment.payment_method}
-                  onChange={(e) => setNewPayment({ ...newPayment, payment_method: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cheque">Cheque</option>
-                  <option value="card">Card Payment</option>
-                </select>
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Payment Method</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'cash', label: 'Cash', icon: '💵' },
+                      { value: 'bank_transfer', label: 'Bank Transfer', icon: '🏦' },
+                      { value: 'cheque', label: 'Cheque', icon: '📄' },
+                      { value: 'card', label: 'Card', icon: '💳' }
+                    ].map(method => (
+                      <button
+                        key={method.value}
+                        type="button"
+                        onClick={() => setNewPayment({ ...newPayment, payment_method: method.value })}
+                        className={`p-3 text-sm rounded-lg border transition-colors ${
+                          newPayment.payment_method === method.value
+                            ? 'border-green-500 bg-green-50 text-green-700'
+                            : 'border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="text-center">
+                          <div className="text-lg mb-1">{method.icon}</div>
+                          <div className="font-medium">{method.label}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reference</label>
-                <input
-                  type="text"
-                  value={newPayment.reference}
-                  onChange={(e) => setNewPayment({ ...newPayment, reference: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="Cheque number, transaction ID, etc."
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Reference (Optional)</label>
+                  <input
+                    type="text"
+                    value={newPayment.reference}
+                    onChange={(e) => setNewPayment({ ...newPayment, reference: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    placeholder="Cheque number, transaction ID, etc."
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-                <textarea
-                  value={newPayment.notes}
-                  onChange={(e) => setNewPayment({ ...newPayment, notes: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  rows={2}
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Notes (Optional)</label>
+                  <textarea
+                    value={newPayment.notes}
+                    onChange={(e) => setNewPayment({ ...newPayment, notes: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+                    rows={2}
+                    placeholder="Any additional notes..."
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                <input
-                  type="date"
-                  value={newPayment.date}
-                  onChange={(e) => setNewPayment({ ...newPayment, date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Payment Date</label>
+                  <input
+                    type="date"
+                    value={newPayment.date}
+                    onChange={(e) => setNewPayment({ ...newPayment, date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                </div>
 
-              <div className="flex justify-end space-x-3 pt-4">
-                <button
-                  onClick={() => setShowAddPayment(false)}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddPayment}
-                  disabled={saving || !newPayment.amount}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                >
-                  {saving ? 'Adding...' : 'Add Payment'}
-                </button>
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                  <button
+                    onClick={() => setShowAddPayment(false)}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddPayment}
+                    disabled={saving || !newPayment.amount}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {saving ? (
+                      <div className="flex items-center space-x-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <span>Recording...</span>
+                      </div>
+                    ) : (
+                      'Record Payment'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
-          </Modal>
+          </div>
         )}
       </div>
-    </Modal>
+    </div>
   );
 };
 

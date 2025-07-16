@@ -2444,6 +2444,7 @@ async adjustStock(
       }
     }
 
+    
     // Recalculate totals
     await this.recalculateInvoiceTotalsMock(invoiceId);
     this.saveToLocalStorage();
@@ -3489,7 +3490,7 @@ stock_movements: stockMovements,
 
         // Recalculate invoice totals
         await this.recalculateInvoiceTotals(invoiceId);
-
+        await this.updateCustomerLedgerForInvoice(invoiceId); 
         await this.database?.execute('COMMIT');
         
         // ENHANCED: Emit events for real-time component updates
@@ -3579,7 +3580,7 @@ stock_movements: stockMovements,
 
         // Recalculate invoice totals
         await this.recalculateInvoiceTotals(invoiceId);
-
+await this.updateCustomerLedgerForInvoice(invoiceId);
         await this.database?.execute('COMMIT');
         
         // ENHANCED: Emit events for real-time component updates
@@ -3704,7 +3705,7 @@ stock_movements: stockMovements,
 
         // Recalculate invoice totals
         await this.recalculateInvoiceTotals(invoiceId);
-
+await this.updateCustomerLedgerForInvoice(invoiceId);
         await this.database?.execute('COMMIT');
         
         // ENHANCED: Emit events for real-time component updates
@@ -3755,6 +3756,44 @@ stock_movements: stockMovements,
     }
   }
 
+
+    /**
+   * Update customer ledger for invoice changes (items add/update/remove)
+   * Ensures ledger entry for invoice is always in sync with invoice total and outstanding balance
+   */
+  async updateCustomerLedgerForInvoice(invoiceId: number): Promise<void> {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    const invoice = await this.getInvoiceDetails(invoiceId);
+    if (!invoice) return;
+    const customer = await this.getCustomer(invoice.customer_id);
+    if (!customer) return;
+
+    // Remove any previous ledger entry for this invoice (type: 'incoming', reference_id: invoiceId)
+    await this.database?.execute(
+      'DELETE FROM ledger_entries WHERE reference_id = ? AND type = ? AND customer_id = ?',
+      [invoiceId, 'incoming', invoice.customer_id]
+    );
+
+    // Add new ledger entry for invoice
+    await this.createLedgerEntry({
+      date: invoice.created_at.split('T')[0],
+      time: invoice.created_at.split('T')[1]?.slice(0,5) || '',
+      type: 'incoming',
+      category: 'Sale',
+      description: `Invoice ${invoice.bill_number} for ${customer.name}`,
+      amount: invoice.grand_total,
+      customer_id: invoice.customer_id,
+      customer_name: customer.name,
+      reference_id: invoiceId,
+      reference_type: 'invoice',
+      bill_number: invoice.bill_number,
+      notes: `Outstanding: Rs. ${invoice.remaining_balance}`,
+      created_by: 'system'
+    });
+  }
   /**
    * Add payment to an existing invoice
    */
@@ -3796,6 +3835,17 @@ stock_movements: stockMovements,
           inv.payment_amount = roundCurrency((inv.payment_amount || 0) + paymentData.amount);
           inv.remaining_balance = roundCurrency(inv.grand_total - inv.payment_amount);
           inv.updated_at = new Date().toISOString();
+          // Ensure payments array exists and push new payment
+          if (!inv.payments) inv.payments = [];
+          inv.payments.push({
+            id: paymentId,
+            amount: paymentData.amount,
+            payment_method: paymentData.payment_method,
+            reference: paymentData.reference || '',
+            notes: paymentData.notes || '',
+            date: paymentData.date || new Date().toISOString().split('T')[0],
+            created_at: new Date().toISOString()
+          });
         }
         this.saveToLocalStorage();
       } else {
@@ -3889,32 +3939,34 @@ stock_movements: stockMovements,
         SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY created_at ASC
       `, [invoiceId]);
 
-      // Get payment history - both from payments table and invoice_payments table
+      // Get all payments for this invoice from payments and invoice_payments tables
       const payments = await this.database?.select(`
-        SELECT * FROM payments 
-        WHERE reference_invoice_id = ? AND payment_type = 'bill_payment'
-        ORDER BY created_at ASC
-      `, [invoiceId]);
+        SELECT p.id, p.amount, p.payment_method, p.reference, p.notes, p.date, p.created_at
+        FROM payments p
+        WHERE p.reference_invoice_id = ? AND p.payment_type = 'bill_payment'
+        ORDER BY p.created_at ASC
+      `, [invoiceId]) || [];
 
-      // Get invoice payment history
+      // Get invoice_payments with joined payment info
       const invoicePayments = await this.database?.select(`
-        SELECT ip.*, p.payment_method, p.notes as payment_notes
+        SELECT ip.payment_id as id, ip.amount, p.payment_method, p.reference, p.notes, ip.date, ip.created_at
         FROM invoice_payments ip
         LEFT JOIN payments p ON ip.payment_id = p.id
         WHERE ip.invoice_id = ?
         ORDER BY ip.created_at ASC
-      `, [invoiceId]);
+      `, [invoiceId]) || [];
 
-      // Combine payment history
-      const allPayments = [...(payments || []), ...(invoicePayments || [])];
-      const uniquePayments = allPayments.filter((payment, index, self) => 
-        index === self.findIndex(p => p.id === payment.id || p.payment_id === payment.payment_id)
-      );
+      // Deduplicate payments by id
+      const paymentMap = new Map();
+      [...payments, ...invoicePayments].forEach((p) => {
+        if (p && p.id) paymentMap.set(p.id, p);
+      });
+      const allPayments = Array.from(paymentMap.values()).sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
 
       return {
         ...invoice,
         items: items || [],
-        payments: uniquePayments.sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime())
+        payments: allPayments
       };
     } catch (error) {
       console.error('Error getting invoice with details:', error);
