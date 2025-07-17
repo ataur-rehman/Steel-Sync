@@ -5,6 +5,7 @@ import { formatCurrency } from '../../utils/formatters';
 import toast from 'react-hot-toast';
 
 interface PaymentForm {
+  
   amount: number;
   payment_method: string;
   payment_channel_id: number;
@@ -17,6 +18,7 @@ interface PaymentForm {
 }
 
 const StockReceivingPayment: React.FC = () => {
+    const [showOptional, setShowOptional] = useState(false);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   
@@ -310,20 +312,6 @@ const StockReceivingPayment: React.FC = () => {
               </select>
             </div>
             
-            {/* Reference Number */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Reference Number
-              </label>
-              <input
-                type="text"
-                value={form.reference_number}
-                onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value }))}
-                placeholder="Transaction reference (optional)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              />
-            </div>
-            
             {/* Cheque specific fields */}
             {form.payment_method === 'cheque' && (
               <>
@@ -351,11 +339,49 @@ const StockReceivingPayment: React.FC = () => {
                     onChange={(e) => setForm(prev => ({ ...prev, cheque_date: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
-                </div>
+                </div>  
               </>
             )}
           </div>
-          
+            {/* Add a small vertical gap for visual separation */}
+            <div className="my-4" />
+           {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
+        <div>
+          <button
+            type="button"
+            className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+            onClick={() => setShowOptional((v) => !v)}
+            aria-expanded={showOptional}
+            disabled={loading}
+          >
+            <span className="tracking-wide">Optional Details</span>
+            <svg
+              className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <div
+            className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
+            style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
+          >
+           {/* Reference Number */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Reference Number
+              </label>
+              <input
+                type="text"
+                value={form.reference_number}
+                onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value }))}
+                placeholder="Transaction reference (optional)"
+                className="w-6/12 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              />
+            </div>
           {/* Notes */}
           <div className="mt-6">
             <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
@@ -367,7 +393,8 @@ const StockReceivingPayment: React.FC = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
           </div>
-
+          </div>
+          </div>
           {/* Payment Summary */}
           {form.amount > 0 && (
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
@@ -383,52 +410,13 @@ const StockReceivingPayment: React.FC = () => {
                     {formatCurrency(remainingAfterPayment)}
                   </span>
                 </div>
-                <div className="border-t border-gray-200 pt-2">
-                  <div className={`text-center p-2 rounded ${
-                    isFullPayment ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                  }`}>
-                    {isFullPayment ? (
-                      <>✓ This will mark the receiving as fully paid</>
-                    ) : (
-                      <>⚠ Remaining balance: {formatCurrency(remainingAfterPayment)}</>
-                    )}
-                  </div>
-                </div>
+
               </div>
             </div>
           )}
         </div>
 
-        {/* Vendor Information - Simple Display */}
-        {vendor && (
-          <div className="card p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Vendor Information</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <span className="block text-sm text-gray-500 mb-1">Name</span>
-                <p className="text-sm text-gray-900">{vendor.name}</p>
-              </div>
-              {vendor.company_name && (
-                <div>
-                  <span className="block text-sm text-gray-500 mb-1">Company</span>
-                  <p className="text-sm text-gray-900">{vendor.company_name}</p>
-                </div>
-              )}
-              {vendor.phone && (
-                <div>
-                  <span className="block text-sm text-gray-500 mb-1">Phone</span>
-                  <p className="text-sm text-gray-900">{vendor.phone}</p>
-                </div>
-              )}
-              {vendor.payment_terms && (
-                <div>
-                  <span className="block text-sm text-gray-500 mb-1">Payment Terms</span>
-                  <p className="text-sm text-gray-900">{vendor.payment_terms}</p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+      
 
         {/* Actions - Simple Button Layout */}
         <div className="flex items-center justify-end gap-3 pt-6 border-t border-gray-200">

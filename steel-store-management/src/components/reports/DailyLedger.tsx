@@ -1235,44 +1235,7 @@ const DailyLedger: React.FC = () => {
         </div>
       )}
 
-      {/* Quick Actions - FIXED: Proper navigation */}
-      <div className="bg-white rounded-lg border p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <button 
-            onClick={() => navigate('/billing/new')}
-            className="p-3 text-left border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <div className="text-sm font-medium text-gray-900">New Invoice</div>
-            <div className="text-xs text-gray-500">Create sale invoice</div>
-          </button>
-          
-          <button 
-            onClick={() => navigate('/reports/customer')}
-            className="p-3 text-left border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <div className="text-sm font-medium text-gray-900">Customer Ledger</div>
-            <div className="text-xs text-gray-500">View customer accounts</div>
-          </button>
-          
-          <button 
-            onClick={() => navigate('/reports/stock')}
-            className="p-3 text-left border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <div className="text-sm font-medium text-gray-900">Stock Report</div>
-            <div className="text-xs text-gray-500">Inventory overview</div>
-          </button>
-          
-          <button 
-            onClick={() => navigate('/billing/invoices')}
-            className="p-3 text-left border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <div className="text-sm font-medium text-gray-900">View Invoices</div>
-            <div className="text-xs text-gray-500">Manage all invoices</div>
-          </button>
-        </div>
-      </div>
-
+      
       {/* Balance Transfer Info */}
       {summary && selectedDate !== new Date().toISOString().split('T')[0] && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

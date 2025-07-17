@@ -16,7 +16,9 @@ import {
   Users,
   Receipt,
   Download,
-  Printer
+  Printer,
+  ArrowLeft,
+  Eye
 } from 'lucide-react';
 
 // Enhanced interfaces with stock movement integration
@@ -534,222 +536,331 @@ const CustomerLedger: React.FC = () => {
     };
   };
 
-  // Customer List View
-  const CustomerListView = () => (
-    <div className="bg-white">
-      {/* Header */}
-      <div className="border-b border-gray-200 px-6 py-4">
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Customer Ledger</h1>
-            <p className="text-gray-600 mt-1">{filteredCustomers.length} customers</p>
-          </div>
-          
-          <div className="relative w-full md:w-96">
-            <input
-              type="text"
-              value={customerSearch}
-              onChange={(e) => setCustomerSearch(e.target.value)}
-              placeholder="Search by name, phone, or CNIC..."
-              className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-          </div>
-        </div>
+// Customer List View as a separate component
+interface CustomerListViewProps {
+  customers: Customer[];
+  filteredCustomers: Customer[];
+  customersLoading: boolean;
+  customerSearch: string;
+  setCustomerSearch: React.Dispatch<React.SetStateAction<string>>;
+  selectCustomer: (customer: Customer) => void;
+  setSelectedCustomer: React.Dispatch<React.SetStateAction<Customer | null>>;
+  setShowAddPayment: React.Dispatch<React.SetStateAction<boolean>>;
+  navigate: ReturnType<typeof useNavigate>;
+  formatCurrency: (amount: number | undefined | null) => string;
+}
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <div className="bg-blue-50 p-4 rounded-lg text-center">
-            <Users className="h-6 w-6 text-blue-600 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-blue-900">{customers.length}</p>
-            <p className="text-sm text-blue-600">Total Customers</p>
-          </div>
-          
-          <div className="bg-green-50 p-4 rounded-lg text-center">
-            <DollarSign className="h-6 w-6 text-green-600 mx-auto mb-2" />
-            <p className="text-xl font-bold text-green-900">
-              {formatCurrency(customers.reduce((sum, c) => sum + Math.max(0, c.total_balance), 0))}
-            </p>
-            <p className="text-sm text-green-600">Total Receivables</p>
-          </div>
-          
-          <div className="bg-red-50 p-4 rounded-lg text-center">
-            <TrendingUp className="h-6 w-6 text-red-600 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-red-900">
-              {customers.filter(c => c.total_balance > 0).length}
-            </p>
-            <p className="text-sm text-red-600">Outstanding</p>
-          </div>
-          
-          <div className="bg-purple-50 p-4 rounded-lg text-center">
-            <UserCheck className="h-6 w-6 text-purple-600 mx-auto mb-2" />
-            <p className="text-2xl font-bold text-purple-900">
-              {customers.filter(c => c.total_balance <= 0).length}
-            </p>
-            <p className="text-sm text-purple-600">Paid Up</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Customer List */}
-      <div className="overflow-hidden">
-        {customersLoading ? (
-          <div className="flex items-center justify-center h-32">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          </div>
-        ) : filteredCustomers.length > 0 ? (
-          <div className="divide-y divide-gray-200">
-            {filteredCustomers.map(customer => (
-              <div
-                key={customer.id}
-                onClick={() => selectCustomer(customer)}
-                className="p-6 hover:bg-gray-50 cursor-pointer transition-colors group"
-              >
-                <div className="flex justify-between items-center">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
-                        {customer.name}
-                      </h4>
-                      <ChevronRight className="h-5 w-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
-                    </div>
-                    
-                    <div className="flex items-center space-x-4 text-sm text-gray-600">
-                      {customer.phone && (
-                        <span className="flex items-center">
-                          <Phone className="h-3 w-3 mr-1" />
-                          {customer.phone}
-                        </span>
-                      )}
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        customer.total_balance > 0 
-                          ? 'bg-red-100 text-red-800' 
-                          : customer.total_balance < 0
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        Balance: {formatCurrency(customer.total_balance)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12">
-            <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No customers found</h3>
-            <p className="text-gray-500">
-              {customerSearch ? 'Try adjusting your search terms.' : 'No customers have been added yet.'}
-            </p>
-          </div>
-        )}
+const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
+  customers,
+  filteredCustomers,
+  customersLoading,
+  customerSearch,
+  setCustomerSearch,
+  selectCustomer,
+  setSelectedCustomer,
+  setShowAddPayment,
+  navigate,
+  formatCurrency
+}) => (
+  <div className="space-y-6 p-6">
+    {/* Header */}
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
+        <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({filteredCustomers.length} customers)</span></p>
       </div>
     </div>
-  );
 
-  // Enhanced Ledger View (Inspired by the attached image)
+    {/* Filters */}
+    <div className="bg-white border border-gray-200 rounded-xl p-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Search */}
+        <div className="relative">
+          <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name, phone, or CNIC..."
+            value={customerSearch}
+            onChange={(e) => setCustomerSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            aria-label="Search customers"
+          />
+        </div>
+
+        {/* Placeholder for consistency */}
+        <div></div>
+        <div></div>
+
+        {/* Clear Filters */}
+        <div>
+          <button 
+            onClick={() => setCustomerSearch('')} 
+            className="btn btn-secondary w-full px-3 py-1.5 text-sm"
+          >
+            Clear Search
+          </button>
+        </div>
+      </div>
+    </div>
+
+    {/* Stats Cards */}
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600">Total Customers</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">{customers.length}</p>
+          </div>
+        </div>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600">Total Receivables</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">
+              {formatCurrency(customers.reduce((sum, c) => sum + Math.max(0, c.total_balance), 0))}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600">Outstanding</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">
+              {customers.filter(c => c.total_balance > 0).length}
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600">Paid Up</p>
+            <p className="text-2xl font-bold text-gray-900 mt-1">
+              {customers.filter(c => c.total_balance <= 0).length}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {/* Customer Table */}
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-100">
+          {customersLoading ? (
+            <tr>
+              <td colSpan={6} className="px-6 py-12 text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+              </td>
+            </tr>
+          ) : filteredCustomers.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="px-6 py-12 text-center">
+                <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">No customers found</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  {customerSearch ? 'Try adjusting your search terms.' : 'No customers have been added yet.'}
+                </p>
+              </td>
+            </tr>
+          ) : (
+            filteredCustomers.map(customer => {
+              const hasBalance = customer.total_balance > 0;
+              const balanceStatus = hasBalance 
+                ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
+                : { status: 'Clear', color: 'text-green-600 bg-green-100' };
+              return (
+                <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {customer.phone || '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    <div className="max-w-xs truncate" title={customer.address}>
+                      {customer.address || '-'}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span className={hasBalance ? 'text-red-600 font-semibold' : 'text-gray-700'}>
+                      {formatCurrency(customer.total_balance)}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${balanceStatus.color}`}>
+                      {balanceStatus.status}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => selectCustomer(customer)}
+                        className="btn btn-secondary flex items-center px-2 py-1 text-xs"
+                        title="View Ledger"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedCustomer(customer);
+                          setShowAddPayment(true);
+                        }}
+                        className="btn btn-primary flex items-center px-2 py-1 text-xs"
+                        title="Add Payment"
+                      >
+                        <Receipt className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          navigate('/billing/new', {
+                            state: { 
+                              customerId: customer.id,
+                              customerName: customer.name 
+                            }
+                          });
+                        }}
+                        className="btn btn-success flex items-center px-2 py-1 text-xs"
+                        title="New Invoice"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    </div>
+  </div>
+));
+
+  // Enhanced Ledger View
   const LedgerView = () => {
     const totalDebits = customerTransactions.reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
     const totalCredits = customerTransactions.reduce((sum, tx) => sum + (tx.credit_amount ?? tx.payment_amount ?? 0), 0);
     const adjustedBalance = totalDebits - totalCredits;
 
     return (
-      <div className="bg-white">
-        {/* Professional Header - Inspired by the image */}
-        <div className="border-b-2 border-gray-900 px-6 py-6">
-          <div className="text-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Customer Ledger</h1>
-           
+      <div className="space-y-6 p-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <button
+                onClick={() => setCurrentView('customers')}
+                className="flex items-center text-blue-600 hover:text-blue-800 font-medium"
+              >
+                <ArrowLeft className="h-4 w-4 mr-1" />
+                Back to Customers
+              </button>
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
+            <p className="mt-1 text-sm text-gray-500">{selectedCustomer?.name} - Account Statement</p>
           </div>
           
-          {/* Customer Info Table - Similar to the image */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-            <div className="space-y-2">
-              <div className="flex justify-between py-1">
-                <span className="text-gray-600 font-medium">Account Name:</span>
-                <span className="text-gray-900">{selectedCustomer?.name}</span>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex justify-between py-1">
-                <span className="text-gray-600 font-medium">Account No.:</span>
-                <span className="text-gray-900">{selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0')}</span>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <div className="flex justify-between py-1">
-                <span className="text-gray-600 font-medium">Month Ending:</span>
-                <input
-                  type="month"
-                  className="text-gray-900 border border-gray-300 rounded px-2 py-1"
-                  defaultValue={new Date().toISOString().slice(0, 7)}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setCurrentView('customers')}
-              className="flex items-center text-blue-600 hover:text-blue-800 font-medium"
+              onClick={() => setShowAddPayment(true)}
+              className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
             >
-              <ArrowUpRight className="h-4 w-4 mr-1 rotate-180" />
-              Back to Customers
+              <Plus className="h-4 w-4 mr-2" />
+              Add Payment
             </button>
             
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowAddPayment(true)}
-                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Payment
-              </button>
-              
-              <button
-                onClick={createNewInvoice}
-                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                <Receipt className="h-4 w-4 mr-2" />
-                New Invoice
-              </button>
-              
-              <button
-                onClick={exportLedger}
-                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                title="Export CSV"
-              >
-                <Download className="h-4 w-4" />
-              </button>
-              
-              <button
-                onClick={printLedger}
-                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                title="Print Ledger"
-              >
-                <Printer className="h-4 w-4" />
-              </button>
+            <button
+              onClick={createNewInvoice}
+              className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
+            >
+              <Receipt className="h-4 w-4 mr-2" />
+              New Invoice
+            </button>
+            
+            <button
+              onClick={exportLedger}
+              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              title="Export CSV"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            
+            <button
+              onClick={printLedger}
+              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              title="Print Ledger"
+            >
+              <Printer className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Customer Info Card */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <h3 className="text-sm font-medium text-gray-500 mb-2">Account Information</h3>
+              <div className="space-y-1">
+                <p className="text-lg font-semibold text-gray-900">{selectedCustomer?.name}</p>
+                <p className="text-sm text-gray-600">Account No: {selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0')}</p>
+                {selectedCustomer?.phone && (
+                  <p className="text-sm text-gray-600">Phone: {selectedCustomer.phone}</p>
+                )}
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="text-sm font-medium text-gray-500 mb-2">Current Balance</h3>
+              <div className={`text-2xl font-bold ${
+                selectedCustomer && selectedCustomer.total_balance > 0 
+                  ? 'text-red-600' 
+                  : selectedCustomer && selectedCustomer.total_balance < 0
+                  ? 'text-green-600'
+                  : 'text-gray-900'
+              }`}>
+                {selectedCustomer ? formatCurrency(selectedCustomer.total_balance) : 'Rs. 0.00'}
+                <span className="text-sm font-normal ml-2">
+                  {selectedCustomer && selectedCustomer.total_balance > 0 ? 'Dr' : selectedCustomer && selectedCustomer.total_balance < 0 ? 'Cr' : ''}
+                </span>
+              </div>
+            </div>
+            
+            <div>
+              <h3 className="text-sm font-medium text-gray-500 mb-2">Total Transactions</h3>
+              <div className="text-2xl font-bold text-gray-900">
+                {customerTransactions.length}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Filters */}
-        <div className="border-b border-gray-200 px-6 py-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <input
                 type="text"
                 value={filters.search}
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                 placeholder="Search transactions..."
-                className="w-full px-4 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             </div>
             
             <input
@@ -789,83 +900,86 @@ const CustomerLedger: React.FC = () => {
           </div>
         </div>
 
-        {/* Professional Ledger Table - Inspired by the attached image */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            </div>
-          ) : customerTransactions.length > 0 ? (
-            <table className="w-full">
-              <thead className="bg-gray-100 border-b-2 border-gray-300">
-                <tr>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-gray-900 uppercase tracking-wider">DATE</th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-gray-900 uppercase tracking-wider">DESCRIPTION</th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-gray-900 uppercase tracking-wider">POST REF.</th>
-                  <th className="px-6 py-4 text-right text-sm font-bold text-gray-900 uppercase tracking-wider">DEBIT</th>
-                  <th className="px-6 py-4 text-right text-sm font-bold text-gray-900 uppercase tracking-wider">CREDIT</th>
-                  <th className="px-6 py-4 text-right text-sm font-bold text-gray-900 uppercase tracking-wider">TOTAL DEBIT</th>
-                  <th className="px-6 py-4 text-right text-sm font-bold text-gray-900 uppercase tracking-wider">TOTAL CREDIT</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {customerTransactions.map((transaction, index) => {
-                  const runningDebit = customerTransactions.slice(0, index + 1).reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
-                  const runningCredit = customerTransactions.slice(0, index + 1).reduce((sum, tx) => sum + (tx.credit_amount ?? tx.payment_amount ?? 0), 0);
-                  
-                  return (
-                    <tr key={transaction.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(transaction.date)}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        <div className="font-medium">{transaction.description}</div>
-                        {transaction.notes && (
-                          <div className="text-xs text-gray-500 mt-1">{transaction.notes}</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {transaction.reference_number || '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                        {(transaction.debit_amount || transaction.invoice_amount) ? (
-                          <span className="text-red-600 font-medium">
-                            {(transaction.debit_amount ?? transaction.invoice_amount ?? 0).toLocaleString()}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                        {(transaction.credit_amount || transaction.payment_amount) ? (
-                          <span className="text-green-600 font-medium">
-                            {(transaction.credit_amount ?? transaction.payment_amount ?? 0).toLocaleString()}
-                          </span>
-                        ) : '-'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                        {runningDebit.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                        {runningCredit.toLocaleString()}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : (
-            <div className="text-center py-12">
-              <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions found</h3>
-              <p className="text-gray-500">
-                This customer has no transaction history yet.
-              </p>
-            </div>
-          )}
+        {/* Ledger Table */}
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            {loading ? (
+              <div className="flex items-center justify-center h-32">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : customerTransactions.length > 0 ? (
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Post Ref.</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Debit</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Credit</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Debit</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Credit</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {customerTransactions.map((transaction, index) => {
+                    const runningDebit = customerTransactions.slice(0, index + 1).reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
+                    const runningCredit = customerTransactions.slice(0, index + 1).reduce((sum, tx) => sum + (tx.credit_amount ?? tx.payment_amount ?? 0), 0);
+                    
+                    return (
+                      <tr key={transaction.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatDate(transaction.date)}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          <div className="font-medium">{transaction.description}</div>
+                          {transaction.notes && (
+                            <div className="text-xs text-gray-500 mt-1">{transaction.notes}</div>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {transaction.reference_number || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                          {(transaction.debit_amount || transaction.invoice_amount) ? (
+                            <span className="text-red-600 font-medium">
+                              {(transaction.debit_amount ?? transaction.invoice_amount ?? 0).toLocaleString()}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                          {(transaction.credit_amount || transaction.payment_amount) ? (
+                            <span className="text-green-600 font-medium">
+                              {(transaction.credit_amount ?? transaction.payment_amount ?? 0).toLocaleString()}
+                            </span>
+                          ) : '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                          {runningDebit.toLocaleString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
+                          {runningCredit.toLocaleString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              <div className="text-center py-12">
+                <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions found</h3>
+                <p className="text-gray-500">
+                  This customer has no transaction history yet.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Balance Summary - Inspired by the attached image */}
+        {/* Balance Summary */}
         {customerTransactions.length > 0 && (
-          <div className="border-t-2 border-gray-300 bg-gray-50 px-6 py-6">
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Balance Summary</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-3">
                 <div className="flex justify-between py-2 border-b border-gray-300">
@@ -889,7 +1003,7 @@ const CustomerLedger: React.FC = () => {
                     {Math.abs(adjustedBalance).toLocaleString()}
                   </span>
                 </div>
-                <div className="flex justify-between py-3 bg-white px-4 rounded-lg border-2 border-gray-300">
+                <div className="flex justify-between py-3 bg-gray-50 px-4 rounded-lg border border-gray-200">
                   <span className="text-lg font-bold text-gray-900">Adjusted Balance:</span>
                   <span className={`text-2xl font-bold ${adjustedBalance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {Math.abs(adjustedBalance).toLocaleString()} {adjustedBalance >= 0 ? 'Dr' : 'Cr'}
@@ -906,7 +1020,22 @@ const CustomerLedger: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Main Content */}
-      {currentView === 'customers' ? <CustomerListView /> : <LedgerView />}
+      {currentView === 'customers' ? (
+        <CustomerListView
+          customers={customers}
+          filteredCustomers={filteredCustomers}
+          customersLoading={customersLoading}
+          customerSearch={customerSearch}
+          setCustomerSearch={setCustomerSearch}
+          selectCustomer={selectCustomer}
+          setSelectedCustomer={setSelectedCustomer}
+          setShowAddPayment={setShowAddPayment}
+          navigate={navigate}
+          formatCurrency={formatCurrency}
+        />
+      ) : (
+        <LedgerView />
+      )}
 
       {/* Add Payment Modal */}
       {showAddPayment && selectedCustomer && (
