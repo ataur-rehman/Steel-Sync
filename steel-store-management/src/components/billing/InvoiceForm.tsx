@@ -62,6 +62,7 @@ interface InvoiceItem {
 }
 
 interface InvoiceFormData {
+  
   customer_id: number | null;
   items: InvoiceItem[];
   discount: number;
@@ -88,6 +89,7 @@ const PAYMENT_METHODS = [
 ];
 
 const InvoiceForm: React.FC = () => {
+  const [showOptional, setShowOptional] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   
@@ -978,7 +980,7 @@ const InvoiceForm: React.FC = () => {
                   <button
                     key={method.value}
                     onClick={() => setFormData(prev => ({ ...prev, payment_method: method.value }))}
-                    className={`p-2 text-sm rounded border transition-colors ${
+                    className={`p-1 text-sm rounded border transition-colors ${
                     formData.payment_method === method.value
                       ? 'border-green-500 bg-green-50 text-green-700'
                       : 'border-gray-300 hover:bg-gray-50'
@@ -1040,8 +1042,32 @@ const InvoiceForm: React.FC = () => {
             </div>
           </div>
 
+ {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
+        <div>
+          <button
+            type="button"
+            className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+            onClick={() => setShowOptional((v) => !v)}
+            aria-expanded={showOptional}
+            disabled={loading}
+          >
+            <span className="tracking-wide">Optional Details</span>
+            <svg
+              className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+          <div
+            className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
+            style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
+          >
           {/* REDESIGNED: Notes */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+          
             <label className="block text-sm font-medium text-gray-700 mb-2">Notes (Optional)</label>
             <textarea
               value={formData.notes}
@@ -1050,8 +1076,9 @@ const InvoiceForm: React.FC = () => {
               rows={2}
               placeholder="Add any special instructions or notes..."
             />
+         
           </div>
-
+</div>
           {/* REDESIGNED: Action Buttons */}
           <div className="space-y-2">
             <button

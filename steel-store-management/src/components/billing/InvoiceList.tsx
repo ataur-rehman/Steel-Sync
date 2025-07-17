@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
-import InvoicePrint from './InvoicePrint';
 import InvoiceDetails from './InvoiceDetails';
 import Modal from '../common/Modal';
 import { formatUnitString } from '../../utils/unitUtils';
@@ -98,7 +97,6 @@ const InvoiceList: React.FC = () => {
   const [filteredInvoices, setFilteredInvoices] = useState<Invoice[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [showPrintModal, setShowPrintModal] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [showStockImpactModal, setShowStockImpactModal] = useState(false);
   const [invoiceStockMovements, setInvoiceStockMovements] = useState<any[]>([]);
@@ -111,7 +109,7 @@ const InvoiceList: React.FC = () => {
   
   // Pagination - KEEPING YOUR ORIGINAL
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(12);
+  const [itemsPerPage, setItemsPerPage] = useState(24);
   
   // Filters - KEEPING YOUR ORIGINAL
   const [filters, setFilters] = useState<InvoiceFilters>({
@@ -119,7 +117,7 @@ const InvoiceList: React.FC = () => {
     customer_id: null,
     status: '',
     from_date: '',
-    to_date: '',
+    to_date: '',  
     payment_method: ''
   });
 
@@ -380,19 +378,8 @@ const InvoiceList: React.FC = () => {
 
   // YOUR ORIGINAL printInvoice function
   const printInvoice = async (invoice: Invoice) => {
-    try {
-      console.log('Loading invoice for printing:', invoice.id);
-      const invoiceDetails = await db.getInvoiceDetails(invoice.id);
-      if (invoiceDetails) {
-        setSelectedInvoice(invoiceDetails);
-        setShowPrintModal(true);
-      } else {
-        toast.error('Invoice details not found');
-      }
-    } catch (error) {
-      console.error('Failed to load invoice for printing:', error);
-      toast.error('Failed to load invoice details');
-    }
+    // Print should only be handled from InvoiceDetails modal, not here
+    toast('Please open invoice details to print.', { icon: '🖨️', style: { background: '#f3f4f6', color: '#111' } });
   };
 
   // YOUR ORIGINAL viewInvoiceDetails function
@@ -1023,13 +1010,7 @@ const InvoiceList: React.FC = () => {
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
-                              <button
-                                onClick={() => printInvoice(invoice)}
-                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                                title="Print Invoice"
-                              >
-                                <Printer className="h-4 w-4" />
-                              </button>
+                            
                               <button
                                 onClick={() => viewInvoiceStockImpact(invoice.id)}
                                 className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -1282,14 +1263,7 @@ const InvoiceList: React.FC = () => {
         />
       )}
 
-      {/* Print Modal */}
-      {showPrintModal && selectedInvoice && (
-        <InvoicePrint
-          invoice={selectedInvoice}
-          isOpen={showPrintModal}
-          onClose={() => setShowPrintModal(false)}
-        />
-      )}
+      
     </div>
   );
 };

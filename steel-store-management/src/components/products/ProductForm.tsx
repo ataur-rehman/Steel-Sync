@@ -317,65 +317,7 @@ const handleSubmit = async (e: React.FormEvent) => {
             )}
             {errors.current_stock && <p className="text-red-600 text-sm mt-1">{errors.current_stock}</p>}
           </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">
-              Low Stock Alert Level
-            </label>
-            {formData.unit_type === 'kg-grams' ? (
-              <div>
-                <input autoComplete="off"
-                  id="min-stock-alert"
-                  type="text"
-                  name="min_stock_alert"
-                  value={formData.min_stock_alert}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="e.g., 50, 50-0"
-                  disabled={loading}
-                  aria-invalid={!!errors.min_stock_alert}
-                />
-         
-              </div>
-            ) : formData.unit_type === 'kg' ? (
-              <div>
-                <input autoComplete="off"
-                  id="min-stock-alert"
-                  type="text"
-                  name="min_stock_alert"
-                  value={formData.min_stock_alert}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="e.g., 50.10"
-                  disabled={loading}
-                  aria-invalid={!!errors.min_stock_alert}
-                />
-            
-              </div>
-            ) : (
-              <div className="relative">
-                <input autoComplete="off"
-                  id="min-stock-alert"
-                  type="number"
-                  name="min_stock_alert"
-                  value={formData.min_stock_alert}
-                  onChange={handleChange}
-                  step="1"
-                  min="0"
-                  className={`w-full px-3 py-2 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="0"
-                  disabled={loading}
-                  aria-invalid={!!errors.min_stock_alert}
-                />
-                <span className="absolute right-3 top-2.5 text-sm text-gray-500">
-                  {getUnitTypeConfig(formData.unit_type).symbol}
-                </span>
-                <p className="text-xs text-gray-500 mt-1">
-                  Alert below: {formData.min_stock_alert ? `${formData.min_stock_alert} ${getUnitTypeConfig(formData.unit_type).symbol}` : `0 ${getUnitTypeConfig(formData.unit_type).symbol}`}
-                </p>
-              </div>
-            )}
-            {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
-          </div>
+       
         </div>
 
         {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
@@ -436,6 +378,65 @@ const handleSubmit = async (e: React.FormEvent) => {
                   ))}
                 </select>
               </div>
+                 <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">
+              Low Stock Alert Level
+            </label>
+            {formData.unit_type === 'kg-grams' ? (
+              <div>
+                <input autoComplete="off"
+                  id="min-stock-alert"
+                  type="text"
+                  name="min_stock_alert"
+                  value={formData.min_stock_alert}
+                  onChange={handleChange}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+                  placeholder="e.g., 50, 50-0"
+                  disabled={loading}
+                  aria-invalid={!!errors.min_stock_alert}
+                />
+         
+              </div>
+            ) : formData.unit_type === 'kg' ? (
+              <div>
+                <input autoComplete="off"
+                  id="min-stock-alert"
+                  type="text"
+                  name="min_stock_alert"
+                  value={formData.min_stock_alert}
+                  onChange={handleChange}
+                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+                  placeholder="e.g., 50.10"
+                  disabled={loading}
+                  aria-invalid={!!errors.min_stock_alert}
+                />
+            
+              </div>
+            ) : (
+              <div className="relative">
+                <input autoComplete="off"
+                  id="min-stock-alert"
+                  type="number"
+                  name="min_stock_alert"
+                  value={formData.min_stock_alert}
+                  onChange={handleChange}
+                  step="1"
+                  min="0"
+                  className={`w-full px-3 py-2 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+                  placeholder="0"
+                  disabled={loading}
+                  aria-invalid={!!errors.min_stock_alert}
+                />
+                <span className="absolute right-3 top-2.5 text-sm text-gray-500">
+                  {getUnitTypeConfig(formData.unit_type).symbol}
+                </span>
+                <p className="text-xs text-gray-500 mt-1">
+                  Alert below: {formData.min_stock_alert ? `${formData.min_stock_alert} ${getUnitTypeConfig(formData.unit_type).symbol}` : `0 ${getUnitTypeConfig(formData.unit_type).symbol}`}
+                </p>
+              </div>
+            )}
+            {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
+          </div>
             </div>
           </div>
         </div>

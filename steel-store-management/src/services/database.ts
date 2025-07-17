@@ -3477,10 +3477,12 @@ stock_movements: stockMovements,
 
         // Add invoice items
         for (const item of items) {
+          // Always set created_at and updated_at to current timestamp
+          const now = new Date().toISOString();
           await this.database?.execute(`
-            INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, unit_price, total_price, unit)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `, [invoiceId, item.product_id, item.product_name, item.quantity, item.unit_price, item.total_price, item.unit]);
+            INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [invoiceId, item.product_id, item.product_name, item.quantity, item.unit_price, item.total_price, item.unit, now, now]);
 
           // Update stock - convert quantity to numeric value for proper stock tracking
           const product = await this.getProduct(item.product_id);
@@ -3685,11 +3687,13 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
           newTotalPrice = newQuantity * currentItem.unit_price;
         }
         
+        // Update updated_at to current timestamp
+        const now = new Date().toISOString();
         await this.database?.execute(`
           UPDATE invoice_items 
-          SET quantity = ?, total_price = ?, updated_at = CURRENT_TIMESTAMP 
+          SET quantity = ?, total_price = ?, updated_at = ? 
           WHERE id = ?
-        `, [newQuantityString, newTotalPrice, itemId]);
+        `, [newQuantityString, newTotalPrice, now, itemId]);
 
         // Update stock (negative means stock out, positive means stock back)
         if (quantityDifference !== 0) {
