@@ -320,18 +320,26 @@ const InvoiceForm: React.FC = () => {
     }
 
     const existingItemIndex = formData.items.findIndex(item => item.product_id === product.id);
-    
     if (existingItemIndex >= 0) {
       const newItems = [...formData.items];
-      const currentQuantity = getQuantityAsNumber(newItems[existingItemIndex].quantity, currentProduct.unit_type);
-      const newQuantityNum = currentQuantity + 1;
-      const newQuantity = newQuantityNum.toString();
-      
+      let currentQuantity = getQuantityAsNumber(newItems[existingItemIndex].quantity, currentProduct.unit_type);
+      let newQuantityNum;
+      let newQuantity;
+      if (currentProduct.unit_type === 'kg-grams') {
+        // Add 1kg (1000 grams) each time
+        newQuantityNum = currentQuantity + 1000;
+        // Convert to kg-grams string
+        const kg = Math.floor(newQuantityNum / 1000);
+        const grams = newQuantityNum % 1000;
+        newQuantity = `${kg}-${grams}`;
+      } else {
+        newQuantityNum = currentQuantity + 1;
+        newQuantity = newQuantityNum.toString();
+      }
       if (!isStockSufficient(currentProduct.current_stock, newQuantity, currentProduct.unit_type)) {
         toast.error(`Cannot add more. Only ${formatUnitString(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams')} available.`);
         return;
       }
-      
       newItems[existingItemIndex] = {
         ...newItems[existingItemIndex],
         quantity: newQuantity,
@@ -339,26 +347,26 @@ const InvoiceForm: React.FC = () => {
         available_stock: getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams'),
         unit_type: currentProduct.unit_type
       };
-      
       setFormData(prev => ({ ...prev, items: newItems }));
     } else {
       if (getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type) < 1) {
         toast.error(`${currentProduct.name} is out of stock`);
         return;
       }
-      
+      // Always start with quantity 1 for all units
+      const initialQuantity = "1";
+      const initialQuantityNum = 1;
       const newItem: InvoiceItem = {
         id: `item_${Date.now()}_${Math.random()}`,
         product_id: currentProduct.id,
         product_name: currentProduct.name,
-        quantity: "1",
+        quantity: initialQuantity,
         unit_price: currentProduct.rate_per_unit,
-        total_price: calculateTotal(1, currentProduct.rate_per_unit),
+        total_price: calculateTotal(initialQuantityNum, currentProduct.rate_per_unit),
         unit: currentProduct.unit,
         available_stock: getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type),
         unit_type: currentProduct.unit_type
       };
-      
       setFormData(prev => ({ 
         ...prev, 
         items: [...prev.items, newItem] 
@@ -372,8 +380,18 @@ const InvoiceForm: React.FC = () => {
 
   // YOUR ORIGINAL UPDATE QUANTITY FUNCTION
   const updateItemQuantity = (itemId: string, newQuantityString: string) => {
-    if (!newQuantityString || newQuantityString.trim() === '') {
-      removeItem(itemId);
+    // If quantity is empty, keep it empty and do not remove or reset
+    if (newQuantityString === '' || newQuantityString.trim() === '') {
+      const newItems = formData.items.map(item => {
+        if (item.id === itemId) {
+          return {
+            ...item,
+            quantity: ''
+          };
+        }
+        return item;
+      });
+      setFormData(prev => ({ ...prev, items: newItems }));
       return;
     }
     const newItems = formData.items.map(item => {
@@ -855,15 +873,36 @@ const InvoiceForm: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {formData.items.map((item) => {
-                      const formattedQuantity = item.unit_type === 'kg-grams' ? formatUnitString(item.quantity, item.unit_type) : item.quantity;
+                      // Format quantity for kg-grams
+                      let formattedQuantity = item.quantity;
+                      if (item.unit_type === 'kg-grams') {
+                        // If quantity is a plain number, convert to kg-grams string
+                        if (/^\d+$/.test(item.quantity)) {
+                          const num = parseInt(item.quantity, 10);
+                          const kg = Math.floor(num / 1000);
+                          const grams = num % 1000;
+                          formattedQuantity = `${kg}-${grams}`;
+                        }
+                        formattedQuantity = formatUnitString(formattedQuantity, 'kg-grams');
+                      }
                       
+                      // Format available stock for kg-grams
+                      let formattedAvailableStock = item.available_stock.toString();
+                      if (item.unit_type === 'kg-grams') {
+                        const num = Number(item.available_stock);
+                        const kg = Math.floor(num / 1000);
+                        const grams = num % 1000;
+                        formattedAvailableStock = formatUnitString(`${kg}-${grams}`, 'kg-grams');
+                      } else {
+                        formattedAvailableStock = formatUnitString(item.available_stock.toString(), item.unit_type as UnitType);
+                      }
                       return (
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2">
                             <div>
                               <div className="font-medium text-gray-900">{item.product_name}</div>
                               <div className="text-xs text-gray-500">
-                                Available: {formatUnitString(item.available_stock.toString(), (item.unit_type || 'kg-grams') as UnitType)}
+                                Available: {formattedAvailableStock}
                               </div>
                             </div>
                           </td>
@@ -871,8 +910,18 @@ const InvoiceForm: React.FC = () => {
                             <div className="flex items-center space-x-1">
                               <button
                                 onClick={() => {
-                                  const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
-                                  updateItemQuantity(item.id, (currentQty - 1).toString());
+                                  if (item.unit_type === 'kg-grams') {
+                                    // Decrease by 1kg (1000g), minimum 1kg
+                                    const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
+                                    const newQtyNum = Math.max(1000, currentQty - 1000);
+                                    const kg = Math.floor(newQtyNum / 1000);
+                                    const grams = newQtyNum % 1000;
+                                    const newQtyStr = `${kg}-${grams}`;
+                                    updateItemQuantity(item.id, newQtyStr);
+                                  } else {
+                                    const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
+                                    updateItemQuantity(item.id, Math.max(1, currentQty - 1).toString());
+                                  }
                                 }}
                                 className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
                               >
@@ -889,8 +938,18 @@ const InvoiceForm: React.FC = () => {
                               />
                               <button
                                 onClick={() => {
-                                  const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
-                                  updateItemQuantity(item.id, (currentQty + 1).toString());
+                                  if (item.unit_type === 'kg-grams') {
+                                    // Increase by 1kg (1000g)
+                                    const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
+                                    const newQtyNum = currentQty + 1000;
+                                    const kg = Math.floor(newQtyNum / 1000);
+                                    const grams = newQtyNum % 1000;
+                                    const newQtyStr = `${kg}-${grams}`;
+                                    updateItemQuantity(item.id, newQtyStr);
+                                  } else {
+                                    const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
+                                    updateItemQuantity(item.id, (currentQty + 1).toString());
+                                  }
                                 }}
                                 className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
                               >
@@ -1122,7 +1181,24 @@ const InvoiceForm: React.FC = () => {
             {stockPreview.map(stock => {
               const product = products.find(p => p.id === stock.product_id);
               const unitType = product?.unit_type || 'kg-grams';
-              
+              // Format stock values for kg-grams
+              let formattedCurrentStock = stock.current_stock.toString();
+              let formattedOrderedQuantity = stock.ordered_quantity.toString();
+              let formattedNewStock = stock.new_stock.toString();
+              if (unitType === 'kg-grams') {
+                const formatKgGrams = (num: number) => {
+                  const kg = Math.floor(num / 1000);
+                  const grams = num % 1000;
+                  return formatUnitString(`${kg}-${grams}`, 'kg-grams');
+                };
+                formattedCurrentStock = formatKgGrams(stock.current_stock);
+                formattedOrderedQuantity = formatKgGrams(stock.ordered_quantity);
+                formattedNewStock = formatKgGrams(stock.new_stock);
+              } else {
+                formattedCurrentStock = formatUnitString(stock.current_stock.toString(), unitType);
+                formattedOrderedQuantity = formatUnitString(stock.ordered_quantity.toString(), unitType);
+                formattedNewStock = formatUnitString(stock.new_stock.toString(), unitType);
+              }
               return (
                 <div 
                   key={stock.product_id} 
@@ -1146,11 +1222,11 @@ const InvoiceForm: React.FC = () => {
                   <div className="space-y-1 text-xs">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Current:</span>
-                      <span>{formatUnitString(stock.current_stock.toString(), unitType)}</span>
+                      <span>{formattedCurrentStock}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Selling:</span>
-                      <span className="text-red-600">-{formatUnitString(stock.ordered_quantity.toString(), unitType)}</span>
+                      <span className="text-red-600">-{formattedOrderedQuantity}</span>
                     </div>
                     <div className="flex justify-between font-medium border-t pt-1">
                       <span className="text-gray-600">After Sale:</span>
@@ -1158,7 +1234,7 @@ const InvoiceForm: React.FC = () => {
                         stock.status === 'insufficient' ? 'text-red-600' :
                         stock.status === 'low' ? 'text-yellow-600' : 'text-green-600'
                       }>
-                        {formatUnitString(stock.new_stock.toString(), unitType)}
+                        {formattedNewStock}
                       </span>
                     </div>
                   </div>

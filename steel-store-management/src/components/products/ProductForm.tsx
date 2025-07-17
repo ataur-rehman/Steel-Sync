@@ -43,7 +43,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const grades = ['Grade A', 'Grade B', 'Grade C', 'Premium', 'Standard'];
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -109,25 +109,27 @@ const handleSubmit = async (e: React.FormEvent) => {
     // Handle stock values based on unit type
     let currentStockFormatted: string;
     let minStockFormatted: string;
-    
     if (formData.unit_type === 'kg-grams' || formData.unit_type === 'kg') {
-      // For kg-grams and kg types, use the entered format directly
       currentStockFormatted = formData.current_stock || '0';
       minStockFormatted = formData.min_stock_alert || '0';
     } else {
-      // For other unit types, convert numeric values to strings
       const currentStockValue = parseFloat(formData.current_stock) || 0;
       const minStockValue = parseFloat(formData.min_stock_alert) || 0;
       currentStockFormatted = currentStockValue.toString();
       minStockFormatted = minStockValue.toString();
     }
-    
+
+    // Concatenate name with size and grade if present
+    let fullName = formData.name;
+    if (formData.size) fullName += ` | ${formData.size}`;
+    if (formData.grade) fullName += ` | G${formData.grade}`;
+
     // Map form fields to database fields
     const productData = {
-      name: formData.name,
+      name: fullName,
       category: formData.category,
       unit_type: formData.unit_type,
-      unit: '1', // Always set to "1" - represents 1 unit of the product
+      unit: '1',
       rate_per_unit: parseCurrency(formData.rate_per_unit),
       current_stock: currentStockFormatted,
       min_stock_alert: minStockFormatted,
@@ -136,21 +138,18 @@ const handleSubmit = async (e: React.FormEvent) => {
     };
 
     console.log('Submitting product data:', productData);
-    
+
     let result;
     if (product) {
-      // Update existing product
       result = await db.updateProduct(product.id, productData);
       toast.success('Product updated successfully!');
     } else {
-      // Create new product
       result = await db.createProduct(productData);
       toast.success('Product added successfully!');
     }
 
     console.log('Product operation result:', result);
 
-    // For update, db.updateProduct returns void, so treat absence of error as success
     if (product) {
       onSuccess();
     } else if (result && result > 0) {
@@ -364,19 +363,17 @@ const handleSubmit = async (e: React.FormEvent) => {
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="product-grade">
                   Grade
                 </label>
-                <select autoComplete="off"
+                <input autoComplete="off"
                   id="product-grade"
                   name="grade"
                   value={formData.grade}
                   onChange={handleChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="e.g., 70"
                   disabled={loading}
-                >
-                  <option value="">Select Grade</option>
-                  {grades.map(grade => (
-                    <option key={grade} value={grade}>{grade}</option>
-                  ))}
-                </select>
+                />
+                  
+            
               </div>
                  <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">

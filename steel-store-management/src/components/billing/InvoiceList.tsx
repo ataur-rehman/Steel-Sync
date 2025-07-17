@@ -1142,19 +1142,12 @@ const InvoiceList: React.FC = () => {
           isOpen={showStockImpactModal}
           onClose={() => setShowStockImpactModal(false)}
           title="Invoice Stock Impact"
-          size="xxl"
+          size="xxxxl"
         >
           <div className="space-y-4">
             {invoiceStockMovements.length > 0 ? (
               <div>
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Stock Movements for Invoice
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    Products affected by this invoice
-                  </p>
-                </div>
+            
                 
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
@@ -1187,7 +1180,23 @@ const InvoiceList: React.FC = () => {
                             <div className="flex items-center">
                               <div>
                                 <div className="text-sm font-medium text-gray-900">
-                                  {movement.product_name}
+                            
+                                  {(() => {
+                                    let details = movement.product_name || '';
+                                    let size = movement.size;
+                                    let grade = movement.grade;
+                                    // Try to get from movement.product if missing
+                                    if ((!size || !grade) && movement.product && typeof movement.product === 'object') {
+                                      if (!size && movement.product.size) size = movement.product.size;
+                                      if (!grade && movement.product.grade) grade = movement.product.grade;
+                                    }
+                                    // Build display string
+                                    let parts = [details];
+                                    if (size) parts.push(size);
+                                    if (grade) parts.push(`G${grade}`);
+                                    // Only join available parts, never show '...'
+                                    return parts.filter(Boolean).join(' | ');
+                                  })()}
                                 </div>
                                 <div className="text-sm text-gray-500">
                                   {movement.reason}

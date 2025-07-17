@@ -1170,7 +1170,7 @@ const DailyLedger: React.FC = () => {
                           <option value="">General Payment (No specific invoice)</option>
                           {customerInvoices.map(invoice => (
                             <option key={invoice.id} value={invoice.id}>
-                              {invoice.bill_number} - Balance: {formatCurrency(invoice.balance_amount)} (Date: {invoice.date})
+                              {invoice.bill_number} - Balance: {formatCurrency(invoice.remaining_balance)} (Date: {invoice.date})
                             </option>
                           ))}
                         </select>
