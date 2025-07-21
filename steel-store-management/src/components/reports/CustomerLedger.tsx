@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
@@ -88,6 +88,7 @@ const CustomerLedger: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransaction[]>([]);
+  
   // UI State
   const [loading, setLoading] = useState(false);
   const [customersLoading, setCustomersLoading] = useState(true);
@@ -104,7 +105,6 @@ const CustomerLedger: React.FC = () => {
 
   // Search state
   const [customerSearch, setCustomerSearch] = useState('');
-  const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
 
   // Payment form
   const [newPayment, setNewPayment] = useState<PaymentEntry>({
@@ -120,6 +120,62 @@ const CustomerLedger: React.FC = () => {
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
+
+  // Memoized filtered customers to prevent unnecessary re-renders
+  const filteredCustomers = useMemo(() => {
+    if (customerSearch.trim() === '') {
+      return customers;
+    }
+    return customers.filter(customer =>
+      customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      customer.phone?.includes(customerSearch) ||
+      customer.cnic?.includes(customerSearch)
+    );
+  }, [customers, customerSearch]);
+
+  // Memoized filtered transactions
+  const filteredTransactions = useMemo(() => {
+    let filtered = [...customerTransactions];
+
+    // Apply search filter
+    if (filters.search.trim()) {
+      const searchLower = filters.search.toLowerCase();
+      filtered = filtered.filter(tx =>
+        tx.description.toLowerCase().includes(searchLower) ||
+        tx.reference_number?.toLowerCase().includes(searchLower) ||
+        tx.notes?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // Apply type filter
+    if (filters.type) {
+      filtered = filtered.filter(tx => tx.type === filters.type);
+    }
+
+    // Apply date filters
+    if (filters.from_date) {
+      filtered = filtered.filter(tx => tx.date >= filters.from_date);
+    }
+
+    if (filters.to_date) {
+      filtered = filtered.filter(tx => tx.date <= filters.to_date);
+    }
+
+    return filtered;
+  }, [customerTransactions, filters]);
+
+  // Callback functions to prevent unnecessary re-renders
+  const handleCustomerSearchChange = useCallback((value: string) => {
+    setCustomerSearch(value);
+  }, []);
+
+  const handleFilterChange = useCallback((key: string, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const clearCustomerSearch = useCallback(() => {
+    setCustomerSearch('');
+  }, []);
 
   useEffect(() => {
     loadCustomers();
@@ -178,31 +234,18 @@ const CustomerLedger: React.FC = () => {
     };
   }, []);
 
+  // Fixed useEffect with proper dependencies
   useEffect(() => {
     if (selectedCustomer && currentView === 'ledger') {
       loadCustomerLedger();
     }
-  }, [selectedCustomer, filters, currentView]);
+  }, [selectedCustomer, currentView]); // Removed filters dependency to prevent infinite loop
 
   useEffect(() => {
     if (selectedCustomer && currentView === 'stock') {
       loadCustomerStockMovements();
     }
   }, [selectedCustomer, currentView]);
-
-  useEffect(() => {
-    // Filter customers based on search
-    if (customerSearch.trim() === '') {
-      setFilteredCustomers(customers);
-    } else {
-      const filtered = customers.filter(customer =>
-        customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-        customer.phone?.includes(customerSearch) ||
-        customer.cnic?.includes(customerSearch)
-      );
-      setFilteredCustomers(filtered);
-    }
-  }, [customers, customerSearch]);
 
   // Handle incoming customer selection from other components
   useEffect(() => {
@@ -223,7 +266,6 @@ const CustomerLedger: React.FC = () => {
       await db.initialize();
       const customerList = await db.getAllCustomers();
       setCustomers(customerList);
-      setFilteredCustomers(customerList);
     } catch (error) {
       console.error('Failed to load customers:', error);
       toast.error('Failed to load customers');
@@ -237,7 +279,13 @@ const CustomerLedger: React.FC = () => {
 
     try {
       setLoading(true);
-      const ledgerData = await db.getCustomerLedger(selectedCustomer.id, filters);
+      // Create base filters for the API call (without search and type)
+      const apiFilters = {
+        from_date: filters.from_date,
+        to_date: filters.to_date
+      };
+      
+      const ledgerData = await db.getCustomerLedger(selectedCustomer.id, apiFilters);
       
       // Process transactions to show proper debit/credit entries
       const processedTransactions = ledgerData.transactions.map((transaction: any) => {
@@ -320,8 +368,6 @@ const CustomerLedger: React.FC = () => {
         };
       }));
       
-      // Removed setStockMovements (unused)
-      
     } catch (error) {
       console.error('Failed to load customer stock movements:', error);
       toast.error('Failed to load stock movements');
@@ -330,12 +376,26 @@ const CustomerLedger: React.FC = () => {
     }
   };
 
-  const selectCustomer = (customer: Customer) => {
+  const selectCustomer = useCallback((customer: Customer) => {
     setSelectedCustomer(customer);
     setCurrentView('ledger');
     setNewPayment(prev => ({ ...prev, customer_id: customer.id }));
     loadCustomerInvoices(customer.id);
-  };
+  }, []);
+
+  const handleSelectCustomerForPayment = useCallback((customer: Customer) => {
+    setSelectedCustomer(customer);
+    setShowAddPayment(true);
+  }, []);
+
+  const handleNavigateToNewInvoice = useCallback((customer: Customer) => {
+    navigate('/billing/new', {
+      state: { 
+        customerId: customer.id,
+        customerName: customer.name 
+      }
+    });
+  }, [navigate]);
 
   const loadCustomerInvoices = async (customerId: number) => {
     try {
@@ -402,14 +462,14 @@ const CustomerLedger: React.FC = () => {
     });
   };
 
-  const clearFilters = () => {
+  const clearFilters = useCallback(() => {
     setFilters({
       from_date: '',
       to_date: '',
       type: '',
       search: ''
     });
-  };
+  }, []);
 
   const formatCurrency = (amount: number | undefined | null): string => {
     const safeAmount = amount ?? 0;
@@ -425,14 +485,14 @@ const CustomerLedger: React.FC = () => {
   };
 
   const exportLedger = () => {
-    if (!selectedCustomer || !customerTransactions.length) {
+    if (!selectedCustomer || !filteredTransactions.length) {
       toast.error('No data to export');
       return;
     }
 
     const csvContent = [
       ['Date', 'Description', 'Post Ref.', 'Debit', 'Credit', 'Balance'],
-      ...customerTransactions.map(tx => [
+      ...filteredTransactions.map(tx => [
         tx.date,
         tx.description,
         tx.reference_number || '',
@@ -506,7 +566,7 @@ const CustomerLedger: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              ${customerTransactions.map(tx => `
+              ${filteredTransactions.map(tx => `
                 <tr>
                   <td>${formatDate(tx.date)}</td>
                   <td>${tx.description}</td>
@@ -542,11 +602,11 @@ interface CustomerListViewProps {
   filteredCustomers: Customer[];
   customersLoading: boolean;
   customerSearch: string;
-  setCustomerSearch: React.Dispatch<React.SetStateAction<string>>;
-  selectCustomer: (customer: Customer) => void;
-  setSelectedCustomer: React.Dispatch<React.SetStateAction<Customer | null>>;
-  setShowAddPayment: React.Dispatch<React.SetStateAction<boolean>>;
-  navigate: ReturnType<typeof useNavigate>;
+  onCustomerSearchChange: (value: string) => void;
+  onClearSearch: () => void;
+  onSelectCustomer: (customer: Customer) => void;
+  onSelectCustomerForPayment: (customer: Customer) => void;
+  onNavigateToNewInvoice: (customer: Customer) => void;
   formatCurrency: (amount: number | undefined | null) => string;
 }
 
@@ -555,13 +615,16 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
   filteredCustomers,
   customersLoading,
   customerSearch,
-  setCustomerSearch,
-  selectCustomer,
-  setSelectedCustomer,
-  setShowAddPayment,
-  navigate,
+  onCustomerSearchChange,
+  onClearSearch,
+  onSelectCustomer,
+  onSelectCustomerForPayment,
+  onNavigateToNewInvoice,
   formatCurrency
-}) => (
+}) => {
+  console.log('CustomerListView re-rendered'); // Debug log to see if it's re-rendering
+  
+  return (
   <div className="space-y-6 p-6">
     {/* Header */}
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
@@ -581,7 +644,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
             type="text"
             placeholder="Search by name, phone, or CNIC..."
             value={customerSearch}
-            onChange={(e) => setCustomerSearch(e.target.value)}
+            onChange={(e) => onCustomerSearchChange(e.target.value)}
             className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             aria-label="Search customers"
           />
@@ -594,7 +657,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
         {/* Clear Filters */}
         <div>
           <button 
-            onClick={() => setCustomerSearch('')} 
+            onClick={onClearSearch} 
             className="btn btn-secondary w-full px-3 py-1.5 text-sm"
           >
             Clear Search
@@ -677,10 +740,13 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
             </tr>
           ) : (
             filteredCustomers.map(customer => {
+              const hasCredit = customer.total_balance < 0;
               const hasBalance = customer.total_balance > 0;
-              const balanceStatus = hasBalance 
+              const balanceStatus = hasCredit
+                ? { status: 'Credit', color: 'text-green-600 bg-green-100' }
+                : hasBalance
                 ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
-                : { status: 'Clear', color: 'text-green-600 bg-green-100' };
+                : { status: 'Clear', color: 'text-gray-700 bg-gray-100' };
               return (
                 <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -709,31 +775,21 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <div className="flex space-x-2">
                       <button
-                        onClick={() => selectCustomer(customer)}
+                        onClick={() => onSelectCustomer(customer)}
                         className="btn btn-secondary flex items-center px-2 py-1 text-xs"
                         title="View Ledger"
                       >
                         <Eye className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => {
-                          setSelectedCustomer(customer);
-                          setShowAddPayment(true);
-                        }}
+                        onClick={() => onSelectCustomerForPayment(customer)}
                         className="btn btn-primary flex items-center px-2 py-1 text-xs"
                         title="Add Payment"
                       >
                         <Receipt className="h-4 w-4" />
                       </button>
                       <button
-                        onClick={() => {
-                          navigate('/billing/new', {
-                            state: { 
-                              customerId: customer.id,
-                              customerName: customer.name 
-                            }
-                          });
-                        }}
+                        onClick={() => onNavigateToNewInvoice(customer)}
                         className="btn btn-success flex items-center px-2 py-1 text-xs"
                         title="New Invoice"
                       >
@@ -749,13 +805,15 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
       </table>
     </div>
   </div>
-));
+)
+});
 
   // Enhanced Ledger View
   const LedgerView = () => {
-    const totalDebits = customerTransactions.reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
-    const totalCredits = customerTransactions.reduce((sum, tx) => sum + (tx.credit_amount ?? tx.payment_amount ?? 0), 0);
+    const totalDebits = filteredTransactions.reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
+    const totalCredits = filteredTransactions.reduce((sum, tx) => sum + (tx.credit_amount ?? tx.payment_amount ?? 0), 0);
     const adjustedBalance = totalDebits - totalCredits;
+    const availableCredit = adjustedBalance < 0 ? Math.abs(adjustedBalance) : 0;
 
     return (
       <div className="space-y-6 p-6">
@@ -835,15 +893,18 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
               }`}>
                 {selectedCustomer ? formatCurrency(selectedCustomer.total_balance) : 'Rs. 0.00'}
                 <span className="text-sm font-normal ml-2">
-                  {selectedCustomer && selectedCustomer.total_balance > 0 ? 'Dr' : selectedCustomer && selectedCustomer.total_balance < 0 ? 'Cr' : ''}
+                  {selectedCustomer && selectedCustomer.total_balance > 0 ? 'Dr' : selectedCustomer && selectedCustomer.total_balance < 0 ? 'Cr (Credit)' : ''}
                 </span>
+                {selectedCustomer && selectedCustomer.total_balance < 0 && (
+                  <div className="text-green-700 text-sm mt-1">Available Credit: {formatCurrency(Math.abs(selectedCustomer.total_balance))}</div>
+                )}
               </div>
             </div>
             
             <div>
               <h3 className="text-sm font-medium text-gray-500 mb-2">Total Transactions</h3>
               <div className="text-2xl font-bold text-gray-900">
-                {customerTransactions.length}
+                {filteredTransactions.length}
               </div>
             </div>
           </div>
@@ -857,7 +918,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
               <input
                 type="text"
                 value={filters.search}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
                 placeholder="Search transactions..."
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
@@ -866,7 +927,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
             <input
               type="date"
               value={filters.from_date}
-              onChange={(e) => setFilters(prev => ({ ...prev, from_date: e.target.value }))}
+              onChange={(e) => handleFilterChange('from_date', e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="From Date"
             />
@@ -874,19 +935,20 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
             <input
               type="date"
               value={filters.to_date}
-              onChange={(e) => setFilters(prev => ({ ...prev, to_date: e.target.value }))}
+              onChange={(e) => handleFilterChange('to_date', e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="To Date"
             />
             
             <select
               value={filters.type}
-              onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+              onChange={(e) => handleFilterChange('type', e.target.value)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Types</option>
               <option value="invoice">Invoices</option>
               <option value="payment">Payments</option>
+              <option value="adjustment">Adjustments</option>
             </select>
             
             {(filters.from_date || filters.to_date || filters.type || filters.search) && (
@@ -907,7 +969,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
               <div className="flex items-center justify-center h-32">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
               </div>
-            ) : customerTransactions.length > 0 ? (
+            ) : filteredTransactions.length > 0 ? (
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -916,16 +978,30 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Post Ref.</th>
                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Debit</th>
                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Credit</th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Debit</th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total Credit</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {customerTransactions.map((transaction, index) => {
-                    const runningDebit = customerTransactions.slice(0, index + 1).reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
-                    const runningCredit = customerTransactions.slice(0, index + 1).reduce((sum, tx) => sum + (tx.credit_amount ?? tx.payment_amount ?? 0), 0);
-                    
-                    return (
+                  {(() => {
+                    // Step 1: Sort ascending (oldest first)
+                    const sortedAsc = [...filteredTransactions].sort((a, b) => {
+                      if (a.date === b.date) {
+                        if (a.hasOwnProperty('time') && b.hasOwnProperty('time')) {
+                          return ((a as any).time ?? '').localeCompare((b as any).time ?? '');
+                        }
+                        return 0;
+                      }
+                      return new Date(a.date).getTime() - new Date(b.date).getTime();
+                    });
+                    // Step 2: Calculate running balances
+                    let runningBalance = 0;
+                    const withBalances = sortedAsc.map(tx => {
+                      runningBalance += (tx.debit_amount ?? tx.invoice_amount ?? 0);
+                      runningBalance -= (tx.credit_amount ?? tx.payment_amount ?? 0);
+                      return { ...tx, _runningBalance: runningBalance };
+                    });
+                    // Step 3: Reverse for display (newest first)
+                    return withBalances.reverse().map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {formatDate(transaction.date)}
@@ -936,7 +1012,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                             <div className="text-xs text-gray-500 mt-1">{transaction.notes}</div>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">  
                           {transaction.reference_number || '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
@@ -954,14 +1030,11 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                           ) : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                          {runningDebit.toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium text-gray-900">
-                          {runningCredit.toLocaleString()}
+                          {transaction._runningBalance.toLocaleString()}
                         </td>
                       </tr>
-                    );
-                  })}
+                    ));
+                  })()}
                 </tbody>
               </table>
             ) : (
@@ -969,7 +1042,10 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                 <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions found</h3>
                 <p className="text-gray-500">
-                  This customer has no transaction history yet.
+                  {filters.search || filters.type || filters.from_date || filters.to_date 
+                    ? 'No transactions match your current filters. Try adjusting your search criteria.'
+                    : 'This customer has no transaction history yet.'
+                  }
                 </p>
               </div>
             )}
@@ -977,7 +1053,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
         </div>
 
         {/* Balance Summary */}
-        {customerTransactions.length > 0 && (
+        {filteredTransactions.length > 0 && (
           <div className="bg-white border border-gray-200 rounded-xl p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Balance Summary</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -994,15 +1070,15 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                   <span className="text-gray-700 font-medium">Total Credits:</span>
                   <span className="text-green-600 font-bold">{totalCredits.toLocaleString()}</span>
                 </div>
+                {availableCredit > 0 && (
+                  <div className="flex justify-between py-2">
+                    <span className="text-green-700 font-medium">Available Credit:</span>
+                    <span className="text-green-700 font-bold">{availableCredit.toLocaleString()}</span>
+                  </div>
+                )}
               </div>
               
               <div className="space-y-3">
-                <div className="flex justify-between py-2 border-b border-gray-300">
-                  <span className="text-gray-700 font-medium">Net Movement:</span>
-                  <span className={`font-bold ${adjustedBalance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                    {Math.abs(adjustedBalance).toLocaleString()}
-                  </span>
-                </div>
                 <div className="flex justify-between py-3 bg-gray-50 px-4 rounded-lg border border-gray-200">
                   <span className="text-lg font-bold text-gray-900">Adjusted Balance:</span>
                   <span className={`text-2xl font-bold ${adjustedBalance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
@@ -1026,11 +1102,11 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
           filteredCustomers={filteredCustomers}
           customersLoading={customersLoading}
           customerSearch={customerSearch}
-          setCustomerSearch={setCustomerSearch}
-          selectCustomer={selectCustomer}
-          setSelectedCustomer={setSelectedCustomer}
-          setShowAddPayment={setShowAddPayment}
-          navigate={navigate}
+          onCustomerSearchChange={handleCustomerSearchChange}
+          onClearSearch={clearCustomerSearch}
+          onSelectCustomer={selectCustomer}
+          onSelectCustomerForPayment={handleSelectCustomerForPayment}
+          onNavigateToNewInvoice={handleNavigateToNewInvoice}
           formatCurrency={formatCurrency}
         />
       ) : (

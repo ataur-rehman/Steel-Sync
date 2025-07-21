@@ -121,8 +121,8 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     // Concatenate name with size and grade if present
     let fullName = formData.name;
-    if (formData.size) fullName += ` | ${formData.size}`;
-    if (formData.grade) fullName += ` | G${formData.grade}`;
+    if (formData.size) fullName += ` • ${formData.size}`;
+    if (formData.grade) fullName += ` • G${formData.grade}`;
 
     // Map form fields to database fields
     const productData = {

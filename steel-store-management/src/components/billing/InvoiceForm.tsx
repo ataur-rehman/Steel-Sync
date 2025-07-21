@@ -157,6 +157,15 @@ const InvoiceForm: React.FC = () => {
   // Update stock preview when items change - YOUR ORIGINAL
   useEffect(() => {
     updateStockPreview();
+    // If selected customer has credit, update payment_amount when items change
+    if (selectedCustomer && selectedCustomer.balance < 0 && formData.items.length > 0) {
+      const credit = Math.abs(selectedCustomer.balance);
+      const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
+      setFormData(prev => ({
+        ...prev,
+        payment_amount: Math.min(credit, grandTotal)
+      }));
+    }
   }, [formData.items, products]);
 
   const loadInitialData = async (showLoading = true) => {
@@ -268,7 +277,19 @@ const InvoiceForm: React.FC = () => {
 
   const selectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
-    setFormData(prev => ({ ...prev, customer_id: customer.id }));
+    // If customer has credit (negative balance), pre-fill payment_amount with credit up to invoice total
+    setFormData(prev => {
+      let payment_amount = prev.payment_amount;
+      if (customer.balance < 0) {
+        const credit = Math.abs(customer.balance);
+        let grandTotal = 0;
+        if (prev.items.length > 0) {
+          grandTotal = prev.items.reduce((sum, item) => sum + item.total_price, 0);
+        }
+        payment_amount = Math.min(credit, grandTotal || payment_amount);
+      }
+      return { ...prev, customer_id: customer.id, payment_amount };
+    });
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
     setErrors(prev => ({ ...prev, customer_id: '' }));
@@ -507,15 +528,19 @@ const InvoiceForm: React.FC = () => {
   // YOUR ORIGINAL SUBMIT FUNCTION
   const handleSubmit = async () => {
     await refreshProductData();
-    
     if (!validateForm()) {
       toast.error('Please fix the errors before submitting');
       return;
     }
-    
     setCreating(true);
-    
     try {
+      // If customer has credit, ensure payment_amount is at least the credit up to grandTotal
+      let payment_amount = formData.payment_amount;
+      if (selectedCustomer && selectedCustomer.balance < 0) {
+        const credit = Math.abs(selectedCustomer.balance);
+        const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
+        payment_amount = Math.min(credit, grandTotal);
+      }
       const invoiceData = {
         customer_id: formData.customer_id!,
         customer_name: selectedCustomer?.name,
@@ -527,9 +552,10 @@ const InvoiceForm: React.FC = () => {
           total_price: item.total_price
         })),
         discount: formData.discount,
-        payment_amount: formData.payment_amount,
+        payment_amount,
         payment_method: formData.payment_method,
-        notes: formData.notes
+        notes: formData.notes,
+        applied_credit: selectedCustomer && selectedCustomer.balance < 0 ? Math.min(Math.abs(selectedCustomer.balance), payment_amount) : 0
       };
       
       console.log('Creating invoice with automatic stock tracking:', invoiceData);
@@ -1176,7 +1202,6 @@ const InvoiceForm: React.FC = () => {
             <ShoppingCart className="h-4 w-4 mr-2" />
             Stock Impact Summary
           </h3>
-          
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {stockPreview.map(stock => {
               const product = products.find(p => p.id === stock.product_id);

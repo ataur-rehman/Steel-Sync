@@ -11,6 +11,9 @@ export default function CustomerProfile() {
   const { db } = useDatabase();
   const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [balance, setBalance] = useState<{ outstanding: number; total_paid: number; total_invoiced: number } | null>(null);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [ledger, setLedger] = useState<any[]>([]);
 
   useEffect(() => {
     if (id) {
@@ -22,12 +25,16 @@ export default function CustomerProfile() {
     try {
       const data = await db.getCustomerWithBalance(customerId);
       const invoices = await db.getInvoices({ customer_id: customerId, limit: 10 });
-      
+      const bal = await db.getCustomerBalance(customerId);
+      const pays = await db.getCustomerPayments(customerId);
+      const ledg = await db.getCustomerLedger(customerId, { limit: 3 });
       setCustomer({
         ...data,
         invoices: invoices || [],
-        payments: []
       });
+      setBalance(bal);
+      setPayments(pays?.slice(0, 3) || []);
+      setLedger(ledg?.transactions || []);
     } catch (error) {
       toast.error('Failed to load customer details');
       navigateTo('/customers');
@@ -79,7 +86,7 @@ export default function CustomerProfile() {
         </div>
       </div>
 
-      {/* Customer Summary Card */}
+      {/* Enhanced Customer Summary Card */}
       <div className="card p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {/* Basic Info */}
@@ -104,34 +111,67 @@ export default function CustomerProfile() {
                   <span className="text-sm text-gray-800"> {customer.cnic}</span>
                 </div>
               )}
-            
               {customer.created_at && (
                 <div>
                   <span className="block text-sm font-medium text-gray-500 mb-1">Date of Creation</span>
                   <span className="text-sm text-gray-900">{new Date(customer.created_at).toLocaleDateString()}</span>
-              </div>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Balance Summary */}
+          {/* Financial Summary */}
           <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Account Balance</h2>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="text-center">
-                <span className={`text-3xl font-bold ${customer.total_balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  {formatCurrency(customer.total_balance)}
-                </span>
-                <div className="mt-2">
-                  <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${
-                    customer.total_balance > 0 
-                      ? 'text-red-600 bg-red-100' 
-                      : 'text-green-600 bg-green-100'
-                  }`}>
-                    {customer.total_balance > 0 ? 'Outstanding' : 'Paid Up'}
-                  </span>
-                </div>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Financial Summary</h2>
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">Total Invoiced:</span>
+                <span>{balance ? formatCurrency(balance.total_invoiced) : '-'}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">Total Paid:</span>
+                <span>{balance ? formatCurrency(balance.total_paid) : '-'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="font-medium text-gray-700">Outstanding:</span>
+                <span className={balance && balance.outstanding > 0 ? 'text-red-600 font-bold' : 'text-green-600 font-bold'}>
+                  {balance ? formatCurrency(balance.outstanding) : '-'}
+                </span>
+              </div>
+            </div>
+            {/* Recent Payments */}
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">Recent Payments</h3>
+              {payments.length === 0 ? (
+                <div className="text-xs text-gray-400">No payments found</div>
+              ) : (
+                <ul className="text-xs space-y-1">
+                  {payments.map((p) => (
+                    <li key={p.id} className="flex justify-between">
+                      <span>{new Date(p.date).toLocaleDateString()}</span>
+                      <span>{formatCurrency(p.amount)}</span>
+                      <span>{p.payment_method}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {/* Recent Activity */}
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-gray-800 mb-2">Recent Activity</h3>
+              {ledger.length === 0 ? (
+                <div className="text-xs text-gray-400">No recent activity</div>
+              ) : (
+                <ul className="text-xs space-y-1">
+                  {ledger.map((l) => (
+                    <li key={l.id} className="flex justify-between">
+                      <span>{l.date}</span>
+                      <span>{l.type === 'invoice' ? 'Invoice' : 'Payment'}</span>
+                      <span>{formatCurrency(l.debit_amount || l.credit_amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
@@ -167,7 +207,7 @@ export default function CustomerProfile() {
                   <tr 
                     key={invoice.id} 
                     className="hover:bg-gray-50 cursor-pointer transition-colors"
-                    onClick={() => navigateTo(`/billing/view/${invoice.id}`)}
+                    onClick={() => navigateTo(`/billing/invoice/${invoice.id}`)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className="text-sm font-medium text-gray-900">
@@ -178,7 +218,7 @@ export default function CustomerProfile() {
                       {invoice.created_at ? new Date(invoice.created_at).toLocaleDateString() : 'N/A'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                      {formatCurrency(invoice.grand_total || 0)}
+                      {formatCurrency(invoice.grand_total || invoice.total_amount || 0)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${

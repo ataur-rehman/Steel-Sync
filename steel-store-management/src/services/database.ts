@@ -1,10 +1,9 @@
 
-
-
 // Enhanced Database Service with Complete Stock Movement Tracking
-import Database from '@tauri-apps/plugin-sql';
+
 import { parseUnit, formatUnitString, getStockAsNumber  } from '../utils/unitUtils';
 import { roundCurrency, addCurrency, subtractCurrency } from '../utils/currency';
+import open from '@tauri-apps/plugin-sql'; // ✅ CORRECT
 
 // Check if we're running in Tauri
 const isTauri = () => {
@@ -77,6 +76,7 @@ interface PaymentRecord {
 }
 
 export class DatabaseService {
+  this: any;
   /**
    * Update product details and propagate name changes to all related tables
    */
@@ -97,26 +97,26 @@ export class DatabaseService {
       }
 
       if (!isTauri()) {
-        const idx = this.mockProducts.findIndex((p: any) => p.id === id);
+        const idx = this.db.products.findIndex((p: any) => p.id === id);
         if (idx !== -1) {
-          const oldName = this.mockProducts[idx].name;
-          this.mockProducts[idx] = {
-            ...this.mockProducts[idx],
+          const oldName = this.db.products[idx].name;
+          this.db.products[idx] = {
+            ...this.db.products[idx],
             ...product,
             updated_at: new Date().toISOString()
           };
-          // Propagate name change to related mock tables
+          // Propagate name change to related   tables
           if (product.name && product.name !== oldName) {
-            this.mockStockMovements.forEach((m: any) => {
+            this.db.stockMovements.forEach((m: any) => {
               if (m.product_id === id) m.product_name = product.name;
             });
-            this.mockLedgerEntries.forEach((l: any) => {
+            this.db.ledgerEntries.forEach((l: any) => {
               if (l.product_id === id) l.product_name = product.name;
             });
-            this.mockStockReceivingItems.forEach((s: any) => {
+            this.db.stockReceivingItems.forEach((s: any) => {
               if (s.product_id === id) s.product_name = product.name;
             });
-            // Add more mock tables as needed
+            // Add more   tables as needed
           }
           this.saveToLocalStorage();
         }
@@ -172,10 +172,10 @@ export class DatabaseService {
       }
 
       if (!isTauri()) {
-        this.mockProducts = this.mockProducts.filter((p: any) => p.id !== id);
-        // Remove from related mock tables
-        this.mockLedgerEntries = this.mockLedgerEntries.filter((l: any) => l.product_id !== id);
-        // Add more mock tables as needed
+        this.db.products = this.db.products.filter((p: any) => p.id !== id);
+        // Remove from related   tables
+        this.db.ledgerEntries = this.db.ledgerEntries.filter((l: any) => l.product_id !== id);
+        // Add more   tables as needed
         this.saveToLocalStorage();
         return;
       }
@@ -196,7 +196,7 @@ export class DatabaseService {
       await this.initialize();
     }
     if (!isTauri()) {
-      return this.mockStockReceivingItems.filter(item => item.receiving_id === receivingId);
+      return this.db.stockReceivingItems.filter((item: { receiving_id: number; }) => item.receiving_id === receivingId);
     }
     const result = await this.database?.select(
       'SELECT * FROM stock_receiving_items WHERE receiving_id = ?',
@@ -221,10 +221,10 @@ export class DatabaseService {
       }
 
       if (!isTauri()) {
-        const idx = this.mockVendors.findIndex((v: any) => v.id === id);
+        const idx = this.db.vendors.findIndex((v: any) => v.id === id);
         if (idx !== -1) {
-          this.mockVendors[idx] = {
-            ...this.mockVendors[idx],
+          this.db.vendors[idx] = {
+            ...this.db.vendors[idx],
             ...vendor,
             updated_at: new Date().toISOString()
           };
@@ -258,7 +258,7 @@ export class DatabaseService {
       }
 
       if (!isTauri()) {
-        this.mockVendors = this.mockVendors.filter((v: any) => v.id !== id);
+        this.db.vendors = this.db.vendors.filter((v: any) => v.id !== id);
         this.saveToLocalStorage();
         return;
       }
@@ -340,7 +340,7 @@ export class DatabaseService {
         }
 
         // Always create a daily ledger entry for business tracking (separate from customer accounting)
-        const dailyEntries = this.mockLedgerEntries.filter(e => 
+        const dailyEntries = this.db.ledgerEntries.filter((e: { date: string; created_by: string; customer_id: any; }) => 
 e.date === entry.date && 
           e.created_by === 'manual' && 
           !e.customer_id // Only count business-wide entries for daily running balance
@@ -355,7 +355,7 @@ e.date === entry.date &&
         // Update daily         running balance for business cash flow
         dailyRunningBalance += entry.type === "incoming" ? entry.amount : -entry.amount;
 
-        const newId = Math.max(...this.mockLedgerEntries.map(e => e.id || 0), 0) + 1;
+        const newId = Math.max(...this. db.ledgerEntries.map((e: { id: any; }) => e.id || 0), 0) + 1;
         const dailyLedgerEntry: LedgerEntry = {
           id: newId,
           date: entry.date,
@@ -374,7 +374,7 @@ e.date === entry.date &&
           updated_at: now.toISOString(),
         };
 
-        this.mockLedgerEntries.push(dailyLedgerEntry);
+        this. db.ledgerEntries.push(dailyLedgerEntry);
         this.saveToLocalStorage();
         return newId;
       }
@@ -447,11 +447,11 @@ e.date === entry.date &&
         
         if (options.customer_id) {
           // Customer-specific ledger: show all transactions for this customer
-          entries = this.mockLedgerEntries.filter(e => e.date === date && e.customer_id === options.customer_id);
+          entries = this. db.ledgerEntries.filter((e: { date: string; customer_id: number | null; }) => e.date === date && e.customer_id === options.customer_id);
         } else {
           // Business daily ledger: show business-wide cash transactions only
           // This should include: actual cash/money received and paid out
-          entries = this.mockLedgerEntries.filter(e => {
+          entries = this. db.ledgerEntries.filter((e: { date: string; customer_id: any; category: string; }) => {
             if (e.date !== date) return false;
             
             // Include business-wide transactions (no customer_id) - expenses, general cash flow
@@ -471,7 +471,7 @@ e.date === entry.date &&
         }
 
         // Sort by time
-        entries.sort((a, b) => a.time.localeCompare(b.time));
+        entries.sort((a: { time: string; }, b: { time: any; }) => a.time.localeCompare(b.time));
 
         // Calculate summary based on context
         let opening_balance = 0;
@@ -482,7 +482,7 @@ e.date === entry.date &&
 
 if (options.customer_id) {
           // Customer ledger: track customer's account balance
-        entries.forEach((e, idx) => {
+        entries.forEach((e: { type: string; running_balance: number; amount: number; }, idx: number) => {
           if (idx === 0) {
               // Calculate opening balance from previous running balance
               if (e.type === 'incoming') {
@@ -499,9 +499,9 @@ if (options.customer_id) {
           closing_balance = entries[entries.length - 1].running_balance;
         } else {
           // No transactions today, get last known balance
-            const lastEntry = this.mockLedgerEntries
-              .filter(e => e.customer_id === options.customer_id && e.date < date)
-              .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))[0];
+            const lastEntry = this. db.ledgerEntries
+              .filter((e: { customer_id: number | null; date: string; }) => e.customer_id === options.customer_id && e.date < date)
+              .sort((a: { date: any; time: any; }, b: { date: string; time: string; }) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))[0];
             closing_balance = lastEntry?.running_balance || 0;
 opening_balance = closing_balance;
         }
@@ -509,15 +509,15 @@ opening_balance = closing_balance;
           net_movement = total_outgoing - total_incoming; // Customer balance increase
         } else {
           // Business daily cash flow: track actual cash in/out
-          entries.forEach((e) => {
+          entries.forEach((e: { type: string; amount: number; }) => {
             if (e.type === "incoming") total_incoming += e.amount; // Cash received
             if (e.type === "outgoing") total_outgoing += e.amount; // Cash paid out
           });
           
           // For business cash flow, calculate cumulative cash position
-          const previousDayEntries = this.mockLedgerEntries
-            .filter(e => e.date < date && !e.customer_id) // Business transactions only
-            .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
+          const previousDayEntries = this. db.ledgerEntries
+            .filter((e: { date: string; customer_id: any; }) => String(e.date) < String(date) && !e.customer_id) // Business transactions only
+            .sort((a: { date: any; time: any; }, b: { date: string; time: string; }) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
           
           if (previousDayEntries.length > 0) {
             opening_balance = previousDayEntries[0].running_balance || 0;
@@ -592,168 +592,60 @@ opening_balance = closing_balance;
   // ...existing
   private database: any = null;
   private isInitialized = false;
-  
+
   // Enhanced mock data with complete stock tracking
-  private mockStockMovements: StockMovement[] = [];
-  private mockLedgerEntries: LedgerEntry[] = [];
-  private mockPayments: PaymentRecord[] = [];
+
   
-  // New enhanced mock arrays for production features
-  private mockPaymentChannels: any[] = [
-    { id: 1, name: 'Cash', type: 'cash', account_details: 'Cash transactions', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 2, name: 'Bank Account', type: 'bank', account_details: 'Primary business bank account', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 3, name: 'Cheque Payment', type: 'cheque', account_details: 'Customer/Vendor cheque payments', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 4, name: 'Online Transfer', type: 'online', account_details: 'Digital payments and transfers', is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
-  ];
-  private mockEnhancedPayments: any[] = [];
-  private mockVendors: any[] = [];
-  private mockStockReceiving: any[] = [];
-  private mockStockReceivingItems: any[] = [];
-  private mockVendorPayments: any[] = [];
-  private mockStaff: any[] = [];
-  private mockStaffLedgerEntries: any[] = [];
-  private mockCustomerLedgerEntries: any[] = [];
-  private mockBusinessExpenses: any[] = [];
-  private mockBusinessIncome: any[] = [];
+  // New enhanced   arrays for production features
+
   
-  // Enhanced mock products with better stock data
-  private mockProducts: any[] = [
-    { 
-      id: 1, 
-      name: 'Steel Rod 10mm', 
-      category: 'Rods',
-unit_type: 'kg-grams',
-      unit: '1600-60', // 1600kg 60grams
-      rate_per_unit: 150.00,
-      current_stock: '100-50', // 100kg 50grams
-      min_stock_alert: '20-0', // 20kg
-      size: '10mm',
-      grade: 'Grade A',
-      status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    },
-    { 
-      id: 2, 
-      name: 'Steel Angle 25x25', 
-      category: 'Angles',
-unit_type: 'kg-grams',
-      unit: '2000', // 2000kg
-      rate_per_unit: 180.00, 
-      current_stock: '75-250', // 75kg 250grams
-      min_stock_alert: '15-0', // 15kg
-      size: '25x25mm',
-      grade: 'Grade A',
-      status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    },
-    { 
-      id: 3, 
-      name: 'Steel Plate 5mm', 
-      category: 'Plates',
-unit_type: 'kg-grams',
-      unit: '2500-0', // 2500kg
-      rate_per_unit: 250.00, 
-      current_stock: '15-750', // 15kg 750grams
-      min_stock_alert: '20-0', // 20kg
-      size: '5mm',
-      grade: 'Grade A',
-      status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-},
-    { 
-      id: 4, 
-      name: 'Bolts M12', 
-      category: 'Hardware',
-      unit_type: 'piece',
-      unit: '100',
-      rate_per_unit: 15.00, 
-      current_stock: '500',
-      min_stock_alert: '50',
-      size: 'M12',
-      grade: 'Standard',
-      status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    },
-    { 
-      id: 5, 
-      name: 'Cement Bags', 
-      category: 'Building Material',
-      unit_type: 'bag',
-      unit: '50',
-      rate_per_unit: 650.00, 
-      current_stock: '25',
-      min_stock_alert: '10',
-      size: '50kg',
-      grade: 'Premium',
-      status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }
-  ];
 
-  private mockCustomers: any[] = [
-    { 
-      id: 1, 
-      name: 'Ahmed Steel Works',
-      customer_code: 'C0001',
-      phone: '+92 300 1234567', 
-      address: 'Main Bazaar, Lahore', 
-      cnic: '35202-1234567-1', 
-      balance: 15000.00,
-      created_at: '2024-01-15', 
-      updated_at: '2024-01-15' 
-    },
-    { 
-      id: 2, 
-      name: 'Khan Brothers',
-      customer_code: 'C0002',
-      phone: '+92 301 2345678', 
-      address: 'Industrial Area, Karachi', 
-      cnic: '42101-2345678-2', 
-      balance: 8500.00, 
-      created_at: '2024-01-20', 
-      updated_at: '2024-01-20' 
-    },
-    { 
-      id: 3, 
-      name: 'Shahid Construction',
-      customer_code: 'C0003',
-      phone: '+92 302 3456789', 
-      address: 'Canal Road, Faisalabad', 
-      cnic: '33103-3456789-3', 
-      balance: 0.00, 
-      created_at: '2024-02-01', 
-      updated_at: '2024-02-01' 
-    }
-  ];
+  // Real-time database object
+  private db: any = {
+    products: [],
+    customers: [],
+    invoices: [],
+    returns: [],
+    payments: [],
+    stockMovements: [],
+    ledgerEntries: [],
+    paymentChannels: [],
+    enhancedPayments: [],
+    vendors: [],
+    stockReceiving: [],
+    stockReceivingItems: [],
+    vendorPayments: [],
+    staff: [],
+    staffLedgerEntries: [],
+    customerLedgerEntries: [],
+    businessExpenses: [],
+    businessIncome: []
+  };
 
-  private mockInvoices: any[] = [];
-  private mockReturns: any[] = [];
 
-  async initialize() {
-    try {
-      if (!isTauri()) {
-        console.log('Running in browser - using enhanced mock database with complete stock tracking');
-        this.loadFromLocalStorage();
-        this.initializeMockData();
-        this.isInitialized = true;
-        return;
-      }
 
-      console.log('Initializing Tauri database with complete stock tracking...');
-      this.database = new Database('sqlite:complete_store.db');
-      await this.createAllTables();
+async initialize() {
+  try {
+    if (!isTauri()) {
+      console.log('Running in browser - mock mode');
+      this.loadFromLocalStorage();
+      this.initializeMockData();
       this.isInitialized = true;
-      console.log('Complete database initialized successfully');
-    } catch (error) {
-      console.error('Complete database initialization failed:', error);
-      throw new Error(`Complete database initialization failed: ${error}`);
+      return;
     }
+
+    console.log('Initializing real SQLite DB in Tauri...');
+this.database = await new open('sqlite:data/store.db');
+    await this.createAllTables();
+    this.isInitialized = true;
+    console.log('DB initialized successfully');
+  } catch (error) {
+    console.error('DB init failed:', error);
+    throw new Error(`DB init failed: ${error}`);
   }
+}
+
+
 
   private async createAllTables() {
     if (!isTauri()) return;
@@ -1275,30 +1167,30 @@ unit_type: 'kg-grams',
        localStorage.getItem('enhanced_mock_invoices'));
     
     // Only initialize with hardcoded data if there's no stored data AND arrays are empty naturally (not from reset)
-    if (!hasStoredData && this.mockProducts.length === 0 && this.mockCustomers.length === 0) {
+    if (!hasStoredData && this.db.products.length === 0 && this.db.customers.length === 0) {
       console.log('🔧 No stored data found, but keeping arrays empty as they may have been intentionally reset');
       // Don't reload hardcoded demo data - keep arrays empty
     }
     
     // Always ensure these arrays exist (but keep them empty if reset)
-    if (!Array.isArray(this.mockStockMovements)) {
-      this.mockStockMovements = [];
+    if (!Array.isArray(this.db.stockMovements)) {
+      this.db.stockMovements = [];
     }
     
-    if (!Array.isArray(this.mockInvoices)) {
-      this.mockInvoices = [];
+    if (!Array.isArray(this.db.invoices)) {
+      this.db.invoices = [];
     }
 
-    if (!Array.isArray(this.mockReturns)) {
-      this.mockReturns = [];
+    if (!Array.isArray(this.db.customers)) {
+      this.db.customers = [];
     }
 
-    if (!Array.isArray(this.mockLedgerEntries)) {
-      this.mockLedgerEntries = [];
+    if (!Array.isArray(this.db.ledgerEntries)) {
+      this.db.ledgerEntries = [];
     }
 
-    if (!Array.isArray(this.mockPayments)) {
-      this.mockPayments = [];
+    if (!Array.isArray(this.db.payments)) {
+      this.db.payments = [];
     }
   }
 
@@ -1320,9 +1212,9 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
     });
 
     if (!isTauri()) {
-      const newId = Math.max(...this.mockStockMovements.map(m => m.id || 0), 0) + 1;
+      const newId = Math.max(...this.db.stockMovements.map((m: { id: any; }) => m.id || 0), 0) + 1;
       // Always attach the correct unit_type to the movement for later display/logic
-      const product = this.mockProducts.find(p => p.id === movement.product_id);
+      const product = this.db.products.find((p: { id: number; }) => p.id === movement.product_id);
       
       console.log(`🔧 CREATE_STOCK_MOVEMENT DEBUG: Product found:`, {
         name: product?.name,
@@ -1344,7 +1236,7 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
         movement_type: newMovement.movement_type
       });
       
-      this.mockStockMovements.push(newMovement);
+      this. db.stockMovements.push(newMovement);
       this.saveToLocalStorage();
       
       console.log('✅ Stock movement created and saved:', newMovement);
@@ -1432,7 +1324,7 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
       }
 
       if (!isTauri()) {
-        let filtered = [...this.mockStockMovements];
+        let filtered = [...this. db.stockMovements];
 
         if (filters.product_id) {
           filtered = filtered.filter(m => m.product_id === filters.product_id);
@@ -1582,12 +1474,12 @@ async adjustStock(
     });
 
     if (!isTauri()) {
-      const productIndex = this.mockProducts.findIndex(p => p.id === productId);
+      const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === productId);
       if (productIndex === -1) {
         throw new Error('Product not found');
       }
 
-      const product = this.mockProducts[productIndex];
+      const product = this.db.products[productIndex];
       
       console.log(`🔧 ADJUSTSTOCK DEBUG: Product ${product.name}, Unit: ${product.unit_type}, Adjustment: ${quantity}`);
       
@@ -1646,8 +1538,8 @@ async adjustStock(
       console.log(`🔧 ADJUSTSTOCK DEBUG: New stock string: ${newStockString}`);
 
       // Update product stock
-      this.mockProducts[productIndex].current_stock = newStockString;
-      this.mockProducts[productIndex].updated_at = now.toISOString();
+      this.db.products[productIndex].current_stock = newStockString;
+      this.db.products[productIndex].updated_at = now.toISOString();
 
       // Create stock movement record
       let movementType: 'in' | 'out' | 'adjustment';
@@ -1750,16 +1642,16 @@ async adjustStock(
   async recalculateProductStockFromMovements(productId: number): Promise<string> {
     try {
       if (!isTauri()) {
-        // Mock mode implementation
-        const productToUpdate = this.mockProducts.find(p => p.id === productId);
+        //   mode implementation
+        const productToUpdate = this.db.products.find((p: { id: number; }) => p.id === productId);
         if (!productToUpdate) {
           throw new Error(`Product with ID ${productId} not found`);
         }
-        
-        const movements = this.mockStockMovements.filter(m => m.product_id === productId);
+
+        const movements = this.db.stockMovements.filter((m: { product_id: number; }) => m.product_id === productId);
         
         // Sort movements by date/time to process in chronological order
-        movements.sort((a, b) => {
+        movements.sort((a: { date: any; time: any; }, b: { date: any; time: any; }) => {
           const dateA = new Date(`${a.date} ${a.time}`);
           const dateB = new Date(`${b.date} ${b.time}`);
           return dateA.getTime() - dateB.getTime();
@@ -1781,17 +1673,17 @@ async adjustStock(
         currentStock = Math.max(0, currentStock);
         
         // Get product to determine unit type
-        const productIndex = this.mockProducts.findIndex(p => p.id === productId);
+        const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === productId);
         if (productIndex === -1) {
           throw new Error(`Product with ID ${productId} not found`);
         }
         
-        const productForUpdate = this.mockProducts[productIndex];
+        const productForUpdate = this.db.products[productIndex];
         const correctedStock = this.formatStockValue(currentStock, productForUpdate.unit_type || 'kg-grams');
         
         // Update the product's current_stock with the corrected value
-        this.mockProducts[productIndex].current_stock = correctedStock;
-        this.mockProducts[productIndex].updated_at = new Date().toISOString();
+        this.db.products[productIndex].current_stock = correctedStock;
+        this.db.products[productIndex].updated_at = new Date().toISOString();
         this.saveToLocalStorage();
         
         console.log(`📦 Recalculated stock for product ${productId}: ${correctedStock}`);
@@ -1868,13 +1760,13 @@ async adjustStock(
       }
 
       if (!isTauri()) {
-        // Mock mode implementation with validation
-        const productIndex = this.mockProducts.findIndex(p => p.id === productId);
+        //   mode implementation with validation
+        const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === productId);
         if (productIndex === -1) {
           throw new Error(`Product with ID ${productId} not found`);
         }
-        
-        const product = this.mockProducts[productIndex];
+
+        const product = this.db.products[productIndex];
         const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
         const newStockValue = currentStockData.numericValue + quantityChange;
         
@@ -1885,8 +1777,8 @@ async adjustStock(
         
         // Format new stock value
         const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
-        this.mockProducts[productIndex].current_stock = newStockString;
-        this.mockProducts[productIndex].updated_at = new Date().toISOString();
+        this.db.products[productIndex].current_stock = newStockString;
+        this.db.products[productIndex].updated_at = new Date().toISOString();
         this.saveToLocalStorage();
         
         // Create stock movement record
@@ -2016,6 +1908,7 @@ async adjustStock(
       if (balanceDifference !== 0) {
         console.log(`🔄 Updating customer balance: invoice ${invoiceId}, old remaining: ${oldRemainingBalance}, new remaining: ${remainingBalance}, difference: ${balanceDifference}`);
         
+        
         // Update customer balance
         await this.database?.execute(
           'UPDATE customers SET total_balance = total_balance + ? WHERE id = ?',
@@ -2136,24 +2029,24 @@ async adjustStock(
     }
   }
 
-  // MOCK IMPLEMENTATIONS FOR ENHANCED INVOICE SYSTEM
+  //   IMPLEMENTATIONS FOR ENHANCED INVOICE SYSTEM
 
   private async addInvoiceItemsMock(invoiceId: number, items: any[]): Promise<void> {
-    const invoiceIndex = this.mockInvoices.findIndex(inv => inv.id === invoiceId);
+    const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
     if (invoiceIndex === -1) {
       throw new Error('Invoice not found');
     }
 
-    const invoice = this.mockInvoices[invoiceIndex];
+    const invoice = this.db.invoices[invoiceIndex];
     
     // Validate and add items
     for (const item of items) {
-      const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
       if (productIndex === -1) {
         throw new Error(`Product not found: ${item.product_name}`);
       }
 
-      const product = this.mockProducts[productIndex];
+      const product = this.db.products[productIndex];
       const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
       const requiredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
       
@@ -2177,8 +2070,8 @@ async adjustStock(
       // Update stock and create stock movement
       const newStockValue = currentStockData.numericValue - requiredQuantityData.numericValue;
       const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
-      this.mockProducts[productIndex].current_stock = newStockString;
-      
+      this.db.products[productIndex].current_stock = newStockString;
+
       // Create stock movement record
       await this.createStockMovement({
         product_id: item.product_id,
@@ -2245,13 +2138,13 @@ async adjustStock(
   }
 
   private async getInvoiceWithDetailsMock(invoiceId: number): Promise<any> {
-    const invoice = this.mockInvoices.find(inv => inv.id === invoiceId);
+    const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
     if (!invoice) {
       throw new Error('Invoice not found');
     }
 
     // Get payment history for this invoice from mockPayments
-    const payments = this.mockPayments.filter(payment => 
+    const payments = this. db.payments.filter((payment: { reference_invoice_id: number; payment_type: string; }) => 
       payment.reference_invoice_id === invoiceId && payment.payment_type === 'bill_payment'
     );
 
@@ -2289,12 +2182,12 @@ async adjustStock(
   }
 
   private async recalculateInvoiceTotalsMock(invoiceId: number): Promise<void> {
-    const invoiceIndex = this.mockInvoices.findIndex(inv => inv.id === invoiceId);
+    const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
     if (invoiceIndex === -1) {
       throw new Error('Invoice not found');
     }
 
-    const invoice = this.mockInvoices[invoiceIndex];
+    const invoice = this.db.invoices[invoiceIndex];
     const items = invoice.items || [];
     
     // Store old remaining balance for customer balance update
@@ -2323,33 +2216,33 @@ async adjustStock(
 
     // CRITICAL FIX: Update customer balance AND corresponding ledger entry
     if (balanceDifference !== 0) {
-      console.log(`🔄 Updating customer balance (mock): invoice ${invoiceId}, old remaining: ${oldRemainingBalance}, new remaining: ${remainingBalance}, difference: ${balanceDifference}`);
+      console.log(`🔄 Updating customer balance ( ): invoice ${invoiceId}, old remaining: ${oldRemainingBalance}, new remaining: ${remainingBalance}, difference: ${balanceDifference}`);
       
       // Update customer balance
-      const customerIndex = this.mockCustomers.findIndex(c => c.id === invoice.customer_id);
+      const customerIndex = this.db.customers.findIndex((c: { id: any; }) => c.id === invoice.customer_id);
       if (customerIndex !== -1) {
-        this.mockCustomers[customerIndex].balance = roundCurrency(
-          (this.mockCustomers[customerIndex].balance || 0) + balanceDifference
+        this.db.customers[customerIndex].balance = roundCurrency(
+          (this.db.customers[customerIndex].balance || 0) + balanceDifference
         );
-        this.mockCustomers[customerIndex].updated_at = new Date().toISOString();
-        console.log(`💰 Customer ${invoice.customer_id} balance updated by ${balanceDifference}: ${this.mockCustomers[customerIndex].balance}`);
+        this.db.customers[customerIndex].updated_at = new Date().toISOString();
+        console.log(`💰 Customer ${invoice.customer_id} balance updated by ${balanceDifference}: ${this.db. Customers[customerIndex].balance}`);
       }
 
       // CRITICAL: Update the corresponding ledger entry to keep it in sync
-      const ledgerEntryIndex = this.mockLedgerEntries.findIndex(entry => 
+      const ledgerEntryIndex = this.db.ledgerEntries.findIndex((entry: { reference_type: string; reference_id: number; }) => 
         entry.reference_type === 'invoice' && entry.reference_id === invoiceId
       );
       
       if (ledgerEntryIndex !== -1) {
-        const ledgerEntry = this.mockLedgerEntries[ledgerEntryIndex];
+        const ledgerEntry = this.db.ledgerEntries[ledgerEntryIndex];
         // Since LedgerEntry uses 'amount' for outgoing transactions (invoices)
         ledgerEntry.amount = roundCurrency((ledgerEntry.amount || 0) + balanceDifference);
         ledgerEntry.updated_at = new Date().toISOString();
         
         // Recalculate running balances for all entries for this customer
-        const customerEntries = this.mockLedgerEntries
-          .filter(entry => entry.customer_id === invoice.customer_id)
-          .sort((a, b) => {
+        const customerEntries = this.db.ledgerEntries
+          .filter((entry: { customer_id: any; }) => entry.customer_id === invoice.customer_id)
+          .sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
             if (a.date === b.date) {
               return a.time.localeCompare(b.time);
             }
@@ -2392,31 +2285,27 @@ async adjustStock(
   }
 
   private async removeInvoiceItemsMock(invoiceId: number, itemIds: number[]): Promise<void> {
-    const invoiceIndex = this.mockInvoices.findIndex(inv => inv.id === invoiceId);
+    const invoiceIndex = this.db.invoices.findIndex((inv: any) => inv.id === invoiceId);
     if (invoiceIndex === -1) {
       throw new Error('Invoice not found');
     }
-
-    const invoice = this.mockInvoices[invoiceIndex];
+    const invoice = this.db.invoices[invoiceIndex];
     if (!invoice.items) {
       invoice.items = [];
     }
-
     // Remove items and restore stock
     for (const itemId of itemIds) {
       const itemIndex = invoice.items.findIndex((item: any) => item.id === itemId);
       if (itemIndex !== -1) {
         const item = invoice.items[itemIndex];
-        
         // Restore stock and create stock movement
-        const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+        const productIndex = this.db.products.findIndex((p: any) => p.id === item.product_id);
         if (productIndex !== -1) {
-          const product = this.mockProducts[productIndex];
+          const product = this.db.products[productIndex];
           const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
           const restoredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
           const newStock = currentStockData.numericValue + restoredQuantityData.numericValue;
           product.current_stock = this.formatStockValue(newStock, product.unit_type || 'kg-grams');
-          
           // Create stock movement record for restoration
           await this.createStockMovement({
             product_id: item.product_id,
@@ -2438,44 +2327,33 @@ async adjustStock(
             created_by: 'system'
           });
         }
-
         // Remove the item
         invoice.items.splice(itemIndex, 1);
       }
     }
-
-    
     // Recalculate totals
     await this.recalculateInvoiceTotalsMock(invoiceId);
     this.saveToLocalStorage();
-    
     // ENHANCED: Emit events for real-time component updates
     try {
       if (typeof window !== 'undefined') {
         const eventBus = (window as any).eventBus;
         if (eventBus && eventBus.emit) {
-          // Emit invoice updated event with customer information
           eventBus.emit('INVOICE_UPDATED', {
             invoiceId,
             customerId: invoice.customer_id,
             action: 'items_removed',
             itemCount: itemIds.length
           });
-          
-          // Emit stock update event
           eventBus.emit('STOCK_UPDATED', {
             invoiceId,
             action: 'items_removed'
           });
-          
-          // Emit customer balance update event (balance changes due to invoice total change)
           eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
             customerId: invoice.customer_id,
             invoiceId,
             action: 'items_removed'
           });
-          
-          // Emit customer ledger update event
           eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
             invoiceId,
             customerId: invoice.customer_id,
@@ -2489,12 +2367,12 @@ async adjustStock(
   }
 
   private async updateInvoiceItemQuantityMock(invoiceId: number, itemId: number, newQuantity: number): Promise<void> {
-    const invoiceIndex = this.mockInvoices.findIndex(inv => inv.id === invoiceId);
+    const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
     if (invoiceIndex === -1) {
       throw new Error('Invoice not found');
     }
 
-    const invoice = this.mockInvoices[invoiceIndex];
+    const invoice = this.db.invoices[invoiceIndex];
     if (!invoice.items) {
       throw new Error('Invoice has no items');
     }
@@ -2510,9 +2388,9 @@ async adjustStock(
 
     // Check stock availability if increasing quantity
     if (quantityDifference > 0) {
-      const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
       if (productIndex !== -1) {
-        const product = this.mockProducts[productIndex];
+        const product = this.db.products[productIndex];
         const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
         const requiredQuantityData = parseUnit(quantityDifference, product.unit_type || 'kg-grams');
         
@@ -2526,7 +2404,7 @@ async adjustStock(
     item.quantity = newQuantity;
     
     // CRITICAL FIX: Correct total price calculation based on unit type
-    const product = this.mockProducts.find(p => p.id === item.product_id);
+    const product = this.db.products.find((p: { id: any; }) => p.id === item.product_id);
     let newTotalPrice: number;
     if (product && (product.unit_type === 'kg-grams' || product.unit_type === 'kg')) {
       // For weight-based units, convert grams to kg for pricing (divide by 1000)
@@ -2539,9 +2417,9 @@ async adjustStock(
 
     // Update stock and create stock movement
     if (quantityDifference !== 0) {
-      const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
       if (productIndex !== -1) {
-        const product = this.mockProducts[productIndex];
+        const product = this.db.products[productIndex];
         const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
         const adjustmentQuantityData = parseUnit(Math.abs(quantityDifference), product.unit_type || 'kg-grams');
         
@@ -2741,7 +2619,7 @@ async adjustStock(
     }
   }
 
-  // CRITICAL FIX: Enhanced mock invoice creation with proper customer ledger integration
+
   private async createInvoiceMock(
     invoiceData: any,
     billNumber: string,
@@ -2750,7 +2628,7 @@ async adjustStock(
     grandTotal: number,
     remainingBalance: number
   ) {
-    console.log('Creating invoice in mock mode with COMPLETE business logic');
+    console.log('Creating invoice in   mode with COMPLETE business logic');
 
     const now = new Date();
     const date = now.toISOString().split('T')[0];
@@ -2761,24 +2639,24 @@ async adjustStock(
     });
 
     // Get customer info
-    const customer = this.mockCustomers.find(c => c.id === invoiceData.customer_id);
+    const customer = this.db.customers.find((c: { id: any; }) => c.id === invoiceData.customer_id);
     const customerName = customer?.name || 'Unknown Customer';
 
     // Create new invoice ID
-    const newInvoiceId = Math.max(...this.mockInvoices.map(i => i.id || 0), 0) + 1;
+    const newInvoiceId = Math.max(...this.db.invoices.map((i: { id: any; }) => i.id || 0), 0) + 1;
     
     // CRITICAL: Process all stock changes ATOMICALLY
     const stockUpdates: Array<{productIndex: number, newStock: number, newStockString: string, item: any}> = [];
     
     // First, validate all stock changes
     for (const item of invoiceData.items) {
-      const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
       if (productIndex === -1) {
         throw new Error(`Product not found: ${item.product_name}`);
       }
-      
-      const product = this.mockProducts[productIndex];
-      
+
+      const product = this.db.products[productIndex];
+
       // Parse current stock based on product's unit type
       const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
       const currentStock = currentStockData.numericValue;
@@ -2810,13 +2688,13 @@ async adjustStock(
     // Apply all stock updates ATOMICALLY
     for (const update of stockUpdates) {
       // Parse previous stock for movement record based on product's unit type
-      const product = this.mockProducts[update.productIndex];
+      const product = this.db.products[update.productIndex];
       const previousStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
       const previousStock = previousStockData.numericValue;
       
       // Update product stock
-      this.mockProducts[update.productIndex].current_stock = update.newStockString;
-      this.mockProducts[update.productIndex].updated_at = now.toISOString();
+      this.db.products[update.productIndex].current_stock = update.newStockString;
+      this.db.products[update.productIndex].updated_at = now.toISOString();
       
       // Create stock movement record
       await this.createStockMovement({
@@ -2885,7 +2763,7 @@ async adjustStock(
       updated_at: now.toISOString()
     };
 
-    this.mockInvoices.push(newInvoice);
+    this.db.invoices.push(newInvoice);
 
     // CRITICAL FIX: Customer balance is now automatically updated in createLedgerEntry
     // No need to manually update here as it's handled in the ledger entry creation
@@ -2894,8 +2772,8 @@ async adjustStock(
     // CRITICAL: Save everything to localStorage
     this.saveToLocalStorage();
     
-    console.log('Mock invoice created with COMPLETE business logic:', newInvoice);
-    console.log('Current product stocks:', this.mockProducts.map(p => `${p.name}: ${p.current_stock}`));
+    console.log('  invoice created with COMPLETE business logic:', newInvoice);
+    console.log('Current product stocks:', this.db.products.map((p: { name: any; current_stock: any; }) => `${p.name}: ${p.current_stock}`));
     
     // ENHANCED: Emit event for real-time component updates
     try {
@@ -2996,11 +2874,11 @@ async adjustStock(
       const prefix = 'I';
       
       if (!isTauri()) {
-        // For mock mode, find the highest invoice number
-        const invoiceNumbers = this.mockInvoices
-          .map(inv => inv.bill_number)
-          .filter(billNumber => billNumber.startsWith(prefix))
-          .map(billNumber => parseInt(billNumber.substring(1)) || 0);
+        // For   mode, find the highest invoice number
+        const invoiceNumbers = this.db.invoices
+          .map((inv: { bill_number: any; }) => inv.bill_number)
+          .filter((billNumber: string) => billNumber.startsWith(prefix))
+          .map((billNumber: string) => parseInt(billNumber.substring(1)) || 0);
         
         let nextNumber = 1;
         if (invoiceNumbers.length > 0) {
@@ -3034,11 +2912,11 @@ async adjustStock(
       const prefix = 'C';
       
       if (!isTauri()) {
-        // For mock mode, find the highest customer code
-        const customerCodes = this.mockCustomers
-          .map(customer => customer.customer_code)
-          .filter(code => code && code.startsWith(prefix))
-          .map(code => parseInt(code.substring(1)) || 0);
+        // For   mode, find the highest customer code
+        const customerCodes = this.db.customers
+          .map((customer: { customer_code: any; }) => customer.customer_code)
+          .filter((code: string) => code && code.startsWith(prefix))
+          .map((code: string) => parseInt(code.substring(1)) || 0);
         
         let nextNumber = 1;
         if (customerCodes.length > 0) {
@@ -3072,11 +2950,11 @@ async adjustStock(
       const prefix = 'P';
       
       if (!isTauri()) {
-        // For mock mode, find the highest payment code
-        const paymentCodes = this.mockPayments
-          .map(payment => payment.payment_code)
-          .filter(code => code && code.startsWith(prefix))
-          .map(code => parseInt(code!.substring(1)) || 0);
+        // For   mode, find the highest payment code
+        const paymentCodes = this. db.payments
+          .map((payment: { payment_code: any; }) => payment.payment_code)
+          .filter((code: string) => code && code.startsWith(prefix))
+          .map((code: any) => parseInt(code!.substring(1)) || 0);
         
         let nextNumber = 1;
         if (paymentCodes.length > 0) {
@@ -3139,16 +3017,16 @@ async adjustStock(
 
       if (!isTauri()) {
         // CRITICAL FIX: Use actual ledger entries instead of reconstructing from invoices/payments
-        let ledgerEntries = this.mockLedgerEntries.filter(entry => 
+        let ledgerEntries = this. db.ledgerEntries.filter((entry: { customer_id: number; date: number; }) => 
           entry.customer_id === customerId &&
-                    (!filters.from_date || entry.date >= filters.from_date) &&
-          (!filters.to_date || entry.date <= filters.to_date)
+                    (!filters.from_date || String(entry.date) >= String(filters.from_date)) &&
+          (!filters.to_date || String(entry.date) <= String(filters.to_date))
         );
 
         // Apply search filter
         if (filters.search) {
           const search = filters.search.toLowerCase();
-          ledgerEntries = ledgerEntries.filter(entry => 
+          ledgerEntries = ledgerEntries.filter((entry: { description: string; category: string; bill_number: string; notes: string; }) => 
             entry.description.toLowerCase().includes(search) ||
             entry.category.toLowerCase().includes(search) ||
             entry.bill_number?.toLowerCase().includes(search) ||
@@ -3158,11 +3036,11 @@ async adjustStock(
 
         // Apply type filter
         if (filters.type) {
-          ledgerEntries = ledgerEntries.filter(entry => entry.type === filters.type);
+          ledgerEntries = ledgerEntries.filter((entry: { type: string | undefined; }) => entry.type === filters.type);
         }
 
         // Sort by date and time
-        ledgerEntries.sort((a, b) => {
+        ledgerEntries.sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
 if (a.date === b.date) {
           return a.time.localeCompare(b.time);
           }
@@ -3170,7 +3048,7 @@ if (a.date === b.date) {
         });
 
         // Convert ledger entries to transaction format expected by UI
-        const transactions = ledgerEntries.map(entry => ({
+        const transactions = ledgerEntries.map((entry: { id: any; date: any; time: any; type: string; category: any; description: any; amount: any; running_balance: any; reference_id: any; bill_number: any; payment_method: any; notes: any; created_at: any; }) => ({
           id: `ledger-${entry.id}`,
           date: entry.date,
           time: entry.time,
@@ -3188,15 +3066,15 @@ if (a.date === b.date) {
         }));
 
         // Get related stock movements for context
-        const stockMovements = this.mockStockMovements.filter(movement =>
+        const stockMovements = this. db.stockMovements.filter((movement: { customer_id: number; date: number; }) =>
           movement.customer_id === customerId &&
-          (!filters.from_date || movement.date >= filters.from_date) &&
-          (!filters.to_date || movement.date <= filters.to_date)
+          (!filters.from_date || String(movement.date) >= String(filters.from_date)) &&
+          (!filters.to_date || String(movement.date) <= String(filters.to_date))
 );
 
         // Calculate summary
-        const totalDebits = transactions.reduce((sum, t) => sum + (t.debit_amount || 0), 0);
-        const totalCredits = transactions.reduce((sum, t) => sum + (t.credit_amount || 0), 0);
+        const totalDebits = transactions.reduce((sum: any, t: { debit_amount: any; }) => sum + (t.debit_amount || 0), 0);
+        const totalCredits = transactions.reduce((sum: any, t: { credit_amount: any; }) => sum + (t.credit_amount || 0), 0);
         const netBalance = totalDebits - totalCredits;
 
         return {
@@ -3256,7 +3134,7 @@ stock_movements: stockMovements,
       }
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockPayments.map(p => p.id || 0), 0) + 1;
+        const newId = Math.max(...this. db.payments.map((p: { id: any; }) => p.id || 0), 0) + 1;
         const paymentCode = await this.generatePaymentCode();
         const newPayment: PaymentRecord = {
           ...payment,
@@ -3266,10 +3144,10 @@ stock_movements: stockMovements,
           updated_at: new Date().toISOString()
         };
         
-        this.mockPayments.push(newPayment);
+        this. db.payments.push(newPayment);
         
         // Get customer details for ledger entry
-        const customer = this.mockCustomers.find(c => c.id === payment.customer_id);
+        const customer = this.db.customers.find((c: { id: number; }) => c.id === payment.customer_id);
         if (!customer) {
           throw new Error('Customer not found');
         }
@@ -3833,9 +3711,9 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
 
       // Update invoice payment_amount and remaining_balance
       if (!isTauri()) {
-        const invoiceIndex = this.mockInvoices.findIndex(inv => inv.id === invoiceId);
+        const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
         if (invoiceIndex !== -1) {
-          const inv = this.mockInvoices[invoiceIndex];
+          const inv = this.db.invoices[invoiceIndex];
           inv.payment_amount = roundCurrency((inv.payment_amount || 0) + paymentData.amount);
           inv.remaining_balance = roundCurrency(inv.grand_total - inv.payment_amount);
           inv.updated_at = new Date().toISOString();
@@ -4099,7 +3977,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       }
 
       if (!isTauri()) {
-        const categories = [...new Set(this.mockProducts.map(p => p.category))];
+        const categories = [...new Set(this.db.products.map((p: { category: any; }) => p.category))];
         return categories.map(category => ({ category }));
       }
 
@@ -4123,7 +4001,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       }
 
       if (!isTauri()) {
-        let filtered = [...this.mockProducts];
+        let filtered = [...this.db.products];
         
         if (search) {
           filtered = filtered.filter(p => 
@@ -4181,7 +4059,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       }
 
       if (!isTauri()) {
-        let filtered = [...this.mockCustomers];
+        let filtered = [...this.db.customers];
         
         if (search) {
           filtered = filtered.filter(c => 
@@ -4236,7 +4114,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       }
 
       if (!isTauri()) {
-        const customer = this.mockCustomers.find(c => c.id === id);
+        const customer = this.db.customers.find((c: { id: number; }) => c.id === id);
         if (!customer) {
           throw new Error('Customer not found');
         }
@@ -4265,7 +4143,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       }
 
       if (!isTauri()) {
-        const product = this.mockProducts.find(p => p.id === id);
+        const product = this.db.products.find((p: { id: number; }) => p.id === id);
         if (!product) {
           throw new Error('Product not found');
         }
@@ -4396,7 +4274,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
       }
 
       if (!isTauri()) {
-        let filtered = [...this.mockInvoices];
+        let filtered = [...this.db.invoices];
 
         if (filters.customer_id) {
           filtered = filtered.filter(inv => inv.customer_id === filters.customer_id);
@@ -4478,7 +4356,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
       }
 
       if (!isTauri()) {
-        const invoice = this.mockInvoices.find(inv => inv.id === invoiceId);
+        const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
         if (!invoice) {
           throw new Error('Invoice not found');
         }
@@ -4508,9 +4386,9 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
       }
 
       if (!isTauri()) {
-        const customerInvoices = this.mockInvoices
-          .filter(invoice => invoice.customer_id === customerId)
-          .map(invoice => ({
+        const customerInvoices = this.db.invoices
+          .filter((invoice: { customer_id: number; }) => invoice.customer_id === customerId)
+          .map((invoice: { id: any; bill_number: any; created_at: string; date: any; grand_total: any; total_amount: any; paid_amount: any; status: any; }) => ({
             id: invoice.id,
             bill_number: invoice.bill_number,
             date: invoice.created_at?.split('T')[0] || invoice.date,
@@ -4519,8 +4397,8 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
             balance_amount: (invoice.grand_total || invoice.total_amount) - (invoice.paid_amount || 0),
             status: invoice.status || 'pending'
           }))
-          .filter(invoice => invoice.balance_amount > 0) // Only show invoices with pending balance
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          .filter((invoice: { balance_amount: number; }) => invoice.balance_amount > 0) // Only show invoices with pending balance
+          .sort((a: { date: string | number | Date; }, b: { date: string | number | Date; }) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
         return customerInvoices;
       }
@@ -4556,7 +4434,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
       }
 
       if (!isTauri()) {
-        const invoice = this.mockInvoices.find(inv => inv.id === invoiceId);
+        const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
         if (!invoice) {
           throw new Error('Invoice not found');
         }
@@ -4577,7 +4455,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
 
         // CRITICAL: Update customer balance to reflect payment
         // Payment reduces the customer's outstanding balance
-        const customer = this.mockCustomers.find(c => c.id === invoice.customer_id);
+        const customer = this.db.customers.find((c: { id: any; }) => c.id === invoice.customer_id);
         if (customer) {
           customer.balance = roundCurrency(Math.max(0, (customer.balance || 0) - paymentAmount));
         }
@@ -4694,7 +4572,7 @@ async createVendorPayment(payment: {
     }
 
     if (!isTauri()) {
-      const newId = Math.max(...this.mockVendorPayments.map(p => p.id || 0), 0) + 1;
+      const newId = Math.max(...this.db.vendorPayments.map((p: { id: any; }) => p.id || 0), 0) + 1;
       const newPayment = {
         id: newId,
         ...payment,
@@ -4702,7 +4580,7 @@ async createVendorPayment(payment: {
         updated_at: new Date().toISOString()
       };
       
-      this.mockVendorPayments.push(newPayment);
+      this.db.vendorPayments.push(newPayment);
       this.saveToLocalStorage();
       
       console.log('Vendor payment created:', newPayment);
@@ -4739,13 +4617,13 @@ async updateStockReceivingPayment(receivingId: number, paymentAmount: number): P
     }
 
     if (!isTauri()) {
-      const receivingIndex = this.mockStockReceiving.findIndex(r => r.id === receivingId);
+      const receivingIndex = this.db.stockReceiving.findIndex((r: { id: number; }) => r.id === receivingId);
       if (receivingIndex !== -1) {
-        const receiving = this.mockStockReceiving[receivingIndex];
+        const receiving = this.db.stockReceiving[receivingIndex];
         const newPaymentAmount = (receiving.payment_amount || 0) + paymentAmount;
         const newRemainingBalance = receiving.total_amount - newPaymentAmount;
         
-        this.mockStockReceiving[receivingIndex] = {
+        this.db.stockReceiving[receivingIndex] = {
           ...receiving,
           payment_amount: newPaymentAmount,
           remaining_balance: Math.max(0, newRemainingBalance),
@@ -4755,7 +4633,7 @@ async updateStockReceivingPayment(receivingId: number, paymentAmount: number): P
         };
         
         this.saveToLocalStorage();
-        console.log('Stock receiving payment updated:', this.mockStockReceiving[receivingIndex]);
+        console.log('Stock receiving payment updated:', this.db.stockReceiving[receivingIndex]);
       }
       return;
     }
@@ -4790,13 +4668,13 @@ async getVendorPayments(vendorId: number): Promise<any[]> {
     }
 
     if (!isTauri()) {
-      // Mock mode: return vendor payments with receiving details
-      const vendorPayments = this.mockVendorPayments.filter(p => p.vendor_id === vendorId);
+      //   mode: return vendor payments with receiving details
+      const vendorPayments = this.db.vendorPayments.filter((p: { vendor_id: number; }) => p.vendor_id === vendorId);
       
       // Enhance with receiving information
-      return vendorPayments.map(payment => {
+      return vendorPayments.map((payment: { receiving_id: any; notes: any; amount: any; date: any; payment_channel_name: any; }) => {
         const receiving = payment.receiving_id ? 
-          this.mockStockReceiving.find(r => r.id === payment.receiving_id) : null;
+          this.db.stockReceiving.find((r: { id: any; }) => r.id === payment.receiving_id) : null;
         
         return {
           ...payment,
@@ -4807,7 +4685,7 @@ async getVendorPayments(vendorId: number): Promise<any[]> {
           date: payment.date,
           payment_method: payment.payment_channel_name
         };
-      }).sort((a, b) => b.date.localeCompare(a.date));
+      }).sort((a: { date: any; }, b: { date: string; }) => b.date.localeCompare(a.date));
     }
 
     // Real DB: join with stock_receiving to get receiving details
@@ -4843,9 +4721,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
 
     if (!isTauri()) {
-      return this.mockVendorPayments
-        .filter(p => p.receiving_id === receivingId)
-        .sort((a, b) => b.date.localeCompare(a.date));
+      return this.db.vendorPayments
+        .filter((p: { receiving_id: number; }) => p.receiving_id === receivingId)
+        .sort((a: { date: any; }, b: { date: string; }) => b.date.localeCompare(a.date));
     }
 
     const payments = await this.database?.select(`
@@ -4864,8 +4742,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   private async createInvoicePaymentHistory(invoiceId: number, paymentId: number, amount: number, paymentMethod: string, notes?: string): Promise<void> {
     try {
       if (!isTauri()) {
-        // For mock implementation, we'll store payment history in the invoice object
-        const invoice = this.mockInvoices.find(inv => inv.id === invoiceId);
+        // For db. implementation, we'll store payment history in the invoice object
+        const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
         if (invoice) {
           if (!invoice.payment_history) {
             invoice.payment_history = [];
@@ -4918,112 +4796,82 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // CRITICAL FIX: Load and save methods with enhanced data persistence
   private loadFromLocalStorage() {
     try {
-      const products = localStorage.getItem('enhanced_mock_products');
-      const customers = localStorage.getItem('enhanced_mock_customers');
-      const invoices = localStorage.getItem('enhanced_mock_invoices');
-      const returns = localStorage.getItem('enhanced_mock_returns');
-      const payments = localStorage.getItem('enhanced_mock_payments');
-      const stockMovements = localStorage.getItem('enhanced_mock_stock_movements');
-      const ledgerEntries = localStorage.getItem('enhanced_mock_ledger_entries');
-
-      // Load stored data if it exists, including empty arrays (which might be intentional after reset)
-      if (products !== null) {
-        this.mockProducts = JSON.parse(products);
-        console.log(`📦 Loaded ${this.mockProducts.length} products from localStorage`);
-      }
-      if (customers !== null) {
-        this.mockCustomers = JSON.parse(customers);
-        console.log(`👥 Loaded ${this.mockCustomers.length} customers from localStorage`);
-      }
-      if (invoices !== null) {
-        this.mockInvoices = JSON.parse(invoices);
-        console.log(`📄 Loaded ${this.mockInvoices.length} invoices from localStorage`);
-      }
-      if (returns !== null) {
-        this.mockReturns = JSON.parse(returns);
-        console.log(`🔄 Loaded ${this.mockReturns.length} returns from localStorage`);
-      }
-      if (payments !== null) {
-        this.mockPayments = JSON.parse(payments);
-        console.log(`💳 Loaded ${this.mockPayments.length} payments from localStorage`);
-      }
-      if (stockMovements !== null) {
-        this.mockStockMovements = JSON.parse(stockMovements);
-        console.log(`📊 Loaded ${this.mockStockMovements.length} stock movements from localStorage`);
-      }
-      if (ledgerEntries !== null) {
-        this.mockLedgerEntries = JSON.parse(ledgerEntries);
-        console.log(`📋 Loaded ${this.mockLedgerEntries.length} ledger entries from localStorage`);
-      }
-
-      // Load new enhanced data
-      const paymentChannels = localStorage.getItem('enhanced_mock_payment_channels');
-      const enhancedPayments = localStorage.getItem('enhanced_mock_enhanced_payments');
-      const vendors = localStorage.getItem('enhanced_mock_vendors');
-      const stockReceiving = localStorage.getItem('enhanced_mock_stock_receiving');
-      const stockReceivingItems = localStorage.getItem('enhanced_mock_stock_receiving_items');
-      const vendorPayments = localStorage.getItem('enhanced_mock_vendor_payments');
-      const staff = localStorage.getItem('enhanced_mock_staff');
-      const staffLedgerEntries = localStorage.getItem('enhanced_mock_staff_ledger_entries');
-      const customerLedgerEntries = localStorage.getItem('enhanced_mock_customer_ledger_entries');
-      const businessExpenses = localStorage.getItem('enhanced_mock_business_expenses');
-      const businessIncome = localStorage.getItem('enhanced_mock_business_income');
-
-      if (paymentChannels !== null) this.mockPaymentChannels = JSON.parse(paymentChannels);
-      if (enhancedPayments !== null) this.mockEnhancedPayments = JSON.parse(enhancedPayments);
-      if (vendors !== null) this.mockVendors = JSON.parse(vendors);
-      if (stockReceiving !== null) this.mockStockReceiving = JSON.parse(stockReceiving);
-      if (stockReceivingItems !== null) this.mockStockReceivingItems = JSON.parse(stockReceivingItems);
-      if (vendorPayments !== null) this.mockVendorPayments = JSON.parse(vendorPayments);
-      if (staff !== null) this.mockStaff = JSON.parse(staff);
-      if (staffLedgerEntries !== null) this.mockStaffLedgerEntries = JSON.parse(staffLedgerEntries);
-      if (customerLedgerEntries !== null) this.mockCustomerLedgerEntries = JSON.parse(customerLedgerEntries);
-      if (businessExpenses !== null) this.mockBusinessExpenses = JSON.parse(businessExpenses);
-      if (businessIncome !== null) this.mockBusinessIncome = JSON.parse(businessIncome);
-
-      console.log('✅ Enhanced data loaded from localStorage');
-      if (this.mockProducts.length > 0) {
-        console.log('Current products:', this.mockProducts.map(p => `${p.name}: ${p.current_stock}`));
+      const dbRaw = localStorage.getItem('steel_store_db');
+      if (dbRaw) {
+        this.db = JSON.parse(dbRaw);
+        console.log('✅ Real-time database loaded from localStorage:', this.db);
       } else {
-        console.log('📝 No products in database (this is normal after reset)');
+        // If not present, initialize empty db
+        this.db = {
+          products: [], customers: [], invoices: [], returns: [], payments: [], stockMovements: [], ledgerEntries: [], paymentChannels: [], enhancedPayments: [], vendors: [], stockReceiving: [], stockReceivingItems: [], vendorPayments: [], staff: [], staffLedgerEntries: [], customerLedgerEntries: [], businessExpenses: [], businessIncome: []
+        };
+        localStorage.setItem('steel_store_db', JSON.stringify(this.db));
+        console.log('📝 Initialized empty real-time database in localStorage');
       }
     } catch (error) {
-      console.error('Error loading enhanced data from localStorage:', error);
+      console.error('Error loading real-time database from localStorage:', error);
     }
   }
 
   private saveToLocalStorage() {
     try {
-      localStorage.setItem('enhanced_mock_products', JSON.stringify(this.mockProducts));
-      localStorage.setItem('enhanced_mock_customers', JSON.stringify(this.mockCustomers));
-      localStorage.setItem('enhanced_mock_invoices', JSON.stringify(this.mockInvoices));
-      localStorage.setItem('enhanced_mock_returns', JSON.stringify(this.mockReturns));
-      localStorage.setItem('enhanced_mock_payments', JSON.stringify(this.mockPayments));
-      localStorage.setItem('enhanced_mock_stock_movements', JSON.stringify(this.mockStockMovements));
-      localStorage.setItem('enhanced_mock_ledger_entries', JSON.stringify(this.mockLedgerEntries));
-      
-      // Save new enhanced data
-      localStorage.setItem('enhanced_mock_payment_channels', JSON.stringify(this.mockPaymentChannels));
-      localStorage.setItem('enhanced_mock_enhanced_payments', JSON.stringify(this.mockEnhancedPayments));
-      localStorage.setItem('enhanced_mock_vendors', JSON.stringify(this.mockVendors));
-      localStorage.setItem('enhanced_mock_stock_receiving', JSON.stringify(this.mockStockReceiving));
-      localStorage.setItem('enhanced_mock_stock_receiving_items', JSON.stringify(this.mockStockReceivingItems));
-      localStorage.setItem('enhanced_mock_vendor_payments', JSON.stringify(this.mockVendorPayments));
-      localStorage.setItem('enhanced_mock_staff', JSON.stringify(this.mockStaff));
-      localStorage.setItem('enhanced_mock_staff_ledger_entries', JSON.stringify(this.mockStaffLedgerEntries));
-      localStorage.setItem('enhanced_mock_customer_ledger_entries', JSON.stringify(this.mockCustomerLedgerEntries));
-      localStorage.setItem('enhanced_mock_business_expenses', JSON.stringify(this.mockBusinessExpenses));
-      localStorage.setItem('enhanced_mock_business_income', JSON.stringify(this.mockBusinessIncome));
-      
-      console.log('💾 Enhanced data saved to localStorage');
-      console.log(`📊 Saved: ${this.mockProducts.length} products, ${this.mockCustomers.length} customers, ${this.mockInvoices.length} invoices, ${this.mockLedgerEntries.length} ledger entries`);
-      if (this.mockProducts.length > 0) {
-        console.log('Current products saved:', this.mockProducts.map(p => `${p.name}: ${p.current_stock}`));
+      localStorage.setItem('steel_store_db', JSON.stringify(this.db));
+      this.verifyLocalStorageIntegrity();
+      console.log('💾 Real-time database saved to localStorage:', this.db);
+    } catch (error) {
+      console.error('Error saving real-time database to localStorage:', error);
+    }
+  }
+
+  /**
+   * Verify localStorage integrity after save
+   * Checks that all keys exist and data is valid JSON
+   */
+  private verifyLocalStorageIntegrity() {
+    try {
+      const keys = [
+        'steel_store_db',
+        'enhanced_mock_products',
+        'enhanced_mock_customers',
+        'enhanced_mock_invoices',
+        'enhanced_mock_returns',
+        'enhanced_mock_payments',
+        'enhanced_mock_stock_movements',
+        'enhanced_mock_ledger_entries',
+        'enhanced_mock_payment_channels',
+        'enhanced_mock_enhanced_payments',
+        'enhanced_mock_vendors',
+        'enhanced_mock_stock_receiving',
+        'enhanced_mock_stock_receiving_items',
+        'enhanced_mock_vendor_payments',
+        'enhanced_mock_staff',
+        'enhanced_mock_staff_ledger_entries',
+        'enhanced_mock_customer_ledger_entries',
+        'enhanced_mock_business_expenses',
+        'enhanced_mock_business_income'
+      ];
+      let allValid = true;
+      for (const key of keys) {
+        const value = localStorage.getItem(key);
+        if (value === null) {
+          console.warn(`LocalStorage key missing: ${key}`);
+          allValid = false;
+        } else {
+          try {
+            JSON.parse(value);
+          } catch (e) {
+            console.error(`Invalid JSON in localStorage for key: ${key}`);
+            allValid = false;
+          }
+        }
+      }
+      if (allValid) {
+        console.log('✅ LocalStorage integrity verified: all keys present and valid JSON');
       } else {
-        console.log('📝 Saved empty database state');
+        console.warn('⚠️ LocalStorage integrity check failed: see warnings above');
       }
     } catch (error) {
-      console.error('Error saving enhanced data to localStorage:', error);
+      console.error('Error verifying localStorage integrity:', error);
     }
   }
 
@@ -5035,7 +4883,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        return this.mockCustomers.length;
+        return this.db.customers.length;
       }
 
       const result = await this.database?.select('SELECT COUNT(*) as count FROM customers');
@@ -5056,7 +4904,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       this.validateProductData(product);
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockProducts.map(p => p.id), 0) + 1;
+        const newId = Math.max(...this.db.products.map((p: { id: any; }) => p.id), 0) + 1;
         const newProduct = {
           id: newId,
           name: this.sanitizeStringInput(product.name),
@@ -5073,7 +4921,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           updated_at: new Date().toISOString()
         };
         
-        this.mockProducts.push(newProduct);
+        this.db.products.push(newProduct);
         this.saveToLocalStorage();
         return newId;
       }
@@ -5114,7 +4962,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       this.validateCustomerData(customer);
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockCustomers.map(c => c.id), 0) + 1;
+        const newId = Math.max(...this.db.customers.map((c: { id: any; }) => c.id), 0) + 1;
         const customerCode = await this.generateCustomerCode();
         const newCustomer = {
           id: newId,
@@ -5128,7 +4976,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           updated_at: new Date().toISOString()
         };
         
-        this.mockCustomers.push(newCustomer);
+        this.db.customers.push(newCustomer);
         this.saveToLocalStorage();
         return newId;
       }
@@ -5244,9 +5092,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       
       if (entry.customer_id) {
         // Customer ledger: Calculate customer account balance
-        const customerEntries = this.mockLedgerEntries
-          .filter(e => e.customer_id === entry.customer_id)
-          .sort((a, b) => {
+        const customerEntries = this.db.ledgerEntries
+          .filter((e: { customer_id: number | undefined; }) => e.customer_id === entry.customer_id)
+          .sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
             if (a.date === b.date) {
               return a.time.localeCompare(b.time);
             }
@@ -5273,9 +5121,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         console.log(`📊 Customer ${entry.customer_name} balance update: ${entry.type} Rs. ${entry.amount}, New Balance: Rs. ${runningBalance}`);
       } else {
         // Daily ledger: Calculate business cash flow balance
-        const dailyEntries = this.mockLedgerEntries
-          .filter(e => !e.customer_id) // Only business cash flow entries
-          .sort((a, b) => {
+        const dailyEntries = this.db.ledgerEntries
+          .filter((e: { customer_id: any; }) => !e.customer_id) // Only business cash flow entries
+          .sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
             if (a.date === b.date) {
               return a.time.localeCompare(b.time);
             }
@@ -5298,7 +5146,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         console.log(`💰 Business cash flow update: ${entry.type} Rs. ${entry.amount}, New Cash Balance: Rs. ${runningBalance}`);
       }
 
-      const newId = Math.max(...this.mockLedgerEntries.map(e => e.id || 0), 0) + 1;
+      const newId = Math.max(...this.db.ledgerEntries.map((e: { id: any; }) => e.id || 0), 0) + 1;
       const ledgerEntry: LedgerEntry = {
         id: newId,
         date: entry.date,
@@ -5319,15 +5167,15 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         updated_at: new Date().toISOString()
       };
 
-      this.mockLedgerEntries.push(ledgerEntry);
+      this.db.ledgerEntries.push(ledgerEntry);
       this.saveToLocalStorage();
       
       // CRITICAL: Update customer balance to match the running balance
       if (entry.customer_id) {
-        const customerIndex = this.mockCustomers.findIndex(c => c.id === entry.customer_id);
+        const customerIndex = this.db.customers.findIndex((c: { id: number | undefined; }) => c.id === entry.customer_id);
         if (customerIndex !== -1) {
-          this.mockCustomers[customerIndex].balance = runningBalance;
-          this.mockCustomers[customerIndex].updated_at = new Date().toISOString();
+          this.db.customers[customerIndex].balance = runningBalance;
+          this.db.customers[customerIndex].updated_at = new Date().toISOString();
           this.saveToLocalStorage(); // Save updated customer balance
           console.log(`💰 Customer ${entry.customer_name} balance updated to Rs. ${runningBalance}`);
         }
@@ -5358,7 +5206,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       const returnNumber = await this.generateReturnNumber();
       const now = new Date();
-      const returnId = Math.max(...this.mockReturns.map(r => r.id || 0), 0) + 1;
+      const returnId = Math.max(...this.db.returns.map((r: { id: any; }) => r.id || 0), 0) + 1;
 
       if (!isTauri()) {
         const newReturn = {
@@ -5374,7 +5222,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           updated_at: now.toISOString()
         };
 
-        this.mockReturns.push(newReturn);
+        this.db.returns.push(newReturn);
         this.saveToLocalStorage();
         return returnId;
       }
@@ -5390,10 +5238,10 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       if (!this.isInitialized) await this.initialize();
 
       if (!isTauri()) {
-        const returnIndex = this.mockReturns.findIndex(r => r.id === returnId);
+        const returnIndex = this.db.returns.findIndex((r: { id: number; }) => r.id === returnId);
         if (returnIndex === -1) throw new Error('Return not found');
 
-        const returnItem = this.mockReturns[returnIndex];
+        const returnItem = this.db.returns[returnIndex];
         const now = new Date();
         const date = now.toISOString().split('T')[0];
         const time = now.toLocaleTimeString('en-PK', { 
@@ -5404,9 +5252,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
         // Update stock for good condition items
         for (const item of returnItem.items) {
-          const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+          const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
           if (productIndex !== -1 && item.condition === 'good') {
-            const product = this.mockProducts[productIndex];
+            const product = this.db.products[productIndex];
             
             // Parse current stock based on product's unit type
             const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
@@ -5429,8 +5277,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
               newStockString = newStock.toString();
             }
             
-            this.mockProducts[productIndex].current_stock = newStockString;
-            this.mockProducts[productIndex].updated_at = now.toISOString();
+            this.db.products[productIndex].current_stock = newStockString;
+            this.db.products[productIndex].updated_at = now.toISOString();
 
             console.log(`📦 Stock updated: ${item.product_name} - Added ${formatUnitString(returnQuantity.toString(), product.unit_type || 'kg-grams')} (${formatUnitString(currentStock.toString(), product.unit_type || 'kg-grams')} → ${formatUnitString(newStock.toString(), product.unit_type || 'kg-grams')})`);
 
@@ -5470,11 +5318,11 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           });
 
           // CRITICAL FIX: Also update customer balance directly
-          const customerIndex = this.mockCustomers.findIndex(c => c.id === returnItem.customer_id);
+          const customerIndex = this.db.customers.findIndex((c: { id: any; }) => c.id === returnItem.customer_id);
           if (customerIndex !== -1) {
-            this.mockCustomers[customerIndex].balance -= returnItem.refund_amount;
-            this.mockCustomers[customerIndex].updated_at = now.toISOString();
-            console.log(`💰 Customer balance updated: ${this.mockCustomers[customerIndex].name} balance reduced by Rs. ${returnItem.refund_amount}`);
+            this.db.customers[customerIndex].balance -= returnItem.refund_amount;
+            this.db.customers[customerIndex].updated_at = now.toISOString();
+            console.log(`💰 Customer balance updated: ${this.db.customers[customerIndex].name} balance reduced by Rs. ${returnItem.refund_amount}`);
           }
         }
 
@@ -5494,7 +5342,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         }
 
         // Update return status
-        this.mockReturns[returnIndex] = {
+        this.db.returns[returnIndex] = {
           ...returnItem, status: 'processed',
           processed_by: 'system', processed_at: now.toISOString(),
           updated_at: now.toISOString()
@@ -5521,7 +5369,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       if (!this.isInitialized) await this.initialize();
 
       if (!isTauri()) {
-        let filtered = [...this.mockReturns];
+        let filtered = [...this.db.returns];
 
         if (filters.search?.trim()) {
           const searchTerm = filters.search.toLowerCase();
@@ -5556,7 +5404,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const prefix = `RET-${dateStr}`;
       
       if (!isTauri()) {
-        const existing = this.mockReturns.filter(r => 
+        const existing = this.db.returns.filter((r: { return_number: string; }) => 
           r.return_number.startsWith(prefix)
         );
         const nextNumber = existing.length + 1;
@@ -5569,344 +5417,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
   }
 
-  // UTILITY: Reset database to start fresh
-  async resetDatabase(): Promise<boolean> {
-    try {
-      console.log('🔄 Starting database reset...');
-
-      if (!isTauri()) {
-        // Reset all mock data arrays for every component
-        console.log('📝 Resetting all mock data arrays...');
-        this.mockProducts = [];
-        this.mockCustomers = [];
-        this.mockInvoices = [];
-        this.mockReturns = [];
-        this.mockStockMovements = [];
-        this.mockLedgerEntries = [];
-        this.mockPayments = [];
-        this.mockPaymentChannels = [];
-        this.mockEnhancedPayments = [];
-        this.mockVendors = [];
-        this.mockStockReceiving = [];
-        this.mockStockReceivingItems = [];
-        this.mockVendorPayments = [];
-        this.mockStaff = [];
-        this.mockStaffLedgerEntries = [];
-        this.mockCustomerLedgerEntries = [];
-        this.mockBusinessExpenses = [];
-        this.mockBusinessIncome = [];
-
-        // Clear all relevant localStorage keys for every component
-        console.log('🗑️ Clearing all localStorage keys for every component...');
-        if (typeof window !== 'undefined' && window.localStorage) {
-          // List all possible keys used by all components
-          const keysToRemove = [
-            // Old keys
-            'steel_store_products',
-            'steel_store_customers',
-            'steel_store_invoices',
-            'steel_store_returns',
-            'steel_store_movements',
-            'steel_store_ledger',
-            'steel_store_payments',
-            // Enhanced mock keys
-            'enhanced_mock_products',
-            'enhanced_mock_customers',
-            'enhanced_mock_invoices',
-            'enhanced_mock_returns',
-            'enhanced_mock_payments',
-            'enhanced_mock_stock_movements',
-            'enhanced_mock_ledger_entries',
-            'enhanced_mock_payment_channels',
-            'enhanced_mock_enhanced_payments',
-            'enhanced_mock_vendors',
-            'enhanced_mock_stock_receiving',
-            'enhanced_mock_stock_receiving_items',
-            'enhanced_mock_vendor_payments',
-            'enhanced_mock_staff',
-            'enhanced_mock_staff_ledger_entries',
-            'enhanced_mock_customer_ledger_entries',
-            'enhanced_mock_business_expenses',
-            'enhanced_mock_business_income',
-          ];
-
-          keysToRemove.forEach(key => {
-            window.localStorage.removeItem(key);
-          });
-
-          // Remove all daily ledger and date-specific keys
-          const allKeys = Object.keys(window.localStorage);
-          const extraKeys = allKeys.filter(key =>
-            key.startsWith('daily_ledger_') ||
-            key.startsWith('daily_ledger_entries_') ||
-            key.startsWith('ledger_')
-          );
-          extraKeys.forEach(key => {
-            window.localStorage.removeItem(key);
-            console.log(`🗑️ Removed extra ledger key: ${key}`);
-          });
-
-          console.log(`✅ LocalStorage cleared (${keysToRemove.length} standard keys + ${extraKeys.length} extra keys)`);
-        }
-
-        // Save empty arrays to localStorage to prevent reloading hardcoded data
-        this.saveToLocalStorage();
-
-        console.log('✅ All mock data reset complete - local database is now empty');
-        console.log('📊 Current state:');
-        console.log(`   - Products: ${this.mockProducts.length}`);
-        console.log(`   - Customers: ${this.mockCustomers.length}`);
-        console.log(`   - Invoices: ${this.mockInvoices.length}`);
-        console.log(`   - Stock Movements: ${this.mockStockMovements.length}`);
-        console.log(`   - Stock Receiving: ${this.mockStockReceiving.length}`);
-        console.log(`   - Vendors: ${this.mockVendors.length}`);
-        console.log(`   - Staff: ${this.mockStaff.length}`);
-        return true;
-      }
-
-      // Real database reset
-      console.log('🗄️ Resetting real database...');
-
-      // Drop all tables (add any new tables here as needed)
-      const tables = [
-        'stock_movements',
-        'ledger_entries',
-        'payments',
-        'invoice_items',
-        'invoices',
-        'return_items',
-        'returns',
-        'products',
-        'customers',
-        'payment_channels',
-        'vendors',
-        'stock_receiving',
-        'stock_receiving_items',
-        'vendor_payments',
-        'staff',
-        'staff_ledger_entries',
-        'customer_ledger_entries',
-        'business_expenses',
-        'business_income'
-      ];
-
-      for (const table of tables) {
-        try {
-          await this.database?.execute(`DROP TABLE IF EXISTS ${table}`);
-          console.log(`✅ Dropped table: ${table}`);
-        } catch (error) {
-          console.warn(`⚠️ Warning dropping table ${table}:`, error);
-        }
-      }
-
-      // Recreate all tables
-      console.log('🏗️ Recreating database structure...');
-      await this.createAllTables();
-
-      console.log('✅ Database reset and recreated successfully');
-      return true;
-
-    } catch (error) {
-      console.error('❌ Failed to reset database:', error);
-      throw new Error(`Database reset failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  // UTILITY: Reset to demo data (includes sample products and customers)
-  async resetToDemoData(): Promise<boolean> {
-    try {
-      console.log('🔄 Resetting to demo data...');
-      
-      // First reset everything
-      await this.resetDatabase();
-      
-      // Add demo data for mock mode
-      if (!isTauri()) {
-        console.log('📦 Adding demo products...');
-        this.mockProducts = [
-          { 
-            id: 1, 
-            name: 'Steel Rod 10mm', 
-            category: 'Rods',
-            unit_type: 'kg-grams',
-            unit: '1600-60',
-            rate_per_unit: 150.00,
-            current_stock: '100-50',
-            min_stock_alert: '20-0',
-            size: '10mm',
-            grade: 'Grade A',
-            status: 'active',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          { 
-            id: 2, 
-            name: 'Steel Angle 25x25', 
-            category: 'Angles',
-            unit_type: 'kg-grams',
-            unit: '2000-0',
-            rate_per_unit: 180.00, 
-            current_stock: '75-250',
-            min_stock_alert: '15-0',
-            size: '25x25mm',
-            grade: 'Grade A',
-            status: 'active',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          },
-          { 
-            id: 3, 
-            name: 'Bolts M12', 
-            category: 'Hardware',
-            unit_type: 'piece',
-            unit: '100',
-            rate_per_unit: 15.00, 
-            current_stock: '500',
-            min_stock_alert: '50',
-            size: 'M12',
-            grade: 'Standard',
-            status: 'active',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }
-        ];
-
-        console.log('👥 Adding demo customers...');
-        this.mockCustomers = [
-          { 
-            id: 1, 
-            name: 'Ahmed Steel Works', 
-            phone: '+92 300 1234567', 
-            address: 'Main Bazaar, Lahore', 
-            cnic: '35202-1234567-1', 
-            balance: 0.00,
-            created_at: new Date().toISOString(), 
-            updated_at: new Date().toISOString() 
-          },
-          { 
-            id: 2, 
-            name: 'Khan Brothers', 
-            phone: '+92 301 2345678', 
-            address: 'Industrial Area, Karachi', 
-            cnic: '42101-2345678-2', 
-            balance: 0.00, 
-            created_at: new Date().toISOString(), 
-            updated_at: new Date().toISOString() 
-          }
-        ];
-
-        // Save to localStorage
-        this.saveToLocalStorage();
-        
-        console.log('✅ Demo data added successfully');
-      } else {
-        // Real Tauri database - create demo data
-        console.log('🗄️ Creating demo data in Tauri database...');
-        
-        // Create demo customers
-        console.log('👥 Creating demo customers...');
-        const demoCustomers = [
-          { 
-            name: 'Ahmed Steel Works', 
-            phone: '+92 300 1234567', 
-            address: 'Main Bazaar, Lahore', 
-            cnic: '35202-1234567-1' 
-          },
-          { 
-            name: 'Khan Brothers', 
-            phone: '+92 301 2345678', 
-            address: 'Industrial Area, Karachi', 
-            cnic: '42101-2345678-2' 
-          },
-          { 
-            name: 'Shahid Construction', 
-            phone: '+92 302 3456789', 
-            address: 'Canal Road, Faisalabad', 
-            cnic: '33103-3456789-3' 
-          }
-        ];
-
-        for (const customer of demoCustomers) {
-          await this.createCustomer(customer);
-          console.log(`✅ Created customer: ${customer.name}`);
-        }
-
-        // Create demo products
-        console.log('📦 Creating demo products...');
-        const demoProducts = [
-          { 
-            name: 'Steel Rod 10mm', 
-            category: 'Rods',
-            unit_type: 'kg-grams',
-            unit: '1600-60',
-            rate_per_unit: 150.00,
-            current_stock: '100-50',
-            min_stock_alert: '20-0',
-            size: '10mm',
-            grade: 'Grade A'
-          },
-          { 
-            name: 'Steel Angle 25x25', 
-            category: 'Angles',
-            unit_type: 'kg-grams',
-            unit: '2000-0',
-            rate_per_unit: 180.00, 
-            current_stock: '75-250',
-            min_stock_alert: '15-0',
-            size: '25x25mm',
-            grade: 'Grade A'
-          },
-          { 
-            name: 'Steel Plate 5mm', 
-            category: 'Plates',
-            unit_type: 'kg-grams',
-            unit: '2500-0',
-            rate_per_unit: 250.00, 
-            current_stock: '15-750',
-            min_stock_alert: '20-0',
-            size: '5mm',
-            grade: 'Grade A'
-          },
-          { 
-            name: 'Bolts M12', 
-            category: 'Hardware',
-            unit_type: 'piece',
-            unit: '100',
-            rate_per_unit: 15.00, 
-            current_stock: '500',
-            min_stock_alert: '50',
-            size: 'M12',
-            grade: 'Standard'
-          },
-          { 
-            name: 'Cement Bags', 
-            category: 'Building Material',
-            unit_type: 'bag',
-            unit: '50',
-            rate_per_unit: 650.00, 
-            current_stock: '25',
-            min_stock_alert: '10',
-            size: '50kg',
-            grade: 'Premium'
-          }
-        ];
-
-        for (const product of demoProducts) {
-          await this.createProduct(product);
-          console.log(`✅ Created product: ${product.name}`);
-        }
-        
-        console.log('✅ Demo data created in Tauri database');
-      }
-      
-      console.log('🎉 Reset to demo data completed successfully');
-      return true;
-      
-    } catch (error) {
-      console.error('❌ Failed to reset to demo data:', error);
-      throw new Error(`Demo data reset failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
 
   // Update customer information
   async updateCustomer(id: number, customerData: any): Promise<void> {
@@ -5968,7 +5478,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
       
       if (!isTauri()) {
-        // For mock mode, customer already has balance/total_balance properly mapped
+        // For   mode, customer already has balance/total_balance properly mapped
         return customer;
       }
       
@@ -5998,40 +5508,14 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // Get customer balance information
   async getCustomerBalance(customerId: number): Promise<{ outstanding: number; total_paid: number; total_invoiced: number }> {
     try {
-      if (!isTauri()) {
-        // For mock mode, calculate balance from invoices and payments
-        const invoices = JSON.parse(localStorage.getItem('steel_invoices') || '[]').filter((invoice: any) => invoice.customer_id === customerId);
-        const payments = this.mockPayments.filter(payment => payment.customer_id === customerId);
-        
-        const totalInvoiced = invoices.reduce((sum: number, invoice: any) => sum + invoice.total_amount, 0);
-        const totalPaid = payments.reduce((sum: number, payment: any) => sum + payment.amount, 0);
-        const outstanding = totalInvoiced - totalPaid;
-        
-        return {
-          outstanding,
-          total_paid: totalPaid,
-          total_invoiced: totalInvoiced
-        };
-      }
-      
-      // Get invoices total
-      const invoiceResult = await this.database?.select(`
-        SELECT SUM(total_amount) as total_invoiced
-        FROM invoices 
-        WHERE customer_id = ?
-      `, [customerId]);
-      
-      // Get payments total
-      const paymentResult = await this.database?.select(`
-        SELECT SUM(amount) as total_paid
-        FROM payments 
-        WHERE customer_id = ?
-      `, [customerId]);
-      
-      const totalInvoiced = invoiceResult?.[0]?.total_invoiced || 0;
-      const totalPaid = paymentResult?.[0]?.total_paid || 0;
+      // Always use real-time localStorage database object
+      const invoices = this.db.invoices.filter((invoice: any) => invoice.customer_id === customerId);
+      const payments = this.db.payments.filter((payment: any) => payment.customer_id === customerId);
+
+      const totalInvoiced = invoices.reduce((sum: number, invoice: any) => sum + (invoice.grand_total || invoice.total_amount || 0), 0);
+      const totalPaid = payments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
       const outstanding = totalInvoiced - totalPaid;
-      
+
       return {
         outstanding,
         total_paid: totalPaid,
@@ -6046,20 +5530,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // Get customer payments
   async getCustomerPayments(customerId: number): Promise<any[]> {
     try {
-      if (!isTauri()) {
-        // For mock mode
-        return this.mockPayments.filter(payment => payment.customer_id === customerId);
-      }
-      
-      const result = await this.database?.select(`
-        SELECT p.*, pc.name as channel_name, pc.type as channel_type
-        FROM payments p
-        LEFT JOIN payment_channels pc ON p.payment_channel_id = pc.id
-        WHERE p.customer_id = ?
-        ORDER BY p.date DESC
-      `, [customerId]);
-      
-      return result || [];
+      // Always use real-time localStorage database object
+      return this.db.payments.filter((payment: any) => payment.customer_id === customerId);
     } catch (error) {
       console.error('❌ Error getting customer payments:', error);
       throw error;
@@ -6214,7 +5686,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const createdIds: number[] = [];
 
       if (!isTauri()) {
-        // Mock implementation
+        //   implementation
         for (const product of products) {
           const id = await this.createProduct(product);
           createdIds.push(id);
@@ -6287,7 +5759,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const createdIds: number[] = [];
 
       if (!isTauri()) {
-        // Mock implementation
+        //   implementation
         for (const customer of customers) {
           const id = await this.createCustomer(customer);
           createdIds.push(id);
@@ -6343,8 +5815,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const { search, category, status, limit = 50, offset = 0 } = options;
       
       if (!isTauri()) {
-        let filtered = [...this.mockProducts];
-        
+        let filtered = [...this.db.products];
         if (search) {
           const searchLower = search.toLowerCase();
           filtered = filtered.filter(p => 
@@ -6432,23 +5903,23 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const todayStr = today.toISOString().split('T')[0];
 
       if (!isTauri()) {
-        // Mock implementation for development
-        const todaySales = this.mockInvoices
-          .filter(invoice => invoice.date === todayStr)
-          .reduce((sum, invoice) => addCurrency(sum, invoice.grand_total || 0), 0);
+        //   implementation for development
+        const todaySales = this.db.invoices
+          .filter((invoice: { date: string; }) => invoice.date === todayStr)
+          .reduce((sum: number, invoice: { grand_total: any; }) => addCurrency(sum, invoice.grand_total || 0), 0);
 
-        const totalCustomers = this.mockCustomers.length;
+        const totalCustomers = this.db.customers.length;
 
-        const lowStockProducts = this.mockProducts.filter(product => {
+        const lowStockProducts = this.db.products.filter((product: { current_stock: { toString: () => any; }; min_stock_level: { toString: () => any; }; }) => {
           const currentStock = parseFloat(product.current_stock?.toString() || '0');
           const minStock = parseFloat(product.min_stock_level?.toString() || '5');
           return currentStock <= minStock;
         });
 
-        const pendingInvoices = this.mockInvoices.filter(invoice => 
+        const pendingInvoices = this.db.invoices.filter((invoice: { payment_status: string; }) => 
           invoice.payment_status !== 'paid'
         );
-        const pendingPayments = pendingInvoices.reduce((sum, invoice) => {
+        const pendingPayments = pendingInvoices.reduce((sum: number, invoice: { grand_total: any; amount_paid: any; }) => {
           const balance = subtractCurrency(invoice.grand_total || 0, invoice.amount_paid || 0);
           return addCurrency(sum, balance);
         }, 0);
@@ -6514,14 +5985,14 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        // Mock implementation for development
-        return this.mockProducts
-          .filter(product => {
+        //   implementation for development
+        return this.db.products
+          .filter((product: { current_stock: { toString: () => any; }; min_stock_level: { toString: () => any; }; }) => {
             const currentStock = parseFloat(product.current_stock?.toString() || '0');
             const minStock = parseFloat(product.min_stock_level?.toString() || '5');
             return currentStock <= minStock;
           })
-          .map(product => ({
+          .map((product: { id: any; name: any; current_stock: any; min_stock_level: any; unit_type: any; category: any; }) => ({
             id: product.id,
             name: product.name,
             current_stock: product.current_stock,
@@ -6560,7 +6031,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        return this.mockPaymentChannels.filter(channel => channel.is_active);
+        return this.db.paymentChannels.filter((channel: { is_active: any; }) => channel.is_active);
       }
 
       const channels = await this.database?.select(`
@@ -6584,7 +6055,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockPaymentChannels.map(c => c.id || 0), 0) + 1;
+        const newId = Math.max(...this.db.paymentChannels.map((c: { id: any; }) => c.id || 0), 0) + 1;
         const newChannel = {
           id: newId,
           ...channel,
@@ -6592,7 +6063,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
-        this.mockPaymentChannels.push(newChannel);
+        this.db.paymentChannels.push(newChannel);
         this.saveToLocalStorage();
         return newId;
       }
@@ -6616,18 +6087,18 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        // Aggregate total_purchases and outstanding_balance in-memory for mock DB
-        return this.mockVendors
-          .filter(vendor => vendor.is_active)
-          .map(vendor => {
-            // Sum total purchases from mockStockReceiving
-            const totalPurchases = this.mockStockReceiving
-              .filter(r => r.vendor_id === vendor.id)
-              .reduce((sum, r) => sum + (typeof r.total_amount === 'number' ? r.total_amount : 0), 0);
+        // Aggregate total_purchases and outstanding_balance in-memory for db. DB
+        return this.db.vendors
+          .filter((vendor: { is_active: any; }) => vendor.is_active)
+          .map((vendor: { id: any; }) => {
+            // Sum total purchases from db.stockReceiving
+            const totalPurchases = this.db.stockReceiving
+              .filter((r: { vendor_id: any; }) => r.vendor_id === vendor.id)
+              .reduce((sum: any, r: { total_amount: any; }) => sum + (typeof r.total_amount === 'number' ? r.total_amount : 0), 0);
             // Sum all payments made to this vendor
-            const totalPayments = this.mockVendorPayments
-              .filter(p => p.vendor_id === vendor.id)
-              .reduce((sum, p) => sum + (typeof p.amount === 'number' ? p.amount : 0), 0);
+            const totalPayments = this.db.vendorPayments
+              .filter((p: { vendor_id: any; }) => p.vendor_id === vendor.id)
+              .reduce((sum: any, p: { amount: any; }) => sum + (typeof p.amount === 'number' ? p.amount : 0), 0);
             // Outstanding = purchases - payments
             const outstandingBalance = totalPurchases - totalPayments;
             return {
@@ -6675,7 +6146,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockVendors.map(v => v.id || 0), 0) + 1;
+        const newId = Math.max(...this.db.vendors.map((v: { id: any; }) => v.id || 0), 0) + 1;
         const newVendor = {
           id: newId,
           ...vendor,
@@ -6683,7 +6154,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
-        this.mockVendors.push(newVendor);
+        this.db.vendors.push(newVendor);
         this.saveToLocalStorage();
         return newId;
       }
@@ -6734,11 +6205,11 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const paymentStatus = remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partial' : 'pending');
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockStockReceiving.map(r => r.id || 0), 0) + 1;
-        // Generate S0001 series for mock data
+        const newId = Math.max(...this.db.stockReceiving.map((r: { id: any; }) => r.id || 0), 0) + 1;
+        // Generate S0001 series for db. data
         // Find the highest Sxxxx number in all existing records
         let maxNum = 0;
-        for (const r of this.mockStockReceiving) {
+        for (const r of this.db.stockReceiving) {
           const match = (r.receiving_number || '').match(/^S(\d{4})$/);
           if (match) {
             const num = parseInt(match[1], 10);
@@ -6766,13 +6237,13 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           updated_at: now.toISOString()
         };
 
-        this.mockStockReceiving.push(newReceiving);
+        this.db.stockReceiving.push(newReceiving);
 
 
-        // Add items and update product stock in mockProducts
+        // Add items and update product stock in db.Products
         receiving.items.forEach(item => {
-          const itemId = Math.max(...this.mockStockReceivingItems.map(i => i.id || 0), 0) + 1;
-          this.mockStockReceivingItems.push({
+          const itemId = Math.max(...this.db.stockReceivingItems.map((i: { id: any; }) => i.id || 0), 0) + 1;
+          this.db.stockReceivingItems.push({
             id: itemId,
             receiving_id: newId,
             ...item,
@@ -6780,18 +6251,18 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             updated_at: now.toISOString()
           });
 
-          // Update product stock in mockProducts
-          const productIndex = this.mockProducts.findIndex(p => p.id === item.product_id);
+          // Update product stock in db.Products
+          const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === item.product_id);
           if (productIndex !== -1) {
-            const product = this.mockProducts[productIndex];
+            const product = this.db.products[productIndex];
             const currentStockData = this.safeParseUnit(product.current_stock, product.unit_type, product.name);
             const receivedStockData = this.safeParseUnit(item.quantity, product.unit_type, product.name);
             const newStockValue = currentStockData.numericValue + receivedStockData.numericValue;
             const newStockString = this.formatStockValue(newStockValue, product.unit_type);
-            this.mockProducts[productIndex].current_stock = newStockString;
-            this.mockProducts[productIndex].updated_at = now.toISOString();
+            this.db.products[productIndex].current_stock = newStockString;
+            this.db.products[productIndex].updated_at = now.toISOString();
 
-            // Create stock movement record in mock mode (mirrors real DB logic)
+            // Create stock movement record in   mode (mirrors real DB logic)
             // Use the receiving's date for all stock movements for consistency
             const movementDate = newReceiving.date;
             const movementTime = time;
@@ -6931,7 +6402,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        let filtered = [...this.mockStockReceiving];
+        let filtered = [...this.db.stockReceiving];
 
         if (filters.vendor_id) {
           filtered = filtered.filter(r => r.vendor_id === filters.vendor_id);
@@ -6965,7 +6436,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             );
           }
         }
-        // Patch: Ensure S0001 series for mock data as well
+        // Patch: Ensure S0001 series for
+        //  data as well
         filtered = filtered.map((r, idx) => {
           let receiving_number = r.receiving_number;
           if (!/^S\d{4}$/.test(receiving_number)) {
@@ -7067,7 +6539,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const time = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
       if (!isTauri()) {
-        const newId = Math.max(...this.mockEnhancedPayments.map(p => p.id || 0), 0) + 1;
+        const newId = Math.max(...this.db.enhancedPayments.map((p: { id: any; }) => p.id || 0), 0) + 1;
         const newPayment = {
           id: newId,
           ...payment,
@@ -7076,13 +6548,13 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
-        this.mockEnhancedPayments.push(newPayment);
+        this.db.enhancedPayments.push(newPayment);
 
         // Update customer balance directly
-        const customerIndex = this.mockCustomers.findIndex(c => c.id === payment.customer_id);
+        const customerIndex = this.db.customers.findIndex((c: { id: number; }) => c.id === payment.customer_id);
         if (customerIndex !== -1) {
-          this.mockCustomers[customerIndex].balance = (this.mockCustomers[customerIndex].balance || 0) - payment.amount;
-          this.mockCustomers[customerIndex].updated_at = new Date().toISOString();
+          this.db.customers[customerIndex].balance = (this.db.customers[customerIndex].balance || 0) - payment.amount;
+          this.db.customers[customerIndex].updated_at = new Date().toISOString();
         }
 
         // If this is an invoice payment, update the invoice
@@ -7144,15 +6616,15 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       if (!isTauri()) {
-        // Calculate loan customers from mock data
-        const customersWithBalance = this.mockCustomers.filter(c => (c.balance || 0) > 0);
+        // Calculate loan customers from   data
+        const customersWithBalance = this.db.customers.filter((c: { balance: any; }) => (c.balance || 0) > 0);
         
-        return customersWithBalance.map(customer => {
-          const customerPayments = this.mockEnhancedPayments.filter(p => p.customer_id === customer.id);
-          const lastPayment = customerPayments.sort((a, b) => b.date.localeCompare(a.date))[0];
+        return customersWithBalance.map((customer: { id: any; name: any; phone: any; balance: any; }) => {
+          const customerPayments = this.db.enhancedPayments.filter((p: { customer_id: any; }) => p.customer_id === customer.id);
+          const lastPayment = customerPayments.sort((a: { date: any; }, b: { date: string; }) => b.date.localeCompare(a.date))[0];
           
-          const customerInvoices = this.mockInvoices.filter(i => i.customer_id === customer.id && (i.remaining_balance || 0) > 0);
-          const oldestInvoice = customerInvoices.sort((a, b) => a.created_at.localeCompare(b.created_at))[0];
+          const customerInvoices = this.db.invoices.filter((i: { customer_id: any; remaining_balance: any; }) => i.customer_id === customer.id && (i.remaining_balance || 0) > 0);
+          const oldestInvoice = customerInvoices.sort((a: { created_at: string; }, b: { created_at: any; }) => a.created_at.localeCompare(b.created_at))[0];
           
           let daysOverdue = 0;
           if (oldestInvoice) {
@@ -7172,7 +6644,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             invoice_count: customerInvoices.length,
             days_overdue: Math.max(0, daysOverdue)
           };
-        }).sort((a, b) => b.total_outstanding - a.total_outstanding);
+        }).sort((a: { total_outstanding: number; }, b: { total_outstanding: number; }) => b.total_outstanding - a.total_outstanding);
       }
 
       const result = await this.database?.select(`
@@ -7213,3 +6685,5 @@ if (typeof window !== 'undefined') {
   (window as any).db = db;
   console.log('🔧 Database service exposed to window.db for developer console access');
 }
+
+	
