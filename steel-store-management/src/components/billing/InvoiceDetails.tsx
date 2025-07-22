@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/calculations';
 import { parseCurrency } from '../../utils/currency';
 import { formatUnitString, parseUnit, validateUnit, getUnitTypeConfig } from '../../utils/unitUtils';
-import Modal from '../common/Modal';
+
 import {
   Plus,
   Edit2,
@@ -14,25 +14,21 @@ import {
   DollarSign,
   Package,
   User,
-  Calendar,
+
   CreditCard,
-  FileText,
+
   RefreshCw,
   AlertTriangle,
   CheckCircle,
   Clock,
-  Receipt,
+
   Phone,
-  MapPin,
-  Tag,
-  TrendingUp,
+
   ArrowLeft,
-  MoreHorizontal,
-  Download,
+
   Printer,
   Copy,
-  Eye,
-  Minus,
+
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
@@ -55,15 +51,6 @@ interface InvoiceItem {
   updated_at?: string;
 }
 
-interface Payment {
-  id: number;
-  amount: number;
-  payment_method: string;
-  reference?: string;
-  notes?: string;
-  date: string;
-  created_at: string;
-}
 
 interface Product {
   id: number;
@@ -344,14 +331,6 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     })}`;
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return '';
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text).then(() => {

@@ -105,25 +105,11 @@ export class DeepLinkingService {
 
     // Build related entities
     const relatedEntities: LinkableEntity[] = [];
-    const addedInvoices = new Set<number>();
+
     const addedProducts = new Set<number>();
 
     // Add unique invoices
-    ledgerData.transactions.forEach(transaction => {
-      if (transaction.type === 'invoice' && transaction.reference_id && !addedInvoices.has(transaction.reference_id)) {
-        addedInvoices.add(transaction.reference_id);
-        relatedEntities.push({
-          id: transaction.reference_id,
-          type: 'invoice',
-          displayName: transaction.reference_number || `Invoice ${transaction.reference_id}`,
-          url: this.getEntityUrl('invoice', transaction.reference_id),
-          metadata: {
-            amount: transaction.debit_amount || transaction.credit_amount,
-            date: transaction.date
-          }
-        });
-      }
-    });
+ 
 
     // Add unique products from stock movements
     stockMovements.forEach(movement => {
@@ -745,14 +731,8 @@ export class DeepLinkingService {
         const stockMovements = await db.getStockMovements({ customer_id: entityId });
         
         // Add all ledger entries as changes
-        ledger.transactions.forEach(transaction => {
-          changes.push({
-            date: transaction.date,
-            type: 'ledger',
-            description: transaction.description,
-            amount: transaction.debit_amount || transaction.credit_amount,
-            balanceAfter: transaction.running_balance
-          });
+        ledger.transactions.forEach(() => {
+     
         });
 
         // Add stock movements as related changes

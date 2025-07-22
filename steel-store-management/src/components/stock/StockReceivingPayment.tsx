@@ -23,7 +23,7 @@ const StockReceivingPayment: React.FC = () => {
   const navigate = useNavigate();
   
   const [receiving, setReceiving] = useState<any>(null);
-  const [vendor, setVendor] = useState<any>(null);
+  const [, setVendor] = useState<any>(null);
   const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -189,7 +189,7 @@ const StockReceivingPayment: React.FC = () => {
   }
 
   const remainingAfterPayment = receiving.remaining_balance - form.amount;
-  const isFullPayment = remainingAfterPayment === 0;
+
 
   return (
     <div className="space-y-8 p-6">

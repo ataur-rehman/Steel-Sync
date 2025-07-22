@@ -5,14 +5,11 @@ import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import {
   Search,
-  DollarSign,
+
   FileText,
-  Phone,
-  TrendingUp,
+
   Plus,
-  ArrowUpRight,
-  ChevronRight,
-  UserCheck,
+ 
   Users,
   Receipt,
   Download,
@@ -330,43 +327,7 @@ const CustomerLedger: React.FC = () => {
 
     try {
       setLoading(true);
-      const movements = await db.getStockMovements({
-        customer_id: selectedCustomer.id,
-        from_date: filters.from_date,
-        to_date: filters.to_date,
-        limit: 100
-      });
       
-      const convertedMovements = await Promise.all(movements.map(async (movement) => {
-        let productUnitType = 'kg-grams';
-        try {
-          const product = await db.getProduct(movement.product_id);
-          if (product && product.unit_type) {
-            productUnitType = product.unit_type;
-          }
-        } catch (error) {
-          console.warn(`Could not get unit type for product ${movement.product_id}, using default kg-grams`);
-        }
-        
-        const convertQuantity = (rawQuantity: number | string): string => {
-          const numericValue = typeof rawQuantity === 'string' ? parseFloat(rawQuantity) : rawQuantity;
-          
-          if (productUnitType === 'kg-grams') {
-            const kg = Math.floor(numericValue / 1000);
-            const grams = numericValue % 1000;
-            return grams > 0 ? `${kg}-${grams}` : `${kg}`;
-          } else {
-            return numericValue.toString();
-          }
-        };
-        
-        return {
-          ...movement,
-          quantity: convertQuantity(movement.quantity),
-          previous_stock: convertQuantity(movement.previous_stock),
-          new_stock: convertQuantity(movement.new_stock)
-        };
-      }));
       
     } catch (error) {
       console.error('Failed to load customer stock movements:', error);

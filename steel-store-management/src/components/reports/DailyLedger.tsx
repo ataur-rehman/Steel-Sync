@@ -8,10 +8,10 @@ import {
   Calendar,
   TrendingUp,
   TrendingDown,
-  DollarSign,
+
   Plus,
   Download,
-  Filter,
+
   Search,
   Eye,
   RefreshCw,
@@ -21,7 +21,7 @@ import {
   Trash2,
   Save,
   X,
-  ExternalLink,
+
   User,
   Info
 } from 'lucide-react';

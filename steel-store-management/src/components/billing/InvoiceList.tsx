@@ -11,32 +11,29 @@ import {
   Eye,
   FileText,
   User,
-  DollarSign,
+
   ChevronLeft,
   ChevronRight,
-  Calendar,
+
   RefreshCw,
   AlertCircle,
   CheckCircle,
   Clock,
   Printer,
   Package,
-  Download,
+ 
   Plus,
   SortAsc,
   SortDesc,
-  MoreHorizontal,
-  X,
-  ChevronDown,
+ 
+
   Grid3X3,
   List,
   CreditCard,
-  TrendingUp,
-  Users,
+
   Receipt,
   Phone,
-  MapPin,
-  Hash,
+
   ArrowUpDown,
   FilterX
 } from 'lucide-react';
@@ -97,7 +94,7 @@ const InvoiceList: React.FC = () => {
   const [filteredInvoices, setFilteredInvoices] = useState<Invoice[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [showPrintModal, setShowPrintModal] = useState(false);
+
   const [showFilters, setShowFilters] = useState(false);
   const [showStockImpactModal, setShowStockImpactModal] = useState(false);
   const [invoiceStockMovements, setInvoiceStockMovements] = useState<any[]>([]);
@@ -123,7 +120,7 @@ const InvoiceList: React.FC = () => {
   });
 
   // UI Enhancement additions (not changing your logic)
-  const [selectedInvoices, setSelectedInvoices] = useState<Set<number>>(new Set());
+  
   const [sortField, setSortField] = useState('created_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
@@ -384,7 +381,7 @@ const InvoiceList: React.FC = () => {
       const invoiceDetails = await db.getInvoiceDetails(invoice.id);
       if (invoiceDetails) {
         setSelectedInvoice(invoiceDetails);
-        setShowPrintModal(true);
+
       } else {
         toast.error('Invoice details not found');
       }
@@ -437,24 +434,6 @@ const InvoiceList: React.FC = () => {
     }
   };
 
-  const toggleSelectInvoice = (invoiceId: number) => {
-    const newSelected = new Set(selectedInvoices);
-    if (newSelected.has(invoiceId)) {
-      newSelected.delete(invoiceId);
-    } else {
-      newSelected.add(invoiceId);
-    }
-    setSelectedInvoices(newSelected);
-  };
-
-  const selectAllVisible = () => {
-    const allVisible = new Set(currentInvoices.map(inv => inv.id));
-    setSelectedInvoices(allVisible);
-  };
-
-  const clearSelection = () => {
-    setSelectedInvoices(new Set());
-  };
 
   // Pagination - YOUR ORIGINAL LOGIC
   const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
@@ -476,15 +455,6 @@ const InvoiceList: React.FC = () => {
     });
   };
 
-  const formatDateTime = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
 
   // Calculate stats for header
   const stats = React.useMemo(() => {
@@ -791,7 +761,7 @@ const InvoiceList: React.FC = () => {
               {currentInvoices.map((invoice) => {
                 const status = getInvoiceStatus(invoice);
                 const statusInfo = getStatusInfo(status);
-                const StatusIcon = statusInfo.icon;
+               
                 
                 return (
                   <div key={invoice.id} className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-200 hover:border-blue-300">
@@ -945,7 +915,7 @@ const InvoiceList: React.FC = () => {
                     {currentInvoices.map((invoice) => {
                       const status = getInvoiceStatus(invoice);
                       const statusInfo = getStatusInfo(status);
-                      const StatusIcon = statusInfo.icon;
+                   
                       
                       return (
                         <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">

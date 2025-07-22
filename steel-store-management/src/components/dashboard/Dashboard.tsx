@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
+import { formatUnitString } from '../../utils/unitUtils';
 import { AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 
 interface DashboardStats {
@@ -21,13 +22,15 @@ interface Invoice {
   status?: string;
 }
 
+import type { UnitType } from '../../utils/unitUtils';
+
 interface LowStockProduct {
   id: number;
   name: string;
-  current_stock: number;
+  current_stock: string;
   min_stock_level: number;
   min_stock_alert: number;
-  unit_type: string;
+  unit_type: UnitType;
   unit: string;
   category: string;
 }
@@ -245,7 +248,7 @@ export default function Dashboard() {
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-semibold text-red-600">
-                        {product.current_stock} {product.unit || product.unit_type}
+                        {formatUnitString(product.current_stock, product.unit_type)}
                       </p>
                       <p className="text-xs text-gray-500 mt-1">
                         Min: {product.min_stock_alert || product.min_stock_level} {product.unit || product.unit_type}

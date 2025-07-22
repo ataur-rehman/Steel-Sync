@@ -77,10 +77,6 @@ const loadProducts = async () => {
     setSelectedCategory('');
   };
 
-  const getProductUnitDisplay = (product: any) => {
-    // Handle the unit display based on the product's unit field
-    return formatUnitString(product.unit, product.unit_type || 'kg-grams');
-  };
 
   const getStockStatus = (product: any) => {
     try {

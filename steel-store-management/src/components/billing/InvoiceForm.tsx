@@ -15,16 +15,16 @@ import {
   CheckCircle,
   X,
   Eye,
-  History,
+
   ShoppingCart,
-  TrendingDown,
+
   RefreshCw,
   Plus,
   Minus,
   Receipt,
-  Save,
+
   DollarSign,
-  Edit3
+
 } from 'lucide-react';
 
 // Enhanced interfaces with stock tracking - KEEPING YOUR ORIGINAL INTERFACES
@@ -559,6 +559,7 @@ const InvoiceForm: React.FC = () => {
       };
       
       console.log('Creating invoice with automatic stock tracking:', invoiceData);
+      // Create invoice and update stock atomically
       const result = await db.createInvoice(invoiceData);
       
       import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
@@ -612,9 +613,7 @@ const InvoiceForm: React.FC = () => {
     }
   };
 
-  const viewStockReport = () => {
-    navigate('/reports/stock');
-  };
+ 
 
   useEffect(() => {
     const handleClickOutside = () => {

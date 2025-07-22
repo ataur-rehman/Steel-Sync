@@ -1,3 +1,9 @@
+
+# Ignore all SQLite database files
+store.db
+data/store.db
+**/store.db
+
 # Logs
 logs
 *.log

@@ -6,9 +6,8 @@ export class PrintingService {
     return await invoke('print_document', { html, type: 'invoice' });
   }
 
-  async printReport(report: any, type: string) {
-    const html = this.generateReportHTML(report, type);
-    return await invoke('print_document', { html, type: 'report' });
+  async printReport(_report: any, _type: string) {
+    return await invoke('print_document', { html: '', type: 'report' });
   }
 
   private generateInvoiceHTML(invoice: any): string {
@@ -241,10 +240,7 @@ export class PrintingService {
     `;
   }
 
-  private generateReportHTML(report: any, type: string): string {
-    // Implementation for different report types
-    return '';
-  }
+
 
   private formatCurrency(amount: number): string {
     return `Rs. ${amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;

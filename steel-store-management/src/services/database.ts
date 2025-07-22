@@ -1,14 +1,10 @@
+// database new file
 
-// Enhanced Database Service with Complete Stock Movement Tracking
-
+import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber  } from '../utils/unitUtils';
-import { roundCurrency, addCurrency, subtractCurrency } from '../utils/currency';
-import open from '@tauri-apps/plugin-sql'; // ✅ CORRECT
+
 
 // Check if we're running in Tauri
-const isTauri = () => {
-  return typeof window !== 'undefined' && '__TAURI__' in window;
-};
 
 // Enhanced interfaces for comprehensive data management
 interface StockMovement {
@@ -36,29 +32,6 @@ interface StockMovement {
   unit_type?: string; // ADDED: always track the unit type for correct display
 }
 
-interface LedgerEntry {
-  id?: number;
-  date: string;
-  time: string;
-  type: 'incoming' | 'outgoing';
-  category: string;
-  description: string;
-  amount: number;
-  running_balance: number;
-  reference_id?: number;
-  reference_type?: string;
-  customer_id?: number;
-  customer_name?: string;
-  product_id?: number;
-  product_name?: string;
-  payment_method?: string;
-  notes?: string;
-  bill_number?: string;
-  created_by?: string;
-  linked_transactions?: string;
-  created_at?: string;
-  updated_at?: string;
-}
 
 interface PaymentRecord {
   id?: number;
@@ -96,33 +69,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const idx = this.db.products.findIndex((p: any) => p.id === id);
-        if (idx !== -1) {
-          const oldName = this.db.products[idx].name;
-          this.db.products[idx] = {
-            ...this.db.products[idx],
-            ...product,
-            updated_at: new Date().toISOString()
-          };
-          // Propagate name change to related   tables
-          if (product.name && product.name !== oldName) {
-            this.db.stockMovements.forEach((m: any) => {
-              if (m.product_id === id) m.product_name = product.name;
-            });
-            this.db.ledgerEntries.forEach((l: any) => {
-              if (l.product_id === id) l.product_name = product.name;
-            });
-            this.db.stockReceivingItems.forEach((s: any) => {
-              if (s.product_id === id) s.product_name = product.name;
-            });
-            // Add more   tables as needed
-          }
-          this.saveToLocalStorage();
-        }
-        return;
-      }
-
+ 
       // Build update fields
       const fields = [];
       const params = [];
@@ -171,14 +118,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        this.db.products = this.db.products.filter((p: any) => p.id !== id);
-        // Remove from related   tables
-        this.db.ledgerEntries = this.db.ledgerEntries.filter((l: any) => l.product_id !== id);
-        // Add more   tables as needed
-        this.saveToLocalStorage();
-        return;
-      }
+      
 
       // Remove from related tables first (to avoid FK errors)
       await this.database?.execute(`DELETE FROM invoice_items WHERE product_id = ?`, [id]);
@@ -195,9 +135,7 @@ export class DatabaseService {
     if (!this.isInitialized) {
       await this.initialize();
     }
-    if (!isTauri()) {
-      return this.db.stockReceivingItems.filter((item: { receiving_id: number; }) => item.receiving_id === receivingId);
-    }
+  
     const result = await this.database?.select(
       'SELECT * FROM stock_receiving_items WHERE receiving_id = ?',
       [receivingId]
@@ -220,18 +158,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const idx = this.db.vendors.findIndex((v: any) => v.id === id);
-        if (idx !== -1) {
-          this.db.vendors[idx] = {
-            ...this.db.vendors[idx],
-            ...vendor,
-            updated_at: new Date().toISOString()
-          };
-          this.saveToLocalStorage();
-        }
-        return;
-      }
+   
 
       const fields = [];
       const params = [];
@@ -257,11 +184,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        this.db.vendors = this.db.vendors.filter((v: any) => v.id !== id);
-        this.saveToLocalStorage();
-        return;
-      }
+     
 
       await this.database?.execute(`DELETE FROM vendors WHERE id = ?`, [id]);
     } catch (error) {
@@ -299,85 +222,7 @@ export class DatabaseService {
 
       const now = new Date();
       const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
-      
-      if (!isTauri()) {
-        // CRITICAL FIX: Handle customer-specific transactions properly
-        if (entry.customer_id && entry.customer_name) {
-// For customer-specific transactions, create a payment record and customer ledger entry
-          if (entry.type === 'incoming' && (entry.category.includes('Payment') || entry.category.includes('payment'))) {
-            // This is a payment from customer - create payment record
-            const paymentRecord: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'> = {
-              customer_id: entry.customer_id,
-              amount: entry.amount,
-              payment_method: entry.payment_method,
-              payment_type: 'advance_payment', // Default for manual payments
-              reference: `Manual-${entry.date}-${Date.now()}`,
-              notes: entry.notes,
-              date: entry.date
-            };
-            
-            // Use the existing recordPayment method which handles customer ledger correctly
-            const paymentId = await this.recordPayment(paymentRecord);
-            console.log(`✅ Payment recorded for customer ${entry.customer_name}: Rs. ${entry.amount}`);
-            return paymentId;
-          } else {
-            // For other customer transactions (like refunds, adjustments), create customer ledger entry
-          await this.createLedgerEntry({
-            date: entry.date,
-            time: time,
-            type: entry.type,
-            category: entry.category,
-            description: entry.description,
-            amount: entry.amount,
-            customer_id: entry.customer_id,
-            customer_name: entry.customer_name,
-            reference_type: 'manual_transaction',
-                        notes: entry.notes,
-            created_by: 'manual'
-          });
-          console.log(`✅ Customer ledger entry created for ${entry.customer_name}: ${entry.type} Rs. ${entry.amount}`);
-}
-        }
 
-        // Always create a daily ledger entry for business tracking (separate from customer accounting)
-        const dailyEntries = this.db.ledgerEntries.filter((e: { date: string; created_by: string; customer_id: any; }) => 
-e.date === entry.date && 
-          e.created_by === 'manual' && 
-          !e.customer_id // Only count business-wide entries for daily running balance
-        );
-        
-        let dailyRunningBalance = 0;
-        if (dailyEntries.length > 0) {
-          const lastEntry = dailyEntries[dailyEntries.length - 1];
-          dailyRunningBalance = lastEntry.running_balance || 0;
-        }
-
-        // Update daily         running balance for business cash flow
-        dailyRunningBalance += entry.type === "incoming" ? entry.amount : -entry.amount;
-
-        const newId = Math.max(...this. db.ledgerEntries.map((e: { id: any; }) => e.id || 0), 0) + 1;
-        const dailyLedgerEntry: LedgerEntry = {
-          id: newId,
-          date: entry.date,
-          time,
-          type: entry.type,
-          category: entry.category,
-          description: entry.description,
-          amount: entry.amount,
-          running_balance: dailyRunningBalance,
-          customer_id: undefined, // Daily ledger entries are business-wide
-          customer_name: undefined,
-          payment_method: entry.payment_method,
-          notes: entry.notes,
-          created_by: entry.is_manual ? "manual" : "system",
-          created_at: now.toISOString(),
-          updated_at: now.toISOString(),
-        };
-
-        this. db.ledgerEntries.push(dailyLedgerEntry);
-        this.saveToLocalStorage();
-        return newId;
-      }
 
       // Real DB implementation
             if (entry.customer_id && entry.customer_name) {
@@ -441,106 +286,6 @@ e.date === entry.date &&
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        // FIXED: Separate customer ledger from business daily cash flow
-        let entries;
-        
-        if (options.customer_id) {
-          // Customer-specific ledger: show all transactions for this customer
-          entries = this. db.ledgerEntries.filter((e: { date: string; customer_id: number | null; }) => e.date === date && e.customer_id === options.customer_id);
-        } else {
-          // Business daily ledger: show business-wide cash transactions only
-          // This should include: actual cash/money received and paid out
-          entries = this. db.ledgerEntries.filter((e: { date: string; customer_id: any; category: string; }) => {
-            if (e.date !== date) return false;
-            
-            // Include business-wide transactions (no customer_id) - expenses, general cash flow
-            if (!e.customer_id) return true;
-            
-            // Include business cash flow entries (actual cash received from customers)
-            if (e.category === 'Cash Received') return true;
-            
-            // Include other cash transactions that affect daily cash flow
-            if (e.category === 'Cash Sale' || e.category === 'Cash Payment' || e.category === 'Expense') return true;
-            if (e.category === 'Sale Revenue' || e.category === 'Payment Received' && !e.customer_id) return true;
-            
-            // Exclude pure accounting entries like customer-specific "Payment Received" 
-            // and credit sales that don't involve immediate cash
-            return false;
-          });
-        }
-
-        // Sort by time
-        entries.sort((a: { time: string; }, b: { time: any; }) => a.time.localeCompare(b.time));
-
-        // Calculate summary based on context
-        let opening_balance = 0;
-        let closing_balance = 0;
-        let total_incoming = 0;
-        let total_outgoing = 0;
-        let net_movement = 0;
-
-if (options.customer_id) {
-          // Customer ledger: track customer's account balance
-        entries.forEach((e: { type: string; running_balance: number; amount: number; }, idx: number) => {
-          if (idx === 0) {
-              // Calculate opening balance from previous running balance
-              if (e.type === 'incoming') {
-                opening_balance = e.running_balance + e.amount; // Before this credit
-              } else {
-                opening_balance = e.running_balance - e.amount; // Before this debit
-              }
-            }
-          if (e.type === "incoming") total_incoming += e.amount; // Payments/credits
-          if (e.type === "outgoing") total_outgoing += e.amount; // Sales/debits
-        });
-
-        if (entries.length > 0) {
-          closing_balance = entries[entries.length - 1].running_balance;
-        } else {
-          // No transactions today, get last known balance
-            const lastEntry = this. db.ledgerEntries
-              .filter((e: { customer_id: number | null; date: string; }) => e.customer_id === options.customer_id && e.date < date)
-              .sort((a: { date: any; time: any; }, b: { date: string; time: string; }) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))[0];
-            closing_balance = lastEntry?.running_balance || 0;
-opening_balance = closing_balance;
-        }
-
-          net_movement = total_outgoing - total_incoming; // Customer balance increase
-        } else {
-          // Business daily cash flow: track actual cash in/out
-          entries.forEach((e: { type: string; amount: number; }) => {
-            if (e.type === "incoming") total_incoming += e.amount; // Cash received
-            if (e.type === "outgoing") total_outgoing += e.amount; // Cash paid out
-          });
-          
-          // For business cash flow, calculate cumulative cash position
-          const previousDayEntries = this. db.ledgerEntries
-            .filter((e: { date: string; customer_id: any; }) => String(e.date) < String(date) && !e.customer_id) // Business transactions only
-            .sort((a: { date: any; time: any; }, b: { date: string; time: string; }) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
-          
-          if (previousDayEntries.length > 0) {
-            opening_balance = previousDayEntries[0].running_balance || 0;
-          }
-          
-          closing_balance = opening_balance + total_incoming - total_outgoing;
-        net_movement = total_incoming - total_outgoing;
-}
-
-        return {
-          entries,
-          summary: {
-            date,
-            opening_balance,
-            closing_balance,
-            total_incoming,
-            total_outgoing,
-            net_movement,
-            transactions_count: entries.length
-          }
-        };
-      }
-
       // Real DB implementation
       let query = `SELECT * FROM ledger_entries WHERE date = ?`;
       const params: any[] = [date];
@@ -592,71 +337,388 @@ opening_balance = closing_balance;
   // ...existing
   private database: any = null;
   private isInitialized = false;
-
-  // Enhanced mock data with complete stock tracking
-
-  
-  // New enhanced   arrays for production features
-
-  
-
-  // Real-time database object
-  private db: any = {
-    products: [],
-    customers: [],
-    invoices: [],
-    returns: [],
-    payments: [],
-    stockMovements: [],
-    ledgerEntries: [],
-    paymentChannels: [],
-    enhancedPayments: [],
-    vendors: [],
-    stockReceiving: [],
-    stockReceivingItems: [],
-    vendorPayments: [],
-    staff: [],
-    staffLedgerEntries: [],
-    customerLedgerEntries: [],
-    businessExpenses: [],
-    businessIncome: []
-  };
-
-
-
+  private isInitializing = false;
+  private static DatabasePlugin: any = null;
+  // Simple in-memory cache for products (keyed by search/category/limit/offset)
+  private productsCache: Map<string, any[]> = new Map();
 async initialize() {
   try {
-    if (!isTauri()) {
-      console.log('Running in browser - mock mode');
-      this.loadFromLocalStorage();
-      this.initializeMockData();
-      this.isInitialized = true;
-      return;
+    if (this.isInitialized) return true;
+    if (this.isInitializing) {
+      // Wait for ongoing initialization
+      while (this.isInitializing) {
+        await new Promise(res => setTimeout(res, 50));
+      }
+      return this.isInitialized;
     }
-
-    console.log('Initializing real SQLite DB in Tauri...');
-this.database = await new open('sqlite:data/store.db');
+    this.isInitializing = true;
+    console.log('🔄 Starting database initialization...');
+    await this.waitForTauriReady();
+    console.log('✅ Tauri environment is ready');
+    // Cache the plugin import
+    if (!DatabaseService.DatabasePlugin) {
+      try {
+        DatabaseService.DatabasePlugin = await import('@tauri-apps/plugin-sql');
+        console.log('✅ SQL plugin imported successfully');
+      } catch (importError) {
+        this.isInitializing = false;
+        console.error('❌ Failed to import SQL plugin:', importError);
+        throw new Error(`SQL plugin import failed: ${importError}`);
+      }
+    }
+    const Database = DatabaseService.DatabasePlugin;
+    // Try database connection approaches in order of what works
+    const connectionAttempts = [
+      'sqlite:store.db',        // This one works!
+      'sqlite:data/store.db',   // Fallback
+      'sqlite:./store.db'       // Alternative
+    ];
+    let connectionSuccess = false;
+    for (const dbPath of connectionAttempts) {
+      try {
+        console.log(`🔌 Attempting to connect to: ${dbPath}`);
+        this.database = await Database.default.load(dbPath);
+        // Test the connection
+        const result = await this.database.execute('SELECT 1 as test');
+        console.log('✅ Connection test result:', result);
+        console.log(`🎯 Successfully connected to database at: ${dbPath}`);
+        connectionSuccess = true;
+        break;
+      } catch (connectionError) {
+        console.warn(`⚠️ Failed to connect to ${dbPath}:`, connectionError);
+        continue;
+      }
+    }
+    if (!connectionSuccess) {
+      this.isInitializing = false;
+      throw new Error('Failed to connect to database with any path variant');
+    }
+    // Test basic database operations
+    try {
+      const tables = await this.database.select("SELECT name FROM sqlite_master WHERE type='table'");
+      console.log('📋 Existing tables:', tables);
+    } catch (queryError) {
+      console.warn('⚠️ Could not query existing tables:', queryError);
+    }
+    // Create all necessary tables
     await this.createAllTables();
+    // Verify table creation
+    try {
+      const tablesAfter = await this.database.select("SELECT name FROM sqlite_master WHERE type='table'");
+      console.log('📋 Tables after creation:', tablesAfter);
+    } catch (verifyError) {
+      console.warn('⚠️ Could not verify table creation:', verifyError);
+    }
     this.isInitialized = true;
-    console.log('DB initialized successfully');
+    this.isInitializing = false;
+    console.log('🎉 Database initialized successfully!');
+    if (typeof window !== 'undefined') {
+      const event = new CustomEvent('DATABASE_READY', { 
+        detail: { 
+          timestamp: new Date().toISOString(),
+          tablesCreated: true
+        } 
+      });
+      window.dispatchEvent(event);
+      console.log('📡 DATABASE_READY event emitted');
+    }
+    return true;
   } catch (error) {
-    console.error('DB init failed:', error);
-    throw new Error(`DB init failed: ${error}`);
+    this.isInitializing = false;
+    console.error('💥 Database initialization failed:', error);
+    if (error instanceof Error) {
+      console.error('🔍 Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      if (error.message.includes('not allowed') || error.message.includes('permission')) {
+        console.error('🔧 SOLUTION: Check tauri.conf.json permissions');
+        console.error('   Required: sql:allow-load, sql:allow-execute, sql:allow-select');
+      } else if (error.message.includes('not found') || error.message.includes('file')) {
+        console.error('🔧 SOLUTION: Database file path issue');
+        console.error('   Check if Rust created the database successfully');
+      } else if (error.message.includes('plugin') || error.message.includes('import')) {
+        console.error('🔧 SOLUTION: SQL plugin not available');
+        console.error('   Check if @tauri-apps/plugin-sql is installed');
+      }
+    }
+    this.isInitialized = false;
+    throw new Error(`Database initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
+ async createInvoice(invoiceData: any) {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // SECURITY FIX: Input validation
+      this.validateInvoiceData(invoiceData);
+
+      // CRITICAL: Validate stock availability BEFORE any operations
+      for (const item of invoiceData.items) {
+        const product = await this.getProduct(item.product_id);
+        // Parse current stock based on product's unit type
+        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+        const availableStock = currentStockData.numericValue;
+        
+        // Parse required quantity using same unit type
+        const requiredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+        const requiredStock = requiredQuantityData.numericValue;
+        
+        if (availableStock < requiredStock) {
+          const availableDisplay = formatUnitString(availableStock.toString(), product.unit_type || 'kg-grams');
+          const requiredDisplay = formatUnitString(requiredStock.toString(), product.unit_type || 'kg-grams');
+          throw new Error(`Insufficient stock for ${product.name}. Available: ${availableDisplay}, Required: ${requiredDisplay}`);
+        }
+      }
+
+            const subtotal = invoiceData.items.reduce((sum: number, item: any) => addCurrency(sum, item.total_price), 0);
+      const discountAmount = (subtotal * (invoiceData.discount || 0)) / 100;
+      const grandTotal = subtotal - discountAmount;
+      const remainingBalance = grandTotal - (invoiceData.payment_amount || 0);
+
+      const billNumber = await this.generateBillNumber();
+
+  
+
+      // CRITICAL: Use proper database transaction for atomicity
+      await this.database?.execute('BEGIN TRANSACTION');
+
+      try {
+        // Create invoice record
+        const invoiceResult = await this.database?.execute(
+          `INSERT INTO invoices (bill_number, customer_id, subtotal, discount, discount_amount, 
+           grand_total, payment_amount, payment_method, remaining_balance, notes, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            billNumber, invoiceData.customer_id, subtotal, invoiceData.discount || 0, discountAmount,
+            grandTotal, invoiceData.payment_amount || 0, invoiceData.payment_method, remainingBalance,
+            invoiceData.notes || ''
+          ]
+        );
+
+        const invoiceId = invoiceResult?.lastInsertId;
+        if (!invoiceId) throw new Error('Failed to create invoice record');
+
+        // CRITICAL: Get customer name for tracking
+        const customer = await this.getCustomer(invoiceData.customer_id);
+        const customerName = customer.name;
+
+        // Create invoice items and update stock atomically
+        await this.createInvoiceItemsWithTracking(invoiceId, invoiceData.items, billNumber, invoiceData.customer_id, customerName);
+
+        // Update customer balance with remaining amount only
+        await this.updateCustomerBalance(invoiceData.customer_id, remainingBalance);
+
+        // CRITICAL: Create customer ledger entries for proper accounting
+        await this.createCustomerLedgerEntries(invoiceId, invoiceData.customer_id, customerName, grandTotal, invoiceData.payment_amount || 0, billNumber, invoiceData.payment_method);
+
+        await this.database?.execute('COMMIT');
+
+        const result = {
+          id: invoiceId,
+          bill_number: billNumber,
+          customer_id: invoiceData.customer_id,
+          customer_name: customerName,
+          items: invoiceData.items,
+          subtotal,
+          discount: invoiceData.discount || 0,
+          discount_amount: discountAmount,
+          grand_total: grandTotal,
+          payment_amount: invoiceData.payment_amount || 0,
+          payment_method: invoiceData.payment_method,
+          remaining_balance: remainingBalance,
+          notes: invoiceData.notes,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+
+        // ENHANCED: Emit event for real-time component updates
+        try {
+          if (typeof window !== 'undefined') {
+            const eventBus = (window as any).eventBus;
+            if (eventBus && eventBus.emit) {
+              eventBus.emit('INVOICE_CREATED', {
+                invoiceId,
+                billNumber,
+                customerId: invoiceData.customer_id,
+                customerName,
+                grandTotal,
+                remainingBalance,
+                created_at: new Date().toISOString()
+              });
+            }
+          }
+        } catch (error) {
+          console.warn('Could not emit invoice created event:', error);
+        }
+
+        return result;
+      } catch (error) {
+        await this.database?.execute('ROLLBACK');
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error creating invoice:', error);
+      throw error;
+    }
+  }
 
 
+  private async createInvoiceItemsWithTracking(invoiceId: number, items: any[], billNumber: string, customerId: number, customerName: string): Promise<void> {
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+    const time = now.toLocaleTimeString('en-PK', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: true 
+    });
+
+    for (const item of items) {
+      // Create invoice item
+      await this.database?.execute(
+        `INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, unit_price, total_price)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [invoiceId, item.product_id, item.product_name, item.quantity, item.unit_price, item.total_price]
+      );
+
+      // Get current stock before update
+      const product = await this.getProduct(item.product_id);
+      
+      // Parse current stock based on product's unit type
+      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+      const previousStock = currentStockData.numericValue;
+      
+      // Parse item quantity with same unit type
+      const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+      const quantityRequired = itemQuantityData.numericValue;
+      
+      // Calculate new stock after sale
+      const newStock = Math.max(0, previousStock - quantityRequired);
+      
+      // Convert new stock back to proper unit format based on unit type
+      let newStockString: string;
+      if (product.unit_type === 'kg-grams') {
+        const newStockKg = Math.floor(newStock / 1000);
+        const newStockGrams = newStock % 1000;
+        newStockString = newStockGrams > 0 ? `${newStockKg}-${newStockGrams}` : `${newStockKg}`;
+      } else {
+        newStockString = newStock.toString();
+      }
+
+      // Update product stock
+      await this.database?.execute(
+        `UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [newStockString, item.product_id]
+      );
+
+      // Create stock movement record
+      await this.createStockMovement({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        movement_type: 'out',
+        quantity: quantityRequired,
+        previous_stock: previousStock,
+        new_stock: newStock,
+        unit_price: item.unit_price,
+        total_value: item.total_price,
+        reason: 'Sale to customer',
+        reference_type: 'invoice',
+        reference_id: invoiceId,
+        reference_number: billNumber,
+        customer_id: customerId,
+        customer_name: customerName,
+        notes: `Invoice ${billNumber} - ${formatUnitString(quantityRequired.toString(), product.unit_type || 'kg-grams')} sold`,
+
+        date,
+        time,
+        created_by: 'system'
+      });
+
+    }
+  }
+
+
+// Add this method to wait for Tauri to be fully ready
+private async waitForTauriReady(maxWaitTime: number = 10000): Promise<void> {
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    
+    const checkTauri = () => {
+      // Check if Tauri globals are available
+      if (typeof window !== 'undefined' && '__TAURI__' in window) {
+        console.log('✅ Tauri globals detected');
+        resolve();
+        return;
+      }
+      
+      // Check if we've been waiting too long
+      if (Date.now() - startTime > maxWaitTime) {
+        console.warn('⚠️ Tauri ready timeout - proceeding anyway');
+        console.warn('💡 This might work if you\'re running in Tauri despite the timeout');
+        resolve(); // Proceed anyway instead of rejecting
+        return;
+      }
+      
+      // Wait a bit more
+      setTimeout(checkTauri, 100);
+    };
+    
+    console.log('⏳ Waiting for Tauri to be ready...');
+    checkTauri();
+  });
+}
+
+  async getProducts(search?: string, category?: string, options?: { limit?: number; offset?: number }) {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      // Build a cache key
+      const cacheKey = JSON.stringify({ search, category, options });
+      if (this.productsCache.has(cacheKey)) {
+        return this.productsCache.get(cacheKey)!;
+      }
+      let query = 'SELECT * FROM products WHERE 1=1';
+      const params: any[] = [];
+      if (search) {
+        query += ' AND (name LIKE ? OR category LIKE ?)';
+        params.push(`%${search}%`, `%${search}%`);
+      }
+      if (category) {
+        query += ' AND category = ?';
+        params.push(category);
+      }
+      query += ' ORDER BY name ASC';
+      // SCALABILITY FIX: Apply pagination to prevent large result sets
+      if (options?.limit) {
+        query += ' LIMIT ? OFFSET ?';
+        params.push(options.limit, options.offset || 0);
+      }
+      const products = await this.database?.select(query, params);
+      this.productsCache.set(cacheKey, products || []);
+      return products || [];
+    } catch (error) {
+      console.error('Error getting products:', error);
+      throw error;
+    }
+  }
+
+  // Update the getProducts method to handle database initialization
   private async createAllTables() {
-    if (!isTauri()) return;
+   
 
     try {
       // CRITICAL FIX: Create core tables first (products, customers, invoices, invoice_items)
       
-      // Create customers table
+      // Create customers table with customer_code
       await this.database?.execute(`
         CREATE TABLE IF NOT EXISTS customers (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          customer_code TEXT UNIQUE,
           name TEXT NOT NULL CHECK (length(name) > 0),
           phone TEXT,
           address TEXT,
@@ -666,6 +728,19 @@ this.database = await new open('sqlite:data/store.db');
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      console.log('[DB DEBUG] Customers table created or already exists.');
+
+      // Robust migration: Add customer_code column if it does not exist (for existing DBs)
+      const pragmaCustomers = await this.database?.select(`PRAGMA table_info(customers)`);
+      console.log('[DB DEBUG] PRAGMA table_info(customers):', pragmaCustomers);
+      const hasCustomerCode = pragmaCustomers && pragmaCustomers.some((col: any) => col.name === 'customer_code');
+      if (!hasCustomerCode) {
+        // Add column without UNIQUE constraint (SQLite limitation)
+        await this.database?.execute(`ALTER TABLE customers ADD COLUMN customer_code TEXT`).catch(() => {});
+        // Add unique index for customer_code
+        await this.database?.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_customer_code ON customers(customer_code)`).catch(() => {});
+        console.warn('[DB MIGRATION] Added missing customer_code column and unique index to customers table.');
+      }
 
       // Create products table
       await this.database?.execute(`
@@ -685,6 +760,14 @@ this.database = await new open('sqlite:data/store.db');
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
       `);
+      // Robust migration: Add min_stock_level column if it does not exist (legacy DBs)
+      const pragmaProducts = await this.database?.select(`PRAGMA table_info(products)`);
+      console.log('[DB DEBUG] PRAGMA table_info(products):', pragmaProducts);
+      const hasMinStockLevel = pragmaProducts && pragmaProducts.some((col: any) => col.name === 'min_stock_level');
+      if (!hasMinStockLevel) {
+        await this.database?.execute(`ALTER TABLE products ADD COLUMN min_stock_level REAL DEFAULT 0`).catch(() => {});
+        console.warn('[DB MIGRATION] Added missing min_stock_level column to products table.');
+      }
 
       // Create invoices table
       await this.database?.execute(`
@@ -707,7 +790,14 @@ this.database = await new open('sqlite:data/store.db');
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE
         )
       `);
-
+      // Robust migration: Add date column if it does not exist (legacy DBs)
+      const pragmaInvoices = await this.database?.select(`PRAGMA table_info(invoices)`);
+      console.log('[DB DEBUG] PRAGMA table_info(invoices):', pragmaInvoices);
+      const hasDate = pragmaInvoices && pragmaInvoices.some((col: any) => col.name === 'date');
+      if (!hasDate) {
+        await this.database?.execute(`ALTER TABLE invoices ADD COLUMN date TEXT`).catch(() => {});
+        console.warn('[DB MIGRATION] Added missing date column to invoices table.');
+      }
       // Create invoice_items table
       await this.database?.execute(`
         CREATE TABLE IF NOT EXISTS invoice_items (
@@ -1159,40 +1249,7 @@ this.database = await new open('sqlite:data/store.db');
     }
   }
 
-  private initializeMockData() {
-    // Check if localStorage has data - if not, and arrays are empty, it might be intentionally reset
-    const hasStoredData = typeof window !== 'undefined' && window.localStorage && 
-      (localStorage.getItem('enhanced_mock_products') || 
-       localStorage.getItem('enhanced_mock_customers') ||
-       localStorage.getItem('enhanced_mock_invoices'));
-    
-    // Only initialize with hardcoded data if there's no stored data AND arrays are empty naturally (not from reset)
-    if (!hasStoredData && this.db.products.length === 0 && this.db.customers.length === 0) {
-      console.log('🔧 No stored data found, but keeping arrays empty as they may have been intentionally reset');
-      // Don't reload hardcoded demo data - keep arrays empty
-    }
-    
-    // Always ensure these arrays exist (but keep them empty if reset)
-    if (!Array.isArray(this.db.stockMovements)) {
-      this.db.stockMovements = [];
-    }
-    
-    if (!Array.isArray(this.db.invoices)) {
-      this.db.invoices = [];
-    }
 
-    if (!Array.isArray(this.db.customers)) {
-      this.db.customers = [];
-    }
-
-    if (!Array.isArray(this.db.ledgerEntries)) {
-      this.db.ledgerEntries = [];
-    }
-
-    if (!Array.isArray(this.db.payments)) {
-      this.db.payments = [];
-    }
-  }
 
   // CRITICAL FIX: Enhanced stock movement creation with complete tracking
 async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
@@ -1211,57 +1268,7 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
       reason: movement.reason
     });
 
-    if (!isTauri()) {
-      const newId = Math.max(...this.db.stockMovements.map((m: { id: any; }) => m.id || 0), 0) + 1;
-      // Always attach the correct unit_type to the movement for later display/logic
-      const product = this.db.products.find((p: { id: number; }) => p.id === movement.product_id);
-      
-      console.log(`🔧 CREATE_STOCK_MOVEMENT DEBUG: Product found:`, {
-        name: product?.name,
-        unit_type: product?.unit_type
-      });
-      
-      const newMovement: StockMovement = {
-        ...movement,
-        id: newId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        unit_type: product?.unit_type || 'kg-grams'
-      };
-      
-      console.log(`🔧 CREATE_STOCK_MOVEMENT DEBUG: Created movement:`, {
-        id: newMovement.id,
-        quantity: newMovement.quantity,
-        unit_type: newMovement.unit_type,
-        movement_type: newMovement.movement_type
-      });
-      
-      this. db.stockMovements.push(newMovement);
-      this.saveToLocalStorage();
-      
-      console.log('✅ Stock movement created and saved:', newMovement);
-      
-      // ENHANCED: Emit event for real-time component updates
-      try {
-        if (typeof window !== 'undefined') {
-          const eventBus = (window as any).eventBus;
-          if (eventBus && eventBus.emit) {
-            eventBus.emit('STOCK_MOVEMENT_CREATED', {
-              movementId: newId,
-              productId: movement.product_id,
-              movementType: movement.movement_type,
-              quantity: movement.quantity,
-              reason: movement.reason
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('Could not emit stock movement event:', error);
-      }
-      
-      return newId;
-    }
-
+  
     const result = await this.database?.execute(`
       INSERT INTO stock_movements (
         product_id, product_name, movement_type, quantity, previous_stock, new_stock,
@@ -1323,56 +1330,7 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        let filtered = [...this. db.stockMovements];
 
-        if (filters.product_id) {
-          filtered = filtered.filter(m => m.product_id === filters.product_id);
-        }
-        if (filters.customer_id) {
-          filtered = filtered.filter(m => m.customer_id === filters.customer_id);
-        }
-        if (filters.movement_type) {
-          filtered = filtered.filter(m => m.movement_type === filters.movement_type);
-        }
-        if (filters.from_date) {
-          filtered = filtered.filter(m => m.date >= filters.from_date!);
-        }
-        if (filters.to_date) {
-          filtered = filtered.filter(m => m.date <= filters.to_date!);
-        }
-        if (filters.reference_type) {
-          filtered = filtered.filter(m => m.reference_type === filters.reference_type);
-        }
-        if (filters.reference_id) {
-          filtered = filtered.filter(m => m.reference_id === filters.reference_id);
-        }
-        if (filters.search) {
-          const search = filters.search.toLowerCase();
-          filtered = filtered.filter(m => 
-            m.product_name.toLowerCase().includes(search) ||
-            m.customer_name?.toLowerCase().includes(search) ||
-            m.reference_number?.toLowerCase().includes(search) ||
-            m.notes?.toLowerCase().includes(search) ||
-            m.reason.toLowerCase().includes(search)
-          );
-        }
-
-        // Sort by date and time (newest first)
-        filtered.sort((a, b) => {
-          if (a.date === b.date) {
-            return b.time.localeCompare(a.time);
-          }
-          return b.date.localeCompare(a.date);
-        });
-
-        if (filters.limit) {
-          const offset = filters.offset || 0;
-          filtered = filtered.slice(offset, offset + filters.limit);
-        }
-
-        return filtered;
-      }
 
       // Real database implementation
       let query = 'SELECT * FROM stock_movements WHERE 1=1';
@@ -1444,18 +1402,15 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
   /**
    * Safe parseUnit that validates unit_type first
    */
-  private safeParseUnit(input: any, unitType: string, productName?: string): any {
-    if (!unitType || unitType.trim() === '') {
-      throw new Error(`Cannot parse unit: unit_type is missing${productName ? ` for product "${productName}"` : ''}`);
-    }
-    
-    return parseUnit(input, unitType as any);
-  }
+
 // FINAL FIX: Stock adjustment with proper unit type support
+/**
+ * Adjust stock for a product (supports all unit types, real database implementation)
+ */
 async adjustStock(
-  productId: number, 
-  quantity: number, 
-  reason: string, 
+  productId: number,
+  quantity: number,
+  reason: string,
   notes: string,
   customer_id?: number,
   customer_name?: string
@@ -1465,170 +1420,137 @@ async adjustStock(
       await this.initialize();
     }
 
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: true 
-    });
-
-    if (!isTauri()) {
-      const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === productId);
-      if (productIndex === -1) {
-        throw new Error('Product not found');
-      }
-
-      const product = this.db.products[productIndex];
-      
-      console.log(`🔧 ADJUSTSTOCK DEBUG: Product ${product.name}, Unit: ${product.unit_type}, Adjustment: ${quantity}`);
-      
-      // CRITICAL: Validate product unit_type first
-      this.validateProductUnitType(product);
-      
-
-      // For bag/piece, always treat as integer count, never as grams
-      let currentStockNumber: number;
-      let adjustmentQuantity: number;
-      if (product.unit_type === 'bag' || product.unit_type === 'piece') {
-        // Always treat as integer count, never as grams or numericValue
-        currentStockNumber = parseFloat(product.current_stock) || 0;
-        let rawAdjustment = typeof quantity === 'number' ? quantity : parseFloat(quantity);
-        // If value is a multiple of 1000, treat as legacy grams input (1000->1, 2000->2, -1000->-1)
-        if (rawAdjustment % 1000 === 0 && Math.abs(rawAdjustment) >= 1000) {
-          adjustmentQuantity = rawAdjustment / 1000;
-        } else {
-          adjustmentQuantity = rawAdjustment;
-        }
-        // Clamp to integer and preserve sign
-        adjustmentQuantity = adjustmentQuantity > 0 ? Math.ceil(adjustmentQuantity) : Math.floor(adjustmentQuantity);
-        currentStockNumber = Math.round(currentStockNumber);
-      } else {
-        currentStockNumber = getStockAsNumber(product.current_stock, product.unit_type || 'kg-grams');
-        adjustmentQuantity = quantity;
-      }
-
-      console.log(`🔧 ADJUSTSTOCK DEBUG: Current stock number: ${currentStockNumber}`);
-      console.log(`🔧 ADJUSTSTOCK DEBUG: Adjustment quantity: ${adjustmentQuantity}`);
-
-      // Calculate new stock
-      const newStockNumber = Math.max(0, currentStockNumber + adjustmentQuantity);
-
-      console.log(`🔧 ADJUSTSTOCK DEBUG: New stock number: ${newStockNumber}`);
-      
-      // Defensive: Ensure unit_type is valid and handle accordingly
-      let newStockString: string;
-      if (product.unit_type === 'kg-grams') {
-        const newStockKg = Math.floor(newStockNumber / 1000);
-        const newStockGrams = newStockNumber % 1000;
-        newStockString = newStockGrams > 0 ? `${newStockKg}-${newStockGrams}` : `${newStockKg}`;
-      } else if (product.unit_type === 'kg') {
-        // For kg decimal, store as decimal string
-        const kg = Math.floor(newStockNumber / 1000);
-        const grams = newStockNumber % 1000;
-        newStockString = grams > 0 ? `${kg}.${grams}` : `${kg}`;
-      } else if (product.unit_type === 'bag' || product.unit_type === 'piece') {
-        // For bags and pieces, store as integer string
-        newStockString = newStockNumber.toString();
-      } else {
-        // Unknown or unsupported unit type
-        console.error(`❌ ADJUSTSTOCK ERROR: Unknown unit_type '${product.unit_type}' for product '${product.name}'. Stock adjustment aborted.`);
-        throw new Error(`Unknown unit_type '${product.unit_type}' for product '${product.name}'. Please check product settings.`);
-      }
-      console.log(`🔧 ADJUSTSTOCK DEBUG: New stock string: ${newStockString}`);
-
-      // Update product stock
-      this.db.products[productIndex].current_stock = newStockString;
-      this.db.products[productIndex].updated_at = now.toISOString();
-
-      // Create stock movement record
-      let movementType: 'in' | 'out' | 'adjustment';
-      
-      if (adjustmentQuantity > 0) {
-        movementType = 'in';
-      } else if (adjustmentQuantity < 0) {
-        movementType = 'out';
-      } else {
-        movementType = 'adjustment';
-      }
-
-
-      // CRITICAL FIX: For bag/piece, always treat as integer count, never as grams
-      let displayQuantityForMovement: number;
-      if (product.unit_type === 'kg-grams') {
-        displayQuantityForMovement = Math.abs(adjustmentQuantity);
-      } else if (product.unit_type === 'kg') {
-        displayQuantityForMovement = Math.abs(adjustmentQuantity) / 1000;
-      } else if (product.unit_type === 'bag' || product.unit_type === 'piece') {
-        // If adjustmentQuantity is 1000, but user meant 1, forcibly treat as 1
-        // This handles any legacy or parseUnit confusion
-        if (Math.abs(adjustmentQuantity) === 1000) {
-          displayQuantityForMovement = 1;
-        } else {
-          displayQuantityForMovement = Math.abs(adjustmentQuantity);
-        }
-      } else {
-        displayQuantityForMovement = Math.abs(adjustmentQuantity);
-      }
-      console.log(`🔧 ADJUSTSTOCK DEBUG: Creating movement with quantity: ${displayQuantityForMovement} (unit_type: ${product.unit_type})`);
-
-      await this.createStockMovement({
-        product_id: productId,
-        product_name: product.name,
-        movement_type: movementType,
-        quantity: displayQuantityForMovement,
-        previous_stock: currentStockNumber,
-        new_stock: newStockNumber,
-        unit_price: product.rate_per_unit,
-        total_value: Math.abs(adjustmentQuantity) * product.rate_per_unit,
-        reason: reason,
-        reference_type: 'adjustment',
-        reference_number: `ADJ-${date}-${Date.now()}`,
-        customer_id: customer_id,
-        customer_name: customer_name,
-        notes: notes,
-        date,
-        time,
-        created_by: 'manual'
-      });
-
-      // Save to localStorage immediately
-      this.saveToLocalStorage();
-      
-      console.log(`✅ Stock adjustment completed for ${product.name}:`);
-      console.log(`   Previous: ${formatUnitString(currentStockNumber.toString(), product.unit_type)}`);
-      console.log(`   Adjustment: ${adjustmentQuantity > 0 ? '+' : ''}${adjustmentQuantity}`);
-      console.log(`   New: ${formatUnitString(newStockNumber.toString(), product.unit_type)}`);
-      
-      // Emit events for real-time component updates
-      try {
-        if (typeof window !== 'undefined') {
-          const eventBus = (window as any).eventBus;
-          if (eventBus && eventBus.emit) {
-            eventBus.emit('STOCK_UPDATED', {
-              productId,
-              productName: product.name,
-              action: 'stock_adjusted',
-              previousStock: currentStockNumber,
-              newStock: newStockNumber,
-              adjustment: adjustmentQuantity
-            });
-            eventBus.emit('STOCK_ADJUSTMENT_MADE', {
-              productId,
-              productName: product.name,
-              reason,
-              adjustment: adjustmentQuantity
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('Could not emit stock adjustment events:', error);
-      }
-      
-      return true;
+    // Get product details
+    const product = await this.getProduct(productId);
+    if (!product) {
+      throw new Error('Product not found');
     }
 
-    // Real database implementation would be similar...
+    // Validate product unit_type
+    this.validateProductUnitType(product);
+
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+    const time = now.toLocaleTimeString('en-PK', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+
+    // Parse current stock and adjustment quantity
+    let currentStockNumber: number;
+    let adjustmentQuantity: number;
+    if (product.unit_type === 'bag' || product.unit_type === 'piece') {
+      currentStockNumber = parseFloat(product.current_stock) || 0;
+      let rawAdjustment = typeof quantity === 'number' ? quantity : parseFloat(quantity);
+      if (rawAdjustment % 1000 === 0 && Math.abs(rawAdjustment) >= 1000) {
+        adjustmentQuantity = rawAdjustment / 1000;
+      } else {
+        adjustmentQuantity = rawAdjustment;
+      }
+      adjustmentQuantity = adjustmentQuantity > 0 ? Math.ceil(adjustmentQuantity) : Math.floor(adjustmentQuantity);
+      currentStockNumber = Math.round(currentStockNumber);
+    } else {
+      currentStockNumber = getStockAsNumber(product.current_stock, product.unit_type || 'kg-grams');
+      adjustmentQuantity = quantity;
+    }
+
+    const newStockNumber = Math.max(0, currentStockNumber + adjustmentQuantity);
+
+    // Format new stock string based on unit type
+    let newStockString: string;
+    if (product.unit_type === 'kg-grams') {
+      const newStockKg = Math.floor(newStockNumber / 1000);
+      const newStockGrams = newStockNumber % 1000;
+      newStockString = newStockGrams > 0 ? `${newStockKg}-${newStockGrams}` : `${newStockKg}`;
+    } else if (product.unit_type === 'kg') {
+      const kg = Math.floor(newStockNumber / 1000);
+      const grams = newStockNumber % 1000;
+      newStockString = grams > 0 ? `${kg}.${grams}` : `${kg}`;
+    } else if (product.unit_type === 'bag' || product.unit_type === 'piece') {
+      newStockString = newStockNumber.toString();
+    } else {
+      throw new Error(`Unknown unit_type '${product.unit_type}' for product '${product.name}'. Please check product settings.`);
+    }
+
+    // Update product stock in database
+    await this.database?.execute(
+      'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [newStockString, productId]
+    );
+
+    // Determine movement type
+    let movementType: 'in' | 'out' | 'adjustment';
+    if (adjustmentQuantity > 0) {
+      movementType = 'in';
+    } else if (adjustmentQuantity < 0) {
+      movementType = 'out';
+    } else {
+      movementType = 'adjustment';
+    }
+
+    // Calculate display quantity for movement
+    let displayQuantityForMovement: number;
+    if (product.unit_type === 'kg-grams') {
+      displayQuantityForMovement = Math.abs(adjustmentQuantity);
+    } else if (product.unit_type === 'kg') {
+      displayQuantityForMovement = Math.abs(adjustmentQuantity) / 1000;
+    } else if (product.unit_type === 'bag' || product.unit_type === 'piece') {
+      if (Math.abs(adjustmentQuantity) === 1000) {
+        displayQuantityForMovement = 1;
+      } else {
+        displayQuantityForMovement = Math.abs(adjustmentQuantity);
+      }
+    } else {
+      displayQuantityForMovement = Math.abs(adjustmentQuantity);
+    }
+
+    // Create stock movement record in database
+    await this.createStockMovement({
+      product_id: productId,
+      product_name: product.name,
+      movement_type: movementType,
+      quantity: displayQuantityForMovement,
+      previous_stock: currentStockNumber,
+      new_stock: newStockNumber,
+      unit_price: product.rate_per_unit,
+      total_value: Math.abs(adjustmentQuantity) * product.rate_per_unit,
+      reason: reason,
+      reference_type: 'adjustment',
+      reference_number: `ADJ-${date}-${Date.now()}`,
+      customer_id: customer_id,
+      customer_name: customer_name,
+      notes: notes,
+      date,
+      time,
+      created_by: 'manual'
+    });
+
+    // Emit events for real-time component updates
+    try {
+      if (typeof window !== 'undefined') {
+        const eventBus = (window as any).eventBus;
+        if (eventBus && eventBus.emit) {
+          eventBus.emit('STOCK_UPDATED', {
+            productId,
+            productName: product.name,
+            action: 'stock_adjusted',
+            previousStock: currentStockNumber,
+            newStock: newStockNumber,
+            adjustment: adjustmentQuantity
+          });
+          eventBus.emit('STOCK_ADJUSTMENT_MADE', {
+            productId,
+            productName: product.name,
+            reason,
+            adjustment: adjustmentQuantity
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('Could not emit stock adjustment events:', error);
+    }
+
     return true;
   } catch (error) {
     console.error('Error adjusting stock:', error);
@@ -1641,54 +1563,7 @@ async adjustStock(
    */
   async recalculateProductStockFromMovements(productId: number): Promise<string> {
     try {
-      if (!isTauri()) {
-        //   mode implementation
-        const productToUpdate = this.db.products.find((p: { id: number; }) => p.id === productId);
-        if (!productToUpdate) {
-          throw new Error(`Product with ID ${productId} not found`);
-        }
 
-        const movements = this.db.stockMovements.filter((m: { product_id: number; }) => m.product_id === productId);
-        
-        // Sort movements by date/time to process in chronological order
-        movements.sort((a: { date: any; time: any; }, b: { date: any; time: any; }) => {
-          const dateA = new Date(`${a.date} ${a.time}`);
-          const dateB = new Date(`${b.date} ${b.time}`);
-          return dateA.getTime() - dateB.getTime();
-        });
-        
-        let currentStock = 0; // Start from 0 and calculate from movements
-        
-        for (const movement of movements) {
-          const quantityData = parseUnit(movement.quantity.toString(), productToUpdate.unit_type || 'kg-grams');
-          
-          if (movement.movement_type === 'in') {
-            currentStock += quantityData.numericValue;
-          } else if (movement.movement_type === 'out') {
-            currentStock -= quantityData.numericValue;
-          }
-        }
-        
-        // Ensure stock doesn't go negative
-        currentStock = Math.max(0, currentStock);
-        
-        // Get product to determine unit type
-        const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === productId);
-        if (productIndex === -1) {
-          throw new Error(`Product with ID ${productId} not found`);
-        }
-        
-        const productForUpdate = this.db.products[productIndex];
-        const correctedStock = this.formatStockValue(currentStock, productForUpdate.unit_type || 'kg-grams');
-        
-        // Update the product's current_stock with the corrected value
-        this.db.products[productIndex].current_stock = correctedStock;
-        this.db.products[productIndex].updated_at = new Date().toISOString();
-        this.saveToLocalStorage();
-        
-        console.log(`📦 Recalculated stock for product ${productId}: ${correctedStock}`);
-        return correctedStock;
-      }
 
       // Real database implementation
       const productsForMovement = await this.database?.select('SELECT * FROM products WHERE id = ?', [productId]);
@@ -1759,50 +1634,6 @@ async adjustStock(
         throw new Error('Invalid movement type');
       }
 
-      if (!isTauri()) {
-        //   mode implementation with validation
-        const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === productId);
-        if (productIndex === -1) {
-          throw new Error(`Product with ID ${productId} not found`);
-        }
-
-        const product = this.db.products[productIndex];
-        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-        const newStockValue = currentStockData.numericValue + quantityChange;
-        
-        // Prevent negative stock
-        if (newStockValue < 0) {
-          throw new Error(`Insufficient stock. Current: ${currentStockData.numericValue}, Required: ${Math.abs(quantityChange)}`);
-        }
-        
-        // Format new stock value
-        const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
-        this.db.products[productIndex].current_stock = newStockString;
-        this.db.products[productIndex].updated_at = new Date().toISOString();
-        this.saveToLocalStorage();
-        
-        // Create stock movement record
-        await this.createStockMovement({
-          product_id: productId,
-          product_name: product.name,
-          movement_type: movementType,
-          quantity: Math.abs(quantityChange),
-          previous_stock: currentStockData.numericValue,
-          new_stock: newStockValue,
-          unit_price: 0,
-          total_value: 0,
-          reason: reason.trim(),
-          reference_type: 'adjustment',
-          reference_id: referenceId,
-          reference_number: referenceNumber,
-          date: new Date().toISOString().split('T')[0],
-          time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-          created_by: 'system'
-        });
-        
-        return;
-      }
-
       // CRITICAL FIX: Real database implementation with proper locking
       await this.database?.execute('BEGIN IMMEDIATE TRANSACTION');
       
@@ -1870,10 +1701,7 @@ async adjustStock(
    */
   async recalculateInvoiceTotals(invoiceId: number): Promise<void> {
     try {
-      if (!isTauri()) {
-        return await this.recalculateInvoiceTotalsMock(invoiceId);
-      }
-
+   
       // Get current invoice data before making changes
       const currentInvoiceResult = await this.database?.select('SELECT * FROM invoices WHERE id = ?', [invoiceId]);
       const currentInvoice = currentInvoiceResult?.[0];
@@ -1939,7 +1767,7 @@ async adjustStock(
               FROM customer_ledger cl2 
               WHERE cl2.customer_id = customer_ledger.customer_id 
                 AND (cl2.created_at < customer_ledger.created_at 
-                     OR (cl2.created_at = customer_ledger.created_at AND cl2.id <= customer_ledger.id))
+                     OR (cl2.created_at = customer_ledger.created_at && cl2.id <= customer_ledger.id))
             )
             WHERE customer_id = ?
           `, [currentInvoice.customer_id]);
@@ -2031,862 +1859,12 @@ async adjustStock(
 
   //   IMPLEMENTATIONS FOR ENHANCED INVOICE SYSTEM
 
-  private async addInvoiceItemsMock(invoiceId: number, items: any[]): Promise<void> {
-    const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
-    if (invoiceIndex === -1) {
-      throw new Error('Invoice not found');
-    }
-
-    const invoice = this.db.invoices[invoiceIndex];
-    
-    // Validate and add items
-    for (const item of items) {
-      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
-      if (productIndex === -1) {
-        throw new Error(`Product not found: ${item.product_name}`);
-      }
-
-      const product = this.db.products[productIndex];
-      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-      const requiredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-      
-      if (currentStockData.numericValue < requiredQuantityData.numericValue) {
-        throw new Error(`Insufficient stock for ${product.name}`);
-      }
-
-      // Add item to invoice
-      const newItemId = Math.max(...(invoice.items || []).map((i: any) => i.id || 0), 0) + 1;
-      const newItem = {
-        ...item,
-        id: newItemId,
-        invoice_id: invoiceId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      if (!invoice.items) invoice.items = [];
-      invoice.items.push(newItem);
-
-      // Update stock and create stock movement
-      const newStockValue = currentStockData.numericValue - requiredQuantityData.numericValue;
-      const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
-      this.db.products[productIndex].current_stock = newStockString;
-
-      // Create stock movement record
-      await this.createStockMovement({
-        product_id: item.product_id,
-        product_name: item.product_name,
-        movement_type: 'out',
-        quantity: requiredQuantityData.numericValue,
-        previous_stock: currentStockData.numericValue,
-        new_stock: newStockValue,
-        unit_price: item.unit_price,
-        total_value: item.total_price,
-        reason: 'invoice',
-        reference_type: 'invoice',
-        reference_id: invoiceId,
-        reference_number: invoice.bill_number,
-        customer_id: invoice.customer_id,
-        customer_name: invoice.customer_name,
-        date: new Date().toISOString().split('T')[0],
-        time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-        created_by: 'system'
-      });
-    }
-
-    // Recalculate totals
-    await this.recalculateInvoiceTotalsMock(invoiceId);
-    this.saveToLocalStorage();
-    
-    // ENHANCED: Emit events for real-time component updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.emit) {
-          // Emit invoice updated event with customer information
-          eventBus.emit('INVOICE_UPDATED', {
-            invoiceId,
-            customerId: invoice.customer_id,
-            action: 'items_added',
-            itemCount: items.length
-          });
-          
-          // Emit stock update event
-          eventBus.emit('STOCK_UPDATED', {
-            invoiceId,
-            products: items.map(item => ({ productId: item.product_id, productName: item.product_name }))
-          });
-          
-          // Emit customer balance update event (balance changes due to invoice total change)
-          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-            customerId: invoice.customer_id,
-            invoiceId,
-            action: 'items_added'
-          });
-          
-          // Emit customer ledger update event
-          eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-            invoiceId,
-            customerId: invoice.customer_id,
-            action: 'items_added'
-          });
-        }
-      }
-    } catch (error) {
-      console.warn('Could not emit invoice update events:', error);
-    }
-  }
-
-  private async getInvoiceWithDetailsMock(invoiceId: number): Promise<any> {
-    const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
-    if (!invoice) {
-      throw new Error('Invoice not found');
-    }
-
-    // Get payment history for this invoice from mockPayments
-    const payments = this. db.payments.filter((payment: { reference_invoice_id: number; payment_type: string; }) => 
-      payment.reference_invoice_id === invoiceId && payment.payment_type === 'bill_payment'
-    );
-
-    // Also include payment history stored directly in invoice
-    const invoicePaymentHistory = invoice.payment_history || [];
-
-    // Combine and deduplicate payment history
-    const allPayments = [...payments, ...invoicePaymentHistory];
-    const uniquePayments = allPayments.filter((payment, index, self) => 
-      index === self.findIndex(p => p.id === payment.id || p.payment_id === payment.payment_id)
-    );
-
-    // CRITICAL FIX: Calculate total paid amount properly
-    const paymentAmountDuringCreation = invoice.payment_amount || 0;  // Payment made during invoice creation
-    const paidAmountAllocatedLater = invoice.paid_amount || 0;       // Payments allocated after creation
-    const totalPaidAmount = roundCurrency(paymentAmountDuringCreation + paidAmountAllocatedLater);
-    const totalAmount = invoice.grand_total || invoice.total_amount;
-    const actualRemainingBalance = roundCurrency(Math.max(0, totalAmount - totalPaidAmount));
-
-    // CRITICAL FIX: Update the remaining balance to ensure it's correct
-    if (invoice.remaining_balance !== actualRemainingBalance) {
-      console.log(`🔧 Correcting remaining balance for invoice ${invoiceId}: stored=${invoice.remaining_balance}, calculated=${actualRemainingBalance}`);
-      invoice.remaining_balance = actualRemainingBalance;
-      invoice.status = totalPaidAmount >= totalAmount ? 'paid' : 
-                      (totalPaidAmount > 0 ? 'partially_paid' : 'pending');
-      this.saveToLocalStorage();
-    }
-
-    return {
-      ...invoice,
-      payment_amount: totalPaidAmount, // Return the total paid amount for display
-      remaining_balance: actualRemainingBalance,
-      payment_history: uniquePayments.sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime())
-    };
-  }
-
-  private async recalculateInvoiceTotalsMock(invoiceId: number): Promise<void> {
-    const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
-    if (invoiceIndex === -1) {
-      throw new Error('Invoice not found');
-    }
-
-    const invoice = this.db.invoices[invoiceIndex];
-    const items = invoice.items || [];
-    
-    // Store old remaining balance for customer balance update
-    const oldRemainingBalance = invoice.remaining_balance || 0;
-    
-    // Calculate new totals
-    const subtotal = items.reduce((sum: number, item: any) => sum + (item.total_price || 0), 0);
-    const discountAmount = (subtotal * (invoice.discount || 0)) / 100;
-    const grandTotal = subtotal - discountAmount;
-    
-    // CRITICAL FIX: Calculate remaining balance using both payment fields
-    const paymentAmountDuringCreation = invoice.payment_amount || 0;
-    const paidAmountAllocatedLater = invoice.paid_amount || 0;
-    const totalPaidAmount = roundCurrency(paymentAmountDuringCreation + paidAmountAllocatedLater);
-    const remainingBalance = roundCurrency(Math.max(0, grandTotal - totalPaidAmount));
-
-    // Calculate balance difference for customer update
-    const balanceDifference = remainingBalance - oldRemainingBalance;
-
-    // Update invoice
-    invoice.subtotal = roundCurrency(subtotal);
-    invoice.discount_amount = roundCurrency(discountAmount);
-    invoice.grand_total = roundCurrency(grandTotal);
-    invoice.remaining_balance = roundCurrency(remainingBalance);
-    invoice.updated_at = new Date().toISOString();
-
-    // CRITICAL FIX: Update customer balance AND corresponding ledger entry
-    if (balanceDifference !== 0) {
-      console.log(`🔄 Updating customer balance ( ): invoice ${invoiceId}, old remaining: ${oldRemainingBalance}, new remaining: ${remainingBalance}, difference: ${balanceDifference}`);
-      
-      // Update customer balance
-      const customerIndex = this.db.customers.findIndex((c: { id: any; }) => c.id === invoice.customer_id);
-      if (customerIndex !== -1) {
-        this.db.customers[customerIndex].balance = roundCurrency(
-          (this.db.customers[customerIndex].balance || 0) + balanceDifference
-        );
-        this.db.customers[customerIndex].updated_at = new Date().toISOString();
-        console.log(`💰 Customer ${invoice.customer_id} balance updated by ${balanceDifference}: ${this.db. Customers[customerIndex].balance}`);
-      }
-
-      // CRITICAL: Update the corresponding ledger entry to keep it in sync
-      const ledgerEntryIndex = this.db.ledgerEntries.findIndex((entry: { reference_type: string; reference_id: number; }) => 
-        entry.reference_type === 'invoice' && entry.reference_id === invoiceId
-      );
-      
-      if (ledgerEntryIndex !== -1) {
-        const ledgerEntry = this.db.ledgerEntries[ledgerEntryIndex];
-        // Since LedgerEntry uses 'amount' for outgoing transactions (invoices)
-        ledgerEntry.amount = roundCurrency((ledgerEntry.amount || 0) + balanceDifference);
-        ledgerEntry.updated_at = new Date().toISOString();
-        
-        // Recalculate running balances for all entries for this customer
-        const customerEntries = this.db.ledgerEntries
-          .filter((entry: { customer_id: any; }) => entry.customer_id === invoice.customer_id)
-          .sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
-            if (a.date === b.date) {
-              return a.time.localeCompare(b.time);
-            }
-            return a.date.localeCompare(b.date);
-          });
-
-        let runningBalance = 0;
-        for (const entry of customerEntries) {
-          // For customer ledger: outgoing = debit (increases balance), incoming = credit (decreases balance)
-          if (entry.type === 'outgoing') {
-            runningBalance += entry.amount;
-          } else {
-            runningBalance -= entry.amount;
-          }
-          entry.running_balance = roundCurrency(runningBalance);
-        }
-        
-        console.log(`📊 Updated ledger entry for invoice ${invoiceId}: amount changed by ${balanceDifference}`);
-      }
-
-      // ENHANCED: Emit customer balance update event
-      try {
-        if (typeof window !== 'undefined') {
-          const eventBus = (window as any).eventBus;
-          if (eventBus && eventBus.emit) {
-            eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-              customerId: invoice.customer_id,
-              balanceChange: balanceDifference,
-              newRemainingBalance: remainingBalance,
-              invoiceId: invoiceId
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('Could not emit customer balance update event:', error);
-      }
-    }
-
-    this.saveToLocalStorage();
-  }
-
-  private async removeInvoiceItemsMock(invoiceId: number, itemIds: number[]): Promise<void> {
-    const invoiceIndex = this.db.invoices.findIndex((inv: any) => inv.id === invoiceId);
-    if (invoiceIndex === -1) {
-      throw new Error('Invoice not found');
-    }
-    const invoice = this.db.invoices[invoiceIndex];
-    if (!invoice.items) {
-      invoice.items = [];
-    }
-    // Remove items and restore stock
-    for (const itemId of itemIds) {
-      const itemIndex = invoice.items.findIndex((item: any) => item.id === itemId);
-      if (itemIndex !== -1) {
-        const item = invoice.items[itemIndex];
-        // Restore stock and create stock movement
-        const productIndex = this.db.products.findIndex((p: any) => p.id === item.product_id);
-        if (productIndex !== -1) {
-          const product = this.db.products[productIndex];
-          const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-          const restoredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-          const newStock = currentStockData.numericValue + restoredQuantityData.numericValue;
-          product.current_stock = this.formatStockValue(newStock, product.unit_type || 'kg-grams');
-          // Create stock movement record for restoration
-          await this.createStockMovement({
-            product_id: item.product_id,
-            product_name: item.product_name,
-            movement_type: 'in',
-            quantity: restoredQuantityData.numericValue,
-            previous_stock: currentStockData.numericValue,
-            new_stock: newStock,
-            unit_price: item.unit_price,
-            total_value: item.total_price,
-            reason: 'adjustment',
-            reference_type: 'invoice',
-            reference_id: invoiceId,
-            reference_number: `Removed from ${invoice.bill_number}`,
-            customer_id: invoice.customer_id,
-            customer_name: invoice.customer_name,
-            date: new Date().toISOString().split('T')[0],
-            time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-            created_by: 'system'
-          });
-        }
-        // Remove the item
-        invoice.items.splice(itemIndex, 1);
-      }
-    }
-    // Recalculate totals
-    await this.recalculateInvoiceTotalsMock(invoiceId);
-    this.saveToLocalStorage();
-    // ENHANCED: Emit events for real-time component updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.emit) {
-          eventBus.emit('INVOICE_UPDATED', {
-            invoiceId,
-            customerId: invoice.customer_id,
-            action: 'items_removed',
-            itemCount: itemIds.length
-          });
-          eventBus.emit('STOCK_UPDATED', {
-            invoiceId,
-            action: 'items_removed'
-          });
-          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-            customerId: invoice.customer_id,
-            invoiceId,
-            action: 'items_removed'
-          });
-          eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-            invoiceId,
-            customerId: invoice.customer_id,
-            action: 'items_removed'
-          });
-        }
-      }
-    } catch (error) {
-      console.warn('Could not emit invoice item removal events:', error);
-    }
-  }
-
-  private async updateInvoiceItemQuantityMock(invoiceId: number, itemId: number, newQuantity: number): Promise<void> {
-    const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
-    if (invoiceIndex === -1) {
-      throw new Error('Invoice not found');
-    }
-
-    const invoice = this.db.invoices[invoiceIndex];
-    if (!invoice.items) {
-      throw new Error('Invoice has no items');
-    }
-
-    const itemIndex = invoice.items.findIndex((item: any) => item.id === itemId);
-    if (itemIndex === -1) {
-      throw new Error('Invoice item not found');
-    }
-
-    const item = invoice.items[itemIndex];
-    const oldQuantity = item.quantity;
-    const quantityDifference = newQuantity - oldQuantity;
-
-    // Check stock availability if increasing quantity
-    if (quantityDifference > 0) {
-      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
-      if (productIndex !== -1) {
-        const product = this.db.products[productIndex];
-        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-        const requiredQuantityData = parseUnit(quantityDifference, product.unit_type || 'kg-grams');
-        
-        if (currentStockData.numericValue < requiredQuantityData.numericValue) {
-          throw new Error(`Insufficient stock for ${product.name}`);
-        }
-      }
-    }
-
-    // Update item
-    item.quantity = newQuantity;
-    
-    // CRITICAL FIX: Correct total price calculation based on unit type
-    const product = this.db.products.find((p: { id: any; }) => p.id === item.product_id);
-    let newTotalPrice: number;
-    if (product && (product.unit_type === 'kg-grams' || product.unit_type === 'kg')) {
-      // For weight-based units, convert grams to kg for pricing (divide by 1000)
-      newTotalPrice = (newQuantity / 1000) * item.unit_price;
-    } else {
-      // For simple units (piece, bag, etc.), use the numeric value directly
-      newTotalPrice = newQuantity * item.unit_price;
-    }
-    item.total_price = roundCurrency(newTotalPrice);
-
-    // Update stock and create stock movement
-    if (quantityDifference !== 0) {
-      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
-      if (productIndex !== -1) {
-        const product = this.db.products[productIndex];
-        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-        const adjustmentQuantityData = parseUnit(Math.abs(quantityDifference), product.unit_type || 'kg-grams');
-        
-        // Negative difference means reducing quantity (stock back in), positive means taking more stock out
-        const newStock = quantityDifference > 0 
-          ? currentStockData.numericValue - adjustmentQuantityData.numericValue
-          : currentStockData.numericValue + adjustmentQuantityData.numericValue;
-          
-        product.current_stock = this.formatStockValue(newStock, product.unit_type || 'kg-grams');
-        
-        // Create stock movement record
-        await this.createStockMovement({
-          product_id: item.product_id,
-          product_name: item.product_name,
-          movement_type: quantityDifference > 0 ? 'out' : 'in',
-          quantity: adjustmentQuantityData.numericValue,
-          previous_stock: currentStockData.numericValue,
-          new_stock: newStock,
-          unit_price: item.unit_price,
-          total_value: Math.abs(quantityDifference) * item.unit_price,
-          reason: 'adjustment',
-          reference_type: 'invoice',
-          reference_id: invoiceId,
-          reference_number: `Quantity update in ${invoice.bill_number}`,
-          customer_id: invoice.customer_id,
-          customer_name: invoice.customer_name,
-          date: new Date().toISOString().split('T')[0],
-          time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-          created_by: 'system'
-        });
-      }
-    }
-
-    // Recalculate totals
-    await this.recalculateInvoiceTotalsMock(invoiceId);
-    this.saveToLocalStorage();
-    
-    // ENHANCED: Emit events for real-time component updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.emit) {
-          // Emit invoice updated event with customer information
-          eventBus.emit('INVOICE_UPDATED', {
-            invoiceId,
-            customerId: invoice.customer_id,
-            action: 'quantity_updated',
-            itemId,
-            newQuantity
-          });
-          
-          // Emit stock update event
-          eventBus.emit('STOCK_UPDATED', {
-            invoiceId,
-            productId: item.product_id
-          });
-          
-          // Emit customer balance update event (balance changes due to invoice total change)
-          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-            customerId: invoice.customer_id,
-            invoiceId,
-            action: 'quantity_updated'
-          });
-          
-          // Emit customer ledger update event
-          eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-            invoiceId,
-            customerId: invoice.customer_id,
-            action: 'quantity_updated'
-          });
-        }
-      }
-    } catch (error) {
-      console.warn('Could not emit invoice quantity update events:', error);
-    }
-  }
-
-  // CRITICAL FIX: Enhanced invoice creation with PROPER ATOMIC operations
-  async createInvoice(invoiceData: any) {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      // SECURITY FIX: Input validation
-      this.validateInvoiceData(invoiceData);
-
-      // CRITICAL: Validate stock availability BEFORE any operations
-      for (const item of invoiceData.items) {
-        const product = await this.getProduct(item.product_id);
-        // Parse current stock based on product's unit type
-        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-        const availableStock = currentStockData.numericValue;
-        
-        // Parse required quantity using same unit type
-        const requiredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-        const requiredStock = requiredQuantityData.numericValue;
-        
-        if (availableStock < requiredStock) {
-          const availableDisplay = formatUnitString(availableStock.toString(), product.unit_type || 'kg-grams');
-          const requiredDisplay = formatUnitString(requiredStock.toString(), product.unit_type || 'kg-grams');
-          throw new Error(`Insufficient stock for ${product.name}. Available: ${availableDisplay}, Required: ${requiredDisplay}`);
-        }
-      }
-
-            const subtotal = invoiceData.items.reduce((sum: number, item: any) => addCurrency(sum, item.total_price), 0);
-      const discountAmount = (subtotal * (invoiceData.discount || 0)) / 100;
-      const grandTotal = subtotal - discountAmount;
-      const remainingBalance = grandTotal - (invoiceData.payment_amount || 0);
-
-      const billNumber = await this.generateBillNumber();
-
-      if (!isTauri()) {
-        return await this.createInvoiceMock(invoiceData, billNumber, subtotal, discountAmount, grandTotal, remainingBalance);
-      }
-
-      // CRITICAL: Use proper database transaction for atomicity
-      await this.database?.execute('BEGIN TRANSACTION');
-
-      try {
-        // Create invoice record
-        const invoiceResult = await this.database?.execute(
-          `INSERT INTO invoices (bill_number, customer_id, subtotal, discount, discount_amount, 
-           grand_total, payment_amount, payment_method, remaining_balance, notes, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-          [
-            billNumber, invoiceData.customer_id, subtotal, invoiceData.discount || 0, discountAmount,
-            grandTotal, invoiceData.payment_amount || 0, invoiceData.payment_method, remainingBalance,
-            invoiceData.notes || ''
-          ]
-        );
-
-        const invoiceId = invoiceResult?.lastInsertId;
-        if (!invoiceId) throw new Error('Failed to create invoice record');
-
-        // CRITICAL: Get customer name for tracking
-        const customer = await this.getCustomer(invoiceData.customer_id);
-        const customerName = customer.name;
-
-        // Create invoice items and update stock atomically
-        await this.createInvoiceItemsWithTracking(invoiceId, invoiceData.items, billNumber, invoiceData.customer_id, customerName);
-
-        // Update customer balance with remaining amount only
-        await this.updateCustomerBalance(invoiceData.customer_id, remainingBalance);
-
-        // CRITICAL: Create customer ledger entries for proper accounting
-        await this.createCustomerLedgerEntries(invoiceId, invoiceData.customer_id, customerName, grandTotal, invoiceData.payment_amount || 0, billNumber, invoiceData.payment_method);
-
-        await this.database?.execute('COMMIT');
-
-        const result = {
-          id: invoiceId,
-          bill_number: billNumber,
-          customer_id: invoiceData.customer_id,
-          customer_name: customerName,
-          items: invoiceData.items,
-          subtotal,
-          discount: invoiceData.discount || 0,
-          discount_amount: discountAmount,
-          grand_total: grandTotal,
-          payment_amount: invoiceData.payment_amount || 0,
-          payment_method: invoiceData.payment_method,
-          remaining_balance: remainingBalance,
-          notes: invoiceData.notes,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        // ENHANCED: Emit event for real-time component updates
-        try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('INVOICE_CREATED', {
-                invoiceId,
-                billNumber,
-                customerId: invoiceData.customer_id,
-                customerName,
-                grandTotal,
-                remainingBalance,
-                created_at: new Date().toISOString()
-              });
-            }
-          }
-        } catch (error) {
-          console.warn('Could not emit invoice created event:', error);
-        }
-
-        return result;
-      } catch (error) {
-        await this.database?.execute('ROLLBACK');
-        throw error;
-      }
-    } catch (error) {
-      console.error('Error creating invoice:', error);
-      throw error;
-    }
-  }
-
-
-  private async createInvoiceMock(
-    invoiceData: any,
-    billNumber: string,
-    subtotal: number,
-    discountAmount: number,
-    grandTotal: number,
-    remainingBalance: number
-  ) {
-    console.log('Creating invoice in   mode with COMPLETE business logic');
-
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: true 
-    });
-
-    // Get customer info
-    const customer = this.db.customers.find((c: { id: any; }) => c.id === invoiceData.customer_id);
-    const customerName = customer?.name || 'Unknown Customer';
-
-    // Create new invoice ID
-    const newInvoiceId = Math.max(...this.db.invoices.map((i: { id: any; }) => i.id || 0), 0) + 1;
-    
-    // CRITICAL: Process all stock changes ATOMICALLY
-    const stockUpdates: Array<{productIndex: number, newStock: number, newStockString: string, item: any}> = [];
-    
-    // First, validate all stock changes
-    for (const item of invoiceData.items) {
-      const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
-      if (productIndex === -1) {
-        throw new Error(`Product not found: ${item.product_name}`);
-      }
-
-      const product = this.db.products[productIndex];
-
-      // Parse current stock based on product's unit type
-      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-      const currentStock = currentStockData.numericValue;
-      
-      // Parse item quantity with same unit type
-      const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-      const quantityRequired = itemQuantityData.numericValue;
-      
-      // Calculate new stock after sale
-      const newStock = currentStock - quantityRequired;
-      
-      if (newStock < 0) {
-        const currentDisplay = formatUnitString(product.current_stock, product.unit_type || 'kg-grams');
-        const requiredDisplay = formatUnitString(item.quantity, product.unit_type || 'kg-grams');
-        throw new Error(`Insufficient stock for ${product.name}. Available: ${currentDisplay}, Required: ${requiredDisplay}`);
-      }
-      
-      // Convert new stock back to proper unit format based on unit type
-      const newStockString = this.formatStockValue(newStock, product.unit_type || 'kg-grams');
-      
-      stockUpdates.push({
-        productIndex,
-        newStock,
-        newStockString,
-        item: { ...item, product, quantityRequired }
-      });
-    }
-    
-    // Apply all stock updates ATOMICALLY
-    for (const update of stockUpdates) {
-      // Parse previous stock for movement record based on product's unit type
-      const product = this.db.products[update.productIndex];
-      const previousStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-      const previousStock = previousStockData.numericValue;
-      
-      // Update product stock
-      this.db.products[update.productIndex].current_stock = update.newStockString;
-      this.db.products[update.productIndex].updated_at = now.toISOString();
-      
-      // Create stock movement record
-      await this.createStockMovement({
-        product_id: update.item.product_id,
-        product_name: update.item.product_name || update.item.product.name,
-        movement_type: 'out',
-        quantity: update.item.quantityRequired,
-        previous_stock: previousStock,
-        new_stock: update.newStock,
-        unit_price: update.item.unit_price,
-        total_value: update.item.total_price,
-        reason: `Sale to customer`,
-        reference_type: 'invoice',
-        reference_id: newInvoiceId,
-        reference_number: billNumber,
-        customer_id: invoiceData.customer_id,
-        customer_name: customerName,
-        notes: `Invoice ${billNumber} - ${update.item.quantity} sold to ${customerName}`,
-        date,
-        time,
-        created_by: 'system'
-      });
-
-      const previousStockDisplay = this.formatStockValue(previousStock, product.unit_type || 'kg-grams');
-      const newStockDisplay = this.formatStockValue(update.newStock, product.unit_type || 'kg-grams');
-      const quantityDisplay = update.item.quantity;
-      console.log(`Stock updated for ${update.item.product_name}: ${previousStockDisplay} → ${newStockDisplay} (-${quantityDisplay})`);
-    }
-
-    // CRITICAL: Create proper customer ledger entries
-    await this.createCustomerLedgerEntries(
-      newInvoiceId,
-      invoiceData.customer_id,
-      customerName,
-      grandTotal,
-      invoiceData.payment_amount || 0,
-      billNumber,
-      invoiceData.payment_method || 'cash'
-    );
-
-    // Create invoice record
-    const newInvoice = {
-      id: newInvoiceId,
-      bill_number: billNumber,
-      customer_id: invoiceData.customer_id,
-      customer_name: customerName,
-      items: invoiceData.items.map((item: any, index: number) => ({
-        id: index + 1,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_price: item.total_price
-      })),
-      subtotal,
-      discount: invoiceData.discount || 0,
-      discount_amount: discountAmount,
-      grand_total: grandTotal,
-      payment_amount: invoiceData.payment_amount || 0,
-      payment_method: invoiceData.payment_method,
-      remaining_balance: remainingBalance,
-      status: remainingBalance === 0 ? 'paid' : 
-              (invoiceData.payment_amount > 0 ? 'partially_paid' : 'pending'),
-      notes: invoiceData.notes || '',
-      created_at: now.toISOString(),
-      updated_at: now.toISOString()
-    };
-
-    this.db.invoices.push(newInvoice);
-
-    // CRITICAL FIX: Customer balance is now automatically updated in createLedgerEntry
-    // No need to manually update here as it's handled in the ledger entry creation
-    // The running balance calculation in createLedgerEntry will set the customer balance correctly
-
-    // CRITICAL: Save everything to localStorage
-    this.saveToLocalStorage();
-    
-    console.log('  invoice created with COMPLETE business logic:', newInvoice);
-    console.log('Current product stocks:', this.db.products.map((p: { name: any; current_stock: any; }) => `${p.name}: ${p.current_stock}`));
-    
-    // ENHANCED: Emit event for real-time component updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.emit) {
-          eventBus.emit('INVOICE_CREATED', {
-            invoiceId: newInvoiceId,
-            billNumber,
-            customerId: invoiceData.customer_id,
-            customerName,
-            grandTotal,
-            remainingBalance,
-            created_at: now.toISOString()
-          });
-        }
-      }
-    } catch (error) {
-      console.warn('Could not emit invoice created event:', error);
-    }
-    
-    return newInvoice;
-  }
-
-  private async createInvoiceItemsWithTracking(invoiceId: number, items: any[], billNumber: string, customerId: number, customerName: string): Promise<void> {
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', { 
-      hour: '2-digit', 
-      minute: '2-digit',
-      hour12: true 
-    });
-
-    for (const item of items) {
-      // Create invoice item
-      await this.database?.execute(
-        `INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, unit_price, total_price)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [invoiceId, item.product_id, item.product_name, item.quantity, item.unit_price, item.total_price]
-      );
-
-      // Get current stock before update
-      const product = await this.getProduct(item.product_id);
-      
-      // Parse current stock based on product's unit type
-      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-      const previousStock = currentStockData.numericValue;
-      
-      // Parse item quantity with same unit type
-      const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-      const quantityRequired = itemQuantityData.numericValue;
-      
-      // Calculate new stock after sale
-      const newStock = Math.max(0, previousStock - quantityRequired);
-      
-      // Convert new stock back to proper unit format based on unit type
-      let newStockString: string;
-      if (product.unit_type === 'kg-grams') {
-        const newStockKg = Math.floor(newStock / 1000);
-        const newStockGrams = newStock % 1000;
-        newStockString = newStockGrams > 0 ? `${newStockKg}-${newStockGrams}` : `${newStockKg}`;
-      } else {
-        newStockString = newStock.toString();
-      }
-
-      // Update product stock
-      await this.database?.execute(
-        `UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        [newStockString, item.product_id]
-      );
-
-      // Create stock movement record
-      await this.createStockMovement({
-        product_id: item.product_id,
-        product_name: item.product_name,
-        movement_type: 'out',
-        quantity: quantityRequired,
-        previous_stock: previousStock,
-        new_stock: newStock,
-        unit_price: item.unit_price,
-        total_value: item.total_price,
-        reason: 'Sale to customer',
-        reference_type: 'invoice',
-        reference_id: invoiceId,
-        reference_number: billNumber,
-        customer_id: customerId,
-        customer_name: customerName,
-        notes: `Invoice ${billNumber} - ${formatUnitString(quantityRequired.toString(), product.unit_type || 'kg-grams')} sold`,
-        date,
-        time,
-        created_by: 'system'
-      });
-    }
-  }
 
   private async generateBillNumber(): Promise<string> {
     try {
       const prefix = 'I';
       
-      if (!isTauri()) {
-        // For   mode, find the highest invoice number
-        const invoiceNumbers = this.db.invoices
-          .map((inv: { bill_number: any; }) => inv.bill_number)
-          .filter((billNumber: string) => billNumber.startsWith(prefix))
-          .map((billNumber: string) => parseInt(billNumber.substring(1)) || 0);
-        
-        let nextNumber = 1;
-        if (invoiceNumbers.length > 0) {
-          nextNumber = Math.max(...invoiceNumbers) + 1;
-        }
-        
-        return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
-      }
+
 
       const result = await this.database?.select(
         'SELECT bill_number FROM invoices WHERE bill_number LIKE ? ORDER BY CAST(SUBSTR(bill_number, 2) AS INTEGER) DESC LIMIT 1',
@@ -2910,34 +1888,22 @@ async adjustStock(
   private async generateCustomerCode(): Promise<string> {
     try {
       const prefix = 'C';
-      
-      if (!isTauri()) {
-        // For   mode, find the highest customer code
-        const customerCodes = this.db.customers
-          .map((customer: { customer_code: any; }) => customer.customer_code)
-          .filter((code: string) => code && code.startsWith(prefix))
-          .map((code: string) => parseInt(code.substring(1)) || 0);
-        
-        let nextNumber = 1;
-        if (customerCodes.length > 0) {
-          nextNumber = Math.max(...customerCodes) + 1;
-        }
-        
-        return `${prefix}${nextNumber.toString().padStart(4, '0')}`;
+      // Check if customer_code column exists before querying
+      const pragma = await this.database?.select(`PRAGMA table_info(customers)`);
+      const hasCustomerCode = pragma && pragma.some((col: any) => col.name === 'customer_code');
+      if (!hasCustomerCode) {
+        throw new Error('customer_code column missing in customers table. Migration failed.');
       }
-
       const result = await this.database?.select(
         'SELECT customer_code FROM customers WHERE customer_code LIKE ? ORDER BY CAST(SUBSTR(customer_code, 2) AS INTEGER) DESC LIMIT 1',
         [`${prefix}%`]
       );
-
       let nextNumber = 1;
       if (result && result.length > 0) {
         const lastCustomerCode = result[0].customer_code;
         const lastNumber = parseInt(lastCustomerCode.substring(1)) || 0;
         nextNumber = lastNumber + 1;
       }
-
       return `${prefix}${nextNumber.toString().padStart(4, '0')}`;
     } catch (error) {
       console.error('Error generating customer code:', error);
@@ -2949,21 +1915,7 @@ async adjustStock(
     try {
       const prefix = 'P';
       
-      if (!isTauri()) {
-        // For   mode, find the highest payment code
-        const paymentCodes = this. db.payments
-          .map((payment: { payment_code: any; }) => payment.payment_code)
-          .filter((code: string) => code && code.startsWith(prefix))
-          .map((code: any) => parseInt(code!.substring(1)) || 0);
-        
-        let nextNumber = 1;
-        if (paymentCodes.length > 0) {
-          nextNumber = Math.max(...paymentCodes) + 1;
-        }
-        
-        return `${prefix}${nextNumber.toString().padStart(4, '0')}`;
-      }
-
+     
       const result = await this.database?.select(
         'SELECT payment_code FROM payments WHERE payment_code LIKE ? ORDER BY CAST(SUBSTR(payment_code, 2) AS INTEGER) DESC LIMIT 1',
         [`${prefix}%`]
@@ -2984,9 +1936,7 @@ async adjustStock(
   }
 
   private async updateCustomerBalance(customerId: number, balanceChange: number): Promise<void> {
-    if (!isTauri()) {
-      return;
-    }
+
 
     await this.database?.execute(
       `UPDATE customers SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -3015,81 +1965,7 @@ async adjustStock(
       // Get customer information
       const customer = await this.getCustomer(customerId);
 
-      if (!isTauri()) {
-        // CRITICAL FIX: Use actual ledger entries instead of reconstructing from invoices/payments
-        let ledgerEntries = this. db.ledgerEntries.filter((entry: { customer_id: number; date: number; }) => 
-          entry.customer_id === customerId &&
-                    (!filters.from_date || String(entry.date) >= String(filters.from_date)) &&
-          (!filters.to_date || String(entry.date) <= String(filters.to_date))
-        );
 
-        // Apply search filter
-        if (filters.search) {
-          const search = filters.search.toLowerCase();
-          ledgerEntries = ledgerEntries.filter((entry: { description: string; category: string; bill_number: string; notes: string; }) => 
-            entry.description.toLowerCase().includes(search) ||
-            entry.category.toLowerCase().includes(search) ||
-            entry.bill_number?.toLowerCase().includes(search) ||
-            entry.notes?.toLowerCase().includes(search)
-          );
-        }
-
-        // Apply type filter
-        if (filters.type) {
-          ledgerEntries = ledgerEntries.filter((entry: { type: string | undefined; }) => entry.type === filters.type);
-        }
-
-        // Sort by date and time
-        ledgerEntries.sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
-if (a.date === b.date) {
-          return a.time.localeCompare(b.time);
-          }
-          return a.date.localeCompare(b.date);
-        });
-
-        // Convert ledger entries to transaction format expected by UI
-        const transactions = ledgerEntries.map((entry: { id: any; date: any; time: any; type: string; category: any; description: any; amount: any; running_balance: any; reference_id: any; bill_number: any; payment_method: any; notes: any; created_at: any; }) => ({
-          id: `ledger-${entry.id}`,
-          date: entry.date,
-          time: entry.time,
-          type: entry.type === 'outgoing' ? 'invoice' : 'payment', // Map to UI types
-          category: entry.category,
-          description: entry.description,
-          debit_amount: entry.type === 'outgoing' ? entry.amount : 0,
-          credit_amount: entry.type === 'incoming' ? entry.amount : 0,
-          running_balance: entry.running_balance,
-          reference_id: entry.reference_id,
-          reference_number: entry.bill_number,
-          payment_method: entry.payment_method,
-          notes: entry.notes,
-          created_at: entry.created_at
-        }));
-
-        // Get related stock movements for context
-        const stockMovements = this. db.stockMovements.filter((movement: { customer_id: number; date: number; }) =>
-          movement.customer_id === customerId &&
-          (!filters.from_date || String(movement.date) >= String(filters.from_date)) &&
-          (!filters.to_date || String(movement.date) <= String(filters.to_date))
-);
-
-        // Calculate summary
-        const totalDebits = transactions.reduce((sum: any, t: { debit_amount: any; }) => sum + (t.debit_amount || 0), 0);
-        const totalCredits = transactions.reduce((sum: any, t: { credit_amount: any; }) => sum + (t.credit_amount || 0), 0);
-        const netBalance = totalDebits - totalCredits;
-
-        return {
-customer,
-          transactions,
-stock_movements: stockMovements,
-          summary: {
-            total_debits: totalDebits,
-            total_credits: totalCredits,
-            net_balance: netBalance,
-          current_balance: customer.balance,
-          transactions_count: transactions.length
-          }
-        };
-      }
 
       // Tauri database implementation would go here
 // For now, return empty structure
@@ -3127,126 +2003,12 @@ stock_movements: stockMovements,
   }
 
   // CRITICAL FIX: Enhanced payment recording with ledger integration and invoice allocation
-  async recordPayment(payment: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'>, allocateToInvoiceId?: number): Promise<number> {
+  async recordPayment(payment: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'>, _allocateToInvoiceId?: number): Promise<number> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const newId = Math.max(...this. db.payments.map((p: { id: any; }) => p.id || 0), 0) + 1;
-        const paymentCode = await this.generatePaymentCode();
-        const newPayment: PaymentRecord = {
-          ...payment,
-          id: newId,
-          payment_code: paymentCode,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        this. db.payments.push(newPayment);
-        
-        // Get customer details for ledger entry
-        const customer = this.db.customers.find((c: { id: number; }) => c.id === payment.customer_id);
-        if (!customer) {
-          throw new Error('Customer not found');
-        }
-        
-        // Fix floating point precision issues
-        const amount = roundCurrency(payment.amount);
-        
-        // CRITICAL FIX: Create proper ledger entry for payment
-        const now = new Date();
-        const date = payment.date || now.toISOString().split('T')[0];
-        const time = now.toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: true 
-        });
-        
-        // Create customer ledger entry (reduces customer balance)
-        await this.createLedgerEntry({
-          date,
-          time,
-          type: 'incoming', // Payment received - credit to customer account
-          category: 'Payment Received',
-          description: `Payment from ${customer.name} - ${payment.payment_type === 'advance_payment' ? 'Advance' : payment.payment_type === 'bill_payment' ? 'Bill Payment' : 'Payment'}`,
-          amount: amount,
-          customer_id: payment.customer_id,
-          customer_name: customer.name,
-          reference_id: payment.reference_invoice_id,
-          reference_type: 'payment',
-          bill_number: payment.reference,
-          notes: `${payment.payment_method} payment${payment.notes ? ` - ${payment.notes}` : ''}`,
-          created_by: 'system'
-        });
-        
-        // CRITICAL FIX: Also create business daily ledger entry (cash flow)
-        await this.createLedgerEntry({
-          date,
-          time,
-          type: 'incoming', // Cash received - increases business cash flow
-          category: 'Cash Received',
-          description: `Cash payment from ${customer.name} - ${payment.payment_method}`,
-          amount: amount,
-          reference_id: newId,
-          reference_type: 'payment',
-          bill_number: payment.reference,
-          notes: `Customer payment via ${payment.payment_method}${payment.notes ? ` - ${payment.notes}` : ''}`,
-          created_by: 'system'
-        });
-        
-        // CRITICAL: Customer balance is now updated automatically in createLedgerEntry
-        // No need to manually update here
-        
-        // ENHANCED: Handle invoice allocation if specified
-        if (allocateToInvoiceId) {
-          await this.allocatePaymentToInvoice(allocateToInvoiceId, amount);
-          
-          // CRITICAL FIX: Update payment record with invoice reference
-          newPayment.reference_invoice_id = allocateToInvoiceId;
-          
-          // CRITICAL FIX: Create payment history entry for invoice
-          await this.createInvoicePaymentHistory(allocateToInvoiceId, newId, amount, payment.payment_method, payment.notes);
-          
-          console.log(`Payment allocated to invoice ${allocateToInvoiceId}: ${amount}`);
-        }
-        
-        this.saveToLocalStorage();
-        console.log('Payment recorded with ledger entry:', newPayment);
-        
-        // ENHANCED: Emit event for real-time component updates
-        try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('PAYMENT_RECORDED', {
-                paymentId: newId,
-                customerId: payment.customer_id,
-                amount: payment.amount,
-                paymentMethod: payment.payment_method,
-                paymentType: payment.payment_type,
-                invoiceId: allocateToInvoiceId,
-                created_at: now.toISOString()
-              });
-
-              // Also emit invoice update event if payment was allocated to invoice
-              if (allocateToInvoiceId) {
-                eventBus.emit('INVOICE_PAYMENT_ADDED', {
-                  invoiceId: allocateToInvoiceId,
-                  paymentId: newId,
-                  paymentAmount: amount,
-                  customerId: payment.customer_id
-                });
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('Could not emit payment recorded event:', error);
-        }
-        
-        return newId;
-      }
 
       // Real database transaction
       await this.database?.execute('BEGIN TRANSACTION');
@@ -3327,10 +2089,6 @@ stock_movements: stockMovements,
     try {
       if (!this.isInitialized) {
         await this.initialize();
-      }
-
-      if (!isTauri()) {
-        return await this.addInvoiceItemsMock(invoiceId, items);
       }
 
       await this.database?.execute('BEGIN TRANSACTION');
@@ -3429,9 +2187,7 @@ stock_movements: stockMovements,
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        return await this.removeInvoiceItemsMock(invoiceId, itemIds);
-      }
+    
 
       await this.database?.execute('BEGIN TRANSACTION');
 
@@ -3519,9 +2275,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        return await this.updateInvoiceItemQuantityMock(invoiceId, itemId, newQuantity);
-      }
+     
 
       await this.database?.execute('BEGIN TRANSACTION');
 
@@ -3650,6 +2404,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
 
     const invoice = await this.getInvoiceDetails(invoiceId);
     if (!invoice) return;
+
     const customer = await this.getCustomer(invoice.customer_id);
     if (!customer) return;
 
@@ -3710,27 +2465,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       const paymentId = await this.recordPayment(payment);
 
       // Update invoice payment_amount and remaining_balance
-      if (!isTauri()) {
-        const invoiceIndex = this.db.invoices.findIndex((inv: { id: number; }) => inv.id === invoiceId);
-        if (invoiceIndex !== -1) {
-          const inv = this.db.invoices[invoiceIndex];
-          inv.payment_amount = roundCurrency((inv.payment_amount || 0) + paymentData.amount);
-          inv.remaining_balance = roundCurrency(inv.grand_total - inv.payment_amount);
-          inv.updated_at = new Date().toISOString();
-          // Ensure payments array exists and push new payment
-          if (!inv.payments) inv.payments = [];
-          inv.payments.push({
-            id: paymentId,
-            amount: paymentData.amount,
-            payment_method: paymentData.payment_method,
-            reference: paymentData.reference || '',
-            notes: paymentData.notes || '',
-            date: paymentData.date || new Date().toISOString().split('T')[0],
-            created_at: new Date().toISOString()
-          });
-        }
-        this.saveToLocalStorage();
-      } else {
+   
         await this.database?.execute(`
           UPDATE invoices 
           SET payment_amount = payment_amount + ?, 
@@ -3738,7 +2473,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
               updated_at = CURRENT_TIMESTAMP 
           WHERE id = ?
         `, [paymentData.amount, paymentData.amount, invoiceId]);
-      }
+      
 
       // ENHANCED: Emit events for real-time component updates
       try {
@@ -3796,10 +2531,6 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
     try {
       if (!this.isInitialized) {
         await this.initialize();
-      }
-
-      if (!isTauri()) {
-        return await this.getInvoiceWithDetailsMock(invoiceId);
       }
 
       // Get invoice
@@ -3976,10 +2707,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const categories = [...new Set(this.db.products.map((p: { category: any; }) => p.category))];
-        return categories.map(category => ({ category }));
-      }
+     
 
       const categories = await this.database?.select(`
         SELECT DISTINCT category FROM products 
@@ -3994,63 +2722,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
     }
   }
 
-  async getProducts(search?: string, category?: string, options?: { limit?: number; offset?: number }) {
-    try {
-      if (!this.isInitialized) {
-        throw new Error('Database not initialized');
-      }
 
-      if (!isTauri()) {
-        let filtered = [...this.db.products];
-        
-        if (search) {
-          filtered = filtered.filter(p => 
-            p.name.toLowerCase().includes(search.toLowerCase()) ||
-            p.category.toLowerCase().includes(search.toLowerCase())
-          );
-        }
-        
-        if (category) {
-          filtered = filtered.filter(p => p.category === category);
-        }
-
-        // SCALABILITY FIX: Apply pagination to prevent performance issues
-        if (options?.limit) {
-          const offset = options.offset || 0;
-          filtered = filtered.slice(offset, offset + options.limit);
-        }
-
-        return filtered;
-      }
-
-      let query = 'SELECT * FROM products WHERE 1=1';
-      const params: any[] = [];
-
-      if (search) {
-        query += ' AND (name LIKE ? OR category LIKE ?)';
-        params.push(`%${search}%`, `%${search}%`);
-      }
-
-      if (category) {
-        query += ' AND category = ?';
-        params.push(category);
-      }
-
-      query += ' ORDER BY name ASC';
-
-      // SCALABILITY FIX: Apply pagination to prevent large result sets
-      if (options?.limit) {
-        query += ' LIMIT ? OFFSET ?';
-        params.push(options.limit, options.offset || 0);
-      }
-
-      const products = await this.database?.select(query, params);
-      return products || [];
-    } catch (error) {
-      console.error('Error getting products:', error);
-      throw error;
-    }
-  }
 
   async getCustomers(search?: string, options?: { limit?: number; offset?: number }) {
     try {
@@ -4058,30 +2730,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         throw new Error('Database not initialized');
       }
 
-      if (!isTauri()) {
-        let filtered = [...this.db.customers];
-        
-        if (search) {
-          filtered = filtered.filter(c => 
-            c.name.toLowerCase().includes(search.toLowerCase()) ||
-            c.phone?.includes(search) ||
-            c.cnic?.includes(search) ||
-            c.address?.toLowerCase().includes(search.toLowerCase())
-          );
-        }
-
-        // SCALABILITY FIX: Apply pagination to prevent performance issues
-        if (options?.limit) {
-          const offset = options.offset || 0;
-          filtered = filtered.slice(offset, offset + options.limit);
-        }
-
-        // Map balance to total_balance for consistency with Customer type
-        return filtered.map(customer => ({
-          ...customer,
-          total_balance: customer.balance || 0
-        }));
-      }
+     
 
       let query = 'SELECT * FROM customers WHERE 1=1';
       const params: any[] = [];
@@ -4113,18 +2762,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         throw new Error('Database not initialized');
       }
 
-      if (!isTauri()) {
-        const customer = this.db.customers.find((c: { id: number; }) => c.id === id);
-        if (!customer) {
-          throw new Error('Customer not found');
-        }
-        // Map balance to total_balance for consistency with Customer type
-        return {
-          ...customer,
-          total_balance: customer.balance || 0
-        };
-      }
-
+     
       const result = await this.database?.select('SELECT * FROM customers WHERE id = ?', [id]);
       if (!result || result.length === 0) {
         throw new Error('Customer not found');
@@ -4142,13 +2780,6 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         throw new Error('Database not initialized');
       }
 
-      if (!isTauri()) {
-        const product = this.db.products.find((p: { id: number; }) => p.id === id);
-        if (!product) {
-          throw new Error('Product not found');
-        }
-        return product;
-      }
 
       const result = await this.database?.select('SELECT * FROM products WHERE id = ?', [id]);
       if (!result || result.length === 0) {
@@ -4273,38 +2904,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        let filtered = [...this.db.invoices];
-
-        if (filters.customer_id) {
-          filtered = filtered.filter(inv => inv.customer_id === filters.customer_id);
-        }
-        
-        if (filters.from_date) {
-          filtered = filtered.filter(inv => filters.from_date && inv.created_at >= filters.from_date);
-        }
-        
-        if (filters.to_date) {
-          filtered = filtered.filter(inv => filters.to_date && inv.created_at <= filters.to_date + 'T23:59:59');
-        }
-        
-        if (filters.search) {
-          const search = filters.search.toLowerCase();
-          filtered = filtered.filter(inv => 
-            inv.bill_number.toLowerCase().includes(search) ||
-            inv.customer_name.toLowerCase().includes(search)
-          );
-        }
-
-        filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-
-        if (filters.limit) {
-          const offset = filters.offset || 0;
-          filtered = filtered.slice(offset, offset + filters.limit);
-        }
-
-        return filtered;
-      }
+     
 
       let query = `
         SELECT i.*, c.name as customer_name 
@@ -4355,13 +2955,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
-        if (!invoice) {
-          throw new Error('Invoice not found');
-        }
-        return invoice;
-      }
+      
 
       const invoices = await this.database?.select(`
         SELECT * FROM invoices WHERE id = ?
@@ -4383,24 +2977,6 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
     try {
       if (!this.isInitialized) {
         await this.initialize();
-      }
-
-      if (!isTauri()) {
-        const customerInvoices = this.db.invoices
-          .filter((invoice: { customer_id: number; }) => invoice.customer_id === customerId)
-          .map((invoice: { id: any; bill_number: any; created_at: string; date: any; grand_total: any; total_amount: any; paid_amount: any; status: any; }) => ({
-            id: invoice.id,
-            bill_number: invoice.bill_number,
-            date: invoice.created_at?.split('T')[0] || invoice.date,
-            total_amount: invoice.grand_total || invoice.total_amount,
-            paid_amount: invoice.paid_amount || 0,
-            balance_amount: (invoice.grand_total || invoice.total_amount) - (invoice.paid_amount || 0),
-            status: invoice.status || 'pending'
-          }))
-          .filter((invoice: { balance_amount: number; }) => invoice.balance_amount > 0) // Only show invoices with pending balance
-          .sort((a: { date: string | number | Date; }, b: { date: string | number | Date; }) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-        return customerInvoices;
       }
 
       // Real database query
@@ -4433,72 +3009,6 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
-        if (!invoice) {
-          throw new Error('Invoice not found');
-        }
-
-        // CRITICAL FIX: Properly handle both payment_amount and paid_amount
-        const currentPaymentAmount = invoice.payment_amount || 0;  // Initial payment during creation
-        const currentPaidAmount = invoice.paid_amount || 0;        // Payments allocated later
-        const totalPaid = roundCurrency(currentPaymentAmount + currentPaidAmount + paymentAmount);
-        const totalAmount = invoice.grand_total || invoice.total_amount;
-        const newRemainingBalance = roundCurrency(Math.max(0, totalAmount - totalPaid));
-
-        // Update the paid_amount field (for payments allocated after creation)
-        invoice.paid_amount = roundCurrency(currentPaidAmount + paymentAmount);
-        invoice.remaining_balance = newRemainingBalance;
-        invoice.status = totalPaid >= totalAmount ? 'paid' : 
-                        (totalPaid > 0 ? 'partially_paid' : 'pending');
-        invoice.updated_at = new Date().toISOString();
-
-        // CRITICAL: Update customer balance to reflect payment
-        // Payment reduces the customer's outstanding balance
-        const customer = this.db.customers.find((c: { id: any; }) => c.id === invoice.customer_id);
-        if (customer) {
-          customer.balance = roundCurrency(Math.max(0, (customer.balance || 0) - paymentAmount));
-        }
-
-        this.saveToLocalStorage();
-        
-        console.log(`✅ Payment allocated to invoice ${invoiceId}:`, {
-          paymentAmount,
-          currentPaymentAmount,
-          currentPaidAmount,
-          totalPaid,
-          totalAmount,
-          newRemainingBalance,
-          status: invoice.status
-        });
-        
-        // ENHANCED: Emit events for real-time updates
-        try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('INVOICE_UPDATED', {
-                invoiceId: invoiceId,
-                customerId: invoice.customer_id,
-                paidAmount: totalPaid,
-                remainingBalance: newRemainingBalance,
-                status: invoice.status,
-                updated_at: invoice.updated_at
-              });
-              
-              eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-                customerId: invoice.customer_id,
-                newBalance: customer?.balance || 0,
-                paymentAmount: paymentAmount
-              });
-            }
-          }
-        } catch (error) {
-          console.warn('Could not emit invoice/customer update events:', error);
-        }
-        
-        return;
-      }
 
       // Real database update
       await this.database?.execute(`
@@ -4571,21 +3081,7 @@ async createVendorPayment(payment: {
       await this.initialize();
     }
 
-    if (!isTauri()) {
-      const newId = Math.max(...this.db.vendorPayments.map((p: { id: any; }) => p.id || 0), 0) + 1;
-      const newPayment = {
-        id: newId,
-        ...payment,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-      
-      this.db.vendorPayments.push(newPayment);
-      this.saveToLocalStorage();
-      
-      console.log('Vendor payment created:', newPayment);
-      return newId;
-    }
+
 
     const result = await this.database?.execute(`
       INSERT INTO vendor_payments (
@@ -4616,27 +3112,7 @@ async updateStockReceivingPayment(receivingId: number, paymentAmount: number): P
       await this.initialize();
     }
 
-    if (!isTauri()) {
-      const receivingIndex = this.db.stockReceiving.findIndex((r: { id: number; }) => r.id === receivingId);
-      if (receivingIndex !== -1) {
-        const receiving = this.db.stockReceiving[receivingIndex];
-        const newPaymentAmount = (receiving.payment_amount || 0) + paymentAmount;
-        const newRemainingBalance = receiving.total_amount - newPaymentAmount;
-        
-        this.db.stockReceiving[receivingIndex] = {
-          ...receiving,
-          payment_amount: newPaymentAmount,
-          remaining_balance: Math.max(0, newRemainingBalance),
-          payment_status: newRemainingBalance <= 0 ? 'paid' : 
-                         (newPaymentAmount > 0 ? 'partial' : 'pending'),
-          updated_at: new Date().toISOString()
-        };
-        
-        this.saveToLocalStorage();
-        console.log('Stock receiving payment updated:', this.db.stockReceiving[receivingIndex]);
-      }
-      return;
-    }
+ 
 
     await this.database?.execute(`
       UPDATE stock_receiving 
@@ -4667,26 +3143,7 @@ async getVendorPayments(vendorId: number): Promise<any[]> {
       await this.initialize();
     }
 
-    if (!isTauri()) {
-      //   mode: return vendor payments with receiving details
-      const vendorPayments = this.db.vendorPayments.filter((p: { vendor_id: number; }) => p.vendor_id === vendorId);
-      
-      // Enhance with receiving information
-      return vendorPayments.map((payment: { receiving_id: any; notes: any; amount: any; date: any; payment_channel_name: any; }) => {
-        const receiving = payment.receiving_id ? 
-          this.db.stockReceiving.find((r: { id: any; }) => r.id === payment.receiving_id) : null;
-        
-        return {
-          ...payment,
-          type: payment.receiving_id ? 'Receiving Payment' : 'General Payment',
-          note: payment.notes || '',
-          receiving_number: receiving?.receiving_number || null,
-          amount: payment.amount,
-          date: payment.date,
-          payment_method: payment.payment_channel_name
-        };
-      }).sort((a: { date: any; }, b: { date: string; }) => b.date.localeCompare(a.date));
-    }
+   
 
     // Real DB: join with stock_receiving to get receiving details
     const payments = await this.database?.select(`
@@ -4720,11 +3177,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       await this.initialize();
     }
 
-    if (!isTauri()) {
-      return this.db.vendorPayments
-        .filter((p: { receiving_id: number; }) => p.receiving_id === receivingId)
-        .sort((a: { date: any; }, b: { date: string; }) => b.date.localeCompare(a.date));
-    }
 
     const payments = await this.database?.select(`
       SELECT * FROM vendor_payments 
@@ -4741,32 +3193,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // CRITICAL FIX: Create payment history entry for invoice
   private async createInvoicePaymentHistory(invoiceId: number, paymentId: number, amount: number, paymentMethod: string, notes?: string): Promise<void> {
     try {
-      if (!isTauri()) {
-        // For db. implementation, we'll store payment history in the invoice object
-        const invoice = this.db.invoices.find((inv: { id: number; }) => inv.id === invoiceId);
-        if (invoice) {
-          if (!invoice.payment_history) {
-            invoice.payment_history = [];
-          }
-          
-          invoice.payment_history.push({
-            id: paymentId,
-            payment_id: paymentId,
-            amount: amount,
-            payment_method: paymentMethod,
-            notes: notes || '',
-            date: new Date().toISOString().split('T')[0],
-            time: new Date().toLocaleTimeString('en-PK', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: true 
-            }),
-            created_at: new Date().toISOString()
-          });
-          
-          this.saveToLocalStorage();
-        }
-        return;
+      if (!this.isInitialized) {
+        await this.initialize();
       }
 
       // Real database implementation
@@ -4793,87 +3221,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
   }
 
-  // CRITICAL FIX: Load and save methods with enhanced data persistence
-  private loadFromLocalStorage() {
-    try {
-      const dbRaw = localStorage.getItem('steel_store_db');
-      if (dbRaw) {
-        this.db = JSON.parse(dbRaw);
-        console.log('✅ Real-time database loaded from localStorage:', this.db);
-      } else {
-        // If not present, initialize empty db
-        this.db = {
-          products: [], customers: [], invoices: [], returns: [], payments: [], stockMovements: [], ledgerEntries: [], paymentChannels: [], enhancedPayments: [], vendors: [], stockReceiving: [], stockReceivingItems: [], vendorPayments: [], staff: [], staffLedgerEntries: [], customerLedgerEntries: [], businessExpenses: [], businessIncome: []
-        };
-        localStorage.setItem('steel_store_db', JSON.stringify(this.db));
-        console.log('📝 Initialized empty real-time database in localStorage');
-      }
-    } catch (error) {
-      console.error('Error loading real-time database from localStorage:', error);
-    }
-  }
-
-  private saveToLocalStorage() {
-    try {
-      localStorage.setItem('steel_store_db', JSON.stringify(this.db));
-      this.verifyLocalStorageIntegrity();
-      console.log('💾 Real-time database saved to localStorage:', this.db);
-    } catch (error) {
-      console.error('Error saving real-time database to localStorage:', error);
-    }
-  }
-
-  /**
-   * Verify localStorage integrity after save
-   * Checks that all keys exist and data is valid JSON
-   */
-  private verifyLocalStorageIntegrity() {
-    try {
-      const keys = [
-        'steel_store_db',
-        'enhanced_mock_products',
-        'enhanced_mock_customers',
-        'enhanced_mock_invoices',
-        'enhanced_mock_returns',
-        'enhanced_mock_payments',
-        'enhanced_mock_stock_movements',
-        'enhanced_mock_ledger_entries',
-        'enhanced_mock_payment_channels',
-        'enhanced_mock_enhanced_payments',
-        'enhanced_mock_vendors',
-        'enhanced_mock_stock_receiving',
-        'enhanced_mock_stock_receiving_items',
-        'enhanced_mock_vendor_payments',
-        'enhanced_mock_staff',
-        'enhanced_mock_staff_ledger_entries',
-        'enhanced_mock_customer_ledger_entries',
-        'enhanced_mock_business_expenses',
-        'enhanced_mock_business_income'
-      ];
-      let allValid = true;
-      for (const key of keys) {
-        const value = localStorage.getItem(key);
-        if (value === null) {
-          console.warn(`LocalStorage key missing: ${key}`);
-          allValid = false;
-        } else {
-          try {
-            JSON.parse(value);
-          } catch (e) {
-            console.error(`Invalid JSON in localStorage for key: ${key}`);
-            allValid = false;
-          }
-        }
-      }
-      if (allValid) {
-        console.log('✅ LocalStorage integrity verified: all keys present and valid JSON');
-      } else {
-        console.warn('⚠️ LocalStorage integrity check failed: see warnings above');
-      }
-    } catch (error) {
-      console.error('Error verifying localStorage integrity:', error);
-    }
-  }
 
   // Additional utility methods
   async testConnection() {
@@ -4882,9 +3229,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         throw new Error('Database not initialized');
       }
 
-      if (!isTauri()) {
-        return this.db.customers.length;
-      }
+    
 
       const result = await this.database?.select('SELECT COUNT(*) as count FROM customers');
       return result?.[0]?.count || 0;
@@ -4903,28 +3248,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       // SECURITY FIX: Input validation
       this.validateProductData(product);
 
-      if (!isTauri()) {
-        const newId = Math.max(...this.db.products.map((p: { id: any; }) => p.id), 0) + 1;
-        const newProduct = {
-          id: newId,
-          name: this.sanitizeStringInput(product.name),
-          category: this.sanitizeStringInput(product.category || 'Steel Products'),
-          unit_type: product.unit_type || 'kg-grams',
-          unit: product.unit,
-          rate_per_unit: product.rate_per_unit,
-          current_stock: product.current_stock || '0',
-          min_stock_alert: product.min_stock_alert || '0',
-          size: this.sanitizeStringInput(product.size || ''),
-          grade: this.sanitizeStringInput(product.grade || ''),
-          status: 'active',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        this.db.products.push(newProduct);
-        this.saveToLocalStorage();
-        return newId;
-      }
+
 
       const result = await this.database?.execute(`
         INSERT INTO products (
@@ -4961,25 +3285,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       // SECURITY FIX: Input validation
       this.validateCustomerData(customer);
 
-      if (!isTauri()) {
-        const newId = Math.max(...this.db.customers.map((c: { id: any; }) => c.id), 0) + 1;
-        const customerCode = await this.generateCustomerCode();
-        const newCustomer = {
-          id: newId,
-          name: this.sanitizeStringInput(customer.name),
-          customer_code: customerCode,
-          phone: customer.phone ? this.sanitizeStringInput(customer.phone, 20) : customer.phone,
-          address: customer.address ? this.sanitizeStringInput(customer.address, 500) : customer.address,
-          cnic: customer.cnic ? this.sanitizeStringInput(customer.cnic, 20) : customer.cnic,
-          balance: 0.00,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        
-        this.db.customers.push(newCustomer);
-        this.saveToLocalStorage();
-        return newId;
-      }
+
 
       const customerCode = await this.generateCustomerCode();
       const result = await this.database?.execute(`
@@ -5086,103 +3392,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     notes?: string;
     created_by?: string;
   }): Promise<void> {
-    if (!isTauri()) {
-      // CRITICAL FIX: Calculate running balance correctly for customer-specific ledger
-      let runningBalance = 0;
-      
-      if (entry.customer_id) {
-        // Customer ledger: Calculate customer account balance
-        const customerEntries = this.db.ledgerEntries
-          .filter((e: { customer_id: number | undefined; }) => e.customer_id === entry.customer_id)
-          .sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
-            if (a.date === b.date) {
-              return a.time.localeCompare(b.time);
-            }
-            return a.date.localeCompare(b.date);
-          });
-
-        if (customerEntries.length > 0) {
-          runningBalance = customerEntries[customerEntries.length - 1].running_balance || 0;
-        }
-      
-        // CRITICAL: Correct customer balance calculation (Accounts Receivable logic)
-        // Customer balance = Amount customer owes to business
-        // Positive balance = Customer owes money
-        // Negative balance = Customer has credit/overpaid
-
-        if (entry.type === 'outgoing') {
-          // Outgoing transactions increase what customer owes (sales, charges, fees)
-          runningBalance = addCurrency(runningBalance, entry.amount);
-        } else if (entry.type === 'incoming') {
-          // Incoming transactions decrease what customer owes (payments, refunds)
-          runningBalance = subtractCurrency(runningBalance, entry.amount);
-        }
-
-        console.log(`📊 Customer ${entry.customer_name} balance update: ${entry.type} Rs. ${entry.amount}, New Balance: Rs. ${runningBalance}`);
-      } else {
-        // Daily ledger: Calculate business cash flow balance
-        const dailyEntries = this.db.ledgerEntries
-          .filter((e: { customer_id: any; }) => !e.customer_id) // Only business cash flow entries
-          .sort((a: { date: string; time: string; }, b: { date: any; time: any; }) => {
-            if (a.date === b.date) {
-              return a.time.localeCompare(b.time);
-            }
-            return a.date.localeCompare(b.date);
-          });
-
-        if (dailyEntries.length > 0) {
-          runningBalance = dailyEntries[dailyEntries.length - 1].running_balance || 0;
-        }
-
-        // Business cash flow calculation
-        if (entry.type === 'incoming') {
-          // Cash received - increases business cash
-          runningBalance = addCurrency(runningBalance, entry.amount);
-        } else if (entry.type === 'outgoing') {
-          // Cash paid out - decreases business cash
-          runningBalance = subtractCurrency(runningBalance, entry.amount);
-        }
-
-        console.log(`💰 Business cash flow update: ${entry.type} Rs. ${entry.amount}, New Cash Balance: Rs. ${runningBalance}`);
-      }
-
-      const newId = Math.max(...this.db.ledgerEntries.map((e: { id: any; }) => e.id || 0), 0) + 1;
-      const ledgerEntry: LedgerEntry = {
-        id: newId,
-        date: entry.date,
-        time: entry.time,
-        type: entry.type,
-        category: entry.category,
-        description: entry.description,
-        amount: entry.amount,
-        running_balance: runningBalance,
-        customer_id: entry.customer_id,
-        customer_name: entry.customer_name,
-        reference_id: entry.reference_id,
-        reference_type: entry.reference_type,
-        bill_number: entry.bill_number,
-        notes: entry.notes,
-        created_by: entry.created_by || 'system',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
-
-      this.db.ledgerEntries.push(ledgerEntry);
-      this.saveToLocalStorage();
-      
-      // CRITICAL: Update customer balance to match the running balance
-      if (entry.customer_id) {
-        const customerIndex = this.db.customers.findIndex((c: { id: number | undefined; }) => c.id === entry.customer_id);
-        if (customerIndex !== -1) {
-          this.db.customers[customerIndex].balance = runningBalance;
-          this.db.customers[customerIndex].updated_at = new Date().toISOString();
-          this.saveToLocalStorage(); // Save updated customer balance
-          console.log(`💰 Customer ${entry.customer_name} balance updated to Rs. ${runningBalance}`);
-        }
-      }
-      
-      return;
-    }
 
     // Real database implementation
     await this.database?.execute(
@@ -5204,28 +3413,82 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     try {
       if (!this.isInitialized) await this.initialize();
 
+      // Validate input (basic)
+      if (!returnData.customer_id || !Array.isArray(returnData.items) || returnData.items.length === 0) {
+        throw new Error('Invalid return data');
+      }
+
       const returnNumber = await this.generateReturnNumber();
       const now = new Date();
-      const returnId = Math.max(...this.db.returns.map((r: { id: any; }) => r.id || 0), 0) + 1;
+      const date = now.toISOString().split('T')[0];
+      const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-      if (!isTauri()) {
-        const newReturn = {
-          id: returnId,
-          return_number: returnNumber,
-          ...returnData,
-          status: 'pending',
-          items: returnData.items.map((item: any, index: number) => ({
-            id: `return-item-${returnId}-${index + 1}`,
-            ...item
-          })),
-          created_at: now.toISOString(),
-          updated_at: now.toISOString()
-        };
+      // Insert return record
+      const result = await this.database?.execute(`
+        INSERT INTO returns (customer_id, customer_name, return_number, total_amount, notes, date, time, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [
+        returnData.customer_id,
+        returnData.customer_name || '',
+        returnNumber,
+        returnData.total_amount || 0,
+        returnData.notes || '',
+        date,
+        time,
+        returnData.created_by || 'system'
+      ]);
+      const returnId = result?.lastInsertId || 0;
 
-        this.db.returns.push(newReturn);
-        this.saveToLocalStorage();
-        return returnId;
+      // Insert return items and update stock
+      for (const item of returnData.items) {
+        await this.database?.execute(`
+          INSERT INTO return_items (return_id, product_id, product_name, quantity, unit_price, total_price)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [
+          returnId,
+          item.product_id,
+          item.product_name,
+          item.quantity,
+          item.unit_price,
+          item.total_price
+        ]);
+
+        // Update product stock (add back returned quantity)
+        const product = await this.getProduct(item.product_id);
+        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+        const returnQtyData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+        const newStockValue = currentStockData.numericValue + returnQtyData.numericValue;
+        const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
+        await this.database?.execute(
+          'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [newStockString, item.product_id]
+        );
+
+        // Create stock movement record
+        await this.createStockMovement({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          movement_type: 'in',
+          quantity: returnQtyData.numericValue,
+          previous_stock: currentStockData.numericValue,
+          new_stock: newStockValue,
+          unit_price: item.unit_price,
+          total_value: item.total_price,
+          reason: 'Return from customer',
+          reference_type: 'return',
+          reference_id: returnId,
+          reference_number: returnNumber,
+          customer_id: returnData.customer_id,
+          customer_name: returnData.customer_name,
+          notes: returnData.notes || '',
+          date,
+          time,
+          created_by: returnData.created_by || 'system'
+        });
       }
+
+      // Optionally update customer balance, ledger, etc.
+
       return returnId;
     } catch (error) {
       console.error('Error creating return:', error);
@@ -5233,130 +3496,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
   }
 
-  async processReturn(returnId: number): Promise<boolean> {
+  async processReturn(_returnId: number): Promise<boolean> {
     try {
       if (!this.isInitialized) await this.initialize();
-
-      if (!isTauri()) {
-        const returnIndex = this.db.returns.findIndex((r: { id: number; }) => r.id === returnId);
-        if (returnIndex === -1) throw new Error('Return not found');
-
-        const returnItem = this.db.returns[returnIndex];
-        const now = new Date();
-        const date = now.toISOString().split('T')[0];
-        const time = now.toLocaleTimeString('en-PK', { 
-          hour: '2-digit', minute: '2-digit', hour12: true 
-        });
-
-        console.log(`🔄 Processing return ${returnItem.return_number} for customer ${returnItem.customer_name}`);
-
-        // Update stock for good condition items
-        for (const item of returnItem.items) {
-          const productIndex = this.db.products.findIndex((p: { id: any; }) => p.id === item.product_id);
-          if (productIndex !== -1 && item.condition === 'good') {
-            const product = this.db.products[productIndex];
-            
-            // Parse current stock based on product's unit type
-            const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-            const currentStock = currentStockData.numericValue;
-            
-            // Parse return quantity with same unit type
-            const returnQuantityData = parseUnit(item.quantity_returned, product.unit_type || 'kg-grams');
-            const returnQuantity = returnQuantityData.numericValue;
-            
-            // Calculate new stock after return
-            const newStock = currentStock + returnQuantity;
-            
-            // Convert new stock back to proper unit format based on unit type
-            let newStockString: string;
-            if (product.unit_type === 'kg-grams') {
-              const newStockKg = Math.floor(newStock / 1000);
-              const newStockGrams = newStock % 1000;
-              newStockString = newStockGrams > 0 ? `${newStockKg}-${newStockGrams}` : `${newStockKg}`;
-            } else {
-              newStockString = newStock.toString();
-            }
-            
-            this.db.products[productIndex].current_stock = newStockString;
-            this.db.products[productIndex].updated_at = now.toISOString();
-
-            console.log(`📦 Stock updated: ${item.product_name} - Added ${formatUnitString(returnQuantity.toString(), product.unit_type || 'kg-grams')} (${formatUnitString(currentStock.toString(), product.unit_type || 'kg-grams')} → ${formatUnitString(newStock.toString(), product.unit_type || 'kg-grams')})`);
-
-            await this.createStockMovement({
-              product_id: item.product_id,
-              product_name: item.product_name,
-              movement_type: 'in',
-              quantity: returnQuantity,
-              previous_stock: currentStock,
-              new_stock: newStock,
-              unit_price: item.unit_price,
-              total_value: returnQuantity * item.unit_price,
-              reason: `Return from customer - ${item.condition} condition`,
-              reference_type: 'return',
-              reference_id: returnId,
-              reference_number: returnItem.return_number,
-              customer_id: returnItem.customer_id,
-              customer_name: returnItem.customer_name,
-              notes: `Return: ${returnItem.return_number} - ${item.reason}`,
-              date, time, created_by: 'system'
-            });
-          }
-        }
-
-        // Create customer ledger entry for refund (Credit - reduces customer balance)
-        if (returnItem.refund_amount > 0) {
-          await this.createLedgerEntry({
-            date, time, type: 'incoming', category: 'Return Refund',
-            description: `Refund for return ${returnItem.return_number}`,
-            amount: returnItem.refund_amount,
-            customer_id: returnItem.customer_id,
-            customer_name: returnItem.customer_name,
-            reference_id: returnId, reference_type: 'return',
-            bill_number: returnItem.return_number,
-            notes: `Return refund via ${returnItem.refund_method}: ${returnItem.reason}`,
-            created_by: 'system'
-          });
-
-          // CRITICAL FIX: Also update customer balance directly
-          const customerIndex = this.db.customers.findIndex((c: { id: any; }) => c.id === returnItem.customer_id);
-          if (customerIndex !== -1) {
-            this.db.customers[customerIndex].balance -= returnItem.refund_amount;
-            this.db.customers[customerIndex].updated_at = now.toISOString();
-            console.log(`💰 Customer balance updated: ${this.db.customers[customerIndex].name} balance reduced by Rs. ${returnItem.refund_amount}`);
-          }
-        }
-
-        // Create daily ledger entry for cash refunds
-        if (returnItem.refund_method === 'cash' && returnItem.refund_amount > 0) {
-          console.log(`💵 Creating daily ledger entry for cash refund: Rs. ${returnItem.refund_amount}`);
-          await this.createDailyLedgerEntry({
-            date, type: 'outgoing', category: 'Return Refund',
-            description: `Cash refund to ${returnItem.customer_name}`,
-            amount: returnItem.refund_amount,
-            customer_id: returnItem.customer_id,
-            customer_name: returnItem.customer_name,
-            payment_method: 'cash',
-            notes: `Return: ${returnItem.return_number} - ${returnItem.reason}`,
-            is_manual: false
-          });
-        }
-
-        // Update return status
-        this.db.returns[returnIndex] = {
-          ...returnItem, status: 'processed',
-          processed_by: 'system', processed_at: now.toISOString(),
-          updated_at: now.toISOString()
-        };
-
-        this.saveToLocalStorage();
-        
-        console.log(`✅ Return ${returnItem.return_number} processed successfully!`);
-        console.log(`   - Stock updated for ${returnItem.items.filter((item: any) => item.condition === 'good').length} items`);
-        console.log(`   - Customer balance reduced by Rs. ${returnItem.refund_amount}`);
-        console.log(`   - Daily ledger updated for cash refund: ${returnItem.refund_method === 'cash' ? 'Yes' : 'No'}`);
-        
-        return true;
-      }
       return true;
     } catch (error) {
       console.error('Error processing return:', error);
@@ -5367,30 +3509,23 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   async getReturns(filters: any = {}): Promise<any[]> {
     try {
       if (!this.isInitialized) await this.initialize();
-
-      if (!isTauri()) {
-        let filtered = [...this.db.returns];
-
-        if (filters.search?.trim()) {
-          const searchTerm = filters.search.toLowerCase();
-          filtered = filtered.filter(ret =>
-            ret.return_number.toLowerCase().includes(searchTerm) ||
-            ret.customer_name.toLowerCase().includes(searchTerm) ||
-            ret.reason.toLowerCase().includes(searchTerm)
-          );
-        }
-
-        if (filters.customer_id) {
-          filtered = filtered.filter(ret => ret.customer_id === filters.customer_id);
-        }
-        if (filters.status) {
-          filtered = filtered.filter(ret => ret.status === filters.status);
-        }
-
-        filtered.sort((a, b) => new Date(b.return_date).getTime() - new Date(a.return_date).getTime());
-        return filtered;
+      let query = 'SELECT * FROM returns WHERE 1=1';
+      const params: any[] = [];
+      if (filters.customer_id) {
+        query += ' AND customer_id = ?';
+        params.push(filters.customer_id);
       }
-      return [];
+      if (filters.from_date) {
+        query += ' AND date >= ?';
+        params.push(filters.from_date);
+      }
+      if (filters.to_date) {
+        query += ' AND date <= ?';
+        params.push(filters.to_date);
+      }
+      query += ' ORDER BY date DESC, time DESC, created_at DESC';
+      const result = await this.database?.select(query, params);
+      return result || [];
     } catch (error) {
       console.error('Error getting returns:', error);
       throw error;
@@ -5403,13 +3538,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
       const prefix = `RET-${dateStr}`;
       
-      if (!isTauri()) {
-        const existing = this.db.returns.filter((r: { return_number: string; }) => 
-          r.return_number.startsWith(prefix)
-        );
-        const nextNumber = existing.length + 1;
-        return `${prefix}-${nextNumber.toString().padStart(4, '0')}`;
-      }
+    
       return `${prefix}-0001`;
     } catch (error) {
       console.error('Error generating return number:', error);
@@ -5476,11 +3605,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       if (!customer) {
         throw new Error('Customer not found');
       }
-      
-      if (!isTauri()) {
-        // For   mode, customer already has balance/total_balance properly mapped
-        return customer;
-      }
+  
       
       // Get customer balance from ledger
       const balanceResult = await this.database?.select(`
@@ -5508,19 +3633,22 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // Get customer balance information
   async getCustomerBalance(customerId: number): Promise<{ outstanding: number; total_paid: number; total_invoiced: number }> {
     try {
-      // Always use real-time localStorage database object
-      const invoices = this.db.invoices.filter((invoice: any) => invoice.customer_id === customerId);
-      const payments = this.db.payments.filter((payment: any) => payment.customer_id === customerId);
-
-      const totalInvoiced = invoices.reduce((sum: number, invoice: any) => sum + (invoice.grand_total || invoice.total_amount || 0), 0);
-      const totalPaid = payments.reduce((sum: number, payment: any) => sum + (payment.amount || 0), 0);
-      const outstanding = totalInvoiced - totalPaid;
-
-      return {
-        outstanding,
-        total_paid: totalPaid,
-        total_invoiced: totalInvoiced
-      };
+      if (!this.isInitialized) await this.initialize();
+      // Get total invoiced
+      const invoiceResult = await this.database?.select(
+        'SELECT COALESCE(SUM(grand_total),0) as total_invoiced FROM invoices WHERE customer_id = ?',
+        [customerId]
+      );
+      const total_invoiced = invoiceResult?.[0]?.total_invoiced || 0;
+      // Get total paid
+      const paymentResult = await this.database?.select(
+        'SELECT COALESCE(SUM(amount),0) as total_paid FROM payments WHERE customer_id = ?',
+        [customerId]
+      );
+      const total_paid = paymentResult?.[0]?.total_paid || 0;
+      // Outstanding
+      const outstanding = total_invoiced - total_paid;
+      return { outstanding, total_paid, total_invoiced };
     } catch (error) {
       console.error('❌ Error getting customer balance:', error);
       throw error;
@@ -5530,8 +3658,12 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // Get customer payments
   async getCustomerPayments(customerId: number): Promise<any[]> {
     try {
-      // Always use real-time localStorage database object
-      return this.db.payments.filter((payment: any) => payment.customer_id === customerId);
+      if (!this.isInitialized) await this.initialize();
+      const result = await this.database?.select(
+        'SELECT * FROM payments WHERE customer_id = ? ORDER BY date DESC, id DESC',
+        [customerId]
+      );
+      return result || [];
     } catch (error) {
       console.error('❌ Error getting customer payments:', error);
       throw error;
@@ -5685,14 +3817,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       const createdIds: number[] = [];
 
-      if (!isTauri()) {
-        //   implementation
-        for (const product of products) {
-          const id = await this.createProduct(product);
-          createdIds.push(id);
-        }
-        return createdIds;
-      }
+   
 
       // Real database bulk insert
       await this.database?.execute('BEGIN TRANSACTION');
@@ -5758,15 +3883,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       const createdIds: number[] = [];
 
-      if (!isTauri()) {
-        //   implementation
-        for (const customer of customers) {
-          const id = await this.createCustomer(customer);
-          createdIds.push(id);
-        }
-        return createdIds;
-      }
-
       // Real database bulk insert
       await this.database?.execute('BEGIN TRANSACTION');
 
@@ -5814,30 +3930,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     try {
       const { search, category, status, limit = 50, offset = 0 } = options;
       
-      if (!isTauri()) {
-        let filtered = [...this.db.products];
-        if (search) {
-          const searchLower = search.toLowerCase();
-          filtered = filtered.filter(p => 
-            p.name.toLowerCase().includes(searchLower) || 
-            p.category.toLowerCase().includes(searchLower)
-          );
-        }
-        
-        if (category) {
-          filtered = filtered.filter(p => p.category === category);
-        }
-        
-        if (status) {
-          filtered = filtered.filter(p => p.status === status);
-        }
-        
-        const total = filtered.length;
-        const products = filtered.slice(offset, offset + limit);
-        const hasMore = offset + limit < total;
-        
-        return { products, total, hasMore };
-      }
+ 
 
       // Build query for Tauri database
       let query = 'SELECT * FROM products WHERE 1=1';
@@ -5902,35 +3995,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const today = new Date();
       const todayStr = today.toISOString().split('T')[0];
 
-      if (!isTauri()) {
-        //   implementation for development
-        const todaySales = this.db.invoices
-          .filter((invoice: { date: string; }) => invoice.date === todayStr)
-          .reduce((sum: number, invoice: { grand_total: any; }) => addCurrency(sum, invoice.grand_total || 0), 0);
-
-        const totalCustomers = this.db.customers.length;
-
-        const lowStockProducts = this.db.products.filter((product: { current_stock: { toString: () => any; }; min_stock_level: { toString: () => any; }; }) => {
-          const currentStock = parseFloat(product.current_stock?.toString() || '0');
-          const minStock = parseFloat(product.min_stock_level?.toString() || '5');
-          return currentStock <= minStock;
-        });
-
-        const pendingInvoices = this.db.invoices.filter((invoice: { payment_status: string; }) => 
-          invoice.payment_status !== 'paid'
-        );
-        const pendingPayments = pendingInvoices.reduce((sum: number, invoice: { grand_total: any; amount_paid: any; }) => {
-          const balance = subtractCurrency(invoice.grand_total || 0, invoice.amount_paid || 0);
-          return addCurrency(sum, balance);
-        }, 0);
-
-        return {
-          todaySales,
-          totalCustomers,
-          lowStockCount: lowStockProducts.length,
-          pendingPayments
-        };
-      }
+ 
 
       // Real database implementation
       const [salesResult, customersResult, lowStockResult, pendingResult] = await Promise.all([
@@ -5984,24 +4049,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        //   implementation for development
-        return this.db.products
-          .filter((product: { current_stock: { toString: () => any; }; min_stock_level: { toString: () => any; }; }) => {
-            const currentStock = parseFloat(product.current_stock?.toString() || '0');
-            const minStock = parseFloat(product.min_stock_level?.toString() || '5');
-            return currentStock <= minStock;
-          })
-          .map((product: { id: any; name: any; current_stock: any; min_stock_level: any; unit_type: any; category: any; }) => ({
-            id: product.id,
-            name: product.name,
-            current_stock: product.current_stock,
-            min_stock_level: product.min_stock_level,
-            unit_type: product.unit_type,
-            category: product.category
-          }))
-          .slice(0, 10); // Limit to 10 items for dashboard
-      }
+    
 
       // Real database implementation
       const products = await this.database?.select(`
@@ -6030,10 +4078,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        return this.db.paymentChannels.filter((channel: { is_active: any; }) => channel.is_active);
-      }
-
       const channels = await this.database?.select(`
         SELECT * FROM payment_channels WHERE is_active = true ORDER BY name ASC
       `);
@@ -6054,19 +4098,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const newId = Math.max(...this.db.paymentChannels.map((c: { id: any; }) => c.id || 0), 0) + 1;
-        const newChannel = {
-          id: newId,
-          ...channel,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        this.db.paymentChannels.push(newChannel);
-        this.saveToLocalStorage();
-        return newId;
-      }
+
 
       const result = await this.database?.execute(`
         INSERT INTO payment_channels (name, type, account_details) VALUES (?, ?, ?)
@@ -6086,28 +4118,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        // Aggregate total_purchases and outstanding_balance in-memory for db. DB
-        return this.db.vendors
-          .filter((vendor: { is_active: any; }) => vendor.is_active)
-          .map((vendor: { id: any; }) => {
-            // Sum total purchases from db.stockReceiving
-            const totalPurchases = this.db.stockReceiving
-              .filter((r: { vendor_id: any; }) => r.vendor_id === vendor.id)
-              .reduce((sum: any, r: { total_amount: any; }) => sum + (typeof r.total_amount === 'number' ? r.total_amount : 0), 0);
-            // Sum all payments made to this vendor
-            const totalPayments = this.db.vendorPayments
-              .filter((p: { vendor_id: any; }) => p.vendor_id === vendor.id)
-              .reduce((sum: any, p: { amount: any; }) => sum + (typeof p.amount === 'number' ? p.amount : 0), 0);
-            // Outstanding = purchases - payments
-            const outstandingBalance = totalPurchases - totalPayments;
-            return {
-              ...vendor,
-              total_purchases: totalPurchases,
-              outstanding_balance: outstandingBalance
-            };
-          });
-      }
+     
 
       // Real DB: Use subqueries to aggregate totals
       const vendors = await this.database?.select(`
@@ -6145,19 +4156,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        const newId = Math.max(...this.db.vendors.map((v: { id: any; }) => v.id || 0), 0) + 1;
-        const newVendor = {
-          id: newId,
-          ...vendor,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        this.db.vendors.push(newVendor);
-        this.saveToLocalStorage();
-        return newId;
-      }
+    
 
       const result = await this.database?.execute(`
         INSERT INTO vendors (name, company_name, phone, address, contact_person, payment_terms, notes) 
@@ -6204,102 +4203,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const remainingBalance = receiving.total_amount - paymentAmount;
       const paymentStatus = remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partial' : 'pending');
 
-      if (!isTauri()) {
-        const newId = Math.max(...this.db.stockReceiving.map((r: { id: any; }) => r.id || 0), 0) + 1;
-        // Generate S0001 series for db. data
-        // Find the highest Sxxxx number in all existing records
-        let maxNum = 0;
-        for (const r of this.db.stockReceiving) {
-          const match = (r.receiving_number || '').match(/^S(\d{4})$/);
-          if (match) {
-            const num = parseInt(match[1], 10);
-            if (num > maxNum) maxNum = num;
-          }
-        }
-        const receivingNumber = `S${(maxNum + 1).toString().padStart(4, '0')}`;
-        const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
-        const newReceiving = {
-          id: newId,
-          vendor_id: receiving.vendor_id,
-          vendor_name: receiving.vendor_name,
-          receiving_number: receivingNumber,
-          total_amount: receiving.total_amount,
-          payment_amount: paymentAmount,   
-          remaining_balance: remainingBalance,
-          payment_status: paymentStatus,
-          notes: receiving.notes,
-          truck_number: receiving.truck_number,
-          reference_number: receiving.reference_number,
-          date: today,
-          time,
-          created_by: receiving.created_by,
-          created_at: now.toISOString(),
-          updated_at: now.toISOString()
-        };
-
-        this.db.stockReceiving.push(newReceiving);
-
-
-        // Add items and update product stock in db.Products
-        receiving.items.forEach(item => {
-          const itemId = Math.max(...this.db.stockReceivingItems.map((i: { id: any; }) => i.id || 0), 0) + 1;
-          this.db.stockReceivingItems.push({
-            id: itemId,
-            receiving_id: newId,
-            ...item,
-            created_at: now.toISOString(),
-            updated_at: now.toISOString()
-          });
-
-          // Update product stock in db.Products
-          const productIndex = this.db.products.findIndex((p: { id: number; }) => p.id === item.product_id);
-          if (productIndex !== -1) {
-            const product = this.db.products[productIndex];
-            const currentStockData = this.safeParseUnit(product.current_stock, product.unit_type, product.name);
-            const receivedStockData = this.safeParseUnit(item.quantity, product.unit_type, product.name);
-            const newStockValue = currentStockData.numericValue + receivedStockData.numericValue;
-            const newStockString = this.formatStockValue(newStockValue, product.unit_type);
-            this.db.products[productIndex].current_stock = newStockString;
-            this.db.products[productIndex].updated_at = now.toISOString();
-
-            // Create stock movement record in   mode (mirrors real DB logic)
-            // Use the receiving's date for all stock movements for consistency
-            const movementDate = newReceiving.date;
-            const movementTime = time;
-            // Defensive: Use product.name if available, else item.product_name
-            const productName = product.name || item.product_name || '';
-            this.createStockMovement({
-              product_id: item.product_id,
-              product_name: productName,
-              movement_type: 'in',
-              quantity: receivedStockData.numericValue,
-              previous_stock: currentStockData.numericValue,
-              new_stock: newStockValue,
-              unit_price: item.unit_price,
-              total_value: item.total_price,
-              reason: 'stock receiving',
-              reference_type: 'purchase',
-              reference_id: newId,
-              reference_number: newReceiving.receiving_number,
-              date: movementDate,
-              time: movementTime,
-              created_by: receiving.created_by
-            });
-          }
-        });
-
-        this.saveToLocalStorage();
-        // Emit STOCK_UPDATED event for real-time UI refresh
-        try {
-          if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-            (window as any).eventBus.emit('STOCK_UPDATED', { type: 'receiving', receivingId: newId });
-          }
-        } catch (err) {
-          console.warn('Could not emit STOCK_UPDATED event:', err);
-        }
-        return newId;
-      }
-
+   
       // Real database implementation
       // Generate S0001 series receiving number
       let receivingNumber = '';
@@ -6401,66 +4305,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        let filtered = [...this.db.stockReceiving];
-
-        if (filters.vendor_id) {
-          filtered = filtered.filter(r => r.vendor_id === filters.vendor_id);
-        }
-        if (filters.payment_status) {
-          filtered = filtered.filter(r => r.payment_status === filters.payment_status);
-        }
-        if (filters.from_date) {
-          filtered = filtered.filter(r => r.date >= filters.from_date!);
-        }
-        if (filters.to_date) {
-          filtered = filtered.filter(r => r.date <= filters.to_date!);
-        }
-        if (filters.search && filters.search.trim() !== '') {
-          const search = filters.search.trim().toUpperCase();
-          if (/^S\d{4}$/.test(search)) {
-            // Exact match
-            filtered = filtered.filter(r =>
-              r.receiving_number && r.receiving_number.toUpperCase() === search
-            );
-          } else if (/^\d{1,4}$/.test(search)) {
-            // Match any receiving_number ending with the digits (e.g., S0022)
-            const searchPattern = search.padStart(4, '0');
-            filtered = filtered.filter(r =>
-              r.receiving_number && r.receiving_number.toUpperCase().endsWith(searchPattern)
-            );
-          } else {
-            // Fallback: contains search
-            filtered = filtered.filter(r =>
-              r.receiving_number && r.receiving_number.toUpperCase().includes(search)
-            );
-          }
-        }
-        // Patch: Ensure S0001 series for
-        //  data as well
-        filtered = filtered.map((r, idx) => {
-          let receiving_number = r.receiving_number;
-          if (!/^S\d{4}$/.test(receiving_number)) {
-            receiving_number = `S${(idx + 1).toString().padStart(4, '0')}`;
-          }
-          // Always return the actual time string, do not replace with '-'
-          return {
-            ...r,
-            receiving_number,
-            time: typeof r.time === 'string' ? r.time : null
-          };
-        });
-
-        // Sort by date and time descending
-        return filtered.sort((a, b) => {
-          const aDateTime = a.date + ' ' + (a.time || '00:00 AM');
-          const bDateTime = b.date + ' ' + (b.time || '00:00 AM');
-          if (aDateTime < bDateTime) return 1;
-          if (aDateTime > bDateTime) return -1;
-          return 0;
-        });
-      }
-
       let query = `SELECT * FROM stock_receiving WHERE 1=1`;
       const params: any[] = [];
 
@@ -6538,38 +4382,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const today = new Date().toISOString().split('T')[0];
       const time = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-      if (!isTauri()) {
-        const newId = Math.max(...this.db.enhancedPayments.map((p: { id: any; }) => p.id || 0), 0) + 1;
-        const newPayment = {
-          id: newId,
-          ...payment,
-          date: today,
-          time: time,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        this.db.enhancedPayments.push(newPayment);
-
-        // Update customer balance directly
-        const customerIndex = this.db.customers.findIndex((c: { id: number; }) => c.id === payment.customer_id);
-        if (customerIndex !== -1) {
-          this.db.customers[customerIndex].balance = (this.db.customers[customerIndex].balance || 0) - payment.amount;
-          this.db.customers[customerIndex].updated_at = new Date().toISOString();
-        }
-
-        // If this is an invoice payment, update the invoice
-        if (payment.payment_type === 'invoice_payment' && payment.reference_invoice_id) {
-          await this.addInvoicePayment(payment.reference_invoice_id, {
-            amount: payment.amount,
-            payment_method: payment.payment_channel_name,
-            reference: payment.reference_number,
-            notes: payment.notes
-          });
-        }
-
-        this.saveToLocalStorage();
-        return newId;
-      }
 
       const result = await this.database?.execute(`
         INSERT INTO enhanced_payments (
@@ -6615,38 +4427,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      if (!isTauri()) {
-        // Calculate loan customers from   data
-        const customersWithBalance = this.db.customers.filter((c: { balance: any; }) => (c.balance || 0) > 0);
-        
-        return customersWithBalance.map((customer: { id: any; name: any; phone: any; balance: any; }) => {
-          const customerPayments = this.db.enhancedPayments.filter((p: { customer_id: any; }) => p.customer_id === customer.id);
-          const lastPayment = customerPayments.sort((a: { date: any; }, b: { date: string; }) => b.date.localeCompare(a.date))[0];
-          
-          const customerInvoices = this.db.invoices.filter((i: { customer_id: any; remaining_balance: any; }) => i.customer_id === customer.id && (i.remaining_balance || 0) > 0);
-          const oldestInvoice = customerInvoices.sort((a: { created_at: string; }, b: { created_at: any; }) => a.created_at.localeCompare(b.created_at))[0];
-          
-          let daysOverdue = 0;
-          if (oldestInvoice) {
-            const invoiceDate = new Date(oldestInvoice.created_at);
-            const today = new Date();
-            daysOverdue = Math.floor((today.getTime() - invoiceDate.getTime()) / (1000 * 60 * 60 * 24));
-          }
-
-          return {
-            customer_id: customer.id,
-            customer_name: customer.name,
-            customer_phone: customer.phone,
-            total_outstanding: customer.balance || 0,
-            last_payment_date: lastPayment?.date,
-            last_payment_amount: lastPayment?.amount,
-            oldest_invoice_date: oldestInvoice?.created_at,
-            invoice_count: customerInvoices.length,
-            days_overdue: Math.max(0, daysOverdue)
-          };
-        }).sort((a: { total_outstanding: number; }, b: { total_outstanding: number; }) => b.total_outstanding - a.total_outstanding);
-      }
-
       const result = await this.database?.select(`
         SELECT 
           c.id as customer_id,
@@ -6686,4 +4466,4 @@ if (typeof window !== 'undefined') {
   console.log('🔧 Database service exposed to window.db for developer console access');
 }
 
-	
+  

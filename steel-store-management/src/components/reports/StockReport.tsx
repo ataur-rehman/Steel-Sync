@@ -264,7 +264,7 @@ const StockReport: React.FC = () => {
     });
   };
 
-  const navigateToInvoice = (invoiceId: number, billNumber: string) => {
+  const navigateToInvoice = (_invoiceId: number, billNumber: string) => {
     navigate('/billing/invoices', {
       state: { searchTerm: billNumber }
     });

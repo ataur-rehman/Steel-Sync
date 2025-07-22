@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigation } from '../../hooks/useNavigation';
 import { settingsService } from '../../services/settingsService';
-import NavigationHeader from '../common/NavigationHeader';
+
 import {
   LayoutDashboard,
   Package,

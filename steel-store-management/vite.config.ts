@@ -1,10 +1,17 @@
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+
 
 export default defineConfig({
+  // ... existing config
   server: {
     watch: {
-      ignored: ['**/data/**'] // ✅ ignore DB changes
+      ignored: [
+        'src-tauri/**',
+        '**/store.db',
+        'data/store.db',
+        '**/data/**',
+        '**/target/**'
+      ]
     }
   }
-});
+})

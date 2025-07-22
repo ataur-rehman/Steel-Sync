@@ -25,7 +25,7 @@ import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashbo
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
 import NotificationsPage from './components/notifications/NotificationsPage';
-import Settings from './components/settings/Settings';
+
 import toast from 'react-hot-toast';
 import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
@@ -238,11 +238,10 @@ function AppContent() {
             <Route path="/notifications" element={<NotificationsPage />} />
             
             {/* Settings */}
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/settings/*" element={<Settings />} />
+
             
             {/* Backwards compatibility for notification settings */}
-            <Route path="/settings/notifications" element={<Settings />} />
+
             
             {/* Notification Test (for development) */}
             <Route path="/settings/notifications/test" element={

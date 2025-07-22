@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
-import { validateUnit, UNIT_TYPES, getUnitTypeConfig, type UnitType } from '../../utils/unitUtils';
+import { 
+  validateUnit, 
+  UNIT_TYPES, 
+  getUnitTypeConfig, 
+  type UnitType,
+  parseUnit,
+  formatUnitString
+} from '../../utils/unitUtils';
 import { parseCurrency } from '../../utils/currency';
 
 interface ProductFormProps {
@@ -13,19 +20,16 @@ interface ProductFormProps {
 const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel }) => {
   const [showOptional, setShowOptional] = useState(false);
   
-  // Helper function to convert unit format for editing
-  const getDisplayValue = (unitString: string, unitType: UnitType): string => {
+  // Helper function to get display value for editing - using parseUnit for consistency
+  const getDisplayValue = (unitString: string | null | undefined, unitType: UnitType): string => {
     if (!unitString) return '';
     
-    if (unitType === 'kg-grams') {
-      // For kg-grams, keep the original format (e.g., "1600-60")
-      return unitString;
-    } else if (unitType === 'kg') {
-      // For kg decimal, keep the original format (e.g., "500.10")
-      return unitString;
-    } else {
-      // For other types, return as is
-      return unitString;
+    try {
+      const parsed = parseUnit(unitString, unitType);
+      return parsed.raw; // Return the raw format for editing
+    } catch (error) {
+      console.warn('Error parsing unit for display:', error);
+      return unitString?.toString() || '';
     }
   };
   
@@ -33,21 +37,30 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
     name: product?.name || '',
     category: product?.category || 'Steel Products',
     unit_type: (product?.unit_type as UnitType) || 'kg-grams',
-    unit: product?.unit || '', // Unit field only for kg-grams
     rate_per_unit: product?.rate_per_unit?.toString() || '',
-    current_stock: getDisplayValue(product?.current_stock || '', (product?.unit_type as UnitType) || 'kg-grams'),
-    min_stock_alert: getDisplayValue(product?.min_stock_alert || '', (product?.unit_type as UnitType) || 'kg-grams'),
+    current_stock: getDisplayValue(product?.current_stock, (product?.unit_type as UnitType) || 'kg-grams'),
+    min_stock_alert: getDisplayValue(product?.min_stock_alert, (product?.unit_type as UnitType) || 'kg-grams'),
     size: product?.size || '', // Optional size
     grade: product?.grade || '' // Optional grade
   });
+  
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-
-
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // If unit_type is changing, reset stock fields to avoid format confusion
+    if (name === 'unit_type') {
+      setFormData(prev => ({ 
+        ...prev, 
+        [name]: value as UnitType,
+        current_stock: '',
+        min_stock_alert: ''
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
     
     // Clear error when user starts typing
     if (errors[name]) {
@@ -66,30 +79,19 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
       newErrors.rate_per_unit = 'Valid rate per unit is required';
     }
     
-    // Validate stock fields based on unit type
+    // Validate current stock using unitUtils
     if (formData.current_stock && formData.current_stock.trim()) {
-      if (formData.unit_type === 'kg-grams' || formData.unit_type === 'kg') {
-        const stockValidation = validateUnit(formData.current_stock, formData.unit_type);
-        if (!stockValidation.isValid) {
-          newErrors.current_stock = `Invalid ${formData.unit_type} format for current stock`;
-        }
-      } else {
-        if (parseFloat(formData.current_stock) < 0) {
-          newErrors.current_stock = 'Current stock cannot be negative';
-        }
+      const stockValidation = validateUnit(formData.current_stock, formData.unit_type);
+      if (!stockValidation.isValid) {
+        newErrors.current_stock = stockValidation.error || `Invalid ${formData.unit_type} format for current stock`;
       }
     }
     
+    // Validate min stock alert using unitUtils
     if (formData.min_stock_alert && formData.min_stock_alert.trim()) {
-      if (formData.unit_type === 'kg-grams' || formData.unit_type === 'kg') {
-        const alertValidation = validateUnit(formData.min_stock_alert, formData.unit_type);
-        if (!alertValidation.isValid) {
-          newErrors.min_stock_alert = `Invalid ${formData.unit_type} format for alert level`;
-        }
-      } else {
-        if (parseFloat(formData.min_stock_alert) < 0) {
-          newErrors.min_stock_alert = 'Alert level cannot be negative';
-        }
+      const alertValidation = validateUnit(formData.min_stock_alert, formData.unit_type);
+      if (!alertValidation.isValid) {
+        newErrors.min_stock_alert = alertValidation.error || `Invalid ${formData.unit_type} format for alert level`;
       }
     }
 
@@ -97,74 +99,87 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
     return Object.keys(newErrors).length === 0;
   };
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  
-  if (!validateForm()) {
-    return;
-  }
-
-  setLoading(true);
-  try {
-    // Handle stock values based on unit type
-    let currentStockFormatted: string;
-    let minStockFormatted: string;
-    if (formData.unit_type === 'kg-grams' || formData.unit_type === 'kg') {
-      currentStockFormatted = formData.current_stock || '0';
-      minStockFormatted = formData.min_stock_alert || '0';
-    } else {
-      const currentStockValue = parseFloat(formData.current_stock) || 0;
-      const minStockValue = parseFloat(formData.min_stock_alert) || 0;
-      currentStockFormatted = currentStockValue.toString();
-      minStockFormatted = minStockValue.toString();
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
     }
 
-    // Concatenate name with size and grade if present
-    let fullName = formData.name;
-    if (formData.size) fullName += ` • ${formData.size}`;
-    if (formData.grade) fullName += ` • G${formData.grade}`;
+    setLoading(true);
+    try {
+      // Parse and format stock values using unitUtils for consistency
+      const currentStockParsed = parseUnit(formData.current_stock || '0', formData.unit_type);
+      const minStockParsed = parseUnit(formData.min_stock_alert || '0', formData.unit_type);
 
-    // Map form fields to database fields
-    const productData = {
-      name: fullName,
-      category: formData.category,
-      unit_type: formData.unit_type,
-      unit: '1',
-      rate_per_unit: parseCurrency(formData.rate_per_unit),
-      current_stock: currentStockFormatted,
-      min_stock_alert: minStockFormatted,
-      size: formData.size,
-      grade: formData.grade
-    };
+      // Concatenate name with size and grade if present
+      let fullName = formData.name;
+      if (formData.size) fullName += ` • ${formData.size}`;
+      if (formData.grade) fullName += ` • G${formData.grade}`;
 
-    console.log('Submitting product data:', productData);
+      // Map form fields to database fields
+      const productData = {
+        name: fullName,
+        category: formData.category,
+        unit_type: formData.unit_type,
+        unit: '1', // Keep as legacy field
+        rate_per_unit: parseCurrency(formData.rate_per_unit),
+        current_stock: currentStockParsed.raw, // Use parsed raw format
+        min_stock_alert: minStockParsed.raw, // Use parsed raw format
+        size: formData.size,
+        grade: formData.grade
+      };
 
-    let result;
-    if (product) {
-      result = await db.updateProduct(product.id, productData);
-      toast.success('Product updated successfully!');
-    } else {
-      result = await db.createProduct(productData);
-      toast.success('Product added successfully!');
+      console.log('Submitting product data:', productData);
+
+      let result;
+      if (product) {
+        result = await db.updateProduct(product.id, productData);
+        toast.success('Product updated successfully!');
+      } else {
+        result = await db.createProduct(productData);
+        toast.success('Product added successfully!');
+      }
+
+      console.log('Product operation result:', result);
+
+      if (product) {
+        onSuccess();
+      } else if (result && result > 0) {
+        onSuccess();
+      } else {
+        throw new Error(`Failed to create product - no valid result returned`);
+      }
+    } catch (error) {
+      console.error('Detailed error saving product:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      toast.error(`Failed to ${product ? 'update' : 'add'} product: ${errorMessage}`);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    console.log('Product operation result:', result);
+  // Helper function to get placeholder text for unit inputs
+  const getUnitPlaceholder = (unitType: UnitType): string => {
+    const config = getUnitTypeConfig(unitType);
+    return config.examples.join(', ');
+  };
 
-    if (product) {
-      onSuccess();
-    } else if (result && result > 0) {
-      onSuccess();
-    } else {
-      throw new Error(`Failed to create product - no valid result returned`);
+  // Helper function to get unit display format help text
+  const getUnitHelpText = (unitType: UnitType): string => {
+    const config = getUnitTypeConfig(unitType);
+    return config.description;
+  };
+
+  // Helper function to render current formatted value
+  const renderCurrentValue = (value: string, unitType: UnitType): string => {
+    if (!value) return `0 ${getUnitTypeConfig(unitType).symbol}`;
+    try {
+      return formatUnitString(value, unitType);
+    } catch {
+      return `${value} ${getUnitTypeConfig(unitType).symbol}`;
     }
-  } catch (error) {
-    console.error('Detailed error saving product:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    toast.error(`Failed to ${product ? 'update' : 'add'} product: ${errorMessage}`);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -207,7 +222,7 @@ const handleSubmit = async (e: React.FormEvent) => {
               <option value="Steel Products">Steel Products</option>
               <option value="Rods">Rods</option>
               <option value="Building Material">Building Material</option>
-               <option value="Building Material">Wire</option>
+              <option value="Wire">Wire</option>
               <option value="Other">Other</option>
             </select>
           </div>
@@ -230,6 +245,9 @@ const handleSubmit = async (e: React.FormEvent) => {
                 </option>
               ))}
             </select>
+            <p className="text-xs text-gray-500 mt-1">
+              {getUnitHelpText(formData.unit_type)}
+            </p>
           </div>
         </div>
 
@@ -261,65 +279,46 @@ const handleSubmit = async (e: React.FormEvent) => {
             <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="current-stock">
               Current Stock Quantity
             </label>
-            {formData.unit_type === 'kg-grams' ? (
-              <div>
-                <input autoComplete="off"
-                  id="current-stock"
-                  type="text"
-                  name="current_stock"
-                  value={formData.current_stock}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="e.g., 1600, 1600-60"
-                  disabled={loading}
-                  aria-invalid={!!errors.current_stock}
-                />
-               
-              </div>
-            ) : formData.unit_type === 'kg' ? (
-              <div>
-                <input autoComplete="off"
-                  id="current-stock"
-                  type="text"
-                  name="current_stock"
-                  value={formData.current_stock}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="e.g., 500.10"
-                  disabled={loading}
-                  aria-invalid={!!errors.current_stock}
-                />
-               
-              </div>
-            ) : (
-              <div className="relative">
-                <input autoComplete="off"
-                  id="current-stock"
-                  type="number"
-                  name="current_stock"
-                  value={formData.current_stock}
-                  onChange={handleChange}
-                  step="1"
-                  min="0"
-                  className={`w-full px-3 py-2 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="0"
-                  disabled={loading}
-                  aria-invalid={!!errors.current_stock}
-                />
-                <span className="absolute right-3 top-2.5 text-sm text-gray-500">
-                  {getUnitTypeConfig(formData.unit_type).symbol}
-                </span>
-                <p className="text-xs text-gray-500 mt-1">
-                  Current stock: {formData.current_stock ? `${formData.current_stock} ${getUnitTypeConfig(formData.unit_type).symbol}` : `0 ${getUnitTypeConfig(formData.unit_type).symbol}`}
-                </p>
-              </div>
-            )}
+            <input autoComplete="off"
+              id="current-stock"
+              type="text"
+              name="current_stock"
+              value={formData.current_stock}
+              onChange={handleChange}
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+              placeholder={getUnitPlaceholder(formData.unit_type)}
+              disabled={loading}
+              aria-invalid={!!errors.current_stock}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Current stock: {renderCurrentValue(formData.current_stock, formData.unit_type)}
+            </p>
             {errors.current_stock && <p className="text-red-600 text-sm mt-1">{errors.current_stock}</p>}
           </div>
-       
+          
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">
+              Low Stock Alert Level
+            </label>
+            <input autoComplete="off"
+              id="min-stock-alert"
+              type="text"
+              name="min_stock_alert"
+              value={formData.min_stock_alert}
+              onChange={handleChange}
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+              placeholder={getUnitPlaceholder(formData.unit_type)}
+              disabled={loading}
+              aria-invalid={!!errors.min_stock_alert}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Alert below: {renderCurrentValue(formData.min_stock_alert, formData.unit_type)}
+            </p>
+            {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
+          </div>
         </div>
 
-        {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
+        {/* Optional Fields: Size and Grade */}
         <div>
           <button
             type="button"
@@ -372,68 +371,7 @@ const handleSubmit = async (e: React.FormEvent) => {
                   placeholder="e.g., 70"
                   disabled={loading}
                 />
-                  
-            
               </div>
-                 <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">
-              Low Stock Alert Level
-            </label>
-            {formData.unit_type === 'kg-grams' ? (
-              <div>
-                <input autoComplete="off"
-                  id="min-stock-alert"
-                  type="text"
-                  name="min_stock_alert"
-                  value={formData.min_stock_alert}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="e.g., 50, 50-0"
-                  disabled={loading}
-                  aria-invalid={!!errors.min_stock_alert}
-                />
-         
-              </div>
-            ) : formData.unit_type === 'kg' ? (
-              <div>
-                <input autoComplete="off"
-                  id="min-stock-alert"
-                  type="text"
-                  name="min_stock_alert"
-                  value={formData.min_stock_alert}
-                  onChange={handleChange}
-                  className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="e.g., 50.10"
-                  disabled={loading}
-                  aria-invalid={!!errors.min_stock_alert}
-                />
-            
-              </div>
-            ) : (
-              <div className="relative">
-                <input autoComplete="off"
-                  id="min-stock-alert"
-                  type="number"
-                  name="min_stock_alert"
-                  value={formData.min_stock_alert}
-                  onChange={handleChange}
-                  step="1"
-                  min="0"
-                  className={`w-full px-3 py-2 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  placeholder="0"
-                  disabled={loading}
-                  aria-invalid={!!errors.min_stock_alert}
-                />
-                <span className="absolute right-3 top-2.5 text-sm text-gray-500">
-                  {getUnitTypeConfig(formData.unit_type).symbol}
-                </span>
-                <p className="text-xs text-gray-500 mt-1">
-                  Alert below: {formData.min_stock_alert ? `${formData.min_stock_alert} ${getUnitTypeConfig(formData.unit_type).symbol}` : `0 ${getUnitTypeConfig(formData.unit_type).symbol}`}
-                </p>
-              </div>
-            )}
-            {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
-          </div>
             </div>
           </div>
         </div>
