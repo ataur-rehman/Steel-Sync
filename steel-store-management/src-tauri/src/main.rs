@@ -3,7 +3,6 @@
     windows_subsystem = "windows"
 )]
 
-use std::fs;
 use std::path::PathBuf;
 use rusqlite::Connection;
 use tauri_plugin_sql::{Builder, Migration, MigrationKind};
@@ -26,6 +25,21 @@ fn main() {
     // Ensure the database file exists by creating a connection
     match Connection::open(&db_path) {
         Ok(conn) => {
+            // Enable WAL mode for better concurrency
+            if let Err(e) = conn.execute("PRAGMA journal_mode=WAL", []) {
+                eprintln!("Failed to enable WAL mode: {}", e);
+            }
+            
+            // Set moderate busy timeout
+            if let Err(e) = conn.execute("PRAGMA busy_timeout=10000", []) {
+                eprintln!("Failed to set busy timeout: {}", e);
+            }
+            
+            // Use NORMAL synchronous mode for balance
+            if let Err(e) = conn.execute("PRAGMA synchronous=NORMAL", []) {
+                eprintln!("Failed to set synchronous mode: {}", e);
+            }
+            
             // Create a simple test table to ensure the database is working
             if let Err(e) = conn.execute(
                 "CREATE TABLE IF NOT EXISTS app_info (
@@ -46,7 +60,9 @@ fn main() {
                 eprintln!("Failed to insert app info: {}", e);
             }
             
-            println!("[TAURI] Database initialized successfully");
+            // IMPORTANT: Close the connection before starting Tauri
+            drop(conn);
+            println!("[TAURI] Database initialized successfully and connection closed");
         }
         Err(e) => {
             eprintln!("Failed to initialize database: {}", e);

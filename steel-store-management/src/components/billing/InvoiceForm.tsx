@@ -526,13 +526,24 @@ const InvoiceForm: React.FC = () => {
   };
 
   // YOUR ORIGINAL SUBMIT FUNCTION
-  const handleSubmit = async () => {
-    await refreshProductData();
-    if (!validateForm()) {
-      toast.error('Please fix the errors before submitting');
-      return;
-    }
-    setCreating(true);
+// Replace your handleSubmit function in InvoiceForm.tsx with this lock-safe version:
+
+const handleSubmit = async () => {
+  // Refresh product data first
+  await refreshProductData();
+  
+  if (!validateForm()) {
+    toast.error('Please fix the errors before submitting');
+    return;
+  }
+
+  setCreating(true);
+
+  // RETRY LOGIC: Handle database locks with exponential backoff
+  const maxRetries = 3;
+  let attempt = 0;
+
+  while (attempt < maxRetries) {
     try {
       // If customer has credit, ensure payment_amount is at least the credit up to grandTotal
       let payment_amount = formData.payment_amount;
@@ -541,6 +552,7 @@ const InvoiceForm: React.FC = () => {
         const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
         payment_amount = Math.min(credit, grandTotal);
       }
+
       const invoiceData = {
         customer_id: formData.customer_id!,
         customer_name: selectedCustomer?.name,
@@ -559,9 +571,11 @@ const InvoiceForm: React.FC = () => {
       };
       
       console.log('Creating invoice with automatic stock tracking:', invoiceData);
-      // Create invoice and update stock atomically
+      
+      // CRITICAL: Create invoice with database lock handling
       const result = await db.createInvoice(invoiceData);
       
+      // Success - invoice created
       import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
         triggerInvoiceCreatedRefresh(result);
       });
@@ -581,14 +595,117 @@ const InvoiceForm: React.FC = () => {
       resetForm();
       await loadInitialData(false);
       
+      // SUCCESS - break out of retry loop
+      break;
+      
     } catch (error: any) {
       console.error('Invoice creation error:', error);
-      toast.error(`Failed to create invoice: ${error.message || error}`);
-    } finally {
-      setCreating(false);
+      
+      // Handle database lock errors with retry
+      if ((error.message?.includes('database is locked') || 
+           error.message?.includes('SQLITE_BUSY') ||
+           error.code === 5) && attempt < maxRetries - 1) {
+        
+        attempt++;
+        const delay = 500 * Math.pow(2, attempt); // 1s, 2s, 4s delays
+        
+        console.warn(`Database locked, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+        
+        // Show user-friendly message during retry
+        toast.loading(`Database busy, retrying... (${attempt}/${maxRetries})`, {
+          id: 'db-retry',
+          duration: delay
+        });
+        
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue; // Retry the operation
+      }
+      
+      // For non-lock errors or after max retries, show error and stop
+      toast.dismiss('db-retry'); // Remove retry message
+      
+      if (error.message?.includes('database is locked') || error.code === 5) {
+        toast.error('Database is currently busy. Please try again in a moment.', {
+          duration: 5000
+        });
+      } else if (error.message?.includes('Insufficient stock')) {
+        toast.error(error.message); // Show stock error as-is
+      } else {
+        toast.error(`Failed to create invoice: ${error.message || error}`);
+      }
+      
+      break; // Stop trying
+    }
+  }
+  
+  // If we exhausted all retries due to database locks
+  if (attempt >= maxRetries) {
+    toast.error('Unable to create invoice due to database busy. Please try again later.');
+  }
+  
+  setCreating(false);
+};
+
+// ALSO ADD: Enhanced error handling for the entire component
+// Add this useEffect to handle global database errors:
+useEffect(() => {
+  const handleDatabaseError = (event: CustomEvent) => {
+    const { error, operation } = event.detail;
+    
+    if (error.message?.includes('database is locked') || error.code === 5) {
+      toast.error(`Database is busy during ${operation}. Please wait a moment and try again.`);
     }
   };
 
+  // Listen for database errors
+  window.addEventListener('DATABASE_ERROR', handleDatabaseError as EventListener);
+  
+  return () => {
+    window.removeEventListener('DATABASE_ERROR', handleDatabaseError as EventListener);
+  };
+}, []);
+
+// ALSO UPDATE: The creating state message
+// In your button, update the creating text to be more informative:
+{creating ? (
+  <>
+    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+    Creating Invoice... {/* This will show retry attempts automatically via toast */}
+  </>
+) : (
+  <>
+    <CheckCircle className="h-4 w-4 mr-2" />
+    Create Invoice & Update Stock
+  </>
+)}
+
+// ADDITIONAL: Add this helper function to your component for better UX
+const [retryCount, setRetryCount] = useState(0);
+
+// Update the submit button to show retry status
+const getSubmitButtonText = () => {
+  if (creating) {
+    if (retryCount > 0) {
+      return `Retrying... (${retryCount}/3)`;
+    }
+    return 'Creating Invoice...';
+  }
+  return 'Create Invoice & Update Stock';
+};
+
+// And update your button text:
+{creating ? (
+  <>
+    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+    {getSubmitButtonText()}
+  </>
+) : (
+  <>
+    <CheckCircle className="h-4 w-4 mr-2" />
+    Create Invoice & Update Stock
+  </>
+)}
   const resetForm = () => {
     setFormData({
       customer_id: null,
