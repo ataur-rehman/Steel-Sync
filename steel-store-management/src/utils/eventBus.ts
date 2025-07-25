@@ -1,29 +1,81 @@
-// Event Bus for cross-component communication
+// Event Bus for cross-component communication with enhanced real-time capabilities
 class EventBus {
   private events: { [key: string]: Function[] } = {};
+  private debug: boolean = false; // Set to true for debugging
+
+  constructor() {
+    // Enable debugging in development
+    this.debug = import.meta.env.DEV || false;
+  }
 
   on(event: string, callback: Function) {
     if (!this.events[event]) {
       this.events[event] = [];
     }
     this.events[event].push(callback);
+    
+    if (this.debug) {
+      console.log(`🔔 EventBus: Registered listener for '${event}' (${this.events[event].length} total listeners)`);
+    }
   }
 
   off(event: string, callback: Function) {
     if (this.events[event]) {
+      const originalLength = this.events[event].length;
       this.events[event] = this.events[event].filter(cb => cb !== callback);
+      
+      if (this.debug) {
+        console.log(`🔇 EventBus: Removed listener for '${event}' (${originalLength} -> ${this.events[event].length} listeners)`);
+      }
     }
   }
 
   emit(event: string, data?: any) {
+    if (this.debug) {
+      console.log(`🚀 EventBus: Emitting '${event}'`, data);
+    }
+    
     if (this.events[event]) {
-      this.events[event].forEach(callback => {
+      const listeners = this.events[event];
+      
+      if (this.debug) {
+        console.log(`📢 EventBus: Notifying ${listeners.length} listeners for '${event}'`);
+      }
+      
+      listeners.forEach((callback, index) => {
         try {
           callback(data);
+          
+          if (this.debug) {
+            console.log(`✅ EventBus: Listener ${index + 1}/${listeners.length} executed successfully for '${event}'`);
+          }
         } catch (error) {
-          console.error('Error in event callback:', error);
+          console.error(`❌ EventBus: Error in listener ${index + 1} for '${event}':`, error);
         }
       });
+    } else if (this.debug) {
+      console.warn(`⚠️ EventBus: No listeners registered for '${event}'`);
+    }
+  }
+
+  // Get active listeners count for debugging
+  getListenerCount(event?: string): number | { [key: string]: number } {
+    if (event) {
+      return this.events[event]?.length || 0;
+    }
+    
+    const counts: { [key: string]: number } = {};
+    Object.keys(this.events).forEach(eventName => {
+      counts[eventName] = this.events[eventName].length;
+    });
+    return counts;
+  }
+
+  // Clear all listeners (useful for cleanup)
+  clearAll() {
+    this.events = {};
+    if (this.debug) {
+      console.log('🧹 EventBus: Cleared all listeners');
     }
   }
 }
@@ -47,12 +99,18 @@ export const BUSINESS_EVENTS = {
   // Customer events
   CUSTOMER_CREATED: 'customer:created',
   CUSTOMER_UPDATED: 'customer:updated',
+  CUSTOMER_DELETED: 'customer:deleted',
   CUSTOMER_BALANCE_UPDATED: 'customer:balance_updated',
   
   // Product events
   PRODUCT_CREATED: 'product:created',
   PRODUCT_UPDATED: 'product:updated',
   PRODUCT_DELETED: 'product:deleted',
+  
+  // Vendor events
+  VENDOR_CREATED: 'vendor:created',
+  VENDOR_UPDATED: 'vendor:updated',
+  VENDOR_DELETED: 'vendor:deleted',
   
   // Ledger events
   CUSTOMER_LEDGER_UPDATED: 'customer_ledger:updated',

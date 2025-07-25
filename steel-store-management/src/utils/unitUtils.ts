@@ -560,6 +560,31 @@ export function parseUnit(unitString: string | number | null | undefined, unitTy
     return parsed.numericValue;
   }
 
+  /**
+   * CRITICAL FIX: Create unit string from numeric value
+   * This function converts a numeric value (in base units) back to proper unit string
+   * @param numericValue - Numeric value in base units (grams for kg-grams, direct value for others)
+   * @param unitType - Type of unit
+   * @returns Properly formatted unit string
+   */
+  export function createUnitFromNumericValue(numericValue: number, unitType: UnitType = 'kg-grams'): string {
+    if (unitType === 'kg-grams') {
+      // numericValue is in grams, convert to kg-grams format
+      const kg = Math.floor(numericValue / 1000);
+      const grams = numericValue % 1000;
+      return grams > 0 ? `${kg}-${grams}` : `${kg}`;
+    } else if (unitType === 'kg') {
+      // numericValue is in grams, convert to kg decimal format
+      const kg = Math.floor(numericValue / 1000);
+      const grams = numericValue % 1000;
+      const decimalValue = kg + (grams / 1000);
+      return decimalValue.toString();
+    } else {
+      // For simple units, numericValue is the direct value
+      return numericValue.toString();
+    }
+  }
+
   // Legacy functions for backward compatibility (will be phased out)
   export const createUnit = createKgGramsUnit;
   export const formatUnit = formatKgGrams;

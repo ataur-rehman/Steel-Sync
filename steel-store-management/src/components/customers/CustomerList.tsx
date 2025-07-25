@@ -7,6 +7,7 @@ import { Plus, Edit, Eye, Trash2, Users, Search } from 'lucide-react';
 import Modal from '../common/Modal';
 import CustomerForm from './CustomerForm';
 import { formatCurrency } from '../../utils/calculations';
+import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 
 export default function CustomerList() {
   const navigate = useNavigate();
@@ -21,6 +22,21 @@ export default function CustomerList() {
   useEffect(() => {
     loadCustomers();
   }, [searchQuery]);
+
+  // Real-time updates: Refresh customer list when customers change
+  useAutoRefresh(
+    () => {
+      console.log('🔄 CustomerList: Auto-refreshing due to real-time event');
+      loadCustomers();
+    },
+    [
+      'CUSTOMER_CREATED',
+      'CUSTOMER_UPDATED',
+      'CUSTOMER_DELETED',
+      'CUSTOMER_BALANCE_UPDATED'
+    ],
+    [searchQuery] // Re-subscribe if search query changes
+  );
 
   const loadCustomers = async () => {
     try {

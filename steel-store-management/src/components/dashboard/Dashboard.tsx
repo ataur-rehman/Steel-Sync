@@ -4,6 +4,7 @@ import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
 import { formatUnitString } from '../../utils/unitUtils';
 import { AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
+import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 
 interface DashboardStats {
   todaySales: number;
@@ -51,6 +52,23 @@ export default function Dashboard() {
   useEffect(() => {
     loadDashboardData();
   }, []);
+
+  // Real-time updates: Refresh dashboard when any relevant data changes
+  useAutoRefresh(
+    () => {
+      console.log('🔄 Dashboard: Auto-refreshing due to real-time event');
+      loadDashboardData();
+    },
+    [
+      'INVOICE_CREATED',
+      'INVOICE_UPDATED',
+      'PAYMENT_RECORDED',
+      'CUSTOMER_CREATED',
+      'STOCK_UPDATED',
+      'STOCK_ADJUSTMENT_MADE',
+      'CUSTOMER_BALANCE_UPDATED'
+    ]
+  );
 
   const loadDashboardData = async () => {
     try {

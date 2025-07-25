@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import Modal from '../common/Modal';
 import ProductForm from './ProductForm';
 import { formatUnitString, parseUnit } from '../../utils/unitUtils';
+import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 
 const ProductList: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
@@ -23,6 +24,23 @@ const ProductList: React.FC = () => {
   useEffect(() => {
     loadProducts();
   }, [searchTerm, selectedCategory]);
+
+  // Real-time updates: Refresh product list when products or stock changes
+  useAutoRefresh(
+    () => {
+      console.log('🔄 ProductList: Auto-refreshing due to real-time event');
+      loadProducts();
+    },
+    [
+      'PRODUCT_CREATED',
+      'PRODUCT_UPDATED',
+      'PRODUCT_DELETED',
+      'STOCK_UPDATED',
+      'STOCK_MOVEMENT_CREATED',
+      'STOCK_ADJUSTMENT_MADE'
+    ],
+    [searchTerm, selectedCategory] // Re-subscribe if filters change
+  );
 
   const initializeData = async () => {
     try {

@@ -25,11 +25,13 @@ import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashbo
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
 import NotificationsPage from './components/notifications/NotificationsPage';
+import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
 
 import toast from 'react-hot-toast';
 import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
 import StockReceivingPayment from "./components/stock/StockReceivingPayment";
+import { Activity } from 'lucide-react';
 
 
 function LoginForm() {
@@ -128,6 +130,35 @@ const [companyName, setCompanyName] = React.useState('Itehad Iron Store');
 
 function AppContent() {
   const { user, loading } = useAuth();
+  const [showEventMonitor, setShowEventMonitor] = React.useState(false);
+  
+  // Show event monitor in development mode with Ctrl+Shift+E
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+        e.preventDefault();
+        setShowEventMonitor(true);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+<p className="text-gray-600">Initializing Deep Linking System...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginForm />;
+  }
 
   if (loading) {
     return (
@@ -145,10 +176,22 @@ function AppContent() {
   }
 
   return (
-    <Router>
-      <NavigationProvider>
-        <AppLayout>
-          <Routes>
+    <>
+      <Router>
+        <NavigationProvider>
+          <AppLayout>
+            {/* Development tool: Event Monitor Button (only in development) */}
+            {import.meta.env.DEV && (
+              <button
+                onClick={() => setShowEventMonitor(true)}
+                className="fixed bottom-4 right-4 z-40 rounded-full bg-green-600 p-3 text-white shadow-lg hover:bg-green-700 transition-colors"
+                title="Real-Time Event Monitor (Ctrl+Shift+E)"
+              >
+                <Activity className="h-5 w-5" />
+              </button>
+            )}
+            
+            <Routes>
             {/* Dashboard - Enhanced with drill-down capabilities */}
             <Route path="/" element={<Dashboard />} />
             <Route path="/dashboard" element={<Dashboard />} />
@@ -297,6 +340,15 @@ function AppContent() {
         </AppLayout>
       </NavigationProvider>
     </Router>
+    
+    {/* Real-Time Event Monitor for Development */}
+    {import.meta.env.DEV && (
+      <RealTimeEventMonitor 
+        isOpen={showEventMonitor} 
+        onClose={() => setShowEventMonitor(false)} 
+      />
+    )}
+    </>
   );
 }
 

@@ -51,10 +51,26 @@ export interface InvoiceItem {
   product_id: number;
   product_name: string;
   unit: string;
-  quantity: number;
-  rate: number;
-  total: number;
+  quantity: string; // Changed to string for unit format compatibility
+  unit_price: number;
+  total_price: number;
   max_quantity?: number;
+}
+
+// Enhanced invoice creation interface
+export interface InvoiceCreationData {
+  customer_id: number;
+  items: {
+    product_id: number;
+    product_name?: string;
+    quantity: string;
+    unit_price: number;
+    total_price: number;
+  }[];
+  discount?: number;
+  payment_amount?: number;
+  payment_method?: string;
+  notes?: string;
 }
 
 export interface Payment {

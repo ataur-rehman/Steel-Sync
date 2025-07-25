@@ -4,6 +4,7 @@ import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
 import { Search, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 
 // Types
 interface Vendor {
@@ -323,6 +324,19 @@ const StockReceivingList: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [filters]);
+
+  // Real-time updates: Refresh receiving list when stock or payments change
+  useAutoRefresh(
+    () => {
+      console.log('🔄 StockReceivingList: Auto-refreshing due to real-time event');
+      loadData();
+    },
+    [
+      'STOCK_UPDATED',
+      'PAYMENT_RECORDED'
+    ],
+    [filters] // Re-subscribe if filters change
+  );
 
   // Helper functions
   const getStatusInfo = (status: string) => {

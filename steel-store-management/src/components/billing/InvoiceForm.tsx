@@ -681,7 +681,7 @@ useEffect(() => {
 )}
 
 // ADDITIONAL: Add this helper function to your component for better UX
-const [retryCount, setRetryCount] = useState(0);
+const [retryCount] = useState(0);
 
 // Update the submit button to show retry status
 const getSubmitButtonText = () => {
