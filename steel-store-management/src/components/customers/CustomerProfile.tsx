@@ -243,4 +243,9 @@ export default function CustomerProfile() {
       </div>
     </div>
   );
-}
+      }}
+    />
+  );
+};
+
+export default NoFlickerCustomerProfile;
