@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
+import { useSmartNavigation } from '../../hooks/useSmartNavigation';
+import SmartDetailHeader from '../common/SmartDetailHeader';
+import { Edit, Trash2, FileText } from 'lucide-react';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-PK', {
@@ -23,13 +26,37 @@ const formatReceivingNumber = (num: string) => {
 
 const VendorDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { getFromPage, navigateTo } = useSmartNavigation();
   const [vendor, setVendor] = useState<any>(null);
   const [vendorPayments, setVendorPayments] = useState<any[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
   const [vendorReceivings, setVendorReceivings] = useState<any[]>([]);
   const [loadingReceivings, setLoadingReceivings] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Action handlers
+  const handleEdit = () => {
+    navigateTo(`/vendors/${id}/edit`);
+  };
+
+  const handleDelete = async () => {
+    if (!vendor) return;
+    
+    const confirmed = window.confirm(`Are you sure you want to delete vendor "${vendor.name}"?`);
+    if (confirmed) {
+      try {
+        await db.deleteVendor(vendor.id);
+        toast.success('Vendor deleted successfully');
+        navigateTo('/vendors');
+      } catch (error) {
+        toast.error('Failed to delete vendor');
+      }
+    }
+  };
+
+  const handleViewPurchases = () => {
+    navigateTo(`/stock/receiving?vendor=${vendor?.id}`);
+  };
 
   useEffect(() => {
     const fetchVendor = async () => {
@@ -92,39 +119,59 @@ const VendorDetail: React.FC = () => {
 
   if (!vendor) {
     return (
-      <div className="space-y-8 p-6">
-        <div className="card p-12 text-center">
-          <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
-            🏢
+      <div className="min-h-screen bg-gray-50">
+        <SmartDetailHeader
+          title="Vendor Not Found"
+          subtitle="The requested vendor could not be found"
+          backToListPath="/vendors"
+          backToListLabel="Back to Vendors"
+          backButtonMode="list"
+        />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <p className="text-gray-500">The vendor you're looking for doesn't exist or has been deleted.</p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Vendor Not Found</h3>
-          <p className="text-gray-500 mb-6">The requested vendor could not be found.</p>
-          <button
-            onClick={() => navigate('/vendors')}
-            className="btn btn-primary"
-          >
-            Back to Vendors
-          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{vendor.name}</h1>
-        <p className="mt-1 text-sm text-gray-500">Vendor profile and transaction history</p>
-      </div>
-      <button
-        onClick={() => navigate('/vendors')}
-        className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
-      >
-        Back to Vendors
-      </button>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      <SmartDetailHeader
+        title={vendor.name}
+        subtitle="Vendor profile and transaction history"
+        fromPage={getFromPage() || undefined}
+        backButtonMode="auto"
+        actions={
+          <div className="flex space-x-3">
+            <button
+              onClick={handleEdit}
+              className="btn btn-secondary flex items-center px-4 py-2 text-sm"
+            >
+              <Edit className="h-4 w-4 mr-2" />
+              Edit
+            </button>
+            <button
+              onClick={handleViewPurchases}
+              className="btn btn-primary flex items-center px-4 py-2 text-sm"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              View Purchases
+            </button>
+            <button
+              onClick={handleDelete}
+              className="btn btn-danger flex items-center px-4 py-2 text-sm"
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              Delete
+            </button>
+          </div>
+        }
+      />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="space-y-8">
 
       {/* Vendor Info Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -359,6 +406,8 @@ const VendorDetail: React.FC = () => {
           </table>
         )}
         </div>
+      </div>
+      </div>
       </div>
       </div>
     </div>

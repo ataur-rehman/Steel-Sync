@@ -5,17 +5,14 @@ import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import {
   Search,
-
   FileText,
-
   Plus,
- 
   Users,
   Receipt,
   Download,
   Printer,
-  ArrowLeft,
-  Eye
+  Eye,
+  ArrowLeft
 } from 'lucide-react';
 
 // Enhanced interfaces with stock movement integration
@@ -78,6 +75,221 @@ interface PaymentEntry {
   date: string;
 }
 
+// Customer List View as a separate component - moved outside to prevent recreation
+interface CustomerListViewProps {
+  customers: Customer[];
+  filteredCustomers: Customer[];
+  customersLoading: boolean;
+  customerSearch: string;
+  onCustomerSearchChange: (value: string) => void;
+  onClearSearch: () => void;
+  onSelectCustomer: (customer: Customer) => void;
+  onSelectCustomerForPayment: (customer: Customer) => void;
+  onNavigateToNewInvoice: (customer: Customer) => void;
+  formatCurrency: (amount: number | undefined | null) => string;
+}
+
+// Move CustomerListView outside the main component to prevent recreation on every render
+const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
+  customers,
+  filteredCustomers,
+  customersLoading,
+  customerSearch,
+  onCustomerSearchChange,
+  onClearSearch,
+  onSelectCustomer,
+  onSelectCustomerForPayment,
+  onNavigateToNewInvoice,
+  formatCurrency
+}) => {
+  return (
+    <div className="space-y-6 p-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
+          <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({filteredCustomers.length} customers)</span></p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white border border-gray-200 rounded-xl p-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search */}
+          <div className="relative">
+            <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
+            <input
+              key="customer-search-input"
+              type="text"
+              placeholder="Search by name, phone, or CNIC..."
+              value={customerSearch}
+              onChange={(e) => onCustomerSearchChange(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+              aria-label="Search customers"
+            />
+          </div>
+
+          {/* Placeholder for consistency */}
+          <div></div>
+          <div></div>
+
+          {/* Clear Filters */}
+          <div>
+            <button 
+              onClick={onClearSearch} 
+              className="btn btn-secondary w-full px-3 py-1.5 text-sm"
+            >
+              Clear Search
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Total Customers</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">{customers.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Total Receivables</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {formatCurrency(customers.reduce((sum, c) => sum + Math.max(0, c.total_balance), 0))}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Outstanding</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {customers.filter(c => c.total_balance > 0).length}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-600">Paid Up</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">
+                {customers.filter(c => c.total_balance <= 0).length}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Customer Table */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-100">
+            {customersLoading ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                </td>
+              </tr>
+            ) : filteredCustomers.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-6 py-12 text-center">
+                  <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-500">No customers found</p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    {customerSearch ? 'Try adjusting your search terms.' : 'No customers have been added yet.'}
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              filteredCustomers.map(customer => {
+                const hasCredit = customer.total_balance < 0;
+                const hasBalance = customer.total_balance > 0;
+                const balanceStatus = hasCredit
+                  ? { status: 'Credit', color: 'text-green-600 bg-green-100' }
+                  : hasBalance
+                  ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
+                  : { status: 'Clear', color: 'text-gray-700 bg-gray-100' };
+                return (
+                  <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {customer.phone || '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <div className="max-w-xs truncate" title={customer.address}>
+                        {customer.address || '-'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <span className={hasBalance ? 'text-red-600 font-semibold' : 'text-gray-700'}>
+                        {formatCurrency(customer.total_balance)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${balanceStatus.color}`}>
+                        {balanceStatus.status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => onSelectCustomer(customer)}
+                          className="btn btn-secondary flex items-center px-2 py-1 text-xs"
+                          title="View Ledger"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => onSelectCustomerForPayment(customer)}
+                          className="btn btn-primary flex items-center px-2 py-1 text-xs"
+                          title="Add Payment"
+                        >
+                          <Receipt className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => onNavigateToNewInvoice(customer)}
+                          className="btn btn-success flex items-center px-2 py-1 text-xs"
+                          title="New Invoice"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+});
+
+// Add display name for debugging
+CustomerListView.displayName = 'CustomerListView';
+
 const CustomerLedger: React.FC = () => {
   // State management
   const navigate = useNavigate();
@@ -100,7 +312,7 @@ const CustomerLedger: React.FC = () => {
     search: ''
   });
 
-  // Search state
+  // Search state - use a ref to prevent component re-creation
   const [customerSearch, setCustomerSearch] = useState('');
 
   // Payment form
@@ -557,218 +769,6 @@ const CustomerLedger: React.FC = () => {
     };
   };
 
-// Customer List View as a separate component
-interface CustomerListViewProps {
-  customers: Customer[];
-  filteredCustomers: Customer[];
-  customersLoading: boolean;
-  customerSearch: string;
-  onCustomerSearchChange: (value: string) => void;
-  onClearSearch: () => void;
-  onSelectCustomer: (customer: Customer) => void;
-  onSelectCustomerForPayment: (customer: Customer) => void;
-  onNavigateToNewInvoice: (customer: Customer) => void;
-  formatCurrency: (amount: number | undefined | null) => string;
-}
-
-const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
-  customers,
-  filteredCustomers,
-  customersLoading,
-  customerSearch,
-  onCustomerSearchChange,
-  onClearSearch,
-  onSelectCustomer,
-  onSelectCustomerForPayment,
-  onNavigateToNewInvoice,
-  formatCurrency
-}) => {
-  console.log('CustomerListView re-rendered'); // Debug log to see if it's re-rendering
-  
-  return (
-  <div className="space-y-6 p-6">
-    {/* Header */}
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
-        <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({filteredCustomers.length} customers)</span></p>
-      </div>
-    </div>
-
-    {/* Filters */}
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Search */}
-        <div className="relative">
-          <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by name, phone, or CNIC..."
-            value={customerSearch}
-            onChange={(e) => onCustomerSearchChange(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            aria-label="Search customers"
-          />
-        </div>
-
-        {/* Placeholder for consistency */}
-        <div></div>
-        <div></div>
-
-        {/* Clear Filters */}
-        <div>
-          <button 
-            onClick={onClearSearch} 
-            className="btn btn-secondary w-full px-3 py-1.5 text-sm"
-          >
-            Clear Search
-          </button>
-        </div>
-      </div>
-    </div>
-
-    {/* Stats Cards */}
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600">Total Customers</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{customers.length}</p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600">Total Receivables</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(customers.reduce((sum, c) => sum + Math.max(0, c.total_balance), 0))}
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600">Outstanding</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {customers.filter(c => c.total_balance > 0).length}
-            </p>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-gray-600">Paid Up</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {customers.filter(c => c.total_balance <= 0).length}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Customer Table */}
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-          </tr>
-        </thead>
-        <tbody className="bg-white divide-y divide-gray-100">
-          {customersLoading ? (
-            <tr>
-              <td colSpan={6} className="px-6 py-12 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-              </td>
-            </tr>
-          ) : filteredCustomers.length === 0 ? (
-            <tr>
-              <td colSpan={6} className="px-6 py-12 text-center">
-                <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-500">No customers found</p>
-                <p className="text-sm text-gray-400 mt-1">
-                  {customerSearch ? 'Try adjusting your search terms.' : 'No customers have been added yet.'}
-                </p>
-              </td>
-            </tr>
-          ) : (
-            filteredCustomers.map(customer => {
-              const hasCredit = customer.total_balance < 0;
-              const hasBalance = customer.total_balance > 0;
-              const balanceStatus = hasCredit
-                ? { status: 'Credit', color: 'text-green-600 bg-green-100' }
-                : hasBalance
-                ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
-                : { status: 'Clear', color: 'text-gray-700 bg-gray-100' };
-              return (
-                <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {customer.phone || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    <div className="max-w-xs truncate" title={customer.address}>
-                      {customer.address || '-'}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span className={hasBalance ? 'text-red-600 font-semibold' : 'text-gray-700'}>
-                      {formatCurrency(customer.total_balance)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${balanceStatus.color}`}>
-                      {balanceStatus.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => onSelectCustomer(customer)}
-                        className="btn btn-secondary flex items-center px-2 py-1 text-xs"
-                        title="View Ledger"
-                      >
-                        <Eye className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => onSelectCustomerForPayment(customer)}
-                        className="btn btn-primary flex items-center px-2 py-1 text-xs"
-                        title="Add Payment"
-                      >
-                        <Receipt className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => onNavigateToNewInvoice(customer)}
-                        className="btn btn-success flex items-center px-2 py-1 text-xs"
-                        title="New Invoice"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })
-          )}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)
-});
-
   // Enhanced Ledger View
   const LedgerView = () => {
     const totalDebits = filteredTransactions.reduce((sum, tx) => sum + (tx.debit_amount ?? tx.invoice_amount ?? 0), 0);
@@ -784,9 +784,10 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
             <div className="flex items-center gap-3 mb-2">
               <button
                 onClick={() => setCurrentView('customers')}
-                className="flex items-center text-blue-600 hover:text-blue-800 font-medium"
+                className="flex items-center text-gray-600 hover:text-gray-900 transition-colors px-2 py-1"
+                title="Back to Customers"
               >
-                <ArrowLeft className="h-4 w-4 mr-1" />
+                <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Customers
               </button>
             </div>

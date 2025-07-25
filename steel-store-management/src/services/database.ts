@@ -1,6 +1,7 @@
 
 import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericValue } from '../utils/unitUtils';
+import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
 
 // PRODUCTION-READY: Enhanced interfaces for comprehensive data management
 interface StockMovement {
@@ -60,6 +61,7 @@ interface InvoiceCreationData {
   payment_amount?: number;
   payment_method?: string;
   notes?: string;
+  date?: string; // Optional date field
 }
 
 interface InvoiceItem {
@@ -281,6 +283,34 @@ export class DatabaseService {
       (this.metrics.averageResponseTime + responseTime) / 2;
   }
 
+  // CACHE INVALIDATION: Methods to clear relevant cache entries
+  private invalidateCacheByPattern(pattern: string): void {
+    const keysToDelete: string[] = [];
+    for (const key of this.queryCache.keys()) {
+      if (key.includes(pattern)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach(key => this.queryCache.delete(key));
+    console.log(`🗑️ Cache invalidation: Removed ${keysToDelete.length} entries matching pattern: ${pattern}`);
+  }
+
+  private invalidateProductCache(): void {
+    this.invalidateCacheByPattern('products_');
+    console.log('🔄 Product cache invalidated for real-time updates');
+  }
+
+  private invalidateCustomerCache(): void {
+    this.invalidateCacheByPattern('customers_');
+    console.log('🔄 Customer cache invalidated for real-time updates');
+  }
+
+  private invalidateInvoiceCache(): void {
+    this.invalidateCacheByPattern('invoices_');
+    this.invalidateCacheByPattern('dashboard_');
+    console.log('🔄 Invoice cache invalidated for real-time updates');
+  }
+
   // HEALTH: Database connection health check
   private async checkConnectionHealth(): Promise<boolean> {
     try {
@@ -429,19 +459,18 @@ export class DatabaseService {
         );
       }
 
+      // CACHE INVALIDATION: Clear product cache for real-time updates
+      this.invalidateProductCache();
+
       // REAL-TIME UPDATE: Emit product update event using EventBus
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          const eventData = { productId: id, product };
-          (window as any).eventBus.emit('product:updated', eventData);
-          console.log(`✅ PRODUCT_UPDATED event emitted for product ID: ${id}`, eventData);
-          
-          // Also emit a more generic event that the ProductList might be listening to
-          (window as any).eventBus.emit('PRODUCT_UPDATED', eventData);
-          console.log(`✅ Legacy PRODUCT_UPDATED event also emitted for backwards compatibility`);
-        } else {
-          console.warn('❌ EventBus not available on window object');
-        }
+        const eventData = { productId: id, product };
+        eventBus.emit(BUSINESS_EVENTS.PRODUCT_UPDATED, eventData);
+        console.log(`✅ PRODUCT_UPDATED event emitted for product ID: ${id}`, eventData);
+        
+        // Also emit legacy event for backwards compatibility
+        eventBus.emit('PRODUCT_UPDATED', eventData);
+        console.log(`✅ Legacy PRODUCT_UPDATED event also emitted for backwards compatibility`);
       } catch (eventError) {
         console.warn('Could not emit PRODUCT_UPDATED event:', eventError);
       }
@@ -468,12 +497,18 @@ export class DatabaseService {
       // Remove from products
       await this.database?.execute(`DELETE FROM products WHERE id = ?`, [id]);
 
+      // CACHE INVALIDATION: Clear product cache for real-time updates
+      this.invalidateProductCache();
+
       // REAL-TIME UPDATE: Emit product delete event using EventBus
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          (window as any).eventBus.emit('product:deleted', { productId: id });
-          console.log(`✅ PRODUCT_DELETED event emitted for product ID: ${id}`);
-        }
+        const eventData = { productId: id };
+        eventBus.emit(BUSINESS_EVENTS.PRODUCT_DELETED, eventData);
+        console.log(`✅ PRODUCT_DELETED event emitted for product ID: ${id}`, eventData);
+        
+        // Also emit legacy event for backwards compatibility
+        eventBus.emit('PRODUCT_DELETED', eventData);
+        console.log(`✅ Legacy PRODUCT_DELETED event also emitted for backwards compatibility`);
       } catch (eventError) {
         console.warn('Could not emit PRODUCT_DELETED event:', eventError);
       }
@@ -815,7 +850,27 @@ export class DatabaseService {
           console.log('⚡ Creating missing critical tables:', missingCriticalTables);
           await this.createCriticalTables();
         } else {
-          console.log('✅ All critical tables exist - skipping creation for fast startup');
+          console.log('✅ All critical tables exist - checking for required columns...');
+          
+          // Check if invoices table has date column, add if missing
+          try {
+            await this.database.execute("SELECT date FROM invoices LIMIT 1");
+            console.log('✅ Date column exists in invoices table');
+          } catch (error) {
+            console.log('📋 Adding missing date column to invoices table...');
+            try {
+              await this.database.execute("ALTER TABLE invoices ADD COLUMN date TEXT DEFAULT (date('now'))");
+              // Update existing invoices to have proper date
+              await this.database.execute(`
+                UPDATE invoices 
+                SET date = date(created_at) 
+                WHERE date IS NULL OR date = ''
+              `);
+              console.log('✅ Date column added to invoices table');
+            } catch (alterError) {
+              console.warn('⚠️ Could not add date column (may already exist):', alterError);
+            }
+          }
         }
 
         // BACKGROUND: Create remaining tables in background (non-blocking)
@@ -1025,14 +1080,15 @@ private async createInvoiceCore(invoiceData: InvoiceCreationData, _transactionId
     `INSERT INTO invoices (
       bill_number, customer_id, customer_name, subtotal, discount, discount_amount,
       grand_total, payment_amount, payment_method, remaining_balance, notes,
-      status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      status, date, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [
       billNumber, invoiceData.customer_id, customer.name, subtotal,
       invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
       invoiceData.payment_method || 'cash', remainingBalance,
       this.sanitizeInput(invoiceData.notes || '', 1000),
-      remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending')
+      remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
+      invoiceData.date || new Date().toISOString().split('T')[0] // Use provided date or today
     ]
   );
 
@@ -1150,17 +1206,29 @@ private async generateUniqueBillNumber(): Promise<string> {
 // EVENTS: Emit events for real-time updates
 private emitInvoiceEvents(invoice: any): void {
   try {
-    if (typeof window !== 'undefined' && (window as any).eventBus?.emit) {
-      (window as any).eventBus.emit('INVOICE_CREATED', {
-        invoiceId: invoice.id,
-        billNumber: invoice.bill_number,
-        customerId: invoice.customer_id,
-        customerName: invoice.customer_name,
-        grandTotal: invoice.grand_total,
-        remainingBalance: invoice.remaining_balance,
-        created_at: invoice.created_at
-      });
-    }
+    // Use imported eventBus for reliable event emission
+    eventBus.emit(BUSINESS_EVENTS.INVOICE_CREATED, {
+      invoiceId: invoice.id,
+      billNumber: invoice.bill_number,
+      customerId: invoice.customer_id,
+      customerName: invoice.customer_name,
+      grandTotal: invoice.grand_total,
+      remainingBalance: invoice.remaining_balance,
+      created_at: invoice.created_at
+    });
+
+    // Also emit related events for comprehensive updates
+    eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+      invoiceId: invoice.id,
+      items: invoice.items || []
+    });
+
+    eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+      customerId: invoice.customer_id,
+      customerName: invoice.customer_name
+    });
+
+    console.log(`🚀 Real-time events emitted for invoice ${invoice.bill_number}`);
   } catch (error) {
     console.warn('Could not emit invoice events:', error);
   }
@@ -1262,21 +1330,30 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
     if (!this.isInitialized) {
       await this.initialize();
     }
-    let query = 'SELECT * FROM products WHERE 1=1';
-    const params: any[] = [];
-    if (search) {
-      query += ' AND (name LIKE ? OR category LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+    let query = 'SELECT * FROM products WHERE status = ?';
+    const params: any[] = ['active']; // Only show active products
+    
+    if (search && search.trim()) {
+      const searchTerm = search.trim();
+      // Performance optimization: Use prefix search when possible, fallback to full search
+      if (searchTerm.length >= 2) {
+        query += ` AND (name LIKE ? OR name LIKE ? OR category LIKE ?)`;
+        params.push(`${searchTerm}%`, `% ${searchTerm}%`, `%${searchTerm}%`);
+      }
     }
-    if (category) {
+    
+    if (category && category.trim()) {
       query += ' AND category = ?';
-      params.push(category);
+      params.push(category.trim());
     }
+    
     query += ' ORDER BY name ASC';
-    if (options?.limit) {
+    
+    if (options?.limit && options.limit > 0) {
       query += ' LIMIT ? OFFSET ?';
       params.push(options.limit, options.offset || 0);
     }
+    
     const products = await this.database?.select(query, params);
     return products || [];
   }
@@ -1342,6 +1419,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           remaining_balance REAL NOT NULL CHECK (remaining_balance >= -0.01),
           status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'partially_paid', 'paid', 'cancelled')),
           notes TEXT,
+          date TEXT NOT NULL DEFAULT (date('now')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE
@@ -3829,8 +3907,6 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
         await this.initialize();
       }
 
-      
-
       const invoices = await this.database?.select(`
         SELECT * FROM invoices WHERE id = ?
       `, [invoiceId]);
@@ -3843,6 +3919,164 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
     } catch (error) {
       console.error('Error getting invoice details:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get single invoice by ID (alias for getInvoiceDetails for compatibility)
+   */
+  async getInvoice(invoiceId: number): Promise<any> {
+    return this.getInvoiceDetails(invoiceId);
+  }
+
+  /**
+   * Get invoice items for a specific invoice
+   */
+  async getInvoiceItems(invoiceId: number): Promise<any[]> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      const items = await this.database?.select(`
+        SELECT 
+          ii.*,
+          p.unit_type
+        FROM invoice_items ii
+        LEFT JOIN products p ON ii.product_id = p.id
+        WHERE ii.invoice_id = ?
+        ORDER BY ii.id ASC
+      `, [invoiceId]);
+      
+      return items || [];
+    } catch (error) {
+      console.error('Error getting invoice items:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete invoice and all related records
+   */
+  async deleteInvoice(invoiceId: number): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Start transaction for safe deletion
+      await this.database?.execute('BEGIN TRANSACTION');
+
+      try {
+        // Get invoice details before deletion for rollback purposes
+        const invoice = await this.getInvoiceDetails(invoiceId);
+        if (!invoice) {
+          throw new Error('Invoice not found');
+        }
+
+        // Get invoice items to restore stock
+        const items = await this.getInvoiceItems(invoiceId);
+        
+        // Restore stock for each item
+        for (const item of items) {
+          const product = await this.getProduct(item.product_id);
+          if (product) {
+            // Parse current stock and item quantity
+            const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+            const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'piece');
+            
+            const currentStock = currentStockData.numericValue;
+            const itemQuantity = itemQuantityData.numericValue;
+            const newStock = currentStock + itemQuantity; // Add back the stock
+
+            // Update product stock
+            const newStockString = formatUnitString(
+              createUnitFromNumericValue(newStock, product.unit_type || 'piece'),
+              product.unit_type || 'piece'
+            );
+
+            await this.database?.execute(
+              'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+              [newStockString, new Date().toISOString(), item.product_id]
+            );
+
+            // Create stock movement record for audit trail
+            await this.database?.execute(
+              `INSERT INTO stock_movements (
+                product_id, movement_type, quantity, reference_type, reference_id,
+                notes, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.product_id, 'in', item.quantity, 'invoice_deleted', invoiceId,
+                `Stock restored due to invoice deletion (Bill: ${invoice.bill_number})`,
+                new Date().toISOString(), new Date().toISOString()
+              ]
+            );
+          }
+        }
+
+        // Update customer balance if needed
+        if (invoice.remaining_balance > 0) {
+          await this.database?.execute(
+            'UPDATE customers SET balance = balance - ?, updated_at = ? WHERE id = ?',
+            [invoice.remaining_balance, new Date().toISOString(), invoice.customer_id]
+          );
+        }
+
+        // Delete related records in correct order
+        await this.database?.execute('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
+        await this.database?.execute('DELETE FROM stock_movements WHERE reference_type = "invoice" AND reference_id = ?', [invoiceId]);
+        await this.database?.execute('DELETE FROM ledger_entries WHERE reference_type = "invoice" AND reference_id = ?', [invoiceId]);
+        await this.database?.execute('DELETE FROM payments WHERE reference_invoice_id = ?', [invoiceId]);
+        
+        // Finally delete the invoice
+        await this.database?.execute('DELETE FROM invoices WHERE id = ?', [invoiceId]);
+
+        // Commit transaction
+        await this.database?.execute('COMMIT');
+
+        // Emit real-time update events
+        this.emitInvoiceDeletedEvents(invoice);
+
+      } catch (error) {
+        // Rollback on error
+        await this.database?.execute('ROLLBACK');
+        throw error;
+      }
+
+    } catch (error) {
+      console.error('Error deleting invoice:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Emit events for invoice deletion
+   */
+  private emitInvoiceDeletedEvents(invoice: any): void {
+    try {
+      // Use imported eventBus for reliable event emission
+      eventBus.emit(BUSINESS_EVENTS.INVOICE_DELETED, {
+        invoiceId: invoice.id,
+        billNumber: invoice.bill_number,
+        customerId: invoice.customer_id,
+        customerName: invoice.customer_name,
+        timestamp: new Date().toISOString()
+      });
+
+      // Emit related events for comprehensive updates
+      eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+        message: `Stock restored from deleted invoice ${invoice.bill_number}`
+      });
+
+      eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+        customerId: invoice.customer_id,
+        customerName: invoice.customer_name
+      });
+
+      console.log(`🚀 Real-time deletion events emitted for invoice ${invoice.bill_number}`);
+    } catch (error) {
+      console.warn('Could not emit invoice deleted events:', error);
     }
   }
 
@@ -4240,23 +4474,26 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       const productId = result?.lastInsertId || 0;
 
+      // CACHE INVALIDATION: Clear product cache for real-time updates
+      this.invalidateProductCache();
+
       // REAL-TIME UPDATE: Emit product creation event
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus) {
-          const eventData = {
-            productId,
-            productName: product.name,
-            category: product.category,
-            currentStock: product.current_stock,
-            timestamp: new Date().toISOString()
-          };
-          (window as any).eventBus.emit('product:created', eventData);
-          console.log('✅ PRODUCT_CREATED event emitted for real-time updates');
-          
-          // Also emit the old-style event for backwards compatibility
-          (window as any).eventBus.emit('PRODUCT_CREATED', eventData);
-          console.log('✅ Legacy PRODUCT_CREATED event also emitted');
-        }
+        const eventData = {
+          productId,
+          productName: product.name,
+          category: product.category,
+          currentStock: product.current_stock,
+          timestamp: new Date().toISOString()
+        };
+        
+        // Use imported eventBus with proper BUSINESS_EVENTS constants
+        eventBus.emit(BUSINESS_EVENTS.PRODUCT_CREATED, eventData);
+        console.log('✅ PRODUCT_CREATED event emitted for real-time updates', eventData);
+        
+        // Also emit the legacy events that ProductList might be listening for
+        eventBus.emit('PRODUCT_CREATED', eventData);
+        console.log('✅ Legacy PRODUCT_CREATED event also emitted for backwards compatibility');
       } catch (eventError) {
         console.warn('⚠️ Failed to emit PRODUCT_CREATED event:', eventError);
       }
@@ -4297,8 +4534,17 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       // REAL-TIME UPDATE: Emit customer creation event
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus) {
-          (window as any).eventBus.emit('customer:created', {
+        // Use imported eventBus first, fallback to window.eventBus
+        const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
+        if (eventBusInstance) {
+          eventBusInstance.emit('customer:created', {
+            customerId,
+            customerName: customer.name,
+            customerCode,
+            timestamp: new Date().toISOString()
+          });
+          // Also emit legacy event format for compatibility
+          eventBusInstance.emit('CUSTOMER_CREATED', {
             customerId,
             customerName: customer.name,
             customerCode,
@@ -4309,6 +4555,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       } catch (eventError) {
         console.warn('⚠️ Failed to emit CUSTOMER_CREATED event:', eventError);
       }
+
+      // PERFORMANCE: Invalidate customer cache for real-time updates
+      this.invalidateCustomerCache();
 
       return customerId;
     } catch (error) {
@@ -4726,7 +4975,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           name = ?, 
           phone = ?, 
           address = ?, 
-          city = ?
+          cnic = ?,
+          updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `;
       
@@ -4734,19 +4984,26 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         customerData.name,
         customerData.phone,
         customerData.address,
-        customerData.city,
+        customerData.cnic,
         id
       ]);
       
       // REAL-TIME UPDATE: Emit customer update event using EventBus
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          (window as any).eventBus.emit('customer:updated', { customerId: id, customer: customerData });
+        // Use imported eventBus first, fallback to window.eventBus
+        const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
+        if (eventBusInstance) {
+          eventBusInstance.emit('customer:updated', { customerId: id, customer: customerData });
+          // Also emit legacy event format for compatibility
+          eventBusInstance.emit('CUSTOMER_UPDATED', { customerId: id, customer: customerData });
           console.log(`✅ CUSTOMER_UPDATED event emitted for customer ID: ${id}`);
         }
       } catch (eventError) {
         console.warn('Could not emit CUSTOMER_UPDATED event:', eventError);
       }
+
+      // PERFORMANCE: Invalidate customer cache for real-time updates
+      this.invalidateCustomerCache();
       
       console.log('✅ Customer updated successfully');
     } catch (error) {
@@ -4758,28 +5015,62 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // Delete customer
   async deleteCustomer(id: number): Promise<void> {
     try {
-      // First check if customer has any transactions
-      const transactionsResult = await this.database?.select(
-        'SELECT COUNT(*) as count FROM invoice_items WHERE customer_id = ?',
-        [id]
-      );
+      console.log(`🗑️ Attempting to delete customer with ID: ${id}`);
       
-      if (transactionsResult && transactionsResult[0]?.count > 0) {
-        throw new Error('Cannot delete customer with existing transactions');
+      // Check if customer has any related records
+      console.log('🔍 Checking for related records...');
+      const checks = await Promise.all([
+        // Check invoice items through invoices table
+        this.database?.select(`
+          SELECT COUNT(*) as count 
+          FROM invoice_items ii 
+          JOIN invoices i ON ii.invoice_id = i.id 
+          WHERE i.customer_id = ?
+        `, [id]),
+        // Check invoices
+        this.database?.select('SELECT COUNT(*) as count FROM invoices WHERE customer_id = ?', [id]),
+        // Check customer ledger entries
+        this.database?.select('SELECT COUNT(*) as count FROM customer_ledger_entries WHERE customer_id = ?', [id])
+      ]);
+      
+      const [invoiceItemsResult, invoicesResult, ledgerResult] = checks;
+      
+      const hasInvoiceItems = invoiceItemsResult && invoiceItemsResult[0]?.count > 0;
+      const hasInvoices = invoicesResult && invoicesResult[0]?.count > 0;
+      const hasLedgerEntries = ledgerResult && ledgerResult[0]?.count > 0;
+      
+      console.log(`📊 Related records check:`, {
+        invoiceItems: invoiceItemsResult?.[0]?.count || 0,
+        invoices: invoicesResult?.[0]?.count || 0,
+        ledgerEntries: ledgerResult?.[0]?.count || 0
+      });
+      
+      if (hasInvoiceItems || hasInvoices || hasLedgerEntries) {
+        const errorMsg = 'Cannot delete customer with existing transactions, invoices, or ledger entries. Please contact administrator to archive this customer instead.';
+        console.warn(`⚠️ ${errorMsg}`);
+        throw new Error(errorMsg);
       }
       
       // Delete customer
+      console.log(`🗑️ Deleting customer with ID: ${id}...`);
       await this.database?.execute('DELETE FROM customers WHERE id = ?', [id]);
       
       // REAL-TIME UPDATE: Emit customer delete event using EventBus
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          (window as any).eventBus.emit('customer:deleted', { customerId: id });
+        // Use imported eventBus first, fallback to window.eventBus
+        const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
+        if (eventBusInstance) {
+          eventBusInstance.emit('customer:deleted', { customerId: id });
+          // Also emit legacy event format for compatibility
+          eventBusInstance.emit('CUSTOMER_DELETED', { customerId: id });
           console.log(`✅ CUSTOMER_DELETED event emitted for customer ID: ${id}`);
         }
       } catch (eventError) {
         console.warn('Could not emit CUSTOMER_DELETED event:', eventError);
       }
+
+      // PERFORMANCE: Invalidate customer cache for real-time updates
+      this.invalidateCustomerCache();
       
       console.log('✅ Customer deleted successfully');
     } catch (error) {
@@ -5185,13 +5476,13 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         this.database?.select(`
           SELECT COUNT(*) as low_stock_count
           FROM products 
-          WHERE current_stock <= min_stock_level
+          WHERE CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ', ' ') - 1) AS REAL) <= min_stock_level
         `),
         
         this.database?.select(`
-          SELECT COALESCE(SUM(grand_total - amount_paid), 0) as pending_amount
+          SELECT COALESCE(SUM(remaining_balance), 0) as pending_amount
           FROM invoices 
-          WHERE payment_status != 'paid'
+          WHERE status != 'paid' AND remaining_balance > 0
         `)
       ]);
 
@@ -5225,10 +5516,10 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       // Real database implementation
       const products = await this.database?.select(`
-        SELECT id, name, current_stock, min_stock_level, unit_type, category
+        SELECT id, name, current_stock, min_stock_level, min_stock_alert, unit_type, category
         FROM products 
-        WHERE current_stock <= min_stock_level
-        ORDER BY (current_stock / NULLIF(min_stock_level, 0)) ASC
+        WHERE CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ', ' ') - 1) AS REAL) <= COALESCE(min_stock_alert, min_stock_level)
+        ORDER BY CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ', ' ') - 1) AS REAL) ASC
         LIMIT 10
       `) || [];
 

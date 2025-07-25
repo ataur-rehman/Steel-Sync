@@ -13,6 +13,7 @@ import CustomerList from './components/customers/CustomerList';
 import CustomerProfile from './components/customers/CustomerProfile';
 import InvoiceForm from './components/billing/InvoiceForm';
 import InvoiceList from './components/billing/InvoiceList';
+import InvoiceDetailsPage from './components/billing/InvoiceDetailsPage';
 import DailyLedger from './components/reports/DailyLedger';
 import CustomerLedger from './components/reports/CustomerLedger';
 import StockReport from './components/reports/StockReport';
@@ -32,7 +33,6 @@ import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
 import StockReceivingPayment from "./components/stock/StockReceivingPayment";
 import { Activity } from 'lucide-react';
-
 
 function LoginForm() {
   const { login } = useAuth();
@@ -213,12 +213,7 @@ function AppContent() {
             {/* Billing System with Full Traceability */}
             <Route path="/billing/new" element={<InvoiceForm />} />
             <Route path="/billing/list" element={<InvoiceList />} />
-            <Route path="/billing/view/:id" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Invoice Details</h2>
-                <p className="text-gray-600">Invoice details with customer & product links will be implemented here.</p>
-              </div>
-            } />
+            <Route path="/billing/view/:id" element={<InvoiceDetailsPage />} />
             
            
 <Route path="/stock/receiving/:id/add-payment" element={<StockReceivingPayment />} />
@@ -255,8 +250,8 @@ function AppContent() {
             {/* Business Finance Dashboard */}
             <Route path="/finance" element={<BusinessFinanceDashboard />} />
             
-                 
-            
+            {/* Product Movement Details */}
+
             <Route path="/stock/receiving/:id" element={<StockReceivingDetail />} />
             {/* Stock Management */}
             <Route path="/stock/receiving" element={<StockReceivingList />} />

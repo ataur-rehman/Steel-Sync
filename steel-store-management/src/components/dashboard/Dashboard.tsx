@@ -38,7 +38,7 @@ interface LowStockProduct {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { db } = useDatabase();
+  const { db, initialized } = useDatabase();
   const [stats, setStats] = useState<DashboardStats>({
     todaySales: 0,
     totalCustomers: 0,
@@ -50,8 +50,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadDashboardData();
-  }, []);
+    if (initialized) {
+      loadDashboardData();
+    }
+  }, [initialized]);
 
   // Real-time updates: Refresh dashboard when any relevant data changes
   useAutoRefresh(
@@ -61,25 +63,57 @@ export default function Dashboard() {
     },
     [
       'INVOICE_CREATED',
-      'INVOICE_UPDATED',
+      'INVOICE_UPDATED', 
+      'INVOICE_DELETED',
       'PAYMENT_RECORDED',
       'CUSTOMER_CREATED',
+      'CUSTOMER_UPDATED',
+      'CUSTOMER_BALANCE_UPDATED',
       'STOCK_UPDATED',
-      'STOCK_ADJUSTMENT_MADE',
-      'CUSTOMER_BALANCE_UPDATED'
+      'STOCK_ADJUSTMENT_MADE'
     ]
   );
 
   const loadDashboardData = async () => {
     try {
+      setLoading(true);
+      
+      // Check if database is initialized
+      if (!initialized) {
+        console.log('🔄 Dashboard: Database not initialized yet, waiting...');
+        return;
+      }
+
+      console.log('📊 Dashboard: Loading real-time data from database...');
+
+      // Load real data from database
       const [dashboardStats, invoices, lowStock] = await Promise.all([
         db.getDashboardStats(),
         db.getInvoices({ limit: 5 }),
         db.getLowStockProducts()
       ]);
+
+      console.log('📊 Dashboard: Data loaded:', {
+        stats: dashboardStats,
+        invoicesCount: invoices.length,
+        lowStockCount: lowStock.length
+      });
+
       setStats(dashboardStats);
       setRecentInvoices(invoices);
       setLowStockProducts(lowStock);
+
+    } catch (error) {
+      console.error('❌ Dashboard: Error loading data:', error);
+      // Set empty data on error but don't hide the interface
+      setStats({
+        todaySales: 0,
+        totalCustomers: 0,
+        lowStockCount: 0,
+        pendingPayments: 0
+      });
+      setRecentInvoices([]);
+      setLowStockProducts([]);
     } finally {
       setLoading(false);
     }

@@ -5,10 +5,14 @@ import { toast } from 'react-hot-toast';
 import { formatCurrency } from '../../utils/calculations';
 import { useNavigation } from '../../hooks/useNavigation';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+import { useSmartNavigation } from '../../hooks/useSmartNavigation';
+import SmartDetailHeader from '../common/SmartDetailHeader';
+import { FileText, DollarSign } from 'lucide-react';
 
 export default function CustomerProfile() {
   const { id } = useParams();
   const { navigateTo } = useNavigation();
+  const { getFromPage } = useSmartNavigation();
   const { db } = useDatabase();
   const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -104,46 +108,71 @@ export default function CustomerProfile() {
 
   if (loading) {
     return (
-      <div className="space-y-8 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse"></div>
-          <div className="h-10 w-32 bg-gray-200 rounded animate-pulse"></div>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="h-64 bg-gray-200 rounded-lg animate-pulse"></div>
-          <div className="lg:col-span-2 h-64 bg-gray-200 rounded-lg animate-pulse"></div>
+      <div className="min-h-screen bg-gray-50">
+        <SmartDetailHeader 
+          title="Loading Customer..." 
+          subtitle="Please wait while we load the customer details"
+          backToListPath="/customers"
+          backToListLabel="Back to Customers"
+          backButtonMode="list"
+        />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          </div>
         </div>
       </div>
     );
   }
 
   if (!customer) {
-    return null;
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <SmartDetailHeader 
+          title="Customer Not Found" 
+          subtitle="The requested customer could not be found"
+          backToListPath="/customers"
+          backToListLabel="Back to Customers"
+          backButtonMode="list"
+        />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <p className="text-gray-500">The customer you're looking for doesn't exist or has been deleted.</p>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-8 p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">{customer.name}</h1>
-          <p className="mt-1 text-sm text-gray-500">Customer overview and activity <span className="font-medium text-gray-700">({(customer.invoices?.length || 0)} invoices)</span></p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => navigateTo(`/billing/new?customer=${customer.id}`)}
-            className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
-          >
-            New Invoice
-          </button>
-          <button
-            onClick={() => navigateTo('/reports/customer', { state: { customerId: customer.id } })}
-            className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
-          >
-            Full Ledger
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      <SmartDetailHeader
+        title={customer.name}
+        subtitle={`Customer ID: ${customer.id} • ${customer.phone || 'No phone'} • ${(customer.invoices?.length || 0)} invoices`}
+        fromPage={getFromPage() || undefined}
+        backButtonMode="auto"
+        actions={
+          <div className="flex space-x-3">
+            <button
+              onClick={() => navigateTo(`/billing/new?customer=${customer.id}`)}
+              className="btn btn-primary flex items-center px-4 py-2 text-sm"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              New Invoice
+            </button>
+            <button
+              onClick={() => navigateTo('/reports/customer', { state: { customerId: customer.id } })}
+              className="btn btn-secondary flex items-center px-4 py-2 text-sm"
+            >
+              <DollarSign className="h-4 w-4 mr-2" />
+              Full Ledger
+            </button>
+          </div>
+        }
+      />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="space-y-8">
 
       {/* Enhanced Customer Summary Card */}
       <div className="card p-6 mb-6">
@@ -299,6 +328,8 @@ export default function CustomerProfile() {
             </table>
           )}
         </div>
+      </div>
+    </div>
       </div>
     </div>
   );

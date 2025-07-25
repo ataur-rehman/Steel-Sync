@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
 import { formatUnitString } from '../../utils/unitUtils';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
+import { useSmartNavigation } from '../../hooks/useSmartNavigation';
+import SmartDetailHeader from '../common/SmartDetailHeader';
 
 const StockReceivingDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
+  const { navigateTo, getFromPage } = useSmartNavigation();
   const [receiving, setReceiving] = useState<any>(null);
   const [items, setItems] = useState<any[]>([]);
   const [vendor, setVendor] = useState<any>(null);
@@ -89,19 +91,18 @@ const StockReceivingDetail: React.FC = () => {
 
   if (!receiving) {
     return (
-      <div className="space-y-8 p-6">
-        <div className="card p-12 text-center">
-          <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
-            📄
+      <div className="min-h-screen bg-gray-50">
+        <SmartDetailHeader
+          title="Receiving Record Not Found"
+          subtitle="The requested receiving record could not be found"
+          backToListPath="/stock/receiving"
+          backToListLabel="Back to Receiving List"
+          backButtonMode="list"
+        />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <p className="text-gray-500">The receiving record you're looking for doesn't exist.</p>
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Receiving Record Not Found</h3>
-          <p className="text-gray-500 mb-6">The requested receiving record could not be found.</p>
-          <button
-            onClick={() => navigate('/stock/receiving')}
-            className="btn btn-primary"
-          >
-            Back to Receiving List
-          </button>
         </div>
       </div>
     );
@@ -110,36 +111,29 @@ const StockReceivingDetail: React.FC = () => {
   const statusInfo = getStatusInfo(receiving.payment_status);
 
   return (
-    <div className="space-y-8 p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
-            Receiving #{receiving.receiving_number}
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Received on {new Date(receiving.date).toLocaleDateString()} • <span className="font-medium text-gray-700">{items.length} items</span>
-          </p>
-        </div>
-        
-        <div className="flex items-center gap-3">
-          {receiving.payment_status !== 'paid' && (
-            <button
-              onClick={() => navigate(`/stock/receiving/${receiving.id}/add-payment`)}
-              className="btn btn-success flex items-center px-3 py-1.5 text-sm"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Payment
-            </button>
-          )}
-          <button
-            onClick={() => navigate('/stock/receiving')}
-            className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
-          >
-            Back to List
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      <SmartDetailHeader
+        title={`Receiving #${receiving.receiving_number}`}
+        subtitle={`Received on ${new Date(receiving.date).toLocaleDateString()} • ${items.length} items`}
+        fromPage={getFromPage() || undefined}
+        backButtonMode="auto"
+        actions={
+          <div className="flex items-center gap-3">
+            {receiving.payment_status !== 'paid' && (
+              <button
+                onClick={() => navigateTo(`/stock/receiving/${receiving.id}/add-payment`)}
+                className="btn btn-success flex items-center px-3 py-1.5 text-sm"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Payment
+              </button>
+            )}
+          </div>
+        }
+      />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="space-y-8">
 
       {/* Status and Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -257,7 +251,7 @@ const StockReceivingDetail: React.FC = () => {
                 <h3 className="text-lg font-semibold text-gray-900">Payment History</h3>
                 {receiving.payment_status !== 'paid' && (
                   <button
-                    onClick={() => navigate(`/stock/receiving/${receiving.id}/add-payment`)}
+                    onClick={() => navigateTo(`/stock/receiving/${receiving.id}/add-payment`)}
                     className="text-sm text-blue-600 hover:text-blue-800 font-medium"
                   >
                     Add Payment
@@ -323,7 +317,7 @@ const StockReceivingDetail: React.FC = () => {
                 </p>
                 {receiving.payment_status !== 'paid' && (
                   <button
-                    onClick={() => navigate(`/stock/receiving/${receiving.id}/add-payment`)}
+                    onClick={() => navigateTo(`/stock/receiving/${receiving.id}/add-payment`)}
                     className="btn btn-primary"
                   >
                     Record First Payment
@@ -420,6 +414,8 @@ const StockReceivingDetail: React.FC = () => {
             </div>
           )}
         </div>
+        </div>
+      </div>
       </div>
     </div>
   );

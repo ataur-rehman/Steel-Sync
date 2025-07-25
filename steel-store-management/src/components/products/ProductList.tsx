@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { db } from '../../services/database';
 import { Package, Search, Plus, Edit, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -12,18 +12,31 @@ const ProductList: React.FC = () => {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<any | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     initializeData();
   }, []);
 
+  // Debounce search term to reduce database calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300); // 300ms delay
+    
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   useEffect(() => {
     loadProducts();
-  }, [searchTerm, selectedCategory]);
+  }, [debouncedSearchTerm, selectedCategory]);
 
   // Real-time updates: Refresh product list when products or stock changes
   useAutoRefresh(
@@ -33,13 +46,13 @@ const ProductList: React.FC = () => {
     },
     [
       'PRODUCT_CREATED',
-      'PRODUCT_UPDATED',
+      'PRODUCT_UPDATED', 
       'PRODUCT_DELETED',
       'STOCK_UPDATED',
       'STOCK_MOVEMENT_CREATED',
       'STOCK_ADJUSTMENT_MADE'
     ],
-    [searchTerm, selectedCategory] // Re-subscribe if filters change
+    [debouncedSearchTerm, selectedCategory]
   );
 
   const initializeData = async () => {
@@ -58,10 +71,10 @@ const loadProducts = async () => {
   try {
     console.log('=== LOADING PRODUCTS ===');
     console.log('Current environment - isTauri():', typeof window !== 'undefined' && '__TAURI__' in window);
-    console.log('Search term:', searchTerm);
+    console.log('Debounced search term:', debouncedSearchTerm);
     console.log('Selected category:', selectedCategory);
     
-    const productList = await db.getProducts(searchTerm, selectedCategory);
+    const productList = await db.getProducts(debouncedSearchTerm, selectedCategory);
     console.log('Raw products from database:', productList);
     console.log('Number of products:', productList.length);
     
@@ -83,11 +96,15 @@ const loadProducts = async () => {
   };
 
   const handleSearch = (value: string) => {
-    setSearchTerm(value);
+    // Security: Sanitize search input and limit length
+    const sanitizedValue = value.trim().slice(0, 100); // Limit to 100 characters
+    setSearchTerm(sanitizedValue);
   };
 
   const handleCategoryFilter = (category: string) => {
-    setSelectedCategory(category);
+    // Security: Sanitize category input
+    const sanitizedCategory = category.trim().slice(0, 50); // Limit to 50 characters
+    setSelectedCategory(sanitizedCategory);
   };
 
   const clearFilters = () => {
@@ -95,8 +112,8 @@ const loadProducts = async () => {
     setSelectedCategory('');
   };
 
-
-  const getStockStatus = (product: any) => {
+  // Performance: Memoize stock status calculation
+  const getStockStatus = useCallback((product: any) => {
     try {
       const currentStock = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
       const alertLevel = parseUnit(product.min_stock_alert, product.unit_type || 'kg-grams');
@@ -112,7 +129,7 @@ const loadProducts = async () => {
       console.error('Error calculating stock status:', error);
       return { status: 'Unknown', color: 'text-gray-600 bg-gray-100' };
     }
-  };
+  }, []); // No dependencies since it only uses the input parameter
 
 
   const handleAddProduct = () => {
@@ -124,27 +141,52 @@ const loadProducts = async () => {
     setShowEditModal(true);
   };
 
-
-  const handleProductAdded = async () => {
-    setShowAddModal(false);
-    await refreshProductsAndCategories();
+  const handleDeleteProduct = (product: any) => {
+    console.log('🔄 Opening delete confirmation for:', product.name);
+    setDeletingProduct(product);
+    setShowDeleteModal(true);
   };
 
-  const handleProductUpdated = async () => {
-    setShowEditModal(false);
-    setEditingProduct(null);
-    await refreshProductsAndCategories();
-  };
-
-  const refreshProductsAndCategories = async () => {
+  const confirmDeleteProduct = async () => {
+    if (!deletingProduct || isDeleting) return;
+    
+    setIsDeleting(true);
+    
     try {
-      await loadProducts();
-      await loadCategories();
+      console.log(`🗑️ Deleting product: ${deletingProduct.name} (ID: ${deletingProduct.id})`);
+      await db.deleteProduct(deletingProduct.id);
+      console.log(`✅ Product deleted successfully: ${deletingProduct.id}`);
+      toast.success('Product deleted successfully!');
     } catch (error) {
-      console.error('Error refreshing products:', error);
-      toast.error('Failed to refresh product list');
+      console.error('❌ Failed to delete product:', error);
+      toast.error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+      setDeletingProduct(null);
     }
   };
+
+  const cancelDeleteProduct = () => {
+    setShowDeleteModal(false);
+    setDeletingProduct(null);
+    console.log('❌ Product deletion cancelled by user');
+  };
+
+
+  const handleProductAdded = () => {
+    setShowAddModal(false);
+    // Real-time events will handle the UI update automatically
+  };
+
+  const handleProductUpdated = () => {
+    setShowEditModal(false);
+    setEditingProduct(null);
+    // Real-time events will handle the UI update automatically
+  };
+
+  // Performance: Memoize product count to prevent unnecessary re-renders
+  const productCount = useMemo(() => products.length, [products.length]);
 
   if (loading) {
     return (
@@ -160,7 +202,7 @@ const loadProducts = async () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Products</h1>
-          <p className="mt-1 text-sm text-gray-500">Manage your product inventory <span className="font-medium text-gray-700">({products.length} products)</span></p>
+          <p className="mt-1 text-sm text-gray-500">Manage your product inventory <span className="font-medium text-gray-700">({productCount} products)</span></p>
         </div>
         <button onClick={handleAddProduct} className="btn btn-primary flex items-center px-3 py-1.5 text-sm">
           <Plus className="h-4 w-4 mr-2" /> Add Product
@@ -271,18 +313,7 @@ const loadProducts = async () => {
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={async () => {
-                            if (window.confirm(`Are you sure you want to delete product: ${product.name}?`)) {
-                              try {
-                                await db.deleteProduct(product.id);
-                                toast.success('Product deleted successfully!');
-                                await refreshProductsAndCategories();
-                              } catch (error) {
-                                console.error('Failed to delete product:', error);
-                                toast.error('Failed to delete product');
-                              }
-                            }
-                          }}
+                          onClick={() => handleDeleteProduct(product)}
                           className="btn btn-danger flex items-center px-2 py-1 text-xs"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -322,6 +353,52 @@ const loadProducts = async () => {
             onCancel={() => { setShowEditModal(false); setEditingProduct(null); }}
           />
         )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={showDeleteModal}
+        onClose={cancelDeleteProduct}
+        title="Confirm Delete"
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full">
+            <Trash2 className="w-6 h-6 text-red-600" />
+          </div>
+          
+          <div className="text-center">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Delete Product
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Are you sure you want to delete "<strong>{deletingProduct?.name}</strong>"? This action cannot be undone.
+            </p>
+          </div>
+          
+          <div className="flex space-x-3 justify-end">
+            <button
+              onClick={cancelDeleteProduct}
+              disabled={isDeleting}
+              className="btn btn-secondary px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={confirmDeleteProduct}
+              disabled={isDeleting}
+              className="btn btn-danger px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            >
+              {isDeleting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Deleting...
+                </>
+              ) : (
+                'Delete Product'
+              )}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );
