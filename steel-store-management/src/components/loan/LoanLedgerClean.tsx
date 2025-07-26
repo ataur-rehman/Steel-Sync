@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search,
+  Eye,
   Download,
   Users,
   DollarSign,
@@ -42,7 +43,7 @@ const LoanLedger: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
-  // Enhanced business intelligence stats
+  // Essential summary stats
   const [summaryStats, setSummaryStats] = useState({
     totalCustomers: 0,
     totalOutstanding: 0,
@@ -225,6 +226,12 @@ const LoanLedger: React.FC = () => {
     toast.success('Loan ledger exported successfully');
   };
 
+  const getUrgencyLevel = (daysOverdue: number) => {
+    if (daysOverdue > 60) return 'urgent';
+    if (daysOverdue > 30) return 'overdue';
+    return 'current';
+  };
+
   const getUrgencyColor = (daysOverdue: number) => {
     if (daysOverdue > 60) return 'text-red-600';
     if (daysOverdue > 30) return 'text-orange-600';
@@ -277,60 +284,68 @@ const LoanLedger: React.FC = () => {
             </div>
           </div>
 
-          {/* Summary Overview */}
+          {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow border">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center">
-                <Users className="h-5 w-5 text-blue-600 mr-3" />
-                <div>
-                  <p className="text-sm text-gray-600">Total Customers</p>
-                  <p className="text-xl font-semibold text-gray-900">{summaryStats.totalCustomers}</p>
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <Users className="h-6 w-6 text-blue-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Customers</p>
+                  <p className="text-2xl font-bold text-gray-900">{summaryStats.totalCustomers}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center">
-                <DollarSign className="h-5 w-5 text-red-600 mr-3" />
-                <div>
-                  <p className="text-sm text-gray-600">Total Outstanding</p>
-                  <p className="text-xl font-semibold text-gray-900">{formatCurrency(summaryStats.totalOutstanding)}</p>
+                <div className="p-3 bg-red-100 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-red-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Total Outstanding</p>
+                  <p className="text-2xl font-bold text-gray-900">{formatCurrency(summaryStats.totalOutstanding)}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center">
-                <Clock className="h-5 w-5 text-orange-600 mr-3" />
-                <div>
-                  <p className="text-sm text-gray-600">Overdue (30+ days)</p>
-                  <p className="text-xl font-semibold text-gray-900">{summaryStats.overdueCustomers}</p>
+                <div className="p-3 bg-orange-100 rounded-lg">
+                  <Clock className="h-6 w-6 text-orange-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Overdue (30+ days)</p>
+                  <p className="text-2xl font-bold text-gray-900">{summaryStats.overdueCustomers}</p>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow border">
+            <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
               <div className="flex items-center">
-                <AlertCircle className="h-5 w-5 text-red-600 mr-3" />
-                <div>
-                  <p className="text-sm text-gray-600">Critical (60+ days)</p>
-                  <p className="text-xl font-semibold text-gray-900">{summaryStats.urgentCustomers}</p>
+                <div className="p-3 bg-red-100 rounded-lg">
+                  <AlertCircle className="h-6 w-6 text-red-600" />
+                </div>
+                <div className="ml-4">
+                  <p className="text-sm font-medium text-gray-600">Urgent (60+ days)</p>
+                  <p className="text-2xl font-bold text-gray-900">{summaryStats.urgentCustomers}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Search and Filter */}
-          <div className="bg-white p-4 rounded-lg shadow border">
+          {/* Filters */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search customers..."
+                  placeholder="Search by customer name, phone, or address..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
 
@@ -341,7 +356,7 @@ const LoanLedger: React.FC = () => {
                   setSortBy(field as 'outstanding' | 'name' | 'overdue');
                   setSortOrder(order as 'asc' | 'desc');
                 }}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
               >
                 <option value="outstanding-desc">Highest Amount First</option>
                 <option value="outstanding-asc">Lowest Amount First</option>
@@ -359,8 +374,8 @@ const LoanLedger: React.FC = () => {
           </div>
 
           {/* Customer Table */}
-          <div className="bg-white rounded-lg shadow border overflow-hidden">
-            <div className="px-6 py-4 border-b">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">Outstanding Receivables</h3>
             </div>
 
@@ -368,22 +383,22 @@ const LoanLedger: React.FC = () => {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Customer
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Contact
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Outstanding Amount
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Days Overdue
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Last Payment
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -412,12 +427,7 @@ const LoanLedger: React.FC = () => {
                           {customer.phone && (
                             <div className="flex items-center text-gray-900 mb-1">
                               <Phone className="h-4 w-4 mr-2 text-gray-400" />
-                              <button
-                                onClick={() => window.open(`tel:${customer.phone}`)}
-                                className="text-blue-600 hover:text-blue-800"
-                              >
-                                {customer.phone}
-                              </button>
+                              {customer.phone}
                             </div>
                           )}
                           {customer.address && (
@@ -429,7 +439,7 @@ const LoanLedger: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-lg font-semibold text-red-600">
+                        <div className="text-lg font-bold text-red-600">
                           {formatCurrency(customer.total_outstanding)}
                         </div>
                       </td>
@@ -442,9 +452,9 @@ const LoanLedger: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm">
+                        <div className="text-sm text-gray-900">
                           {customer.last_payment_date ? (
-                            <div className="flex items-center text-gray-900">
+                            <div className="flex items-center">
                               <Calendar className="h-4 w-4 mr-1 text-gray-400" />
                               {new Date(customer.last_payment_date).toLocaleDateString()}
                             </div>
@@ -457,24 +467,17 @@ const LoanLedger: React.FC = () => {
                         <div className="flex items-center space-x-2">
                           <button
                             onClick={() => handleQuickPayment(customer.id)}
-                            className="px-3 py-1 text-sm text-white bg-green-600 hover:bg-green-700 rounded transition-colors"
+                            className="p-2 text-green-600 hover:bg-green-100 rounded-lg transition-colors"
                             title="Record Payment"
                           >
                             <CreditCard className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => navigate(`/loan-detail/${customer.id}`)}
-                            className="px-3 py-1 text-sm text-blue-600 hover:text-blue-800 border border-blue-600 rounded transition-colors"
-                            title="View Loan Details"
-                          >
-                            Details
-                          </button>
-                          <button
                             onClick={() => navigate(`/customers/${customer.id}`)}
-                            className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 border border-gray-300 rounded transition-colors"
-                            title="View Profile"
+                            className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors"
+                            title="View Customer Details"
                           >
-                            Profile
+                            <Eye className="h-4 w-4" />
                           </button>
                         </div>
                       </td>

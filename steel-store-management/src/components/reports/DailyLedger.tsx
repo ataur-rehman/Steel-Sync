@@ -8,10 +8,8 @@ import {
   Calendar,
   TrendingUp,
   TrendingDown,
-
   Plus,
   Download,
-
   Search,
   Eye,
   RefreshCw,
@@ -21,7 +19,6 @@ import {
   Trash2,
   Save,
   X,
-
   User,
   Info
 } from 'lucide-react';
@@ -64,6 +61,8 @@ interface TransactionForm {
   amount: number;
   customer_id?: number;
   payment_method: string;
+  payment_channel_id?: number;
+  payment_channel_name?: string;
   notes?: string;
   date: string;
 }
@@ -94,8 +93,6 @@ const OUTGOING_CATEGORIES = [
   'Other Expense'
 ];
 
-const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Cheque', 'Credit Card', 'Online Payment', 'Mobile Banking'];
-
 const DailyLedger: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -120,6 +117,8 @@ const DailyLedger: React.FC = () => {
     description: '',
     amount: 0,
     payment_method: 'Cash',
+    payment_channel_id: undefined,
+    payment_channel_name: undefined,
     notes: '',
     date: new Date().toISOString().split('T')[0]
   });
@@ -133,6 +132,7 @@ const DailyLedger: React.FC = () => {
   
   // Data
   const [customers, setCustomers] = useState<any[]>([]);
+  const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
 
   useEffect(() => {
     loadInitialData();
@@ -219,6 +219,30 @@ const DailyLedger: React.FC = () => {
       await db.initialize();
       const customerList = await db.getAllCustomers();
       setCustomers(customerList);
+      
+      // Load payment channels from database
+      console.log('🔄 [DailyLedger] Loading payment channels...');
+      const channels = await db.getPaymentChannels();
+      console.log('✅ [DailyLedger] Payment channels loaded:', channels);
+      console.log('📊 [DailyLedger] Channel count:', channels?.length || 0);
+      
+      if (!channels || channels.length === 0) {
+        console.error('❌ [DailyLedger] No payment channels found');
+        toast.error('No payment channels found. Please set up payment channels first.');
+        return;
+      }
+      
+      setPaymentChannels(channels);
+      
+      // Set default payment channel if available
+      if (channels.length > 0) {
+        setNewTransaction(prev => ({
+          ...prev,
+          payment_channel_id: channels[0].id,
+          payment_channel_name: channels[0].name,
+          payment_method: channels[0].type
+        }));
+      }
     } catch (error) {
       console.error('Failed to load initial data:', error);
       toast.error('Failed to load data');
@@ -376,6 +400,8 @@ const DailyLedger: React.FC = () => {
               customer_id: newTransaction.customer_id,
               amount: newTransaction.amount,
               payment_method: newTransaction.payment_method,
+              payment_channel_id: newTransaction.payment_channel_id,
+              payment_channel_name: newTransaction.payment_channel_name,
               payment_type: 'bill_payment',
               reference: newTransaction.description,
               notes: newTransaction.notes || '',
@@ -395,7 +421,9 @@ const DailyLedger: React.FC = () => {
               description: '',
               amount: 0,
               customer_id: undefined,
-              payment_method: 'Cash',
+              payment_method: paymentChannels[0]?.name || 'Cash',
+              payment_channel_id: paymentChannels[0]?.id,
+              payment_channel_name: paymentChannels[0]?.name,
               notes: ''
             });
             setSelectedInvoice(null);
@@ -412,6 +440,8 @@ const DailyLedger: React.FC = () => {
               customer_id: newTransaction.customer_id,
               customer_name: customerName,
               payment_method: newTransaction.payment_method,
+              payment_channel_id: newTransaction.payment_channel_id,
+              payment_channel_name: newTransaction.payment_channel_name,
               notes: newTransaction.notes || '',
               is_manual: true
             });
@@ -426,7 +456,9 @@ const DailyLedger: React.FC = () => {
               description: '',
               amount: 0,
               customer_id: undefined,
-              payment_method: 'Cash',
+              payment_method: paymentChannels[0]?.name || 'Cash',
+              payment_channel_id: paymentChannels[0]?.id,
+              payment_channel_name: paymentChannels[0]?.name,
               notes: ''
             });
             await loadDayData(newTransaction.date);
@@ -485,7 +517,9 @@ const DailyLedger: React.FC = () => {
         category: '',
         description: '',
         amount: 0,
-        payment_method: 'Cash',
+        payment_method: paymentChannels[0]?.name || 'Cash',
+        payment_channel_id: paymentChannels[0]?.id,
+        payment_channel_name: paymentChannels[0]?.name,
         notes: '',
         date: selectedDate
       });
@@ -694,11 +728,17 @@ const DailyLedger: React.FC = () => {
             />
             <select
               value={editForm.payment_method || ''}
-              onChange={(e) => setEditForm(prev => ({ ...prev, payment_method: e.target.value }))}
+              onChange={(e) => {
+                const selectedChannel = paymentChannels.find(c => c.name === e.target.value);
+                setEditForm(prev => ({ 
+                  ...prev, 
+                  payment_method: selectedChannel ? selectedChannel.name : e.target.value
+                }));
+              }}
               className="p-2 border rounded text-sm"
             >
-              {PAYMENT_METHODS.map(method => (
-                <option key={method} value={method}>{method}</option>
+              {paymentChannels.map(channel => (
+                <option key={channel.id} value={channel.name}>{channel.name}</option>
               ))}
             </select>
           </div>
@@ -1185,14 +1225,26 @@ const DailyLedger: React.FC = () => {
               )}
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Channel</label>
                 <select
-                  value={newTransaction.payment_method}
-                  onChange={(e) => setNewTransaction(prev => ({ ...prev, payment_method: e.target.value }))}
+                  value={newTransaction.payment_channel_id || ''}
+                  onChange={(e) => {
+                    const channelId = parseInt(e.target.value);
+                    const selectedChannel = paymentChannels.find(c => c.id === channelId);
+                    setNewTransaction(prev => ({ 
+                      ...prev, 
+                      payment_channel_id: channelId,
+                      payment_channel_name: selectedChannel?.name || '',
+                      payment_method: selectedChannel?.name || ''
+                    }));
+                  }}
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
                 >
-                  {PAYMENT_METHODS.map(method => (
-                    <option key={method} value={method}>{method}</option>
+                  {paymentChannels.map(channel => (
+                    <option key={channel.id} value={channel.id}>
+                      {channel.name} ({channel.type})
+                    </option>
                   ))}
                 </select>
               </div>

@@ -20,7 +20,9 @@ import StockReport from './components/reports/StockReport';
 import StockReceivingList from './components/stock/StockReceivingList';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import LoanLedger from './components/loan/LoanLedger';
+import CustomerLoanDetail from './components/loan/CustomerLoanDetail';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
+import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
 import StaffManagement from './components/staff/StaffManagement';
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
@@ -243,6 +245,7 @@ function AppContent() {
             
             {/* Payment Channel Management */}
             <Route path="/payment/channels" element={<PaymentChannelManagement />} />
+            <Route path="/payment/channels/:id" element={<PaymentChannelDetailView />} />
             
             {/* Staff Management */}
             <Route path="/staff" element={<StaffManagement />} />
@@ -260,9 +263,16 @@ function AppContent() {
             {/* Vendor Management */}
             <Route path="/vendors" element={<VendorManagement />} />
             <Route path="/vendors/:id" element={<VendorDetail />} />
+            <Route path="/vendors/edit/:id" element={
+              <div className="p-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Vendor</h2>
+                <p className="text-gray-600">Vendor edit form will be implemented here.</p>
+              </div>
+            } />
             
             {/* Loan Management */}
             <Route path="/loan/ledger" element={<LoanLedger />} />
+            <Route path="/loan-detail/:customerId" element={<CustomerLoanDetail />} />
             
             {/* Activity Timeline */}
             <Route path="/activity" element={

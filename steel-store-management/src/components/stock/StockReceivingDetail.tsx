@@ -32,6 +32,8 @@ const StockReceivingDetail: React.FC = () => {
       ]);
       
       const rec = receivingList.find((r: any) => r.id === receivingId);
+      
+      // Items now include unit_type from the enhanced database query
       setReceiving(rec);
       setItems(items);
       setVendor(vendors.find((v: any) => v.id === rec?.vendor_id));
@@ -214,10 +216,15 @@ const StockReceivingDetail: React.FC = () => {
                             {item.notes && (
                               <div className="text-xs text-gray-500 mt-1">{item.notes}</div>
                             )}
+                            {(item.category || item.size || item.grade) && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {[item.category, item.size, item.grade].filter(Boolean).join(' • ')}
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {formatUnitString(item.quantity, 'kg-grams')}
+                          {formatUnitString(item.quantity, item.unit_type || 'kg-grams')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {formatCurrency(item.unit_price)}
@@ -225,7 +232,6 @@ const StockReceivingDetail: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                           {formatCurrency(item.total_price)}
                         </td>
-          
                       </tr>
                     ))
                   )}

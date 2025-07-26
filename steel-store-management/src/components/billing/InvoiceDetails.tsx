@@ -84,13 +84,35 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     date: new Date().toISOString().split('T')[0]
   });
 
+  // Payment channels
+  const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
+  const [selectedPaymentChannel, setSelectedPaymentChannel] = useState<any>(null);
+
   // Item editing
   const [editQuantity, setEditQuantity] = useState('');
 
   useEffect(() => {
     loadInvoiceDetails();
     loadProducts();
+    loadPaymentChannels();
   }, [invoiceId]);
+
+  const loadPaymentChannels = async () => {
+    try {
+      const channels = await db.getPaymentChannels(false); // Only active channels
+      setPaymentChannels(channels);
+      
+      // Set default payment channel
+      if (channels.length > 0) {
+        const defaultChannel = channels[0];
+        setSelectedPaymentChannel(defaultChannel);
+        setNewPayment(prev => ({ ...prev, payment_method: defaultChannel.name }));
+      }
+    } catch (error) {
+      console.error('Error loading payment channels:', error);
+      toast.error('Failed to load payment channels');
+    }
+  };
 
   const loadInvoiceDetails = async () => {
     try {
@@ -259,6 +281,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       await db.addInvoicePayment(invoiceId, {
         amount: paymentAmount,
         payment_method: newPayment.payment_method,
+        payment_channel_id: selectedPaymentChannel?.id || null,
+        payment_channel_name: selectedPaymentChannel?.name || newPayment.payment_method,
         reference: newPayment.reference,
         notes: newPayment.notes,
         date: newPayment.date
@@ -981,25 +1005,24 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Channel</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { value: 'cash', label: 'Cash' },
-                      { value: 'bank_transfer', label: 'Bank Transfer' },
-                      { value: 'cheque', label: 'Cheque' },
-                      { value: 'card', label: 'Card' }
-                    ].map(method => (
+                    {paymentChannels.map(channel => (
                       <button
-                        key={method.value}
+                        key={channel.id}
                         type="button"
-                        onClick={() => setNewPayment({ ...newPayment, payment_method: method.value })}
+                        onClick={() => {
+                          setSelectedPaymentChannel(channel);
+                          setNewPayment({ ...newPayment, payment_method: channel.name });
+                        }}
                         className={`p-2 text-sm rounded-lg border text-center transition-colors ${
-                          newPayment.payment_method === method.value
+                          selectedPaymentChannel?.id === channel.id
                             ? 'border-green-500 bg-green-50 text-green-700'
                             : 'border-gray-300 hover:bg-gray-50'
                         }`}
                       >
-                        {method.label}
+                        <div className="font-medium">{channel.name}</div>
+                        <div className="text-xs text-gray-500 capitalize">{channel.type}</div>
                       </button>
                     ))}
                   </div>

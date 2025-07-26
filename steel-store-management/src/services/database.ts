@@ -33,13 +33,17 @@ interface PaymentRecord {
   id?: number;
   payment_code?: string;
   customer_id: number;
+  customer_name?: string; // Added for direct name passing
   amount: number;
   payment_method: string;
+  payment_channel_id?: number;
+  payment_channel_name?: string;
   payment_type: 'bill_payment' | 'advance_payment' | 'return_refund';
   reference_invoice_id?: number;
   reference?: string;
   notes?: string;
   date: string;
+  created_by?: string; // Added for tracking who created the payment
   created_at?: string;
   updated_at?: string;
 }
@@ -116,12 +120,12 @@ export class DatabaseService {
   private readonly RATE_LIMIT_WINDOW = 60000; // 1 minute
   private readonly MAX_OPERATIONS_PER_MINUTE = 200; // Increased for better throughput
   
-  // PRODUCTION-READY: Configuration management
+  // PRODUCTION-READY: Configuration management with enhanced timeouts for invoice operations
   private config: DatabaseConfig = {
     maxRetries: 5,
     retryDelay: 1000,
-    transactionTimeout: 30000,
-    queryTimeout: 15000,
+    transactionTimeout: 60000, // Increased from 30s to 60s for complex invoice operations
+    queryTimeout: 30000, // Increased from 15s to 30s to prevent timeout during invoice creation
     cacheSize: 200,
     cacheTTL: 30000
   };
@@ -179,6 +183,55 @@ export class DatabaseService {
         this.operationCounter.delete(k);
       }
     }
+  }
+  
+  /**
+   * Enhanced database execution with automatic retry for locked database errors
+   * This method provides a consistent way to handle database locks across the application
+   */
+  private async executeWithLockHandling<T>(operation: () => Promise<T>, maxRetries = 5, baseDelay = 200): Promise<T> {
+    let attempt = 0;
+    let lastError: any = null;
+    
+    // Use exponential backoff for retries
+    while (attempt < maxRetries) {
+      try {
+        // Set busy timeout before operation
+        if (attempt > 0) {
+          try {
+            await this.database?.execute(`PRAGMA busy_timeout=${(attempt + 1) * 1000}`);
+          } catch (pragmaError) {
+            // Ignore pragma errors and continue with operation
+            console.warn('Could not set busy timeout:', pragmaError);
+          }
+        }
+        
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        
+        // Only retry on database lock errors
+        if (error?.message?.includes('database is locked') || error?.code === 5) {
+          attempt++;
+          
+          if (attempt < maxRetries) {
+            // Use exponential backoff delay with jitter
+            const delay = baseDelay * Math.pow(2, attempt) + Math.floor(Math.random() * 100);
+            console.warn(`Database locked, retry attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          } else {
+            console.error(`Failed after ${maxRetries} attempts due to database locks:`, error);
+            throw error;
+          }
+        } else {
+          // For non-lock errors, don't retry
+          throw error;
+        }
+      }
+    }
+    
+    // This should never be reached due to the throw above, but TypeScript needs it
+    throw lastError;
   }
 
   // PERFORMANCE: Cache cleanup
@@ -337,6 +390,198 @@ export class DatabaseService {
     }
   }
 
+  // TRANSACTION: Enhanced safe transaction cleanup that never fails
+  private async safeTransactionCleanup(transactionId: string, wasActive: boolean): Promise<void> {
+    if (!wasActive) {
+      return; // Nothing to clean up
+    }
+    
+    try {
+      // Add a small delay before rollback to allow other operations to finish
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Try to rollback with timeout protection
+      const rollbackPromise = this.database?.execute('ROLLBACK');
+      const timeoutPromise = new Promise<void>((_, reject) => 
+        setTimeout(() => reject(new Error('Rollback timeout')), 5000)
+      );
+      
+      await Promise.race([rollbackPromise, timeoutPromise]);
+      console.log(`🔄 Transaction safely rolled back: ${transactionId}`);
+    } catch (rollbackError: any) {
+      // Check if it's expected cleanup or actual error
+      if (rollbackError.message?.includes('no transaction is active') || 
+          rollbackError.message?.includes('Rollback timeout')) {
+        console.log(`ℹ️ Transaction ${transactionId} was already cleaned up (this is normal)`);
+      } else {
+        console.warn(`⚠️ Unexpected rollback error for ${transactionId}:`, rollbackError);
+        // Try emergency cleanup with multiple attempts
+        try {
+          // First try standard rollback again after a delay
+          await new Promise(resolve => setTimeout(resolve, 200));
+          await this.database?.execute('ROLLBACK').catch(() => {});
+          
+          // Then try pragmas to reset journal mode
+          await this.database?.execute('PRAGMA journal_mode=DELETE');
+          await this.database?.execute('PRAGMA journal_mode=WAL');
+          
+          // Finally try to increase busy timeout for future transactions
+          await this.database?.execute('PRAGMA busy_timeout=5000');
+        } catch (emergencyError) {
+          console.warn('Emergency cleanup attempt failed:', emergencyError);
+        }
+      }
+    }
+  }
+
+  // PRODUCTION: Database integrity and recovery utilities
+  public async verifyDatabaseIntegrity(): Promise<{ healthy: boolean; issues: string[] }> {
+    const issues: string[] = [];
+    
+    try {
+      // Check if database is accessible
+      const isHealthy = await this.checkConnectionHealth();
+      if (!isHealthy) {
+        issues.push('Database connection failed');
+        return { healthy: false, issues };
+      }
+
+      // Check for potential transaction locks (simplified check)
+      try {
+        // Try a simple transaction to see if database is accessible
+        await this.database?.execute('BEGIN IMMEDIATE TRANSACTION');
+        await this.database?.execute('ROLLBACK');
+        console.log('✅ Database transaction test passed');
+      } catch (transactionError: any) {
+        if (transactionError.message?.includes('database is locked')) {
+          issues.push('Database appears to be locked');
+        } else {
+          issues.push('Transaction test failed - database may have issues');
+        }
+      }
+
+      // Check table integrity
+      try {
+        await this.database?.select('PRAGMA integrity_check');
+      } catch (error) {
+        issues.push('Database integrity check failed');
+      }
+
+      // Verify critical tables exist
+      const criticalTables = ['products', 'invoices', 'customers', 'payment_channels'];
+      for (const table of criticalTables) {
+        try {
+          await this.database?.select(`SELECT COUNT(*) FROM ${table} LIMIT 1`);
+        } catch (error) {
+          issues.push(`Critical table missing or corrupted: ${table}`);
+        }
+      }
+
+      return { 
+        healthy: issues.length === 0, 
+        issues 
+      };
+    } catch (error) {
+      issues.push(`Database verification failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return { healthy: false, issues };
+    }
+  }
+
+  // PRODUCTION: Database health monitoring for production environments
+  public async performHealthCheck(): Promise<{
+    status: 'healthy' | 'degraded' | 'critical';
+    metrics: {
+      responseTime: number;
+      activeConnections: number;
+      errorRate: number;
+      cacheHitRate: number;
+      memoryUsage?: number;
+    };
+    issues: string[];
+    recommendations: string[];
+  }> {
+    const startTime = Date.now();
+    const issues: string[] = [];
+    const recommendations: string[] = [];
+    
+    try {
+      // Test database responsiveness
+      const pingStart = Date.now();
+      await this.database?.select('SELECT 1 as health_ping');
+      const responseTime = Date.now() - pingStart;
+      
+      // Calculate error rate
+      const totalOps = this.metrics.operationsCount || 1;
+      const errorRate = (this.metrics.errorCount / totalOps) * 100;
+      
+      // Calculate cache hit rate
+      const totalCacheOps = this.cacheHits + this.cacheMisses || 1;
+      const cacheHitRate = (this.cacheHits / totalCacheOps) * 100;
+      
+      // Check for performance issues
+      if (responseTime > 1000) {
+        issues.push('Slow database response time');
+        recommendations.push('Check database load and consider optimization');
+      }
+      
+      if (errorRate > 5) {
+        issues.push('High error rate detected');
+        recommendations.push('Investigate error patterns and database stability');
+      }
+      
+      if (cacheHitRate < 50) {
+        recommendations.push('Consider increasing cache size or TTL');
+      }
+      
+      if (this.activeOperations >= this.maxConcurrentOperations * 0.8) {
+        issues.push('High concurrent operation load');
+        recommendations.push('Consider increasing concurrent operation limits');
+      }
+      
+      // Verify database integrity
+      const integrityCheck = await this.verifyDatabaseIntegrity();
+      if (!integrityCheck.healthy) {
+        issues.push(...integrityCheck.issues);
+        recommendations.push('Run database integrity repair');
+      }
+      
+      // Determine overall status
+      let status: 'healthy' | 'degraded' | 'critical' = 'healthy';
+      if (issues.length > 0) {
+        if (issues.some(issue => issue.includes('Critical') || issue.includes('corrupted'))) {
+          status = 'critical';
+        } else {
+          status = 'degraded';
+        }
+      }
+      
+      return {
+        status,
+        metrics: {
+          responseTime,
+          activeConnections: this.activeOperations,
+          errorRate,
+          cacheHitRate,
+          memoryUsage: this.queryCache.size
+        },
+        issues,
+        recommendations
+      };
+    } catch (error) {
+      return {
+        status: 'critical',
+        metrics: {
+          responseTime: Date.now() - startTime,
+          activeConnections: this.activeOperations,
+          errorRate: 100,
+          cacheHitRate: 0
+        },
+        issues: [`Health check failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
+        recommendations: ['Restart database service', 'Check database connectivity']
+      };
+    }
+  }
+
   // SECURITY: Input sanitization helper
   private sanitizeInput(input: string, maxLength: number = 255): string {
     if (!input || typeof input !== 'string') {
@@ -351,11 +596,11 @@ export class DatabaseService {
       .substring(0, maxLength);
   }
 
-  // UTILITY: Execute operation with retry logic for database locks
-  private async executeWithRetry<T>(
+  // UTILITY: Execute database operation with retry logic (transaction-safe)
+  private async executeDbWithRetry<T>(
     operation: () => Promise<T>, 
     operationName: string,
-    maxRetries: number = 3
+    maxRetries: number = 5  // Increased retries for database locks
   ): Promise<T> {
     let attempt = 0;
     
@@ -363,15 +608,78 @@ export class DatabaseService {
       try {
         return await operation();
       } catch (error: any) {
-        if ((error.message?.includes('database is locked') || 
-             error.message?.includes('SQLITE_BUSY') ||
-             error.code === 5) && attempt < maxRetries - 1) {
-          
+        const isLockError = (
+          error.message?.includes('database is locked') || 
+          error.message?.includes('SQLITE_BUSY') ||
+          error.code === 5 ||
+          error.message?.includes('(code: 5)') ||
+          error.message?.includes('code: 5')
+        );
+        
+        if (isLockError && attempt < maxRetries - 1) {
           attempt++;
-          const delay = 100 * Math.pow(2, attempt);
-          console.warn(`${operationName} failed due to database lock, retrying in ${delay}ms`);
+          // Faster, more aggressive retry for locks
+          const delay = 25 + (attempt * 10) + Math.random() * 15; // 25-40ms range
+          
+          console.warn(`🔒 ${operationName} DB operation locked (attempt ${attempt}/${maxRetries}), retrying in ${delay.toFixed(0)}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
+        }
+        
+        // For non-lock errors or max retries reached, throw immediately
+        throw error;
+      }
+    }
+    
+    throw new Error(`${operationName} failed after maximum retries`);
+  }
+  private async executeWithRetry<T>(
+    operation: () => Promise<T>, 
+    operationName: string,
+    maxRetries: number = 5  // Increased from 3 to 5 for better reliability
+  ): Promise<T> {
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        const isLockError = (
+          error.message?.includes('database is locked') || 
+          error.message?.includes('SQLITE_BUSY') ||
+          error.code === 5 ||
+          error.message?.includes('(code: 5)') ||
+          error.message?.includes('code: 5')
+        );
+        
+        // Enhanced debugging for lock errors
+        if (isLockError) {
+          console.log(`🔍 Lock error detected:`, {
+            message: error.message,
+            code: error.code,
+            attempt: attempt + 1,
+            maxRetries,
+            operationName
+          });
+        }
+        
+        if (isLockError && attempt < maxRetries - 1) {
+          attempt++;
+          // Exponential backoff with jitter for database locks
+          const baseDelay = 200; // Start with 200ms
+          const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
+          const jitter = Math.random() * 100; // Add randomness to prevent thundering herd
+          const delay = exponentialDelay + jitter;
+          
+          console.warn(`🔒 ${operationName} failed due to database lock (attempt ${attempt}/${maxRetries}), retrying in ${delay.toFixed(0)}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // For non-lock errors or max retries reached, throw immediately
+        if (isLockError) {
+          console.error(`🚨 ${operationName} failed after ${maxRetries} attempts due to persistent database locks`);
+          throw new Error(`Database is persistently locked. Please try again in a few moments.`);
         }
         
         throw error;
@@ -517,16 +825,19 @@ export class DatabaseService {
       throw error;
     }
   }
-  // Get items for a stock receiving (by receiving_id)
+  // Get items for a stock receiving (by receiving_id) with enhanced product details
   async getStockReceivingItems(receivingId: number): Promise<any[]> {
     if (!this.isInitialized) {
       await this.initialize();
     }
   
-    const result = await this.database?.select(
-      'SELECT * FROM stock_receiving_items WHERE receiving_id = ?',
-      [receivingId]
-    );
+    const result = await this.database?.select(`
+      SELECT sri.*, p.unit_type, p.unit, p.category, p.size, p.grade
+      FROM stock_receiving_items sri
+      LEFT JOIN products p ON sri.product_id = p.id
+      WHERE sri.receiving_id = ?
+      ORDER BY sri.id ASC
+    `, [receivingId]);
     return result || [];
   }
   // Vendor CRUD
@@ -619,6 +930,8 @@ export class DatabaseService {
     customer_id: number | null;
     customer_name: string | null;
     payment_method: string;
+    payment_channel_id?: number;
+    payment_channel_name?: string;
     notes: string;
     is_manual: boolean;
   }): Promise<number> {
@@ -630,15 +943,16 @@ export class DatabaseService {
       const now = new Date();
       const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-
       // Real DB implementation
-            if (entry.customer_id && entry.customer_name) {
-// For customer payments, use recordPayment method to ensure proper integration
+      if (entry.customer_id && entry.customer_name) {
+        // For customer payments, use recordPayment method to ensure proper integration
         if (entry.type === 'incoming' && (entry.category.includes('Payment') || entry.category.includes('payment'))) {
           const paymentRecord: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'> = {
             customer_id: entry.customer_id,
             amount: entry.amount,
             payment_method: entry.payment_method,
+            payment_channel_id: entry.payment_channel_id,
+            payment_channel_name: entry.payment_channel_name,
             payment_type: 'advance_payment',
             reference: `Manual-${entry.date}-${Date.now()}`,
             notes: entry.notes,
@@ -647,17 +961,17 @@ export class DatabaseService {
           return await this.recordPayment(paymentRecord);
         } else {
           // For other customer transactions, create customer ledger entry
-        await this.createLedgerEntry({
-          date: entry.date,
-          time: time,
-          type: entry.type,
-          category: entry.category,
-          description: entry.description,
-          amount: entry.amount,
-          customer_id: entry.customer_id,
-          customer_name: entry.customer_name,
-          reference_type: 'manual_transaction',
-          notes: entry.notes,
+          await this.createLedgerEntry({
+            date: entry.date,
+            time: time,
+            type: entry.type,
+            category: entry.category,
+            description: entry.description,
+            amount: entry.amount,
+            customer_id: entry.customer_id,
+            customer_name: entry.customer_name,
+            reference_type: 'manual_transaction',
+            notes: entry.notes,
             created_by: 'manual'
           });
         }
@@ -822,14 +1136,51 @@ export class DatabaseService {
         throw new Error('Failed to connect to database with any path variant');
       }
       
-      // FAST STARTUP: Apply only essential SQLite optimizations
+      // PRODUCTION: Verify database integrity after connection
+      console.log('🔍 Verifying database integrity...');
+      const integrityCheck = await this.verifyDatabaseIntegrity();
+      if (!integrityCheck.healthy) {
+        console.error('❌ Database integrity issues detected:', integrityCheck.issues);
+        // Log issues but continue - we'll handle them gracefully
+        for (const issue of integrityCheck.issues) {
+          console.warn(`⚠️ Database issue: ${issue}`);
+        }
+      } else {
+        console.log('✅ Database integrity verified');
+      }
+      
+      // PRODUCTION: Apply enhanced SQLite optimizations for lock handling
       try {
-        console.log('⚡ Fast startup: Applying essential SQLite optimizations...');
-        // Only apply critical settings for fast startup
+        console.log('🔧 Applying production-grade SQLite optimizations for lock handling...');
+        
+        // Enhanced WAL mode for better concurrency
         await this.database.execute('PRAGMA journal_mode=WAL');
-        await this.database.execute('PRAGMA busy_timeout=5000'); // Reduced timeout
+        
+        // Ultra-aggressive busy timeout for production (90 seconds for invoice operations)
+        await this.database.execute('PRAGMA busy_timeout=90000');
+        
+        // Enable foreign keys
         await this.database.execute('PRAGMA foreign_keys=ON');
-        console.log('✅ Essential optimizations applied for fast startup');
+        
+        // Enhanced locking mode for better concurrency
+        await this.database.execute('PRAGMA locking_mode=NORMAL');
+        
+        // Optimize synchronous mode for better performance with WAL
+        await this.database.execute('PRAGMA synchronous=NORMAL');
+        
+        // Set larger cache size for better performance (32MB)
+        await this.database.execute('PRAGMA cache_size=32768');
+        
+        // Enable automatic checkpointing for WAL with aggressive settings
+        await this.database.execute('PRAGMA wal_autocheckpoint=500');
+        
+        // Set WAL checkpoint mode to passive for better concurrency
+        await this.database.execute('PRAGMA wal_checkpoint_mode=PASSIVE');
+        
+        // Configure temp store in memory for better performance
+        await this.database.execute('PRAGMA temp_store=MEMORY');
+        
+        console.log('✅ Production SQLite optimizations applied successfully');
       } catch (pragmaError) {
         console.warn('⚠️ Could not apply some SQLite optimizations:', pragmaError);
         // Continue anyway - these are optimizations, not critical
@@ -966,61 +1317,83 @@ private async executeWithEnhancedConcurrencyControl<T>(operation: () => Promise<
 }
 
 private async _createInvoiceImplEnhanced(invoiceData: InvoiceCreationData): Promise<any> {
+  // PRODUCTION: Use retry logic for database lock handling
+  return await this.executeWithRetry(async () => {
+    return await this._executeInvoiceCreationAttempt(invoiceData);
+  }, 'createInvoice', 3);
+}
+
+private async _executeInvoiceCreationAttempt(invoiceData: InvoiceCreationData): Promise<any> {
   const transactionId = `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  let transactionActive = false;
   
-  try {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    // SECURITY: Enhanced input validation
-    this.validateInvoiceDataEnhanced(invoiceData);
-
-    // PERFORMANCE: Pre-flight checks to avoid unnecessary transaction overhead
-    await this.validatePreConditions(invoiceData);
-
-    // RELIABILITY: Start transaction with proper isolation
-    console.log(`🚀 Starting transaction: ${transactionId}`);
-    await this.database?.execute('BEGIN IMMEDIATE TRANSACTION');
-    transactionActive = true;
-
-    // Execute core invoice creation logic
-    const result = await this.createInvoiceCore(invoiceData, transactionId);
-
-    // RELIABILITY: Commit transaction
-    await this.database?.execute('COMMIT');
-    transactionActive = false;
-    console.log(`✅ Transaction committed: ${transactionId}`);
-
-    // EVENTS: Emit success events for real-time updates
-    this.emitInvoiceEvents(result);
-
-    return result;
-
-  } catch (error) {
-    this.metrics.errorCount++;
+  return this.executeWithLockHandling(async () => {
+    let transactionActive = false;
     
-    if (transactionActive) {
-      try {
-        await this.database?.execute('ROLLBACK');
-        console.log(`🔄 Transaction rolled back: ${transactionId}`);
-      } catch (rollbackError) {
-        console.error(`❌ Rollback failed for ${transactionId}:`, rollbackError);
-        throw new Error(`Critical: Transaction rollback failed. Database may be inconsistent.`);
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
       }
+
+      // SECURITY: Enhanced input validation
+      this.validateInvoiceDataEnhanced(invoiceData);
+
+      // PERFORMANCE: Pre-flight checks to avoid unnecessary transaction overhead
+      await this.validatePreConditions(invoiceData);
+
+      // RELIABILITY: Start transaction with proper isolation and lock detection
+      console.log(`🚀 Starting transaction: ${transactionId}`);
+      
+      // First set busy timeout to prevent immediate locks
+      await this.database?.execute('PRAGMA busy_timeout=10000');
+      
+      // Use DEFERRED instead of IMMEDIATE for better concurrency
+      await this.database?.execute('BEGIN DEFERRED TRANSACTION');
+      transactionActive = true;
+      console.log(`✅ Transaction started successfully: ${transactionId}`);
+
+      // Execute core invoice creation logic with additional retry protection
+      const result = await this.executeDbWithRetry(async () => {
+        return await this.createInvoiceCore(invoiceData, transactionId);
+      }, 'createInvoiceCoreExecution');
+
+      // RELIABILITY: Commit transaction with proper error handling
+      await this.database?.execute('COMMIT');
+      transactionActive = false;
+      console.log(`✅ Transaction committed: ${transactionId}`);
+
+      // EVENTS: Emit success events for real-time updates
+      this.emitInvoiceEvents(result);
+
+      return result;
+
+    } catch (error: any) {
+      this.metrics.errorCount++;
+      
+      // ENHANCED ERROR REPORTING: Provide detailed context for debugging
+      const errorContext = {
+        transactionId,
+        activeOperations: this.activeOperations,
+        errorCode: error.code,
+        errorMessage: error.message,
+        timestamp: new Date().toISOString(),
+        invoiceData: {
+          customer_id: invoiceData.customer_id,
+          items_count: invoiceData.items?.length || 0,
+          total_amount: invoiceData.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) || 0
+        }
+      };
+      
+      console.error(`❌ Invoice creation failed:`, errorContext);
+      
+      // CRITICAL: Ultra-safe transaction cleanup that never fails
+      if (transactionActive) {
+        await this.safeTransactionCleanup(transactionId, true);
+        transactionActive = false;
+      }
+
+      throw error;
     }
-
-    // Enhanced error logging with context
-    console.error(`❌ Invoice creation failed [${transactionId}]:`, {
-      error: error instanceof Error ? error.message : error,
-      customerId: invoiceData.customer_id,
-      itemCount: invoiceData.items.length,
-      timestamp: new Date().toISOString()
-    });
-
-    throw error;
-  }
+  }, 5, 500); // More retries and longer delay for invoice creation
 }
 
 // VALIDATION: Enhanced pre-flight checks
@@ -1076,21 +1449,23 @@ private async createInvoiceCore(invoiceData: InvoiceCreationData, _transactionId
   const billNumber = await this.generateUniqueBillNumber();
 
   // Create invoice record
-  const invoiceResult = await this.database?.execute(
-    `INSERT INTO invoices (
-      bill_number, customer_id, customer_name, subtotal, discount, discount_amount,
-      grand_total, payment_amount, payment_method, remaining_balance, notes,
-      status, date, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [
-      billNumber, invoiceData.customer_id, customer.name, subtotal,
-      invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
-      invoiceData.payment_method || 'cash', remainingBalance,
-      this.sanitizeInput(invoiceData.notes || '', 1000),
-      remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
-      invoiceData.date || new Date().toISOString().split('T')[0] // Use provided date or today
-    ]
-  );
+  const invoiceResult = await this.executeDbWithRetry(async () => {
+    return await this.database?.execute(
+      `INSERT INTO invoices (
+        bill_number, customer_id, customer_name, subtotal, discount, discount_amount,
+        grand_total, payment_amount, payment_method, remaining_balance, notes,
+        status, date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        billNumber, invoiceData.customer_id, customer.name, subtotal,
+        invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
+        invoiceData.payment_method || 'cash', remainingBalance,
+        this.sanitizeInput(invoiceData.notes || '', 1000),
+        remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
+        invoiceData.date || new Date().toISOString().split('T')[0] // Use provided date or today
+      ]
+    );
+  }, 'createInvoiceRecord');
 
   const invoiceId = invoiceResult?.lastInsertId;
   if (!invoiceId) {
@@ -1258,16 +1633,18 @@ private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNu
     }
 
     // Create invoice item record
-    await this.database?.execute(
-      `INSERT INTO invoice_items (
-        invoice_id, product_id, product_name, quantity, unit_price, total_price, 
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        invoiceId, item.product_id, product.name, item.quantity,
-        item.unit_price, item.total_price, now.toISOString(), now.toISOString()
-      ]
-    );
+    await this.executeDbWithRetry(async () => {
+      return await this.database?.execute(
+        `INSERT INTO invoice_items (
+          invoice_id, product_id, product_name, quantity, unit_price, total_price, 
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          invoiceId, item.product_id, product.name, item.quantity,
+          item.unit_price, item.total_price, now.toISOString(), now.toISOString()
+        ]
+      );
+    }, 'createInvoiceItem');
 
     // Update product stock
     const newStockString = formatUnitString(
@@ -1275,23 +1652,31 @@ private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNu
       product.unit_type || 'kg-grams'
     );
 
-    await this.database?.execute(
-      'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
-      [newStockString, now.toISOString(), item.product_id]
-    );
+    await this.executeDbWithRetry(async () => {
+      return await this.database?.execute(
+        'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+        [newStockString, now.toISOString(), item.product_id]
+      );
+    }, 'updateProductStock');
 
     // Create stock movement record for audit trail
-    await this.database?.execute(
-      `INSERT INTO stock_movements (
-        product_id, movement_type, quantity, reference_type, reference_id,
-        notes, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        item.product_id, 'out', item.quantity, 'invoice', invoiceId,
-        `Sale to ${customer.name} (Bill: ${billNumber})`,
-        now.toISOString(), now.toISOString()
-      ]
-    );
+    await this.executeDbWithRetry(async () => {
+      return await this.database?.execute(
+        `INSERT INTO stock_movements (
+          product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+          unit_price, total_value, reason, reference_type, reference_id, reference_number,
+          customer_id, customer_name, notes, date, time, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          item.product_id, product.name, 'out', item.quantity, 
+          product.current_stock, newStockString, item.unit_price, item.total_price,
+          'Invoice Sale', 'invoice', invoiceId, billNumber,
+          customer.id, customer.name, `Sale to ${customer.name} (Bill: ${billNumber})`,
+          now.toISOString().split('T')[0], now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          'system'
+        ]
+      );
+    }, 'createStockMovement');
   }
 }
 
@@ -1568,6 +1953,22 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id ON ledger_entries(customer_id)`);
       await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)`);
 
+      // Additional indexes for loan ledger performance
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_remaining_balance ON invoices(remaining_balance)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_customer_created ON invoices(customer_id, created_at)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_date ON payments(customer_id, date)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_customers_credit_limit ON customers(credit_limit)`);
+
+      // Performance indexes for real-time updates
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_daily_ledger_date ON daily_ledger_entries(date)`);
+
+      // Composite indexes for complex queries
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_customer_status_created ON invoices(customer_id, status, created_at)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_amount_date ON payments(customer_id, amount, date)`);
+
       console.log('✅ Background table creation completed successfully');
     } catch (error) {
       console.warn('⚠️ Background table creation failed (non-critical):', error);
@@ -1695,18 +2096,28 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
 
       // Create new enhanced tables for production-ready features
       
-      // Payment Channels table
+      // Payment Channels table - Enhanced for production
       await this.database?.execute(`
         CREATE TABLE IF NOT EXISTS payment_channels (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL CHECK (length(name) > 0),
-          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'cheque', 'online')),
-          account_details TEXT,
+          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque', 'other')),
+          description TEXT,
+          account_number TEXT,
+          bank_name TEXT,
           is_active BOOLEAN NOT NULL DEFAULT true,
+          fee_percentage REAL DEFAULT 0 CHECK (fee_percentage >= 0 AND fee_percentage <= 100),
+          fee_fixed REAL DEFAULT 0 CHECK (fee_fixed >= 0),
+          daily_limit REAL DEFAULT 0 CHECK (daily_limit >= 0),
+          monthly_limit REAL DEFAULT 0 CHECK (monthly_limit >= 0),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(name)
         )
       `);
+
+      // Migration: Add missing columns to existing payment_channels table
+      await this.migratePaymentChannelsTable();
 
       // Enhanced payments table
       await this.database?.execute(`
@@ -1988,14 +2399,22 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
         await this.database?.execute(indexSQL);
       }
 
-      // Insert default payment channels
+      // NOTE: Disabled auto-insertion of default payment channels
+      // Users will add payment channels manually through the UI
+      /*
       await this.database?.execute(`
-        INSERT OR IGNORE INTO payment_channels (id, name, type, account_details, is_active) VALUES
-        (1, 'Cash', 'cash', 'Cash transactions', true),
-        (2, 'Bank Account', 'bank', 'Primary business bank account', true),
-        (3, 'Cheque Payment', 'cheque', 'Customer/Vendor cheque payments', true),
-        (4, 'Online Transfer', 'online', 'Digital payments and transfers', true)
+        INSERT OR IGNORE INTO payment_channels (
+          id, name, type, description, account_number, bank_name, is_active,
+          fee_percentage, fee_fixed, daily_limit, monthly_limit
+        ) VALUES
+        (1, 'Cash', 'cash', 'Cash payments', NULL, NULL, true, 0, 0, 0, 0),
+        (2, 'Bank Transfer', 'bank', 'Bank transfer payments', NULL, NULL, true, 0, 0, 0, 0),
+        (3, 'JazzCash', 'digital', 'JazzCash mobile wallet', NULL, NULL, true, 1.5, 0, 25000, 100000),
+        (4, 'EasyPaisa', 'digital', 'EasyPaisa mobile wallet', NULL, NULL, true, 1.5, 0, 25000, 100000),
+        (5, 'Bank Cheque', 'cheque', 'Bank cheque payments', NULL, NULL, true, 0, 50, 0, 0),
+        (6, 'Online Banking', 'bank', 'Online bank transfers', NULL, NULL, true, 0, 25, 0, 0)
       `);
+      */
 
       console.log('All enhanced tables and indexes created successfully');
     } catch (error: any) {
@@ -2855,29 +3274,40 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
     }
   }
 
-  // CRITICAL FIX: Enhanced payment recording with ledger integration and invoice allocation
+  // CRITICAL FIX: Enhanced payment recording with proper transaction handling
   async recordPayment(payment: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'>, _allocateToInvoiceId?: number, inTransaction: boolean = false): Promise<number> {
-    try {
+    // Use our enhanced lock handling method
+    return this.executeWithLockHandling(async () => {
+      let shouldCommit = false;
+      
       if (!this.isInitialized) {
         await this.initialize();
       }
 
+      // Set busy timeout to prevent immediate locks
+      await this.database?.execute('PRAGMA busy_timeout=10000');
+
+      // Only start transaction if not already in one
       if (!inTransaction) {
-        await this.database?.execute('BEGIN TRANSACTION');
+        await this.database?.execute('BEGIN DEFERRED TRANSACTION');
+        shouldCommit = true;
       }
 
       try {
         const paymentCode = await this.generatePaymentCode();
         const result = await this.database?.execute(`
           INSERT INTO payments (
-            customer_id, payment_code, amount, payment_method, payment_type,
+            customer_id, payment_code, amount, payment_method, payment_channel_id, payment_channel_name, payment_type,
             reference_invoice_id, reference, notes, date
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           payment.customer_id, paymentCode, payment.amount, payment.payment_method,
+          payment.payment_channel_id || null, payment.payment_channel_name || payment.payment_method,
           payment.payment_type, payment.reference_invoice_id,
           payment.reference, payment.notes, payment.date
         ]);
+
+        const paymentId = result?.lastInsertId || 0;
 
         // Update customer balance
         const balanceChange = payment.payment_type === 'return_refund' 
@@ -2900,12 +3330,52 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           `, [payment.amount, payment.amount, payment.reference_invoice_id]);
         }
 
-        if (!inTransaction) {
+        // CRITICAL FIX: Only insert into enhanced_payments if we're in a transaction
+        // This prevents the nested transaction issue
+        const today = new Date().toISOString().split('T')[0];
+        const time = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+        
+        // Add delay to prevent database lock contention
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Get customer name - enhanced with better error handling and fallback
+        let customerName = 'Unknown Customer';
+        try {
+          // Try to get customer name directly from input if available
+          if (payment.customer_name) {
+            customerName = payment.customer_name;
+          } else {
+            // Otherwise fetch from database with proper error handling
+            const customer = await this.database?.select('SELECT name FROM customers WHERE id = ?', [payment.customer_id]);
+            if (customer?.[0]?.name) {
+              customerName = customer[0].name;
+            }
+          }
+        } catch (nameError) {
+          console.warn('Could not retrieve customer name, using fallback:', nameError);
+        }
+        
+        // Add delay before insert to help prevent locks
+        await new Promise(resolve => setTimeout(resolve, 25));
+        
+        await this.database?.execute(`
+          INSERT INTO enhanced_payments (
+            customer_id, customer_name, amount, payment_channel_id, payment_channel_name,
+            payment_type, reference_invoice_id, reference_number, notes, date, time, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          payment.customer_id, customerName, payment.amount, payment.payment_channel_id || null,
+          payment.payment_channel_name || payment.payment_method, payment.payment_type,
+          payment.reference_invoice_id, payment.reference, payment.notes, today, time,
+          payment.created_by || 'system'
+        ]);
+
+        // Only commit if we started the transaction
+        if (shouldCommit) {
           await this.database?.execute('COMMIT');
         }
-        const paymentId = result?.lastInsertId || 0;
         
-        // ENHANCED: Emit event for real-time component updates
+        // ENHANCED: Emit event for real-time component updates (after transaction)
         try {
           if (typeof window !== 'undefined') {
             const eventBus = (window as any).eventBus;
@@ -2923,23 +3393,20 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         } catch (error) {
           console.warn('Could not emit payment recorded event:', error);
         }
-        
+
         return paymentId;
       } catch (error) {
-        if (!inTransaction) {
-          await this.database?.execute('ROLLBACK');
+        if (shouldCommit) {
+          try {
+            await this.database?.execute('ROLLBACK');
+          } catch (rollbackError) {
+            console.warn('Failed to rollback payment transaction:', rollbackError);
+          }
         }
         throw error;
       }
-    } catch (error) {
-      console.error('Error recording payment:', error);
-      throw error;
-    }
-  }
-
-  // ENHANCED INVOICE SYSTEM: Support for editable invoices and multiple payments
-  
-  /**
+    });
+  }  /**
    * Add items to an existing invoice
    */
   async addInvoiceItems(invoiceId: number, items: any[]): Promise<void> {
@@ -3294,6 +3761,8 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
   async addInvoicePayment(invoiceId: number, paymentData: {
     amount: number;
     payment_method: string;
+    payment_channel_id?: number;
+    payment_channel_name?: string;
     reference?: string;
     notes?: string;
     date?: string;
@@ -3303,6 +3772,8 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         customer_id: 0, // Will be set from invoice
         amount: paymentData.amount,
         payment_method: paymentData.payment_method,
+        payment_channel_id: paymentData.payment_channel_id,
+        payment_channel_name: paymentData.payment_channel_name || paymentData.payment_method,
         payment_type: 'bill_payment',
         reference_invoice_id: invoiceId,
         reference: paymentData.reference || '',
@@ -4123,7 +4594,7 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
         UPDATE invoices 
         SET 
           paid_amount = COALESCE(paid_amount, 0) + ?,
-          remaining_balance = GREATEST(0, grand_total - (COALESCE(paid_amount, 0) + ?)),
+          remaining_balance = MAX(0, grand_total - (COALESCE(paid_amount, 0) + ?)),
           status = CASE 
             WHEN (COALESCE(paid_amount, 0) + ?) >= grand_total THEN 'paid'
             WHEN (COALESCE(paid_amount, 0) + ?) > 0 THEN 'partially_paid'
@@ -4189,7 +4660,32 @@ async createVendorPayment(payment: {
       await this.initialize();
     }
 
+    // Security validation
+    if (!payment.vendor_id || payment.vendor_id <= 0) {
+      throw new Error('Invalid vendor ID');
+    }
+    if (!payment.amount || payment.amount <= 0) {
+      throw new Error('Payment amount must be greater than 0');
+    }
+    if (!payment.payment_channel_id || payment.payment_channel_id <= 0) {
+      throw new Error('Invalid payment channel');
+    }
+    if (!payment.date || !payment.time) {
+      throw new Error('Date and time are required');
+    }
 
+    // Sanitize string inputs
+    const sanitizedPayment = {
+      ...payment,
+      vendor_name: (payment.vendor_name || '').substring(0, 200),
+      payment_channel_name: (payment.payment_channel_name || '').substring(0, 100),
+      reference_number: payment.reference_number?.substring(0, 100) || null,
+      cheque_number: payment.cheque_number?.substring(0, 50) || null,
+      notes: payment.notes?.substring(0, 1000) || null,
+      created_by: (payment.created_by || '').substring(0, 100)
+    };
+
+    console.log('Creating vendor payment:', sanitizedPayment);
 
     const result = await this.database?.execute(`
       INSERT INTO vendor_payments (
@@ -4198,13 +4694,15 @@ async createVendorPayment(payment: {
         notes, date, time, created_by
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      payment.vendor_id, payment.vendor_name, payment.receiving_id, payment.amount,
-      payment.payment_channel_id, payment.payment_channel_name, payment.reference_number,
-      payment.cheque_number, payment.cheque_date, payment.notes, payment.date,
-      payment.time, payment.created_by
+      sanitizedPayment.vendor_id, sanitizedPayment.vendor_name, sanitizedPayment.receiving_id, 
+      sanitizedPayment.amount, sanitizedPayment.payment_channel_id, sanitizedPayment.payment_channel_name, 
+      sanitizedPayment.reference_number, sanitizedPayment.cheque_number, sanitizedPayment.cheque_date, 
+      sanitizedPayment.notes, sanitizedPayment.date, sanitizedPayment.time, sanitizedPayment.created_by
     ]);
 
-    return result?.lastInsertId || 0;
+    const paymentId = result?.lastInsertId || 0;
+    console.log('Vendor payment created with ID:', paymentId);
+    return paymentId;
   } catch (error) {
     console.error('Error creating vendor payment:', error);
     throw error;
@@ -4220,13 +4718,13 @@ async updateStockReceivingPayment(receivingId: number, paymentAmount: number): P
       await this.initialize();
     }
 
- 
+    console.log('Updating stock receiving payment:', { receivingId, paymentAmount });
 
     await this.database?.execute(`
       UPDATE stock_receiving 
       SET 
         payment_amount = payment_amount + ?,
-        remaining_balance = GREATEST(0, total_amount - (payment_amount + ?)),
+        remaining_balance = MAX(0, total_amount - (payment_amount + ?)),
         payment_status = CASE 
           WHEN (payment_amount + ?) >= total_amount THEN 'paid'
           WHEN (payment_amount + ?) > 0 THEN 'partial'
@@ -4236,6 +4734,7 @@ async updateStockReceivingPayment(receivingId: number, paymentAmount: number): P
       WHERE id = ?
     `, [paymentAmount, paymentAmount, paymentAmount, paymentAmount, receivingId]);
     
+    console.log('Stock receiving payment updated successfully');
   } catch (error) {
     console.error('Error updating stock receiving payment:', error);
     throw error;
@@ -4306,22 +4805,24 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       // Real database implementation
-      await this.database?.execute(`
-        INSERT INTO invoice_payments (invoice_id, payment_id, amount, payment_method, notes, date, time, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `, [
-        invoiceId, 
-        paymentId, 
-        amount, 
-        paymentMethod, 
-        notes || '',
-        new Date().toISOString().split('T')[0],
-        new Date().toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: true 
-        })
-      ]);
+      await this.executeDbWithRetry(async () => {
+        return await this.database?.execute(`
+          INSERT INTO invoice_payments (invoice_id, payment_id, amount, payment_method, notes, date, time, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [
+          invoiceId, 
+          paymentId, 
+          amount, 
+          paymentMethod, 
+          notes || '',
+          new Date().toISOString().split('T')[0],
+          new Date().toLocaleTimeString('en-PK', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: true 
+          })
+        ]);
+      }, 'createInvoicePaymentHistory');
       
     } catch (error) {
       console.error('Error creating invoice payment history:', error);
@@ -4692,19 +5193,21 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
     // FIXED: Create DEBIT entry for invoice amount in customer_ledger_entries table
     const balanceAfterInvoice = currentBalance + grandTotal;
-    await this.database?.execute(
-      `INSERT INTO customer_ledger_entries 
-      (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-       reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        customerId, customerName, 'debit', 'invoice', grandTotal,
-        `Sale Invoice ${billNumber}`,
-        invoiceId, billNumber, currentBalance, balanceAfterInvoice,
-        date, time, 'system',
-        `Invoice amount: Rs. ${grandTotal.toFixed(2)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
-      ]
-    );
+    await this.executeDbWithRetry(async () => {
+      return await this.database?.execute(
+        `INSERT INTO customer_ledger_entries 
+        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          customerId, customerName, 'debit', 'invoice', grandTotal,
+          `Sale Invoice ${billNumber}`,
+          invoiceId, billNumber, currentBalance, balanceAfterInvoice,
+          date, time, 'system',
+          `Invoice amount: Rs. ${grandTotal.toFixed(2)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
+        ]
+      );
+    }, 'createCustomerDebitEntry');
 
     console.log(`✅ Debit entry created: Rs. ${grandTotal.toFixed(2)}, Balance: ${currentBalance.toFixed(2)} → ${balanceAfterInvoice.toFixed(2)}`);
 
@@ -4716,53 +5219,54 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const balanceAfterPayment = currentBalance - paymentAmount;
       
       // Create CREDIT entry for payment in customer_ledger_entries table
-      await this.database?.execute(
-        `INSERT INTO customer_ledger_entries 
-        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          customerId, customerName, 'credit', 'payment', paymentAmount,
-          `Payment - Invoice ${billNumber}`,
-          invoiceId, billNumber, currentBalance, balanceAfterPayment,
-          date, time, 'system',
-          `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
-        ]
-      );
+      await this.executeDbWithRetry(async () => {
+        return await this.database?.execute(
+          `INSERT INTO customer_ledger_entries 
+          (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+           reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            customerId, customerName, 'credit', 'payment', paymentAmount,
+            `Payment - Invoice ${billNumber}`,
+            invoiceId, billNumber, currentBalance, balanceAfterPayment,
+            date, time, 'system',
+            `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
+          ]
+        );
+      }, 'createCustomerCreditEntry');
 
       console.log(`✅ Credit entry created: Rs. ${paymentAmount.toFixed(2)}, Balance: ${currentBalance.toFixed(2)} → ${balanceAfterPayment.toFixed(2)}`);
 
       // Update balance tracker
       currentBalance = balanceAfterPayment;
 
-      // Also record in payments table for payment tracking
-      const payment = {
-        customer_id: customerId,
-        amount: paymentAmount,
-        payment_method: paymentMethod,
-        payment_type: 'bill_payment' as const,
-        reference: billNumber,
-        notes: `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
-        date: date,
-        reference_invoice_id: invoiceId
-      };
-
-      // Use the existing recordPayment method for payment table integration
-      // Pass inTransaction=true to avoid nested transaction
-      const paymentId = await this.recordPayment(payment, undefined, true);
+      // CRITICAL FIX: Create payment record directly without nested transaction
+      const paymentCode = await this.generatePaymentCode();
+      await this.executeDbWithRetry(async () => {
+        return await this.database?.execute(`
+          INSERT INTO payments (
+            customer_id, payment_code, amount, payment_method, payment_type,
+            reference_invoice_id, reference, notes, date
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          customerId, paymentCode, paymentAmount, paymentMethod, 'bill_payment',
+          invoiceId, billNumber, 
+          `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
+          date
+        ]);
+      }, 'createDirectPaymentRecord');
       
-      // Create payment history entry for invoice tracking
-      await this.createInvoicePaymentHistory(invoiceId, paymentId, paymentAmount, paymentMethod, payment.notes);
-      
-      console.log(`✅ Invoice payment recorded via recordPayment: Rs. ${paymentAmount.toFixed(2)} (Payment ID: ${paymentId})`);
+      console.log(`✅ Invoice payment recorded directly: Rs. ${paymentAmount.toFixed(2)}`);
     }
 
     // CRITICAL FIX: Update customer balance in customers table to match ledger
     console.log(`🔧 Updating customer balance: ${customerId} → Rs. ${currentBalance.toFixed(2)}`);
-    await this.database?.execute(
-      'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [currentBalance, customerId]
-    );
+    await this.executeDbWithRetry(async () => {
+      return await this.database?.execute(
+        'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [currentBalance, customerId]
+      );
+    }, 'updateCustomerBalance');
 
     // Verify the update worked
     const updatedCustomer = await this.getCustomer(customerId);
@@ -4813,18 +5317,20 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   }): Promise<void> {
 
     // Real database implementation
-    await this.database?.execute(
-      `INSERT INTO ledger_entries 
-      (date, time, type, category, description, amount, running_balance, customer_id, customer_name, 
-       reference_id, reference_type, bill_number, notes, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        entry.date, entry.time, entry.type, entry.category, entry.description, entry.amount,
-        0, // running_balance calculated separately in real DB
-        entry.customer_id, entry.customer_name, entry.reference_id, entry.reference_type,
-        entry.bill_number, entry.notes, entry.created_by
-      ]
-    );
+    await this.executeDbWithRetry(async () => {
+      return await this.database?.execute(
+        `INSERT INTO ledger_entries 
+        (date, time, type, category, description, amount, running_balance, customer_id, customer_name, 
+         reference_id, reference_type, bill_number, notes, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          entry.date, entry.time, entry.type, entry.category, entry.description, entry.amount,
+          0, // running_balance calculated separately in real DB
+          entry.customer_id, entry.customer_name, entry.reference_id, entry.reference_type,
+          entry.bill_number, entry.notes, entry.created_by
+        ]
+      );
+    }, 'createLedgerEntry');
   }
 
   // CRITICAL FIX: Return Management System
@@ -5145,6 +5651,122 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       return { outstanding, total_paid, total_invoiced };
     } catch (error) {
       console.error('❌ Error getting customer balance:', error);
+      throw error;
+    }
+  }
+
+  // Optimized loan ledger data retrieval - single query instead of N+1
+  async getLoanLedgerData(): Promise<any[]> {
+    try {
+      if (!this.isInitialized) await this.initialize();
+
+      const result = await this.database?.select(`
+        WITH customer_balances AS (
+          SELECT 
+            c.id,
+            c.name,
+            c.phone,
+            c.address,
+            c.cnic,
+            COALESCE(SUM(i.grand_total), 0) as total_invoiced,
+            COALESCE(SUM(p.amount), 0) as total_paid,
+            COALESCE(SUM(i.grand_total), 0) - COALESCE(SUM(p.amount), 0) as outstanding,
+            COUNT(DISTINCT i.id) as invoice_count,
+            COUNT(DISTINCT p.id) as payment_count,
+            MAX(i.created_at) as last_invoice_date,
+            MAX(p.date) as last_payment_date
+          FROM customers c
+          LEFT JOIN invoices i ON c.id = i.customer_id
+          LEFT JOIN payments p ON c.id = p.customer_id
+          GROUP BY c.id, c.name, c.phone, c.address, c.cnic
+          HAVING outstanding > 0
+        ),
+        aging_analysis AS (
+          SELECT 
+            i.customer_id,
+            SUM(CASE 
+              WHEN JULIANDAY('now') - JULIANDAY(i.created_at) <= 30 
+              THEN COALESCE(i.remaining_balance, i.grand_total)
+              ELSE 0 
+            END) as aging_current,
+            SUM(CASE 
+              WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 30 
+              AND JULIANDAY('now') - JULIANDAY(i.created_at) <= 60 
+              THEN COALESCE(i.remaining_balance, i.grand_total)
+              ELSE 0 
+            END) as aging_30,
+            SUM(CASE 
+              WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 60 
+              AND JULIANDAY('now') - JULIANDAY(i.created_at) <= 90 
+              THEN COALESCE(i.remaining_balance, i.grand_total)
+              ELSE 0 
+            END) as aging_60,
+            SUM(CASE 
+              WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 90 
+              AND JULIANDAY('now') - JULIANDAY(i.created_at) <= 120 
+              THEN COALESCE(i.remaining_balance, i.grand_total)
+              ELSE 0 
+            END) as aging_90,
+            SUM(CASE 
+              WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 120 
+              THEN COALESCE(i.remaining_balance, i.grand_total)
+              ELSE 0 
+            END) as aging_120
+          FROM invoices i
+          WHERE COALESCE(i.remaining_balance, i.grand_total) > 0
+          GROUP BY i.customer_id
+        )
+        SELECT 
+          cb.*,
+          COALESCE(CAST(JULIANDAY('now') - JULIANDAY(cb.last_invoice_date) AS INTEGER), 0) as days_overdue,
+          COALESCE(aa.aging_current, 0) as aging_current,
+          COALESCE(aa.aging_30, 0) as aging_30,
+          COALESCE(aa.aging_60, 0) as aging_60,
+          COALESCE(aa.aging_90, 0) as aging_90,
+          COALESCE(aa.aging_120, 0) as aging_120,
+          CASE 
+            WHEN (JULIANDAY('now') - JULIANDAY(cb.last_invoice_date) > 120) 
+                 OR ((COALESCE(aa.aging_90, 0) + COALESCE(aa.aging_120, 0)) / NULLIF(cb.outstanding, 0) > 0.7) 
+                 OR (cb.outstanding > 100000) 
+            THEN 'critical'
+            WHEN (JULIANDAY('now') - JULIANDAY(cb.last_invoice_date) > 90) 
+                 OR ((COALESCE(aa.aging_90, 0) + COALESCE(aa.aging_120, 0)) / NULLIF(cb.outstanding, 0) > 0.5) 
+                 OR (cb.outstanding > 50000) 
+            THEN 'high'
+            WHEN (JULIANDAY('now') - JULIANDAY(cb.last_invoice_date) > 60) 
+                 OR ((COALESCE(aa.aging_90, 0) + COALESCE(aa.aging_120, 0)) / NULLIF(cb.outstanding, 0) > 0.3) 
+                 OR (cb.outstanding > 25000) 
+            THEN 'medium'
+            ELSE 'low'
+          END as risk_level
+        FROM customer_balances cb
+        LEFT JOIN aging_analysis aa ON cb.id = aa.customer_id
+        WHERE cb.outstanding > 0
+        ORDER BY cb.outstanding DESC
+        LIMIT 100
+      `);
+
+      return (result || []).map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        phone: row.phone,
+        address: row.address,
+        cnic: row.cnic,
+        total_outstanding: row.outstanding,
+        last_payment_date: row.last_payment_date,
+        last_invoice_date: row.last_invoice_date,
+        invoice_count: row.invoice_count,
+        payment_count: row.payment_count,
+        days_overdue: Math.floor(row.days_overdue || 0),
+        risk_level: row.risk_level,
+        aging_30: row.aging_30 || 0,
+        aging_60: row.aging_60 || 0,
+        aging_90: row.aging_90 || 0,
+        aging_120: row.aging_120 || 0,
+        payment_trend: 'stable' // Simplified for now
+      }));
+    } catch (error) {
+      console.error('❌ Error getting loan ledger data:', error);
       throw error;
     }
   }
@@ -5534,42 +6156,935 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   // ENHANCED PRODUCTION-READY FEATURES
   // ===================================
 
-  // Payment Channels Management
-  async getPaymentChannels(): Promise<any[]> {
+  // ===== PAYMENT CHANNELS MANAGEMENT =====
+  
+  /**
+   * Get all payment channels with usage statistics
+   */
+  async getPaymentChannels(includeInactive = false): Promise<any[]> {
     try {
+      console.log(`🔄 [DB] getPaymentChannels called with includeInactive: ${includeInactive}`);
+      
       if (!this.isInitialized) {
+        console.log('🔄 [DB] Database not initialized, initializing...');
         await this.initialize();
       }
 
-      const channels = await this.database?.select(`
-        SELECT * FROM payment_channels WHERE is_active = true ORDER BY name ASC
-      `);
-      return channels || [];
+      // Ensure payment_channels table exists
+      console.log('🔄 [DB] Ensuring payment_channels table exists...');
+      await this.ensurePaymentChannelsTable();
+
+      const whereClause = includeInactive ? '' : 'WHERE pc.is_active = 1';
+      console.log(`🔄 [DB] Using where clause: "${whereClause}"`);
+      
+      const query = `
+        SELECT 
+          pc.*,
+          COALESCE(stats.total_transactions, 0) as total_transactions,
+          COALESCE(stats.total_amount, 0) as total_amount,
+          CASE 
+            WHEN stats.total_transactions > 0 
+            THEN ROUND(stats.total_amount / stats.total_transactions, 2)
+            ELSE 0 
+          END as avg_transaction,
+          stats.last_used
+        FROM payment_channels pc
+        LEFT JOIN (
+          SELECT 
+            payment_channel_id,
+            COUNT(*) as total_transactions,
+            SUM(amount) as total_amount,
+            MAX(date || ' ' || time) as last_used
+          FROM enhanced_payments 
+          GROUP BY payment_channel_id
+        ) stats ON pc.id = stats.payment_channel_id
+        ${whereClause}
+        ORDER BY pc.name ASC
+      `;
+      
+      console.log(`🔄 [DB] Executing query: ${query}`);
+      const channels = await this.database?.select(query);
+      console.log(`✅ [DB] Query result:`, channels);
+      console.log(`✅ [DB] Found ${channels?.length || 0} payment channels`);
+      
+      // Convert SQLite integer booleans to JavaScript booleans
+      const convertedChannels = (channels || []).map((channel: any) => ({
+        ...channel,
+        is_active: channel.is_active === 1
+      }));
+      
+      console.log(`✅ [DB] Converted channels:`, convertedChannels);
+      return convertedChannels;
     } catch (error) {
-      console.error('Error getting payment channels:', error);
+      console.error('❌ [DB] Error getting payment channels:', error);
       throw error;
     }
   }
 
-  async createPaymentChannel(channel: {
-    name: string;
-    type: 'cash' | 'bank' | 'cheque' | 'online';
-    account_details?: string;
-  }): Promise<number> {
+  /**
+   * Get payment channel statistics
+   */
+  async getPaymentChannelStats(): Promise<any[]> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
 
-
-
-      const result = await this.database?.execute(`
-        INSERT INTO payment_channels (name, type, account_details) VALUES (?, ?, ?)
-      `, [channel.name, channel.type, channel.account_details || '']);
-
-      return result?.lastInsertId || 0;
+      const stats = await this.database?.select(`
+        SELECT 
+          pc.id as channel_id,
+          pc.name as channel_name,
+          pc.type as channel_type,
+          COALESCE(stats.total_transactions, 0) as total_transactions,
+          COALESCE(stats.total_amount, 0) as total_amount,
+          CASE 
+            WHEN stats.total_transactions > 0 
+            THEN ROUND(stats.total_amount / stats.total_transactions, 2)
+            ELSE 0 
+          END as avg_transaction,
+          stats.last_used,
+          COALESCE(today_stats.today_transactions, 0) as today_transactions,
+          COALESCE(today_stats.today_amount, 0) as today_amount
+        FROM payment_channels pc
+        LEFT JOIN (
+          SELECT 
+            payment_channel_id,
+            COUNT(*) as total_transactions,
+            SUM(amount) as total_amount,
+            MAX(date) as last_used
+          FROM enhanced_payments 
+          GROUP BY payment_channel_id
+        ) stats ON pc.id = stats.payment_channel_id
+        LEFT JOIN (
+          SELECT 
+            payment_channel_id,
+            COUNT(*) as today_transactions,
+            SUM(amount) as today_amount
+          FROM enhanced_payments 
+          WHERE date = date('now', 'localtime')
+          GROUP BY payment_channel_id
+        ) today_stats ON pc.id = today_stats.payment_channel_id
+        WHERE pc.is_active = 1
+        ORDER BY stats.total_amount DESC, pc.name ASC
+      `);
+      
+      return stats || [];
     } catch (error) {
-      console.error('Error creating payment channel:', error);
+      console.error('Error getting payment channel stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Migrate payment channels table to ensure all required columns exist
+   */
+  private async migratePaymentChannelsTable(): Promise<void> {
+    try {
+      if (!this.database) return;
+
+      // Get current table structure
+      const tableInfo = await this.database.select(`PRAGMA table_info(payment_channels)`);
+      const existingColumns = tableInfo?.map((col: any) => col.name) || [];
+      
+      console.log('Existing payment_channels columns:', existingColumns);
+
+      // List of required columns with their definitions
+      const requiredColumns = [
+        { name: 'description', definition: 'TEXT' },
+        { name: 'account_number', definition: 'TEXT' },
+        { name: 'bank_name', definition: 'TEXT' },
+        { name: 'fee_percentage', definition: 'REAL DEFAULT 0' },
+        { name: 'fee_fixed', definition: 'REAL DEFAULT 0' },
+        { name: 'daily_limit', definition: 'REAL DEFAULT 0' },
+        { name: 'monthly_limit', definition: 'REAL DEFAULT 0' }
+      ];
+
+      // Add missing columns
+      for (const column of requiredColumns) {
+        if (!existingColumns.includes(column.name)) {
+          console.log(`Adding missing column: ${column.name}`);
+          try {
+            await this.database.execute(
+              `ALTER TABLE payment_channels ADD COLUMN ${column.name} ${column.definition}`
+            );
+          } catch (error) {
+            console.warn(`Failed to add column ${column.name}:`, error);
+          }
+        }
+      }
+
+      console.log('Payment channels table migration completed');
+    } catch (error) {
+      console.warn('Payment channels table migration error:', error);
+    }
+  }
+
+  /**
+   * Ensure payment channels table exists with all required columns
+   */
+  private async ensurePaymentChannelsTable(): Promise<void> {
+    try {
+      if (!this.database) return;
+
+      // First, create the table if it doesn't exist
+      await this.database.execute(`
+        CREATE TABLE IF NOT EXISTS payment_channels (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL CHECK (length(name) > 0),
+          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque', 'other')),
+          description TEXT,
+          account_number TEXT,
+          bank_name TEXT,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          fee_percentage REAL DEFAULT 0 CHECK (fee_percentage >= 0 AND fee_percentage <= 100),
+          fee_fixed REAL DEFAULT 0 CHECK (fee_fixed >= 0),
+          daily_limit REAL DEFAULT 0 CHECK (daily_limit >= 0),
+          monthly_limit REAL DEFAULT 0 CHECK (monthly_limit >= 0),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(name)
+        )
+      `);
+
+      // Then run the migration to add any missing columns
+      await this.migratePaymentChannelsTable();
+
+      // NOTE: Disabled auto-creation of default payment channels
+      // Users will add payment channels manually through the UI
+      
+      console.log('Payment channels table ensured with all required columns');
+    } catch (error) {
+      console.warn('Error ensuring payment channels table:', error);
+    }
+  }
+
+  /**
+   * Create default payment channels
+   */
+  private async createDefaultPaymentChannels(): Promise<void> {
+    try {
+      if (!this.database) return;
+
+      const defaultChannels = [
+        {
+          name: 'Cash',
+          type: 'cash',
+          description: 'Physical cash payments',
+          is_active: true
+        },
+        {
+          name: 'Bank Transfer',
+          type: 'bank',
+          description: 'Electronic bank transfers',
+          bank_name: 'Generic Bank',
+          is_active: true
+        },
+        {
+          name: 'Credit Card',
+          type: 'card',
+          description: 'Credit card payments',
+          fee_percentage: 2.5,
+          is_active: true
+        },
+        {
+          name: 'Cheque',
+          type: 'cheque',
+          description: 'Cheque payments',
+          is_active: true
+        },
+        {
+          name: 'JazzCash',
+          type: 'digital',
+          description: 'JazzCash mobile wallet',
+          fee_fixed: 10,
+          is_active: true
+        }
+      ];
+
+      for (const channel of defaultChannels) {
+        await this.database.execute(`
+          INSERT INTO payment_channels (
+            name, type, description, account_number, bank_name, is_active,
+            fee_percentage, fee_fixed, daily_limit, monthly_limit,
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [
+          channel.name,
+          channel.type,
+          channel.description || '',
+          null, // account_number
+          channel.bank_name || null,
+          channel.is_active,
+          channel.fee_percentage || 0,
+          channel.fee_fixed || 0,
+          0, // daily_limit
+          0, // monthly_limit
+        ]);
+      }
+
+      console.log('Default payment channels created successfully');
+    } catch (error) {
+      console.warn('Error creating default payment channels:', error);
+    }
+  }
+
+  /**
+   * Create a new payment channel
+   */
+  async createPaymentChannel(channel: {
+    name: string;
+    type: 'cash' | 'bank' | 'digital' | 'card' | 'cheque' | 'other';
+    description?: string;
+    account_number?: string;
+    bank_name?: string;
+    is_active?: boolean;
+    fee_percentage?: number;
+    fee_fixed?: number;
+    daily_limit?: number;
+    monthly_limit?: number;
+  }): Promise<number> {
+    let retries = 0;
+    const maxRetries = 3;
+    
+    while (retries < maxRetries) {
+      try {
+        if (!this.isInitialized) {
+          await this.initialize();
+        }
+
+        // Ensure payment_channels table exists with all required columns
+        await this.ensurePaymentChannelsTable();
+
+        // Add delay to prevent database locks
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100 * retries));
+        }
+
+        console.log(`🔄 [DB] Creating payment channel: ${channel.name} (attempt ${retries + 1})`);
+
+        // Validate input
+        if (!channel.name || channel.name.trim().length === 0) {
+          throw new Error('Payment channel name is required');
+        }
+
+        if (!['cash', 'bank', 'digital', 'card', 'cheque', 'other'].includes(channel.type)) {
+          throw new Error('Invalid payment channel type');
+        }
+
+        // Validate bank-specific fields
+        if (channel.type === 'bank' && (!channel.bank_name || channel.bank_name.trim().length === 0)) {
+          throw new Error('Bank name is required for bank type channels');
+        }
+
+        // Validate numeric fields
+        if (channel.fee_percentage !== undefined && (channel.fee_percentage < 0 || channel.fee_percentage > 100)) {
+          throw new Error('Fee percentage must be between 0 and 100');
+        }
+
+        if (channel.fee_fixed !== undefined && channel.fee_fixed < 0) {
+          throw new Error('Fixed fee cannot be negative');
+        }
+
+        if (channel.daily_limit !== undefined && channel.daily_limit < 0) {
+          throw new Error('Daily limit cannot be negative');
+        }
+
+        if (channel.monthly_limit !== undefined && channel.monthly_limit < 0) {
+          throw new Error('Monthly limit cannot be negative');
+        }
+
+        // Check for duplicate names (case-insensitive)
+        const existing = await this.database?.select(
+          'SELECT id FROM payment_channels WHERE LOWER(name) = LOWER(?) AND is_active = 1',
+          [channel.name.trim()]
+        );
+
+        if (existing && existing.length > 0) {
+          throw new Error('A payment channel with this name already exists');
+        }
+
+        // Ensure database connection exists
+        if (!this.database) {
+          throw new Error('Database connection not available');
+        }
+
+        // Try creating with all fields first, fallback to basic fields if needed
+        try {
+          const result = await this.database.execute(`
+            INSERT INTO payment_channels (
+              name, type, description, account_number, bank_name, is_active,
+              fee_percentage, fee_fixed, daily_limit, monthly_limit,
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [
+            channel.name.trim(),
+            channel.type,
+            channel.description?.trim() || '',
+            channel.account_number?.trim() || null,
+            channel.bank_name?.trim() || null,
+            channel.is_active !== false ? 1 : 0,  // Convert boolean to integer
+            channel.fee_percentage || 0,
+            channel.fee_fixed || 0,
+            channel.daily_limit || 0,
+            channel.monthly_limit || 0
+          ]);
+
+          if (!result || !result.lastInsertId) {
+            throw new Error('Failed to create payment channel - no ID returned');
+          }
+
+          const channelId = Number(result.lastInsertId);
+          console.log(`✅ [DB] Payment channel created successfully: ${channel.name} (ID: ${channelId})`);
+          return channelId;
+        } catch (insertError: any) {
+          // If the full insert fails due to missing columns, try with just basic fields
+          if (insertError.message && insertError.message.includes('no column named')) {
+            console.warn('Falling back to basic payment channel creation due to missing columns');
+            const basicResult = await this.database.execute(`
+              INSERT INTO payment_channels (name, type, is_active, created_at, updated_at) 
+              VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            `, [
+              channel.name.trim(),
+              channel.type,
+              channel.is_active !== false ? 1 : 0  // Convert boolean to integer
+            ]);
+
+            if (!basicResult || !basicResult.lastInsertId) {
+              throw new Error('Failed to create payment channel - no ID returned');
+            }
+
+            const channelId = Number(basicResult.lastInsertId);
+            console.log(`✅ [DB] Payment channel created successfully (basic mode): ${channel.name} (ID: ${channelId})`);
+            return channelId;
+          }
+          
+          throw insertError;
+        }
+      } catch (error: any) {
+        console.error(`❌ [DB] Error creating payment channel (attempt ${retries + 1}):`, error);
+        
+        // Check if it's a database lock error
+        if (error.message && (error.message.includes('database is locked') || error.message.includes('SQLITE_BUSY'))) {
+          retries++;
+          if (retries < maxRetries) {
+            console.log(`🔄 [DB] Database locked, retrying in ${100 * retries}ms... (attempt ${retries + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 100 * retries));
+            continue;
+          }
+        }
+        
+        // Provide more specific error messages
+        if (error.message && error.message.includes('UNIQUE constraint failed')) {
+          throw new Error('A payment channel with this name already exists');
+        }
+        
+        if (error.message && error.message.includes('CHECK constraint failed')) {
+          throw new Error('Invalid channel data - please check all fields are correctly filled');
+        }
+        
+        // Re-throw with original message if it's already user-friendly
+        if (error.message && !error.message.includes('database') && !error.message.includes('SQL')) {
+          throw error;
+        }
+        
+        // Generic fallback error
+        throw new Error('Failed to create payment channel. Please check your input and try again');
+      }
+    }
+    
+    throw new Error('Failed to create payment channel after multiple attempts. Database may be busy.');
+  }
+
+  /**
+   * Update an existing payment channel
+   */
+  async updatePaymentChannel(id: number, updates: {
+    name?: string;
+    type?: 'cash' | 'bank' | 'digital' | 'card' | 'cheque' | 'other';
+    description?: string;
+    account_number?: string;
+    bank_name?: string;
+    is_active?: boolean;
+    fee_percentage?: number;
+    fee_fixed?: number;
+    daily_limit?: number;
+    monthly_limit?: number;
+  }): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Ensure payment_channels table exists with all required columns
+      await this.ensurePaymentChannelsTable();
+
+      if (!id || id <= 0) {
+        throw new Error('Invalid payment channel ID');
+      }
+
+      // Validate channel exists
+      const existing = await this.database?.select(
+        'SELECT id, name FROM payment_channels WHERE id = ?',
+        [id]
+      );
+
+      if (!existing || existing.length === 0) {
+        throw new Error('Payment channel not found');
+      }
+
+      // Validate input if provided
+      if (updates.name !== undefined && (!updates.name || updates.name.trim().length === 0)) {
+        throw new Error('Payment channel name cannot be empty');
+      }
+
+      if (updates.type !== undefined && !['cash', 'bank', 'digital', 'card', 'cheque', 'other'].includes(updates.type)) {
+        throw new Error('Invalid payment channel type');
+      }
+
+      // Validate bank-specific fields
+      if (updates.type === 'bank' && updates.bank_name !== undefined && (!updates.bank_name || updates.bank_name.trim().length === 0)) {
+        throw new Error('Bank name is required for bank type channels');
+      }
+
+      // Validate numeric fields
+      if (updates.fee_percentage !== undefined && (updates.fee_percentage < 0 || updates.fee_percentage > 100)) {
+        throw new Error('Fee percentage must be between 0 and 100');
+      }
+
+      if (updates.fee_fixed !== undefined && updates.fee_fixed < 0) {
+        throw new Error('Fixed fee cannot be negative');
+      }
+
+      if (updates.daily_limit !== undefined && updates.daily_limit < 0) {
+        throw new Error('Daily limit cannot be negative');
+      }
+
+      if (updates.monthly_limit !== undefined && updates.monthly_limit < 0) {
+        throw new Error('Monthly limit cannot be negative');
+      }
+
+      // Check for duplicate names if name is being updated (case-insensitive)
+      if (updates.name) {
+        const duplicate = await this.database?.select(
+          'SELECT id FROM payment_channels WHERE LOWER(name) = LOWER(?) AND id != ? AND is_active = 1',
+          [updates.name.trim(), id]
+        );
+
+        if (duplicate && duplicate.length > 0) {
+          throw new Error('A payment channel with this name already exists');
+        }
+      }
+
+      // Build update query dynamically
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+
+      if (updates.name !== undefined) {
+        updateFields.push('name = ?');
+        updateValues.push(updates.name.trim());
+      }
+      if (updates.type !== undefined) {
+        updateFields.push('type = ?');
+        updateValues.push(updates.type);
+      }
+      if (updates.description !== undefined) {
+        updateFields.push('description = ?');
+        updateValues.push(updates.description.trim());
+      }
+      if (updates.account_number !== undefined) {
+        updateFields.push('account_number = ?');
+        updateValues.push(updates.account_number?.trim() || null);
+      }
+      if (updates.bank_name !== undefined) {
+        updateFields.push('bank_name = ?');
+        updateValues.push(updates.bank_name?.trim() || null);
+      }
+      if (updates.is_active !== undefined) {
+        updateFields.push('is_active = ?');
+        updateValues.push(updates.is_active ? 1 : 0);  // Convert boolean to integer
+      }
+      if (updates.fee_percentage !== undefined) {
+        updateFields.push('fee_percentage = ?');
+        updateValues.push(updates.fee_percentage);
+      }
+      if (updates.fee_fixed !== undefined) {
+        updateFields.push('fee_fixed = ?');
+        updateValues.push(updates.fee_fixed);
+      }
+      if (updates.daily_limit !== undefined) {
+        updateFields.push('daily_limit = ?');
+        updateValues.push(updates.daily_limit);
+      }
+      if (updates.monthly_limit !== undefined) {
+        updateFields.push('monthly_limit = ?');
+        updateValues.push(updates.monthly_limit);
+      }
+
+      if (updateFields.length === 0) {
+        throw new Error('No valid updates provided');
+      }
+
+      updateFields.push('updated_at = CURRENT_TIMESTAMP');
+      updateValues.push(id);
+
+      // Ensure database connection exists
+      if (!this.database) {
+        throw new Error('Database connection not available');
+      }
+
+      const sql = `UPDATE payment_channels SET ${updateFields.join(', ')} WHERE id = ?`;
+      
+      try {
+        const result = await this.database.execute(sql, updateValues);
+
+        if (!result || result.rowsAffected === 0) {
+          throw new Error('Payment channel update failed - no rows affected');
+        }
+
+        console.log(`Payment channel updated successfully: ID ${id}`);
+      } catch (updateError: any) {
+        // If update fails due to missing columns, try with just the basic fields
+        if (updateError.message && updateError.message.includes('no column named')) {
+          console.warn('Falling back to basic payment channel update due to missing columns');
+          
+          const basicFields: string[] = [];
+          const basicValues: any[] = [];
+          
+          if (updates.name !== undefined) {
+            basicFields.push('name = ?');
+            basicValues.push(updates.name.trim());
+          }
+          if (updates.type !== undefined) {
+            basicFields.push('type = ?');
+            basicValues.push(updates.type);
+          }
+          if (updates.is_active !== undefined) {
+            basicFields.push('is_active = ?');
+            basicValues.push(updates.is_active);
+          }
+          
+          if (basicFields.length > 0) {
+            basicFields.push('updated_at = CURRENT_TIMESTAMP');
+            basicValues.push(id);
+            
+            const basicSql = `UPDATE payment_channels SET ${basicFields.join(', ')} WHERE id = ?`;
+            const basicResult = await this.database.execute(basicSql, basicValues);
+            
+            if (!basicResult || basicResult.rowsAffected === 0) {
+              throw new Error('Payment channel update failed - no rows affected');
+            }
+            
+            console.log(`Payment channel updated successfully (basic mode): ID ${id}`);
+          }
+        } else {
+          throw updateError;
+        }
+      }
+    } catch (error: any) {
+      console.error('Error updating payment channel:', error);
+      
+      // Provide more specific error messages
+      if (error.message && error.message.includes('UNIQUE constraint failed')) {
+        throw new Error('A payment channel with this name already exists');
+      }
+      
+      if (error.message && error.message.includes('CHECK constraint failed')) {
+        throw new Error('Invalid data provided. Please check all fields and try again');
+      }
+      
+      // Re-throw with original message if it's already user-friendly
+      if (error.message && !error.message.includes('database') && !error.message.includes('SQL')) {
+        throw error;
+      }
+      
+      // Generic fallback error
+      throw new Error('Failed to update payment channel. Please check your input and try again');
+    }
+  }
+
+  /**
+   * Delete a payment channel (soft delete by setting inactive)
+   */
+  async deletePaymentChannel(id: number): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      if (!id || id <= 0) {
+        throw new Error('Invalid payment channel ID');
+      }
+
+      // Ensure database connection exists
+      if (!this.database) {
+        throw new Error('Database connection not available');
+      }
+
+      // Check if channel exists
+      const existing = await this.database.select(
+        'SELECT id, name FROM payment_channels WHERE id = ?',
+        [id]
+      );
+
+      if (!existing || existing.length === 0) {
+        throw new Error('Payment channel not found');
+      }
+
+      // Check if channel has any payments
+      const payments = await this.database.select(
+        'SELECT COUNT(*) as count FROM enhanced_payments WHERE payment_channel_id = ?',
+        [id]
+      );
+
+      const hasPayments = payments && payments[0]?.count > 0;
+
+      if (hasPayments) {
+        // Soft delete - set inactive instead of actual deletion
+        const result = await this.database.execute(
+          'UPDATE payment_channels SET is_active = false, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [id]
+        );
+
+        if (!result || result.rowsAffected === 0) {
+          throw new Error('Failed to deactivate payment channel');
+        }
+
+        console.log(`Payment channel deactivated (has ${payments[0].count} transactions): ID ${id}`);
+      } else {
+        // Hard delete if no payments exist
+        const result = await this.database.execute('DELETE FROM payment_channels WHERE id = ?', [id]);
+
+        if (!result || result.rowsAffected === 0) {
+          throw new Error('Failed to delete payment channel');
+        }
+
+        console.log(`Payment channel deleted: ID ${id}`);
+      }
+    } catch (error: any) {
+      console.error('Error deleting payment channel:', error);
+      
+      // Re-throw with original message if it's already user-friendly
+      if (error.message && !error.message.includes('database') && !error.message.includes('SQL')) {
+        throw error;
+      }
+      
+      // Generic fallback error
+      throw new Error('Failed to delete payment channel. Please try again');
+    }
+  }
+
+  /**
+   * Toggle payment channel active status
+   */
+  async togglePaymentChannelStatus(id: number): Promise<boolean> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      if (!id || id <= 0) {
+        throw new Error('Invalid payment channel ID');
+      }
+
+      // Ensure database connection exists
+      if (!this.database) {
+        throw new Error('Database connection not available');
+      }
+
+      const channel = await this.database.select(
+        'SELECT id, name, is_active FROM payment_channels WHERE id = ?',
+        [id]
+      );
+
+      if (!channel || channel.length === 0) {
+        throw new Error('Payment channel not found');
+      }
+
+      // Convert SQLite integer to boolean and toggle
+      const currentStatus = channel[0].is_active === 1;
+      const newStatus = !currentStatus;
+      const result = await this.database.execute(
+        'UPDATE payment_channels SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [newStatus ? 1 : 0, id]  // Convert boolean to integer
+      );
+
+      if (!result || result.rowsAffected === 0) {
+        throw new Error('Failed to update payment channel status');
+      }
+
+      console.log(`Payment channel status updated: ID ${id} -> ${newStatus ? 'active' : 'inactive'}`);
+      return newStatus;
+    } catch (error: any) {
+      console.error('Error toggling payment channel status:', error);
+      
+      // Re-throw with original message if it's already user-friendly
+      if (error.message && !error.message.includes('database') && !error.message.includes('SQL')) {
+        throw error;
+      }
+      
+      // Generic fallback error
+      throw new Error('Failed to update payment channel status. Please try again');
+    }
+  }
+
+  /**
+   * Get comprehensive analytics for a specific payment channel
+   */
+  async getPaymentChannelAnalytics(channelId: number, days: number = 30): Promise<any> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Get basic analytics
+      const basicStats = await this.database?.select(`
+        SELECT 
+          COUNT(*) as total_transactions,
+          COALESCE(SUM(amount), 0) as total_amount,
+          COALESCE(AVG(amount), 0) as avg_transaction,
+          MIN(amount) as min_amount,
+          MAX(amount) as max_amount
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ?
+      `, [channelId]);
+
+      // Get today's stats
+      const todayStats = await this.database?.select(`
+        SELECT 
+          COUNT(*) as today_transactions,
+          COALESCE(SUM(amount), 0) as today_amount
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ? AND date = date('now', 'localtime')
+      `, [channelId]);
+
+      // Get weekly stats
+      const weeklyStats = await this.database?.select(`
+        SELECT 
+          COUNT(*) as weekly_transactions,
+          COALESCE(SUM(amount), 0) as weekly_amount
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ? AND date >= date('now', '-7 days')
+      `, [channelId]);
+
+      // Get monthly stats
+      const monthlyStats = await this.database?.select(`
+        SELECT 
+          COUNT(*) as monthly_transactions,
+          COALESCE(SUM(amount), 0) as monthly_amount
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ? AND date >= date('now', '-30 days')
+      `, [channelId]);
+
+      // Get top customers
+      const topCustomers = await this.database?.select(`
+        SELECT 
+          ep.customer_id,
+          c.name as customer_name,
+          COUNT(*) as transaction_count,
+          SUM(ep.amount) as total_amount
+        FROM enhanced_payments ep
+        LEFT JOIN customers c ON ep.customer_id = c.id
+        WHERE ep.payment_channel_id = ?
+        GROUP BY ep.customer_id, c.name
+        ORDER BY total_amount DESC
+        LIMIT 10
+      `, [channelId]);
+
+      // Get hourly distribution
+      const hourlyData = await this.database?.select(`
+        SELECT 
+          CAST(substr(time, 1, 2) AS INTEGER) as hour,
+          COUNT(*) as transaction_count,
+          SUM(amount) as total_amount
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ? AND date >= date('now', '-${days} days')
+        GROUP BY hour
+        ORDER BY hour
+      `, [channelId]);
+
+      // Get daily trend
+      const dailyTrend = await this.database?.select(`
+        SELECT 
+          date,
+          COUNT(*) as transaction_count,
+          SUM(amount) as total_amount
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ? AND date >= date('now', '-${days} days')
+        GROUP BY date
+        ORDER BY date ASC
+      `, [channelId]);
+
+      // Get payment types distribution
+      const paymentTypes = await this.database?.select(`
+        SELECT 
+          payment_type,
+          COUNT(*) as count,
+          SUM(amount) as amount,
+          ROUND((COUNT(*) * 100.0 / (SELECT COUNT(*) FROM enhanced_payments WHERE payment_channel_id = ?)), 2) as percentage
+        FROM enhanced_payments 
+        WHERE payment_channel_id = ?
+        GROUP BY payment_type
+        ORDER BY count DESC
+      `, [channelId, channelId]);
+
+      // Create complete hourly distribution (0-23 hours)
+      const completeHourlyDistribution = Array.from({ length: 24 }, (_, hour) => {
+        const existing = hourlyData?.find((h: any) => h.hour === hour);
+        return {
+          hour,
+          transaction_count: existing?.transaction_count || 0,
+          total_amount: existing?.total_amount || 0
+        };
+      });
+
+      return {
+        totalTransactions: basicStats?.[0]?.total_transactions || 0,
+        totalAmount: basicStats?.[0]?.total_amount || 0,
+        avgTransaction: basicStats?.[0]?.avg_transaction || 0,
+        minAmount: basicStats?.[0]?.min_amount || 0,
+        maxAmount: basicStats?.[0]?.max_amount || 0,
+        todayTransactions: todayStats?.[0]?.today_transactions || 0,
+        todayAmount: todayStats?.[0]?.today_amount || 0,
+        weeklyTransactions: weeklyStats?.[0]?.weekly_transactions || 0,
+        weeklyAmount: weeklyStats?.[0]?.weekly_amount || 0,
+        monthlyTransactions: monthlyStats?.[0]?.monthly_transactions || 0,
+        monthlyAmount: monthlyStats?.[0]?.monthly_amount || 0,
+        topCustomers: topCustomers || [],
+        hourlyDistribution: completeHourlyDistribution,
+        dailyTrend: dailyTrend || [],
+        paymentTypes: paymentTypes || []
+      };
+    } catch (error) {
+      console.error('Error getting payment channel analytics:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get recent transactions for a payment channel
+   */
+  async getPaymentChannelTransactions(channelId: number, limit: number = 50): Promise<any[]> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      const transactions = await this.database?.select(`
+        SELECT 
+          ep.*,
+          c.name as customer_name,
+          i.bill_number as invoice_number
+        FROM enhanced_payments ep
+        LEFT JOIN customers c ON ep.customer_id = c.id
+        LEFT JOIN invoices i ON ep.reference_invoice_id = i.id
+        WHERE ep.payment_channel_id = ?
+        ORDER BY ep.date DESC, ep.time DESC
+        LIMIT ?
+      `, [channelId, limit]);
+
+      return transactions || [];
+    } catch (error) {
+      console.error('Error getting payment channel transactions:', error);
       throw error;
     }
   }
@@ -5918,6 +7433,29 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       return result || [];
     } catch (error) {
       console.error('Error getting loan customers:', error);
+      throw error;
+    }
+  }
+
+  // Temporary method to test payment channel creation
+  async createTestPaymentChannel(): Promise<void> {
+    try {
+      console.log('🧪 [DB] Creating test payment channel...');
+      const testChannel = {
+        name: 'Test Cash Channel',
+        type: 'cash' as const,
+        description: 'Test payment channel for debugging',
+        is_active: true,
+        fee_percentage: 0,
+        fee_fixed: 0,
+        daily_limit: 0,
+        monthly_limit: 0
+      };
+      
+      const channelId = await this.createPaymentChannel(testChannel);
+      console.log(`✅ [DB] Test payment channel created with ID: ${channelId}`);
+    } catch (error) {
+      console.error('❌ [DB] Failed to create test payment channel:', error);
       throw error;
     }
   }

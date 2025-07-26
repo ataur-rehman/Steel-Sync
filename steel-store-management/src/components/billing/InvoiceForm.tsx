@@ -80,13 +80,13 @@ interface StockPreview {
   status: 'ok' | 'low' | 'insufficient';
 }
 
-// Payment methods - KEEPING YOUR ORIGINAL
-const PAYMENT_METHODS = [
-  { value: 'cash', label: 'Cash', icon: '💵' },
-  { value: 'bank_transfer', label: 'Bank Transfer', icon: '🏦' },
-  { value: 'cheque', label: 'Cheque', icon: '📄' },
-  { value: 'card', label: 'Card Payment', icon: '💳' }
-];
+// Payment channels interface
+interface PaymentChannel {
+  id: number;
+  name: string;
+  type: 'cash' | 'bank' | 'digital' | 'card' | 'cheque' | 'other';
+  is_active: boolean;
+}
 
 const InvoiceForm: React.FC = () => {
   const [showOptional, setShowOptional] = useState(false);
@@ -119,6 +119,10 @@ const InvoiceForm: React.FC = () => {
     notes: ''
   });
 
+  // Payment channels state
+  const [paymentChannels, setPaymentChannels] = useState<PaymentChannel[]>([]);
+  const [selectedPaymentChannel, setSelectedPaymentChannel] = useState<PaymentChannel | null>(null);
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
@@ -140,7 +144,34 @@ const InvoiceForm: React.FC = () => {
   // Initialize data - YOUR ORIGINAL FUNCTION
   useEffect(() => {
     loadInitialData();
+    loadPaymentChannels();
   }, []);
+
+  // Load payment channels
+  const loadPaymentChannels = async () => {
+    try {
+      console.log('🔄 [InvoiceForm] Loading payment channels from database...');
+      const channels = await db.getPaymentChannels(false); // Only active channels
+      console.log('✅ [InvoiceForm] Raw channels response:', channels);
+      console.log('📊 [InvoiceForm] Number of channels:', channels?.length || 0);
+      
+      if (channels && channels.length > 0) {
+        setPaymentChannels(channels);
+        const defaultChannel = channels[0];
+        setSelectedPaymentChannel(defaultChannel);
+        setFormData(prev => ({ ...prev, payment_method: defaultChannel.name }));
+        console.log('✅ [InvoiceForm] Payment channels set successfully. Default channel:', defaultChannel.name);
+        toast.success(`Loaded ${channels.length} payment channels`);
+      } else {
+        console.error('❌ [InvoiceForm] No payment channels found in database response');
+        toast.error('No payment channels found. Please set up payment channels first.');
+      }
+    } catch (error) {
+      console.error('❌ [InvoiceForm] Error loading payment channels:', error);
+      console.error('❌ [InvoiceForm] Error details:', error instanceof Error ? error.message : 'Unknown error');
+      toast.error('Failed to load payment channels from database');
+    }
+  };
 
   // Handle pre-selected customer from other components - YOUR ORIGINAL
   useEffect(() => {
@@ -566,6 +597,8 @@ const handleSubmit = async () => {
         discount: formData.discount,
         payment_amount,
         payment_method: formData.payment_method,
+        payment_channel_id: selectedPaymentChannel?.id || null,
+        payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
         notes: formData.notes,
         applied_credit: selectedCustomer && selectedCustomer.balance < 0 ? Math.min(Math.abs(selectedCustomer.balance), payment_amount) : 0
       };
@@ -712,7 +745,7 @@ const getSubmitButtonText = () => {
       items: [],
       discount: 0,
       payment_amount: 0,
-      payment_method: 'cash',
+      payment_method: paymentChannels.length > 0 ? paymentChannels[0].name : 'cash',
       notes: ''
     });
     setSelectedCustomer(null);
@@ -720,6 +753,11 @@ const getSubmitButtonText = () => {
     setProductSearch('');
     setStockPreview([]);
     setErrors({});
+    
+    // Reset payment channel selection
+    if (paymentChannels.length > 0) {
+      setSelectedPaymentChannel(paymentChannels[0]);
+    }
   };
 
   const viewCustomerLedger = () => {
@@ -1175,20 +1213,24 @@ const getSubmitButtonText = () => {
             <div className="space-y-3">
               {/* Payment Method */}
                 <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment Channel</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {PAYMENT_METHODS.map(method => (
+                  {paymentChannels.map(channel => (
                   <button
-                    key={method.value}
-                    onClick={() => setFormData(prev => ({ ...prev, payment_method: method.value }))}
-                    className={`p-1 text-sm rounded border transition-colors ${
-                    formData.payment_method === method.value
+                    key={channel.id}
+                    onClick={() => {
+                      setSelectedPaymentChannel(channel);
+                      setFormData(prev => ({ ...prev, payment_method: channel.name }));
+                    }}
+                    className={`p-2 text-sm rounded border transition-colors ${
+                    selectedPaymentChannel?.id === channel.id
                       ? 'border-green-500 bg-green-50 text-green-700'
                       : 'border-gray-300 hover:bg-gray-50'
                     }`}
                   >
                     <div className="text-center">
-                    <div className="font-medium">{method.label}</div>
+                      <div className="font-medium">{channel.name}</div>
+                      <div className="text-xs text-gray-500 capitalize">{channel.type}</div>
                     </div>
                   </button>
                   ))}

@@ -26,18 +26,33 @@ fn main() {
     match Connection::open(&db_path) {
         Ok(conn) => {
             // Enable WAL mode for better concurrency
-            if let Err(e) = conn.execute("PRAGMA journal_mode=WAL", []) {
-                eprintln!("Failed to enable WAL mode: {}", e);
+            match conn.pragma_update(None, "journal_mode", &"WAL") {
+                Ok(_) => println!("[TAURI] WAL mode enabled successfully"),
+                Err(e) => eprintln!("Failed to enable WAL mode: {}", e),
             }
             
-            // Set moderate busy timeout
-            if let Err(e) = conn.execute("PRAGMA busy_timeout=10000", []) {
-                eprintln!("Failed to set busy timeout: {}", e);
+            // Set busy timeout to 60 seconds (60000 ms)
+            match conn.pragma_update(None, "busy_timeout", &60000) {
+                Ok(_) => println!("[TAURI] Busy timeout set to 60 seconds"),
+                Err(e) => eprintln!("Failed to set busy timeout: {}", e),
             }
             
             // Use NORMAL synchronous mode for balance
-            if let Err(e) = conn.execute("PRAGMA synchronous=NORMAL", []) {
-                eprintln!("Failed to set synchronous mode: {}", e);
+            match conn.pragma_update(None, "synchronous", &"NORMAL") {
+                Ok(_) => println!("[TAURI] Synchronous mode set to NORMAL"),
+                Err(e) => eprintln!("Failed to set synchronous mode: {}", e),
+            }
+            
+            // Set cache size for better performance
+            match conn.pragma_update(None, "cache_size", &-64000) {
+                Ok(_) => println!("[TAURI] Cache size set to 64MB"),
+                Err(e) => eprintln!("Failed to set cache size: {}", e),
+            }
+            
+            // Enable foreign key constraints
+            match conn.pragma_update(None, "foreign_keys", &true) {
+                Ok(_) => println!("[TAURI] Foreign keys enabled"),
+                Err(e) => eprintln!("Failed to enable foreign keys: {}", e),
             }
             
             // Create a simple test table to ensure the database is working

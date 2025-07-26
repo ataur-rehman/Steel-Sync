@@ -7,7 +7,20 @@ import { useNavigation } from '../../hooks/useNavigation';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import SmartDetailHeader from '../common/SmartDetailHeader';
-import { FileText, DollarSign } from 'lucide-react';
+import { 
+  FileText, 
+  DollarSign, 
+  Calendar,
+  Phone,
+  MapPin,
+  User,
+  CreditCard,
+  TrendingUp,
+  Clock,
+  Receipt,
+  AlertCircle,
+  CheckCircle
+} from 'lucide-react';
 
 export default function CustomerProfile() {
   const { id } = useParams();
@@ -153,183 +166,410 @@ export default function CustomerProfile() {
         backButtonMode="auto"
         actions={
           <div className="flex space-x-3">
+            {balance && balance.outstanding > 0 && (
+              <button
+                onClick={() => navigateTo(`/payment?customer_id=${customer.id}&source=customer_profile`)}
+                className="flex items-center px-4 py-2 text-sm bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors"
+              >
+                <CreditCard className="h-4 w-4 mr-2" />
+                Record Payment
+              </button>
+            )}
             <button
               onClick={() => navigateTo(`/billing/new?customer=${customer.id}`)}
-              className="btn btn-primary flex items-center px-4 py-2 text-sm"
+              className="flex items-center px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors"
             >
               <FileText className="h-4 w-4 mr-2" />
               New Invoice
             </button>
             <button
               onClick={() => navigateTo('/reports/customer', { state: { customerId: customer.id } })}
-              className="btn btn-secondary flex items-center px-4 py-2 text-sm"
+              className="flex items-center px-4 py-2 text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
             >
               <DollarSign className="h-4 w-4 mr-2" />
-              Full Ledger
+              Full Report
             </button>
           </div>
         }
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    <div className="space-y-8">
+        <div className="space-y-6">
 
-      {/* Enhanced Customer Summary Card */}
-      <div className="card p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          {/* Basic Info */}
-          <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h2>
-            <div className="space-y-3">
-              <div>
-                <span className="text-s font-medium text-gray-900">{customer.name}</span>
+          {/* Customer Overview */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            {/* Contact Information */}
+            <div className="bg-white rounded-lg shadow border p-6">
+              <div className="flex items-center mb-4">
+                <User className="h-5 w-5 text-blue-600 mr-2" />
+                <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
               </div>
-              {customer.phone && (
+              <div className="space-y-3">
                 <div>
-                  <span className="text-sm text-gray-800"> {customer.phone}</span>
+                  <span className="text-sm font-medium text-gray-600">Name:</span>
+                  <div className="text-sm text-gray-900">{customer.name}</div>
                 </div>
-              )}
-              {customer.address && (
-                <div>
-                  <span className="text-sm text-gray-800"> {customer.address}</span>
+                {customer.phone && (
+                  <div>
+                    <span className="text-sm font-medium text-gray-600">Phone:</span>
+                    <div className="flex items-center">
+                      <Phone className="h-4 w-4 text-gray-400 mr-2" />
+                      <button
+                        onClick={() => window.open(`tel:${customer.phone}`)}
+                        className="text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        {customer.phone}
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {customer.address && (
+                  <div>
+                    <span className="text-sm font-medium text-gray-600">Address:</span>
+                    <div className="flex items-start">
+                      <MapPin className="h-4 w-4 text-gray-400 mr-2 mt-0.5 flex-shrink-0" />
+                      <span className="text-sm text-gray-900">{customer.address}</span>
+                    </div>
+                  </div>
+                )}
+                {customer.cnic && (
+                  <div>
+                    <span className="text-sm font-medium text-gray-600">CNIC:</span>
+                    <div className="text-sm text-gray-900">{customer.cnic}</div>
+                  </div>
+                )}
+                {customer.created_at && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <span className="text-sm font-medium text-gray-600">Customer Since:</span>
+                    <div className="flex items-center">
+                      <Calendar className="h-4 w-4 text-gray-400 mr-2" />
+                      <span className="text-sm text-gray-900">{new Date(customer.created_at).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Financial Summary */}
+            <div className="bg-white rounded-lg shadow border p-6">
+              <div className="flex items-center mb-4">
+                <DollarSign className="h-5 w-5 text-green-600 mr-2" />
+                <h3 className="text-lg font-semibold text-gray-900">Financial Summary</h3>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-600">Total Invoiced:</span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {balance ? formatCurrency(balance.total_invoiced) : '₹0.00'}
+                  </span>
                 </div>
-              )}
-              {customer.cnic && (
-                <div>
-                  <span className="text-sm text-gray-800"> {customer.cnic}</span>
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-600">Total Paid:</span>
+                  <span className="text-sm font-semibold text-green-600">
+                    {balance ? formatCurrency(balance.total_paid) : '₹0.00'}
+                  </span>
                 </div>
-              )}
-              {customer.created_at && (
-                <div>
-                  <span className="block text-sm font-medium text-gray-500 mb-1">Date of Creation</span>
-                  <span className="text-sm text-gray-900">{new Date(customer.created_at).toLocaleDateString()}</span>
+                <div className="flex justify-between pt-2 border-t border-gray-100">
+                  <span className="text-sm font-medium text-gray-600">Outstanding:</span>
+                  <span className={`text-lg font-bold ${
+                    balance && balance.outstanding > 0 ? 'text-red-600' : 'text-green-600'
+                  }`}>
+                    {balance ? formatCurrency(balance.outstanding) : '₹0.00'}
+                  </span>
                 </div>
-              )}
+                
+                {balance && balance.outstanding > 0 && (
+                  <div className="flex items-center mt-3 p-3 bg-red-50 rounded-lg">
+                    <AlertCircle className="h-4 w-4 text-red-500 mr-2" />
+                    <span className="text-sm text-red-700">Payment pending</span>
+                  </div>
+                )}
+                {balance && balance.outstanding === 0 && balance.total_invoiced > 0 && (
+                  <div className="flex items-center mt-3 p-3 bg-green-50 rounded-lg">
+                    <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
+                    <span className="text-sm text-green-700">All payments current</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Activity Summary */}
+            <div className="bg-white rounded-lg shadow border p-6">
+              <div className="flex items-center mb-4">
+                <TrendingUp className="h-5 w-5 text-purple-600 mr-2" />
+                <h3 className="text-lg font-semibold text-gray-900">Activity Summary</h3>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-600">Total Invoices:</span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {customer.invoices?.length || 0}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm font-medium text-gray-600">Total Payments:</span>
+                  <span className="text-sm font-semibold text-gray-900">
+                    {payments.length}
+                  </span>
+                </div>
+
+                {customer.invoices && customer.invoices.length > 0 && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <div className="flex items-center mb-2">
+                      <Clock className="h-4 w-4 text-gray-400 mr-2" />
+                      <span className="text-sm font-medium text-gray-600">Last Invoice:</span>
+                    </div>
+                    <div className="text-sm text-gray-900">
+                      {new Date(customer.invoices[0].created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                )}
+                
+                {payments.length > 0 && (
+                  <div>
+                    <div className="flex items-center mb-2">
+                      <CreditCard className="h-4 w-4 text-gray-400 mr-2" />
+                      <span className="text-sm font-medium text-gray-600">Last Payment:</span>
+                    </div>
+                    <div className="text-sm text-gray-900">
+                      {new Date(payments[0].date).toLocaleDateString()}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Financial Summary */}
-          <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Financial Summary</h2>
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-              <div className="flex justify-between">
-                <span className="font-medium text-gray-700">Total Invoiced:</span>
-                <span>{balance ? formatCurrency(balance.total_invoiced) : '-'}</span>
+          {/* Recent Activity */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Recent Payments */}
+            <div className="bg-white rounded-lg shadow border">
+              <div className="px-6 py-4 border-b">
+                <div className="flex items-center">
+                  <CreditCard className="h-5 w-5 text-green-600 mr-2" />
+                  <h3 className="text-lg font-semibold text-gray-900">Recent Payments</h3>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="font-medium text-gray-700">Total Paid:</span>
-                <span>{balance ? formatCurrency(balance.total_paid) : '-'}</span>
+              <div className="p-6">
+                {payments.length === 0 ? (
+                  <div className="text-center py-8">
+                    <CreditCard className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                    <p className="text-sm text-gray-500">No payments recorded</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {payments.slice(0, 5).map((payment) => (
+                      <div key={payment.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+                        <div className="flex items-center">
+                          <div className="p-2 bg-green-100 rounded-lg mr-3">
+                            <CreditCard className="h-4 w-4 text-green-600" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatCurrency(payment.amount)}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(payment.date).toLocaleDateString()}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {payment.payment_method || 'Cash'}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded-full">
+                          Received
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="font-medium text-gray-700">Outstanding:</span>
-                <span className={balance && balance.outstanding > 0 ? 'text-red-600 font-bold' : 'text-green-600 font-bold'}>
-                  {balance ? formatCurrency(balance.outstanding) : '-'}
+            </div>
+
+            {/* Recent Account Activity */}
+            <div className="bg-white rounded-lg shadow border">
+              <div className="px-6 py-4 border-b">
+                <div className="flex items-center">
+                  <Receipt className="h-5 w-5 text-blue-600 mr-2" />
+                  <h3 className="text-lg font-semibold text-gray-900">Account Activity</h3>
+                </div>
+              </div>
+              <div className="p-6">
+                {ledger.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Receipt className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                    <p className="text-sm text-gray-500">No recent activity</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {ledger.slice(0, 5).map((entry) => (
+                      <div key={entry.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+                        <div className="flex items-center">
+                          <div className={`p-2 rounded-lg mr-3 ${
+                            entry.type === 'invoice' 
+                              ? 'bg-blue-100' 
+                              : 'bg-green-100'
+                          }`}>
+                            {entry.type === 'invoice' ? (
+                              <FileText className="h-4 w-4 text-blue-600" />
+                            ) : (
+                              <CreditCard className="h-4 w-4 text-green-600" />
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {entry.type === 'invoice' ? 'Invoice Created' : 'Payment Received'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {new Date(entry.date).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className={`text-sm font-semibold ${
+                          entry.type === 'invoice' ? 'text-blue-600' : 'text-green-600'
+                        }`}>
+                          {entry.type === 'invoice' ? '+' : '-'}{formatCurrency(entry.debit_amount || entry.credit_amount)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Invoice History */}
+          <div className="bg-white rounded-lg shadow border">
+            <div className="px-6 py-4 border-b">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <FileText className="h-5 w-5 text-blue-600 mr-2" />
+                  <h3 className="text-lg font-semibold text-gray-900">Invoice History</h3>
+                </div>
+                <span className="text-sm text-gray-500">
+                  {customer.invoices?.length || 0} total invoices
                 </span>
               </div>
             </div>
-            {/* Recent Payments */}
-            <div className="mt-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-2">Recent Payments</h3>
-              {payments.length === 0 ? (
-                <div className="text-xs text-gray-400">No payments found</div>
-              ) : (
-                <ul className="text-xs space-y-1">
-                  {payments.map((p) => (
-                    <li key={p.id} className="flex justify-between">
-                      <span>{new Date(p.date).toLocaleDateString()}</span>
-                      <span>{formatCurrency(p.amount)}</span>
-                      <span>{p.payment_method}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {/* Recent Activity */}
-            <div className="mt-4">
-              <h3 className="text-sm font-semibold text-gray-800 mb-2">Recent Activity</h3>
-              {ledger.length === 0 ? (
-                <div className="text-xs text-gray-400">No recent activity</div>
-              ) : (
-                <ul className="text-xs space-y-1">
-                  {ledger.map((l) => (
-                    <li key={l.id} className="flex justify-between">
-                      <span>{l.date}</span>
-                      <span>{l.type === 'invoice' ? 'Invoice' : 'Payment'}</span>
-                      <span>{formatCurrency(l.debit_amount || l.credit_amount)}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="card p-0 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-          <h2 className="text-lg font-semibold text-gray-900">Recent Invoices</h2>
-        </div>
-        
-        <div className="overflow-x-auto">
-          {!customer.invoices || customer.invoices.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
-                #
-              </div>
-              <p className="text-gray-500">No invoices found</p>
-              <p className="text-sm text-gray-400 mt-1">Create the first invoice for this customer</p>
-            </div>
-          ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Invoice</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-100">
-                {customer.invoices.slice(0, 10).map((invoice: any) => (
-                  <tr 
-                    key={invoice.id} 
-                    className="hover:bg-gray-50 cursor-pointer transition-colors"
-                    onClick={() => navigateTo(`/billing/invoice/${invoice.id}`)}
+            
+            <div className="overflow-x-auto">
+              {!customer.invoices || customer.invoices.length === 0 ? (
+                <div className="px-6 py-12 text-center">
+                  <FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                  <p className="text-lg font-medium text-gray-900 mb-2">No invoices found</p>
+                  <p className="text-sm text-gray-500 mb-4">Create the first invoice for this customer</p>
+                  <button
+                    onClick={() => navigateTo(`/billing/new?customer=${customer.id}`)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-medium text-gray-900">
-                        #{invoice.bill_number || invoice.id}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {invoice.created_at ? new Date(invoice.created_at).toLocaleDateString() : 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                      {formatCurrency(invoice.grand_total || invoice.total_amount || 0)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        invoice.status === 'paid' 
-                          ? 'text-green-600 bg-green-100'
-                          : invoice.status === 'partially_paid'
-                          ? 'text-orange-600 bg-orange-100'
-                          : 'text-red-600 bg-red-100'
-                      }`}>
-                        {invoice.status && typeof invoice.status === 'string' 
-                          ? invoice.status.replace('_', ' ').charAt(0).toUpperCase() + invoice.status.replace('_', ' ').slice(1)
-                          : 'Pending'
-                        }
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                    Create Invoice
+                  </button>
+                </div>
+              ) : (
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Invoice
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Date
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Amount
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-100">
+                    {customer.invoices.slice(0, 10).map((invoice: any) => (
+                      <tr key={invoice.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center">
+                            <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                              <FileText className="h-4 w-4 text-blue-600" />
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">
+                                #{invoice.bill_number || invoice.id}
+                              </div>
+                              <div className="text-xs text-gray-500">
+                                ID: {invoice.id}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm text-gray-900">
+                            {invoice.created_at ? new Date(invoice.created_at).toLocaleDateString() : 'N/A'}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-semibold text-gray-900">
+                            {formatCurrency(invoice.grand_total || invoice.total_amount || 0)}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            invoice.status === 'paid' 
+                              ? 'text-green-700 bg-green-100'
+                              : invoice.status === 'partially_paid'
+                              ? 'text-orange-700 bg-orange-100'
+                              : 'text-red-700 bg-red-100'
+                          }`}>
+                            {invoice.status && typeof invoice.status === 'string' 
+                              ? invoice.status.replace('_', ' ').charAt(0).toUpperCase() + invoice.status.replace('_', ' ').slice(1)
+                              : 'Pending'
+                            }
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={() => navigateTo(`/billing/invoice/${invoice.id}`)}
+                              className="px-3 py-1 text-sm text-blue-600 hover:text-blue-800 border border-blue-600 rounded transition-colors"
+                            >
+                              View
+                            </button>
+                            {invoice.status !== 'paid' && (
+                              <button
+                                onClick={() => navigateTo(`/payment?customer_id=${customer.id}&invoice_id=${invoice.id}`)}
+                                className="px-3 py-1 text-sm text-white bg-green-600 hover:bg-green-700 rounded transition-colors"
+                              >
+                                Pay
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            
+            {customer.invoices && customer.invoices.length > 10 && (
+              <div className="px-6 py-4 border-t bg-gray-50">
+                <div className="text-center">
+                  <button
+                    onClick={() => navigateTo('/reports/customer', { state: { customerId: customer.id } })}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    View all {customer.invoices.length} invoices
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
         </div>
-      </div>
-    </div>
       </div>
     </div>
   );

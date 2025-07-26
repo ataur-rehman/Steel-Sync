@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Edit, Trash2, Search, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
@@ -34,6 +34,7 @@ interface VendorFormData {
 
 const VendorManagement: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   // State variables
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -59,6 +60,23 @@ const VendorManagement: React.FC = () => {
   useEffect(() => {
     loadVendors();
   }, []);
+
+  // Check for edit parameter in URL
+  useEffect(() => {
+    const editId = searchParams.get('edit');
+    if (editId && vendors.length > 0) {
+      const vendorToEdit = vendors.find(v => v.id === parseInt(editId));
+      if (vendorToEdit) {
+        handleEdit(vendorToEdit);
+        // Clear the edit parameter from URL
+        setSearchParams(prev => {
+          const newParams = new URLSearchParams(prev);
+          newParams.delete('edit');
+          return newParams;
+        });
+      }
+    }
+  }, [vendors, searchParams, setSearchParams]);
 
   const loadVendors = async () => {
     try {

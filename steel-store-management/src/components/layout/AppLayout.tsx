@@ -113,7 +113,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Products', href: '/products', icon: Package },
     { name: 'Customers', href: '/customers', icon: Users },
-    { name: 'Stock Receiving', href: '/stock/receiving', icon: Truck },
+    { name: 'Vendors', href: '/vendors', icon: Truck },
+    { name: 'Stock Receiving', href: '/stock/receiving', icon: Package },
     { name: 'Loan Ledger', href: '/loan/ledger', icon: CreditCard },
     {
       name: 'Billing',

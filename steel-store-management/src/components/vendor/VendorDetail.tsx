@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import SmartDetailHeader from '../common/SmartDetailHeader';
-import { Edit, Trash2, FileText } from 'lucide-react';
+import { Trash2, FileText, Search } from 'lucide-react';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-PK', {
@@ -34,11 +34,46 @@ const VendorDetail: React.FC = () => {
   const [loadingReceivings, setLoadingReceivings] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Action handlers
-  const handleEdit = () => {
-    navigateTo(`/vendors/${id}/edit`);
-  };
+  // Pagination and filtering state
+  const [receivingsPage, setReceivingsPage] = useState(1);
+  const [paymentsPage, setPaymentsPage] = useState(1);
+  const [receivingsPerPage] = useState(10);
+  const [paymentsPerPage] = useState(10);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all'); // all, paid, partial, pending
 
+  // Filter and paginate receivings
+  const filteredReceivings = useMemo(() => {
+    let filtered = vendorReceivings;
+
+    // Search filter
+    if (searchTerm) {
+      filtered = filtered.filter(r => 
+        r.receiving_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        r.truck_number?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(r => r.payment_status === statusFilter);
+    }
+
+    return filtered;
+  }, [vendorReceivings, searchTerm, statusFilter]);
+
+  const paginatedReceivings = useMemo(() => {
+    const startIndex = (receivingsPage - 1) * receivingsPerPage;
+    return filteredReceivings.slice(startIndex, startIndex + receivingsPerPage);
+  }, [filteredReceivings, receivingsPage, receivingsPerPage]);
+
+  const paginatedPayments = useMemo(() => {
+    const startIndex = (paymentsPage - 1) * paymentsPerPage;
+    return vendorPayments.slice(startIndex, startIndex + paymentsPerPage);
+  }, [vendorPayments, paymentsPage, paymentsPerPage]);
+
+  // Action handlers
   const handleDelete = async () => {
     if (!vendor) return;
     
@@ -55,7 +90,7 @@ const VendorDetail: React.FC = () => {
   };
 
   const handleViewPurchases = () => {
-    navigateTo(`/stock/receiving?vendor=${vendor?.id}`);
+    navigateTo(`/stock/receiving?vendor_id=${vendor?.id}`);
   };
 
   useEffect(() => {
@@ -87,6 +122,7 @@ const VendorDetail: React.FC = () => {
         setVendorPayments(payments);
         setVendorReceivings(receivings);
       } catch (err) {
+        console.error('Error fetching vendor details:', err);
         setVendorPayments([]);
         setVendorReceivings([]);
       } finally {
@@ -94,7 +130,10 @@ const VendorDetail: React.FC = () => {
         setLoadingReceivings(false);
       }
     };
-    fetchDetails();
+    
+    if (id) {
+      fetchDetails();
+    }
   }, [id]);
 
   if (loading) {
@@ -145,13 +184,7 @@ const VendorDetail: React.FC = () => {
         backButtonMode="auto"
         actions={
           <div className="flex space-x-3">
-            <button
-              onClick={handleEdit}
-              className="btn btn-secondary flex items-center px-4 py-2 text-sm"
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </button>
+           
             <button
               onClick={handleViewPurchases}
               className="btn btn-primary flex items-center px-4 py-2 text-sm"
@@ -173,237 +206,292 @@ const VendorDetail: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-8">
 
-      {/* Vendor Info Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      {/* Contact Information */}
-      <div className="card p-6 min-w-[380px]">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
-        <div className="space-y-4">
-        {vendor.contact_person && (
-          <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Contact Person</span>
-          <span className="text-sm text-gray-900">{vendor.contact_person}</span>
+      {/* Vendor Overview - Simplified */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Key Information */}
+        <div className="card p-6">
+          <div className="space-y-4">
+            <div className="flex justify-between items-start">
+  
+              <div className="text-right">
+                <div className="font-medium text-gray-900">{vendor.name}</div>
+                {vendor.phone && <div className="text-sm text-gray-600">{vendor.phone}</div>}
+                {vendor.email && <div className="text-sm text-blue-600">{vendor.email}</div>}
+              </div>
+            </div>
+            
+            {vendor.address && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-600">Address</span>
+                <div className="text-right text-sm text-gray-900 max-w-40">
+                  <div>{vendor.address}</div>
+                  {vendor.city && <div className="text-gray-600">{vendor.city}</div>}
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Status</span>
+              <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                vendor.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+              }`}>
+                {vendor.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </div>
           </div>
-        )}
-        {vendor.phone && (
-          <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Phone</span>
-          <span className="text-sm text-gray-900">📞 {vendor.phone}</span>
+        </div>
+
+        {/* Financial Overview */}
+        <div className="card p-6">
+          <div className="space-y-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-900">
+                {typeof vendor.total_purchases === 'number' && !isNaN(vendor.total_purchases)
+                  ? formatCurrency(vendor.total_purchases)
+                  : <span className="text-gray-400">-</span>}
+              </div>
+              <div className="text-sm text-gray-500">Total Purchases</div>
+            </div>
+            
+            <div className="text-center">
+              <div className={`text-2xl font-bold ${
+                vendor.outstanding_balance > 0 ? 'text-red-600' : 'text-green-600'
+              }`}>
+                {typeof vendor.outstanding_balance === 'number' && !isNaN(vendor.outstanding_balance)
+                  ? formatCurrency(vendor.outstanding_balance)
+                  : <span className="text-gray-400">-</span>}
+              </div>
+              <div className="text-sm text-gray-500">Outstanding Balance</div>
+            </div>
           </div>
-        )}
-        {vendor.email && (
-          <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Email</span>
-          <span className="text-sm text-gray-900">✉️ {vendor.email}</span>
+        </div>
+
+        {/* Quick Stats */}
+        <div className="card p-6">
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Total Orders</span>
+              <span className="font-medium">{vendorReceivings.length}</span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Total Payments</span>
+              <span className="font-medium">{vendorPayments.length}</span>
+            </div>
+            
+            {vendor.last_purchase_date && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-600">Last Order</span>
+                <span className="text-sm text-gray-900">
+                  {new Date(vendor.last_purchase_date).toLocaleDateString()}
+                </span>
+              </div>
+            )}
+            
+            <div className="flex justify-between items-start">
+              <span className="text-gray-600">Member Since</span>
+              <span className="text-sm text-gray-900">
+                {new Date(vendor.created_at).toLocaleDateString()}
+              </span>
+            </div>
           </div>
-        )}
-        {vendor.address && (
-          <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Address</span>
-          <span className="text-sm text-gray-900">📍 {vendor.address}</span>
-          {vendor.city && (
-            <div className="text-sm text-gray-600 mt-1">{vendor.city}</div>
-          )}
-          </div>
-        )}
-        {vendor.payment_terms && (
-          <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Payment Terms</span>
-          <span className="text-sm text-gray-900">{vendor.payment_terms}</span>
-          </div>
-        )}
         </div>
       </div>
 
-      {/* Financial Summary */}
-      <div className="card p-4 min-w-[380px]">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Summary</h3>
-        <div className="space-y-4">
-        <div className="bg-blue-50 rounded-lg p-4">
-          <p className="text-sm font-medium text-blue-600">Total Purchases</p>
-          <p className="text-2xl font-bold text-blue-900 mt-1">
-          {typeof vendor.total_purchases === 'number' && !isNaN(vendor.total_purchases)
-            ? formatCurrency(vendor.total_purchases)
-            : <span className="text-gray-400">-</span>}
-          </p>
-        </div>
-        <div className={`rounded-lg p-4 ${
-          vendor.outstanding_balance > 0 
-          ? 'bg-red-50' 
-          : 'bg-green-50'
-        }`}>
-          <p className="text-sm font-medium text-gray-600">Outstanding Balance</p>
-          <p className={`text-2xl font-bold mt-1 ${
-          vendor.outstanding_balance > 0 ? 'text-red-600' : 'text-green-600'
-          }`}>
-          {typeof vendor.outstanding_balance === 'number' && !isNaN(vendor.outstanding_balance)
-            ? formatCurrency(vendor.outstanding_balance)
-            : <span className="text-gray-400">-</span>}
-          </p>
-        </div>
-        </div>
-      </div>
-
-      {/* Status & Activity */}
-      <div className="card p-6 min-w-[380px]">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Status & Activity</h3>
-        <div className="space-y-4">
-        <div>
-          <span className="block text-sm font-medium text-gray-500 mb-2">Current Status</span>
-          <span className={`inline-flex px-3 py-1 text-sm font-semibold rounded-full ${
-          vendor.is_active
-            ? 'bg-green-100 text-green-800'
-            : 'bg-red-100 text-red-800'
-          }`}>
-          {vendor.is_active ? 'Active' : 'Inactive'}
-          </span>
-        </div>
-        {vendor.last_purchase_date && (
-          <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Last Purchase</span>
-          <span className="text-sm text-gray-900">
-            {new Date(vendor.last_purchase_date).toLocaleDateString()}
-          </span>
+      {/* Simple Search & Filter */}
+      <div className="card p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex-1 max-w-md">
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search transactions..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
           </div>
-        )}
-        <div>
-          <span className="block text-sm font-medium text-gray-500 mb-1">Member Since</span>
-          <span className="text-sm text-gray-900">
-          {new Date(vendor.created_at).toLocaleDateString()}
-          </span>
+          
+          <div className="flex items-center space-x-3">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+            >
+              <option value="all">All Status</option>
+              <option value="paid">Paid</option>
+              <option value="partial">Partial</option>
+              <option value="pending">Pending</option>
+            </select>
+            
+            {(searchTerm || statusFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                  setReceivingsPage(1);
+                  setPaymentsPage(1);
+                }}
+                className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
-        </div>
-      </div>
       </div>
 
-      {/* Data Tables */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 px-2">
-      {/* Stock Receivings */}
-      <div className="card pt-0 pb-0 px-2 overflow-hidden w-full">
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Stock Receivings</h3>
-          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-          {vendorReceivings.length} records
-          </span>
-        </div>
+      {/* Recent Transactions */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      {/* Recent Orders */}
+      <div className="card overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Recent Orders</h3>
+            <div className="flex items-center space-x-3">
+              <span className="text-sm text-gray-500">{filteredReceivings.length} orders</span>
+              <button
+                onClick={handleViewPurchases}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                View All →
+              </button>
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
         {loadingReceivings ? (
           <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-          <span className="ml-2 text-gray-600">Loading receivings...</span>
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <span className="ml-2 text-gray-600">Loading orders...</span>
           </div>
-        ) : vendorReceivings.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-          <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
-            📦
-          </div>
-          <p className="text-gray-500">No receivings found</p>
+        ) : paginatedReceivings.length === 0 ? (
+          <div className="px-6 py-8 text-center">
+            <div className="text-4xl mb-3">📦</div>
+            <h4 className="font-medium text-gray-900 mb-2">No Orders Found</h4>
+            <p className="text-gray-500 text-sm">
+              {searchTerm || statusFilter !== 'all' 
+                ? 'Try clearing your filters.' 
+                : 'No orders have been placed yet.'}
+            </p>
           </div>
         ) : (
-          <table className="w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Date</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Receiving #</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Total</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Balance</th>
-            <th className="px-2 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-normal break-words">Status</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-100">
-            {vendorReceivings.map((r: any) => (
-            <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-              <td className="px-2 py-3 text-sm text-gray-900 whitespace-normal break-words">
-              {r.date ? new Date(r.date).toLocaleDateString() : '-'}
-              </td>
-              <td className="px-2 py-3 text-sm text-gray-900 whitespace-normal break-words">
-              <span className="font-mono text-blue-600">{formatReceivingNumber(r.receiving_number)}</span>
-              </td>
-              <td className="px-2 py-3 text-sm font-semibold text-gray-900 whitespace-normal break-words">
-              {formatCurrency(r.total_amount)}
-              </td>
-              <td className="px-2 py-3 text-sm whitespace-normal break-words">
-              <span className={r.remaining_balance > 0 ? 'text-red-600' : 'text-green-600'}>
-                {formatCurrency(r.remaining_balance)}
-              </span>
-              </td>
-              <td className="px-2 py-3 whitespace-normal break-words">
-              <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                r.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
-                r.payment_status === 'partial' ? 'bg-orange-100 text-orange-800' :
-                'bg-red-100 text-red-700'
-              }`}>
-                {r.payment_status.charAt(0).toUpperCase() + r.payment_status.slice(1)}
-              </span>
-              </td>
-            </tr>
+          <div className="divide-y divide-gray-100">
+            {paginatedReceivings.map((r: any) => (
+              <div key={r.id} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+                <button
+                  onClick={() => navigateTo(`/stock/receiving/${r.id}`)}
+                  className="w-full text-left hover:text-blue-600 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="font-mono font-medium text-gray-900">
+                        {formatReceivingNumber(r.receiving_number)}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {r.date ? new Date(r.date).toLocaleDateString() : '-'}
+                      </div>
+                    </div>
+                    
+                    <div className="text-right">
+                      <div className="font-semibold text-gray-900">
+                        {formatCurrency(r.total_amount)}
+                      </div>
+                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                        r.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
+                        r.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {r.payment_status === 'paid' ? 'Paid' : 
+                         r.payment_status === 'partial' ? 'Partial' : 'Pending'}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {r.remaining_balance > 0 && (
+                    <div className="mt-2 text-sm text-red-600">
+                      Outstanding: {formatCurrency(r.remaining_balance)}
+                    </div>
+                  )}
+                </button>
+              </div>
             ))}
-          </tbody>
-          </table>
+          </div>
         )}
         </div>
       </div>
 
-      {/* Payments History */}
-      <div className="card pt-0 pb-0 px-2 overflow-hidden w-full">
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Payment History</h3>
-          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-          {vendorPayments.length} payments
-          </span>
-        </div>
+      {/* Recent Payments */}
+      <div className="card overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Recent Payments</h3>
+            <div className="flex items-center space-x-3">
+              <span className="text-sm text-gray-500">{vendorPayments.length} payments</span>
+              <button
+                onClick={() => console.log('View all payments')}
+                className="text-sm text-green-600 hover:text-green-800 font-medium"
+              >
+                View All →
+              </button>
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto">
         {loadingPayments ? (
           <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
-          <span className="ml-2 text-gray-600">Loading payments...</span>
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-green-600"></div>
+            <span className="ml-2 text-gray-600">Loading payments...</span>
           </div>
         ) : vendorPayments.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-          <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
-            $
-          </div>
-          <p className="text-gray-500">No payments found</p>
+          <div className="px-6 py-8 text-center">
+            <div className="text-4xl mb-3">💳</div>
+            <h4 className="font-medium text-gray-900 mb-2">No Payments Found</h4>
+            <p className="text-gray-500 text-sm">
+              No payments have been recorded yet.
+            </p>
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Method</th>
-            <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Reference</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-100">
-            {vendorPayments.map((p, idx) => (
-            <tr key={p.id || idx} className="hover:bg-gray-50 transition-colors">
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-              {p.date ? new Date(p.date).toLocaleDateString() : '-'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
-              {p.amount ? formatCurrency(p.amount) : '-'}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-              {p.payment_method || (
-                <span className="text-gray-400 italic">Not specified</span>
-              )}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-              {p.receiving_number ? (
-                <span className="font-mono text-blue-600">{formatReceivingNumber(p.receiving_number)}</span>
-              ) : (
-                <span className="text-gray-400 italic">No reference</span>
-              )}
-              </td>
-            </tr>
+          <div className="divide-y divide-gray-100">
+            {paginatedPayments.map((p, idx) => (
+              <div key={p.id || idx} className="px-6 py-4 hover:bg-gray-50 transition-colors">
+                <button
+                  onClick={() => {
+                    if (p.receiving_id) {
+                      navigateTo(`/stock/receiving/${p.receiving_id}`);
+                    } else {
+                      // For general payments without receiving_id, we could navigate to a payments detail page
+                      // or show a toast message for now
+                      toast.success('Payment details viewed');
+                    }
+                  }}
+                  className="w-full text-left hover:text-blue-600 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">
+                        {p.date ? new Date(p.date).toLocaleDateString() : '-'}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {p.receiving_number ? `Order: ${formatReceivingNumber(p.receiving_number)}` : 'General Payment'}
+                      </div>
+                    </div>
+                    
+                    <div className="text-right">
+                      <div className="font-semibold text-green-700">
+                        {p.amount ? formatCurrency(p.amount) : '-'}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {p.payment_channel_name || p.payment_method || 'Cash'}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              </div>
             ))}
-          </tbody>
-          </table>
+          </div>
         )}
         </div>
       </div>

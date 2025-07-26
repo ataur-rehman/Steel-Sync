@@ -49,11 +49,22 @@ const StockReceivingPayment: React.FC = () => {
   const loadData = async (receivingId: number) => {
     try {
       setLoading(true);
-      const [receivingList, vendors, channels] = await Promise.all([
+      const [receivingList, vendors] = await Promise.all([
         db.getStockReceivingList(),
-        db.getVendors(),
-        db.getPaymentChannels()
+        db.getVendors()
       ]);
+      
+      // Load payment channels from database
+      console.log('🔄 [StockReceiving] Loading payment channels...');
+      const channels = await db.getPaymentChannels();
+      console.log('✅ [StockReceiving] Payment channels loaded:', channels);
+      console.log('📊 [StockReceiving] Channel count:', channels?.length || 0);
+      
+      if (!channels || channels.length === 0) {
+        console.error('❌ [StockReceiving] No payment channels found');
+        toast.error('No payment channels found. Please set up payment channels first.');
+        return;
+      }
       
       const receivingRecord = receivingList.find((r: any) => r.id === receivingId);
       if (!receivingRecord) {
@@ -120,11 +131,15 @@ const StockReceivingPayment: React.FC = () => {
       return;
     }
 
+    if (!form.payment_channel_id) {
+      toast.error('Please select a payment channel');
+      return;
+    }
+
     try {
       setSubmitting(true);
       
-      // Create vendor payment record
-      await db.createVendorPayment({
+      console.log('Submitting payment with data:', {
         vendor_id: receiving.vendor_id,
         vendor_name: receiving.vendor_name,
         receiving_id: receiving.id,
@@ -144,15 +159,39 @@ const StockReceivingPayment: React.FC = () => {
         created_by: 'admin' // In real app, get from auth context
       });
       
+      // Create vendor payment record
+      const paymentId = await db.createVendorPayment({
+        vendor_id: receiving.vendor_id,
+        vendor_name: receiving.vendor_name,
+        receiving_id: receiving.id,
+        amount: form.amount,
+        payment_channel_id: form.payment_channel_id,
+        payment_channel_name: form.payment_channel_name,
+        reference_number: form.reference_number,
+        cheque_number: form.cheque_number,
+        cheque_date: form.cheque_date,
+        notes: form.notes,
+        date: form.date,
+        time: new Date().toLocaleTimeString('en-PK', { 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+        }),
+        created_by: 'admin' // In real app, get from auth context
+      });
+      
+      console.log('Payment created with ID:', paymentId);
+      
       // Update stock receiving payment status
       await db.updateStockReceivingPayment(receiving.id, form.amount);
       
       toast.success('Payment recorded successfully!');
-      navigate('/stock/receiving');
+      // Navigate back to the receiving detail page to show updated data
+      navigate(`/stock/receiving/${receiving.id}`);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error recording payment:', error);
-      toast.error('Failed to record payment');
+      toast.error(error.message || 'Failed to record payment');
     } finally {
       setSubmitting(false);
     }

@@ -395,13 +395,7 @@ const StockReceivingList: React.FC = () => {
           <p className="mt-1 text-sm text-gray-500">Manage inventory receiving and vendor payments <span className="font-medium text-gray-700">({receivingList.length} records)</span></p>
         </div>
                 <div className="flex gap-2">
-          <button
-            onClick={() => navigate('/vendors')}
-            className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
-            type="button"
-          >
-            Vendors
-          </button>
+        
         <button
           onClick={() => navigate('/stock/receiving/new')}
           className="btn btn-primary flex items-center px-3 py-1.5 text-sm"

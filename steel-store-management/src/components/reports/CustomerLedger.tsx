@@ -325,6 +325,10 @@ const CustomerLedger: React.FC = () => {
     date: new Date().toISOString().split('T')[0]
   });
 
+  // Payment channels
+  const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
+  const [selectedPaymentChannel, setSelectedPaymentChannel] = useState<any>(null);
+
   // Invoice selection for payment allocation
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
@@ -388,6 +392,7 @@ const CustomerLedger: React.FC = () => {
 
   useEffect(() => {
     loadCustomers();
+    loadPaymentChannels();
     // ENHANCED: Listen to business events for real-time updates
     try {
       if (typeof window !== 'undefined') {
@@ -480,6 +485,38 @@ const CustomerLedger: React.FC = () => {
       toast.error('Failed to load customers');
     } finally {
       setCustomersLoading(false);
+    }
+  };
+
+  const loadPaymentChannels = async () => {
+    try {
+      console.log('🔄 Loading payment channels from database...');
+      const channels = await db.getPaymentChannels(false); // Only active channels
+      console.log('✅ Loaded payment channels from database:', channels);
+      console.log('📊 Number of channels loaded:', channels?.length || 0);
+      
+      if (!channels || channels.length === 0) {
+        console.error('❌ No payment channels found in database');
+        toast.error('No payment channels found. Please set up payment channels first.');
+        return;
+      }
+      
+      setPaymentChannels(channels);
+      console.log('💾 Payment channels set in state');
+      
+      // Set default payment channel
+      if (channels.length > 0) {
+        const defaultChannel = channels[0];
+        setSelectedPaymentChannel(defaultChannel);
+        setNewPayment(prev => ({ 
+          ...prev, 
+          payment_method: defaultChannel.name 
+        }));
+        console.log('✅ Default payment channel set:', defaultChannel.name);
+      }
+    } catch (error) {
+      console.error('❌ Error loading payment channels:', error);
+      toast.error('Failed to load payment channels from database');
     }
   };
 
@@ -594,6 +631,8 @@ const CustomerLedger: React.FC = () => {
         customer_id: selectedCustomer.id,
         amount: newPayment.amount,
         payment_method: newPayment.payment_method,
+        payment_channel_id: selectedPaymentChannel?.id || null,
+        payment_channel_name: selectedPaymentChannel?.name || newPayment.payment_method,
         payment_type: 'bill_payment',
         reference: newPayment.reference,
         notes: newPayment.notes,
@@ -1123,16 +1162,24 @@ const CustomerLedger: React.FC = () => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Channel</label>
                 <select
-                  value={newPayment.payment_method}
-                  onChange={(e) => setNewPayment(prev => ({ ...prev, payment_method: e.target.value }))}
+                  value={selectedPaymentChannel?.id || ''}
+                  onChange={(e) => {
+                    const channelId = parseInt(e.target.value);
+                    const channel = paymentChannels.find(c => c.id === channelId);
+                    if (channel) {
+                      setSelectedPaymentChannel(channel);
+                      setNewPayment(prev => ({ ...prev, payment_method: channel.name }));
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cheque">Cheque</option>
-                  <option value="card">Card</option>
+                  {paymentChannels.map(channel => (
+                    <option key={channel.id} value={channel.id}>
+                      {channel.name} ({channel.type})
+                    </option>
+                  ))}
                 </select>
               </div>
 
