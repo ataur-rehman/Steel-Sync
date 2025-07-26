@@ -570,114 +570,56 @@ const handleSubmit = async () => {
 
   setCreating(true);
 
-  // RETRY LOGIC: Handle database locks with exponential backoff
-  const maxRetries = 3;
-  let attempt = 0;
-
-  while (attempt < maxRetries) {
-    try {
-      // If customer has credit, ensure payment_amount is at least the credit up to grandTotal
-      let payment_amount = formData.payment_amount;
-      if (selectedCustomer && selectedCustomer.balance < 0) {
-        const credit = Math.abs(selectedCustomer.balance);
-        const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
-        payment_amount = Math.min(credit, grandTotal);
-      }
-
-      const invoiceData = {
-        customer_id: formData.customer_id!,
-        customer_name: selectedCustomer?.name,
-        items: formData.items.map(item => ({
-          product_id: item.product_id,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          total_price: item.total_price
-        })),
-        discount: formData.discount,
-        payment_amount,
-        payment_method: formData.payment_method,
-        payment_channel_id: selectedPaymentChannel?.id || null,
-        payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
-        notes: formData.notes,
-        applied_credit: selectedCustomer && selectedCustomer.balance < 0 ? Math.min(Math.abs(selectedCustomer.balance), payment_amount) : 0
-      };
-      
-      console.log('Creating invoice with automatic stock tracking:', invoiceData);
-      
-      // CRITICAL: Create invoice with database lock handling
-      const result = await db.createInvoice(invoiceData);
-      
-      // Success - invoice created
-      import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
-        triggerInvoiceCreatedRefresh(result);
-      });
-      
-      toast.success(`Invoice created successfully! Bill Number: ${result.bill_number}`, {
-        duration: 5000
-      });
-      
-      const stockSummary = stockPreview.map(p => 
-        `${p.product_name}: ${p.current_stock} → ${p.new_stock} (${p.ordered_quantity} sold)`
-      ).join('\n');
-      
-      toast.success(`Stock Updated:\n${stockSummary}`, {
-        duration: 8000
-      });
-      
-      resetForm();
-      await loadInitialData(false);
-      
-      // SUCCESS - break out of retry loop
-      break;
-      
-    } catch (error: any) {
-      console.error('Invoice creation error:', error);
-      
-      // Handle database lock errors with retry
-      if ((error.message?.includes('database is locked') || 
-           error.message?.includes('SQLITE_BUSY') ||
-           error.code === 5) && attempt < maxRetries - 1) {
-        
-        attempt++;
-        const delay = 500 * Math.pow(2, attempt); // 1s, 2s, 4s delays
-        
-        console.warn(`Database locked, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
-        
-        // Show user-friendly message during retry
-        toast.loading(`Database busy, retrying... (${attempt}/${maxRetries})`, {
-          id: 'db-retry',
-          duration: delay
-        });
-        
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue; // Retry the operation
-      }
-      
-      // For non-lock errors or after max retries, show error and stop
-      toast.dismiss('db-retry'); // Remove retry message
-      
-      if (error.message?.includes('database is locked') || error.code === 5) {
-        toast.error('Database is currently busy. Please try again in a moment.', {
-          duration: 5000
-        });
-      } else if (error.message?.includes('Insufficient stock')) {
-        toast.error(error.message); // Show stock error as-is
-      } else {
-        toast.error(`Failed to create invoice: ${error.message || error}`);
-      }
-      
-      break; // Stop trying
+  try {
+    // Prepare invoice data
+    let payment_amount = formData.payment_amount;
+    if (selectedCustomer && selectedCustomer.balance < 0) {
+      const credit = Math.abs(selectedCustomer.balance);
+      const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
+      payment_amount = Math.min(credit, grandTotal);
     }
+
+    const invoiceData = {
+      customer_id: formData.customer_id!,
+      customer_name: selectedCustomer?.name,
+      items: formData.items.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total_price: item.total_price
+      })),
+      discount: formData.discount,
+      payment_amount,
+      payment_method: formData.payment_method,
+      payment_channel_id: selectedPaymentChannel?.id || null,
+      payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
+      notes: formData.notes
+    };
+    
+    console.log('Creating invoice:', invoiceData);
+    
+    // Create invoice - the database will handle all retries internally
+    const result = await db.createInvoice(invoiceData);
+    
+    // Success
+    import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
+      triggerInvoiceCreatedRefresh(result);
+    });
+    
+    toast.success(`Invoice created successfully! Bill Number: ${result.bill_number}`, {
+      duration: 5000
+    });
+    
+    resetForm();
+    await loadInitialData(false);
+    
+  } catch (error: any) {
+    console.error('Invoice creation error:', error);
+    toast.error(error.message || 'Failed to create invoice');
+  } finally {
+    setCreating(false);
   }
-  
-  // If we exhausted all retries due to database locks
-  if (attempt >= maxRetries) {
-    toast.error('Unable to create invoice due to database busy. Please try again later.');
-  }
-  
-  setCreating(false);
 };
 
 // ALSO ADD: Enhanced error handling for the entire component

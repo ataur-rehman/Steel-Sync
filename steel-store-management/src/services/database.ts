@@ -2,6 +2,11 @@
 import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericValue } from '../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
+import { DatabaseQueue } from './database-queue';
+
+// Ensure only one database instance globally
+let globalDatabaseInstance: DatabaseService | null = null;
+
 
 // PRODUCTION-READY: Enhanced interfaces for comprehensive data management
 interface StockMovement {
@@ -86,20 +91,15 @@ interface DatabaseMetrics {
 
 export class DatabaseService {
   // PRODUCTION-READY: Singleton pattern with proper type safety
-  private static instance: DatabaseService | null = null;
-  
+  private queue = DatabaseQueue.getInstance();
   // SECURITY & PERFORMANCE: Connection and state management
   private database: any = null;
   private isInitialized = false;
   private isInitializing = false;
   private static DatabasePlugin: any = null;
-  
-  // CONCURRENCY CONTROL: Enhanced mutex system
-  // @ts-ignore - Legacy method kept for compatibility
-  private static operationMutex: Promise<void> = Promise.resolve();
-  // @ts-ignore - Legacy property kept for compatibility  
-  private operationInProgress = false;
-  private readonly maxConcurrentOperations = 5;
+  // PRODUCTION-GRADE: Proper transaction queue with semaphore control
+  // CONCURRENCY CONTROL: Enhanced mutex system with atomic transaction queue
+  private readonly maxConcurrentOperations = 1; // Reduced to 1 for SQLite single-writer
   private activeOperations = 0;
   
   // PERFORMANCE: Enhanced query result cache with LRU eviction
@@ -148,19 +148,16 @@ export class DatabaseService {
   
   // Private constructor to enforce singleton
   private constructor() {
-    // Initialize cleanup tasks
-    if (typeof window !== 'undefined') {
-      // Setup cache cleanup interval
-      setInterval(() => this.cleanupCache(), 60000);
-    }
+    // Remove all interval-based cleanups
+    // The queue will handle everything
   }
   
   // CRITICAL: Get singleton instance
   public static getInstance(): DatabaseService {
-    if (!DatabaseService.instance) {
-      DatabaseService.instance = new DatabaseService();
+    if (!globalDatabaseInstance) {
+      globalDatabaseInstance = new DatabaseService();
     }
-    return DatabaseService.instance;
+    return globalDatabaseInstance;
   }
 
   // SECURITY: Rate limiting check
@@ -186,55 +183,8 @@ export class DatabaseService {
   }
   
   /**
-   * Enhanced database execution with automatic retry for locked database errors
-   * This method provides a consistent way to handle database locks across the application
+   * PERFORMANCE: Cache cleanup
    */
-  private async executeWithLockHandling<T>(operation: () => Promise<T>, maxRetries = 5, baseDelay = 200): Promise<T> {
-    let attempt = 0;
-    let lastError: any = null;
-    
-    // Use exponential backoff for retries
-    while (attempt < maxRetries) {
-      try {
-        // Set busy timeout before operation
-        if (attempt > 0) {
-          try {
-            await this.database?.execute(`PRAGMA busy_timeout=${(attempt + 1) * 1000}`);
-          } catch (pragmaError) {
-            // Ignore pragma errors and continue with operation
-            console.warn('Could not set busy timeout:', pragmaError);
-          }
-        }
-        
-        return await operation();
-      } catch (error: any) {
-        lastError = error;
-        
-        // Only retry on database lock errors
-        if (error?.message?.includes('database is locked') || error?.code === 5) {
-          attempt++;
-          
-          if (attempt < maxRetries) {
-            // Use exponential backoff delay with jitter
-            const delay = baseDelay * Math.pow(2, attempt) + Math.floor(Math.random() * 100);
-            console.warn(`Database locked, retry attempt ${attempt}/${maxRetries} after ${delay}ms delay`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          } else {
-            console.error(`Failed after ${maxRetries} attempts due to database locks:`, error);
-            throw error;
-          }
-        } else {
-          // For non-lock errors, don't retry
-          throw error;
-        }
-      }
-    }
-    
-    // This should never be reached due to the throw above, but TypeScript needs it
-    throw lastError;
-  }
-
-  // PERFORMANCE: Cache cleanup
   private cleanupCache(): void {
     const now = Date.now();
     let cleanedCount = 0;
@@ -594,99 +544,6 @@ export class DatabaseService {
       .replace(/[^\w\s\-.,!?()]/g, '') // Keep only alphanumeric, spaces, and basic punctuation
       .trim()
       .substring(0, maxLength);
-  }
-
-  // UTILITY: Execute database operation with retry logic (transaction-safe)
-  private async executeDbWithRetry<T>(
-    operation: () => Promise<T>, 
-    operationName: string,
-    maxRetries: number = 5  // Increased retries for database locks
-  ): Promise<T> {
-    let attempt = 0;
-    
-    while (attempt < maxRetries) {
-      try {
-        return await operation();
-      } catch (error: any) {
-        const isLockError = (
-          error.message?.includes('database is locked') || 
-          error.message?.includes('SQLITE_BUSY') ||
-          error.code === 5 ||
-          error.message?.includes('(code: 5)') ||
-          error.message?.includes('code: 5')
-        );
-        
-        if (isLockError && attempt < maxRetries - 1) {
-          attempt++;
-          // Faster, more aggressive retry for locks
-          const delay = 25 + (attempt * 10) + Math.random() * 15; // 25-40ms range
-          
-          console.warn(`🔒 ${operationName} DB operation locked (attempt ${attempt}/${maxRetries}), retrying in ${delay.toFixed(0)}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-        
-        // For non-lock errors or max retries reached, throw immediately
-        throw error;
-      }
-    }
-    
-    throw new Error(`${operationName} failed after maximum retries`);
-  }
-  private async executeWithRetry<T>(
-    operation: () => Promise<T>, 
-    operationName: string,
-    maxRetries: number = 5  // Increased from 3 to 5 for better reliability
-  ): Promise<T> {
-    let attempt = 0;
-    
-    while (attempt < maxRetries) {
-      try {
-        return await operation();
-      } catch (error: any) {
-        const isLockError = (
-          error.message?.includes('database is locked') || 
-          error.message?.includes('SQLITE_BUSY') ||
-          error.code === 5 ||
-          error.message?.includes('(code: 5)') ||
-          error.message?.includes('code: 5')
-        );
-        
-        // Enhanced debugging for lock errors
-        if (isLockError) {
-          console.log(`🔍 Lock error detected:`, {
-            message: error.message,
-            code: error.code,
-            attempt: attempt + 1,
-            maxRetries,
-            operationName
-          });
-        }
-        
-        if (isLockError && attempt < maxRetries - 1) {
-          attempt++;
-          // Exponential backoff with jitter for database locks
-          const baseDelay = 200; // Start with 200ms
-          const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
-          const jitter = Math.random() * 100; // Add randomness to prevent thundering herd
-          const delay = exponentialDelay + jitter;
-          
-          console.warn(`🔒 ${operationName} failed due to database lock (attempt ${attempt}/${maxRetries}), retrying in ${delay.toFixed(0)}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
-        }
-        
-        // For non-lock errors or max retries reached, throw immediately
-        if (isLockError) {
-          console.error(`🚨 ${operationName} failed after ${maxRetries} attempts due to persistent database locks`);
-          throw new Error(`Database is persistently locked. Please try again in a few moments.`);
-        }
-        
-        throw error;
-      }
-    }
-    
-    throw new Error(`${operationName} failed after maximum retries`);
   }
 
   // PUBLIC API: Get system metrics for monitoring
@@ -1057,7 +914,7 @@ export class DatabaseService {
 
   // @ts-ignore - Used for transaction state management compatibility
   private resetTransactionState(): void {
-    this.operationInProgress = false;
+    // Transaction state reset - simplified for queue-based operations
   }
 
   // @ts-ignore - Used for enhanced event system compatibility  
@@ -1069,331 +926,458 @@ export class DatabaseService {
       console.warn('⚠️ Could not setup event listeners:', error);
     }
   }
-  async initialize(): Promise<boolean> {
-    try {
-      if (this.isInitialized) return true;
-      if (this.isInitializing) {
-        // Wait for ongoing initialization
-        while (this.isInitializing) {
-          await new Promise(res => setTimeout(res, 50));
-        }
-        return this.isInitialized;
-      }
-      this.isInitializing = true;
-      
-      console.log('⚡ Fast startup: Initializing database with optimized performance...');
-      
-      // FAST STARTUP: Skip enhanced service for immediate startup
-      // Standard initialization with optimizations
-      await this.waitForTauriReady();
-      console.log('✅ Tauri environment ready');
-      
-      // Cache the plugin import
-      if (!DatabaseService.DatabasePlugin) {
-        try {
-          DatabaseService.DatabasePlugin = await import('@tauri-apps/plugin-sql');
-          console.log('✅ SQL plugin imported');
-        } catch (importError) {
-          this.isInitializing = false;
-          console.error('❌ Failed to import SQL plugin:', importError);
-          throw new Error(`SQL plugin import failed: ${importError}`);
-        }
-      }
-      const Database = DatabaseService.DatabasePlugin;
-      
-      // FAST STARTUP: Direct connection to working database path
-      let connectionSuccess = false;
-      try {
-        console.log('⚡ Fast startup: Direct connection to working database...');
-        this.database = await Database.default.load('sqlite:store.db');
-        // Quick connection test
-        await this.database.execute('SELECT 1');
-        console.log('✅ Fast database connection successful');
-        connectionSuccess = true;
-      } catch (connectionError) {
-        console.warn('⚠️ Fast connection failed, trying alternatives:', connectionError);
-        // Fallback to original connection attempts
-        const connectionAttempts = [
-          'sqlite:data/store.db',   // Fallback
-          'sqlite:./store.db'       // Alternative
-        ];
-        for (const dbPath of connectionAttempts) {
-          try {
-            console.log(`🔌 Attempting to connect to: ${dbPath}`);
-            this.database = await Database.default.load(dbPath);
-            await this.database.execute('SELECT 1');
-            console.log(`✅ Connected to database at: ${dbPath}`);
-            connectionSuccess = true;
-            break;
-          } catch (fallbackError) {
-            console.warn(`⚠️ Failed to connect to ${dbPath}:`, fallbackError);
-            continue;
-          }
-        }
-      }
-      if (!connectionSuccess) {
-        this.isInitializing = false;
-        throw new Error('Failed to connect to database with any path variant');
-      }
-      
-      // PRODUCTION: Verify database integrity after connection
-      console.log('🔍 Verifying database integrity...');
-      const integrityCheck = await this.verifyDatabaseIntegrity();
-      if (!integrityCheck.healthy) {
-        console.error('❌ Database integrity issues detected:', integrityCheck.issues);
-        // Log issues but continue - we'll handle them gracefully
-        for (const issue of integrityCheck.issues) {
-          console.warn(`⚠️ Database issue: ${issue}`);
-        }
-      } else {
-        console.log('✅ Database integrity verified');
-      }
-      
-      // PRODUCTION: Apply enhanced SQLite optimizations for lock handling
-      try {
-        console.log('🔧 Applying production-grade SQLite optimizations for lock handling...');
-        
-        // Enhanced WAL mode for better concurrency
-        await this.database.execute('PRAGMA journal_mode=WAL');
-        
-        // Ultra-aggressive busy timeout for production (90 seconds for invoice operations)
-        await this.database.execute('PRAGMA busy_timeout=90000');
-        
-        // Enable foreign keys
-        await this.database.execute('PRAGMA foreign_keys=ON');
-        
-        // Enhanced locking mode for better concurrency
-        await this.database.execute('PRAGMA locking_mode=NORMAL');
-        
-        // Optimize synchronous mode for better performance with WAL
-        await this.database.execute('PRAGMA synchronous=NORMAL');
-        
-        // Set larger cache size for better performance (32MB)
-        await this.database.execute('PRAGMA cache_size=32768');
-        
-        // Enable automatic checkpointing for WAL with aggressive settings
-        await this.database.execute('PRAGMA wal_autocheckpoint=500');
-        
-        // Set WAL checkpoint mode to passive for better concurrency
-        await this.database.execute('PRAGMA wal_checkpoint_mode=PASSIVE');
-        
-        // Configure temp store in memory for better performance
-        await this.database.execute('PRAGMA temp_store=MEMORY');
-        
-        console.log('✅ Production SQLite optimizations applied successfully');
-      } catch (pragmaError) {
-        console.warn('⚠️ Could not apply some SQLite optimizations:', pragmaError);
-        // Continue anyway - these are optimizations, not critical
-      }
-      
-      // FAST STARTUP: Lazy table creation - only check if tables exist, create when needed
-      try {
-        console.log('⚡ Fast startup: Checking existing tables...');
-        const tables = await this.database.select("SELECT name FROM sqlite_master WHERE type='table'");
-        const existingTables = tables.map((t: any) => t.name);
-        console.log('📋 Existing tables:', existingTables);
-        
-        // Only create critical tables if they don't exist
-        const criticalTables = ['customers', 'products', 'invoices', 'invoice_items'];
-        const missingCriticalTables = criticalTables.filter(table => !existingTables.includes(table));
-        
-        if (missingCriticalTables.length > 0) {
-          console.log('⚡ Creating missing critical tables:', missingCriticalTables);
-          await this.createCriticalTables();
-        } else {
-          console.log('✅ All critical tables exist - checking for required columns...');
-          
-          // Check if invoices table has date column, add if missing
-          try {
-            await this.database.execute("SELECT date FROM invoices LIMIT 1");
-            console.log('✅ Date column exists in invoices table');
-          } catch (error) {
-            console.log('📋 Adding missing date column to invoices table...');
-            try {
-              await this.database.execute("ALTER TABLE invoices ADD COLUMN date TEXT DEFAULT (date('now'))");
-              // Update existing invoices to have proper date
-              await this.database.execute(`
-                UPDATE invoices 
-                SET date = date(created_at) 
-                WHERE date IS NULL OR date = ''
-              `);
-              console.log('✅ Date column added to invoices table');
-            } catch (alterError) {
-              console.warn('⚠️ Could not add date column (may already exist):', alterError);
-            }
-          }
-        }
-
-        // BACKGROUND: Create remaining tables in background (non-blocking)
-        setTimeout(() => {
-          this.createRemainingTablesInBackground().catch(error => {
-            console.warn('⚠️ Background table creation failed (non-critical):', error);
-          });
-        }, 100); // Create other tables after 100ms
-        
-      } catch (queryError) {
-        console.warn('⚠️ Could not check existing tables, creating critical tables:', queryError);
-        await this.createCriticalTables();
-      }
-      
-      this.isInitialized = true;
-      this.isInitializing = false;
-      console.log('🎉 Fast database initialization completed!');
-      
-      if (typeof window !== 'undefined') {
-        const event = new CustomEvent('DATABASE_READY', { 
-          detail: { 
-            timestamp: new Date().toISOString(),
-            fastStartup: true
-          } 
-        });
-        window.dispatchEvent(event);
-        console.log('📡 DATABASE_READY event emitted (fast startup)');
-      }
-      return true;
-    } catch (error) {
-      this.isInitializing = false;
-      console.error('💥 Fast database initialization failed:', error);
-      if (error instanceof Error) {
-        console.error('🔍 Error details:', {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        });
-      }
-      this.isInitialized = false;
-      throw new Error(`Fast database initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
-    // SECURITY: Apply rate limiting for invoice creation
-    this.checkRateLimit('createInvoice');
+ async initialize(): Promise<boolean> {
+  // Prevent multiple initialization attempts
+  if (this.isInitialized) return true;
+  
+  // Use a lock to prevent concurrent initialization
+  if (this.isInitializing) {
+    // Wait for ongoing initialization with timeout
+    const timeout = 10000; // 10 seconds
+    const startTime = Date.now();
     
-    // HEALTH: Check database connection before critical operation
-    const isHealthy = await this.checkConnectionHealth();
-    if (!isHealthy) {
-      throw new Error('Database connection is unhealthy. Please try again later.');
+    while (this.isInitializing && (Date.now() - startTime) < timeout) {
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
-    // PERFORMANCE: Use enhanced mutex with concurrency control
-    return await this.executeWithEnhancedConcurrencyControl(async () => {
-      return await this._createInvoiceImplEnhanced(invoiceData);
-    });
-  }
-
-// CONCURRENCY: Enhanced operation control with timeout and metrics
-private async executeWithEnhancedConcurrencyControl<T>(operation: () => Promise<T>): Promise<T> {
-  const startTime = Date.now();
-  const maxWaitTime = this.config.transactionTimeout;
-  
-  // Wait for available slot
-  while (this.activeOperations >= this.maxConcurrentOperations) {
-    if (Date.now() - startTime > maxWaitTime) {
-      throw new Error(`Operation timeout: too many concurrent operations (${this.activeOperations}/${this.maxConcurrentOperations})`);
+    if (this.isInitializing) {
+      throw new Error('Database initialization timeout');
     }
-    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    return this.isInitialized;
   }
   
-  this.activeOperations++;
-  const operationStartTime = Date.now();
+  this.isInitializing = true;
   
   try {
-    const result = await Promise.race([
-      operation(),
-      new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Operation timeout')), this.config.queryTimeout)
-      )
-    ]);
+    console.log('⚡ Initializing database...');
     
-    // Update metrics
-    const operationTime = Date.now() - operationStartTime;
-    this.updatePerformanceMetrics(operationTime);
+    await this.waitForTauriReady();
     
-    return result;
+    // Import and cache the plugin
+    if (!DatabaseService.DatabasePlugin) {
+      DatabaseService.DatabasePlugin = await import('@tauri-apps/plugin-sql');
+    }
+    
+    const Database = DatabaseService.DatabasePlugin;
+    
+    // CRITICAL: Use a single connection attempt
+    this.database = await Database.default.load('sqlite:store.db');
+    
+    // CRITICAL: Configure SQLite for production use
+    await this.configureSQLiteForProduction();
+    
+    // Create tables if needed
+    await this.createCriticalTables();
+    
+    this.isInitialized = true;
+    console.log('✅ Database initialized successfully');
+    
+    return true;
+  } catch (error) {
+    console.error('❌ Database initialization failed:', error);
+    this.isInitialized = false;
+    throw error;
   } finally {
-    this.activeOperations--;
+    this.isInitializing = false;
   }
 }
 
-private async _createInvoiceImplEnhanced(invoiceData: InvoiceCreationData): Promise<any> {
-  // PRODUCTION: Use retry logic for database lock handling
-  return await this.executeWithRetry(async () => {
-    return await this._executeInvoiceCreationAttempt(invoiceData);
-  }, 'createInvoice', 3);
+// Add this new method for SQLite configuration
+private async configureSQLiteForProduction(): Promise<void> {
+  console.log('🔧 Configuring SQLite for production...');
+  
+  // CRITICAL: Execute pragmas in correct order
+  const pragmas = [
+    // 1. Set WAL mode first (most important for concurrency)
+    'PRAGMA journal_mode=WAL',
+    
+    // 2. Set synchronous to NORMAL for performance
+    'PRAGMA synchronous=NORMAL',
+    
+    // 3. Set busy timeout to 30 seconds
+    'PRAGMA busy_timeout=30000',
+    
+    // 4. Set cache size (negative value = KB)
+    'PRAGMA cache_size=-64000',
+    
+    // 5. Enable foreign keys
+    'PRAGMA foreign_keys=ON',
+    
+    // 6. Set temp store to memory
+    'PRAGMA temp_store=MEMORY',
+    
+    // 7. Set mmap size for better performance
+    'PRAGMA mmap_size=268435456',
+    
+    // 8. WAL autocheckpoint at 1000 pages
+    'PRAGMA wal_autocheckpoint=1000',
+    
+    // 9. Optimize query planner
+    'PRAGMA optimize'
+  ];
+  
+  for (const pragma of pragmas) {
+    try {
+      await this.database?.execute(pragma);
+      console.log(`✅ ${pragma}`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to set ${pragma}:`, error);
+    }
+  }
 }
 
-private async _executeInvoiceCreationAttempt(invoiceData: InvoiceCreationData): Promise<any> {
-  const transactionId = `inv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
+  // Validate input
+  this.validateInvoiceDataEnhanced(invoiceData);
   
-  return this.executeWithLockHandling(async () => {
-    let transactionActive = false;
+  // Use queue to ensure sequential execution
+  return this.queue.enqueue(async () => {
+    return this.createInvoiceWithTransaction(invoiceData);
+  }, `invoice_${Date.now()}`);
+}
+
+
+// New method for transaction-wrapped invoice creation
+private async createInvoiceWithTransaction(invoiceData: InvoiceCreationData): Promise<any> {
+  if (!this.isInitialized) {
+    await this.initialize();
+  }
+  
+  let transactionStarted = false;
+  
+  try {
+    // Start a single transaction for all operations
+    await this.database?.execute('BEGIN EXCLUSIVE TRANSACTION');
+    transactionStarted = true;
     
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      // SECURITY: Enhanced input validation
-      this.validateInvoiceDataEnhanced(invoiceData);
-
-      // PERFORMANCE: Pre-flight checks to avoid unnecessary transaction overhead
-      await this.validatePreConditions(invoiceData);
-
-      // RELIABILITY: Start transaction with proper isolation and lock detection
-      console.log(`🚀 Starting transaction: ${transactionId}`);
-      
-      // First set busy timeout to prevent immediate locks
-      await this.database?.execute('PRAGMA busy_timeout=10000');
-      
-      // Use DEFERRED instead of IMMEDIATE for better concurrency
-      await this.database?.execute('BEGIN DEFERRED TRANSACTION');
-      transactionActive = true;
-      console.log(`✅ Transaction started successfully: ${transactionId}`);
-
-      // Execute core invoice creation logic with additional retry protection
-      const result = await this.executeDbWithRetry(async () => {
-        return await this.createInvoiceCore(invoiceData, transactionId);
-      }, 'createInvoiceCoreExecution');
-
-      // RELIABILITY: Commit transaction with proper error handling
-      await this.database?.execute('COMMIT');
-      transactionActive = false;
-      console.log(`✅ Transaction committed: ${transactionId}`);
-
-      // EVENTS: Emit success events for real-time updates
-      this.emitInvoiceEvents(result);
-
-      return result;
-
-    } catch (error: any) {
-      this.metrics.errorCount++;
-      
-      // ENHANCED ERROR REPORTING: Provide detailed context for debugging
-      const errorContext = {
-        transactionId,
-        activeOperations: this.activeOperations,
-        errorCode: error.code,
-        errorMessage: error.message,
-        timestamp: new Date().toISOString(),
-        invoiceData: {
-          customer_id: invoiceData.customer_id,
-          items_count: invoiceData.items?.length || 0,
-          total_amount: invoiceData.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) || 0
-        }
-      };
-      
-      console.error(`❌ Invoice creation failed:`, errorContext);
-      
-      // CRITICAL: Ultra-safe transaction cleanup that never fails
-      if (transactionActive) {
-        await this.safeTransactionCleanup(transactionId, true);
-        transactionActive = false;
-      }
-
-      throw error;
+    // Get customer info
+    const customerResult = await this.database?.select(
+      'SELECT * FROM customers WHERE id = ?',
+      [invoiceData.customer_id]
+    );
+    
+    if (!customerResult || customerResult.length === 0) {
+      throw new Error('Customer not found');
     }
-  }, 5, 500); // More retries and longer delay for invoice creation
+    
+    const customer = customerResult[0];
+    
+    // Generate bill number
+    const billNumber = await this.generateUniqueBillNumberInTransaction();
+    
+    // Calculate totals
+    const subtotal = invoiceData.items.reduce((sum, item) => 
+      addCurrency(sum, item.total_price), 0
+    );
+    const discountAmount = Number(((subtotal * (invoiceData.discount || 0)) / 100).toFixed(2));
+    const grandTotal = Number((subtotal - discountAmount).toFixed(2));
+    const paymentAmount = Number((invoiceData.payment_amount || 0).toFixed(2));
+    const remainingBalance = Number((grandTotal - paymentAmount).toFixed(2));
+    
+    const invoiceDate = invoiceData.date || new Date().toISOString().split('T')[0];
+    
+    // Insert invoice
+    const invoiceResult = await this.database?.execute(
+      `INSERT INTO invoices (
+        bill_number, customer_id, customer_name, subtotal, discount, 
+        discount_amount, grand_total, payment_amount, payment_method, 
+        remaining_balance, notes, status, date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      [
+        billNumber, invoiceData.customer_id, customer.name, subtotal,
+        invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
+        invoiceData.payment_method || 'cash', remainingBalance,
+        this.sanitizeInput(invoiceData.notes || '', 1000),
+        remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
+        invoiceDate
+      ]
+    );
+    
+    const invoiceId = invoiceResult?.lastInsertId;
+    if (!invoiceId) {
+      throw new Error('Failed to create invoice record');
+    }
+    
+    // Process items and update stock
+    await this.processInvoiceItems(invoiceId, invoiceData.items, billNumber, customer);
+    
+    // Update customer balance
+    await this.updateCustomerBalanceInTransaction(
+      customer.id, 
+      remainingBalance
+    );
+    
+    // Create ledger entries
+    await this.createLedgerEntriesInTransaction(
+      invoiceId, customer, grandTotal, paymentAmount, billNumber, invoiceData.payment_method || 'cash'
+    );
+    
+    // Commit the transaction
+    await this.database?.execute('COMMIT');
+    transactionStarted = false;
+    
+    // Prepare return data
+    const result = {
+      id: invoiceId,
+      bill_number: billNumber,
+      customer_id: invoiceData.customer_id,
+      customer_name: customer.name,
+      items: invoiceData.items,
+      subtotal,
+      discount: invoiceData.discount || 0,
+      discount_amount: discountAmount,
+      grand_total: grandTotal,
+      payment_amount: paymentAmount,
+      payment_method: invoiceData.payment_method || 'cash',
+      remaining_balance: remainingBalance,
+      status: remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
+      notes: invoiceData.notes,
+      date: invoiceDate,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    
+    // Emit events after successful commit
+    this.emitInvoiceEvents(result);
+    
+    // Clear relevant caches
+    this.invalidateInvoiceCache();
+    this.invalidateCustomerCache();
+    
+    return result;
+    
+  } catch (error) {
+    // Rollback only if transaction was started
+    if (transactionStarted) {
+      try {
+        await this.database?.execute('ROLLBACK');
+      } catch (rollbackError) {
+        console.error('Rollback failed:', rollbackError);
+      }
+    }
+    
+    console.error('Invoice creation failed:', error);
+    throw error;
+  }
+}
+private async generateUniqueBillNumberInTransaction(): Promise<string> {
+  const prefix = 'I';
+  
+  const result = await this.database?.select(
+    'SELECT bill_number FROM invoices WHERE bill_number LIKE ? ORDER BY CAST(SUBSTR(bill_number, 2) AS INTEGER) DESC LIMIT 1',
+    [`${prefix}%`]
+  );
+  
+  let nextNumber = 1;
+  if (result && result.length > 0) {
+    const lastBillNumber = result[0].bill_number;
+    const lastNumber = parseInt(lastBillNumber.substring(1)) || 0;
+    nextNumber = lastNumber + 1;
+  }
+  
+  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+}
+
+
+private async processInvoiceItems(
+  invoiceId: number, 
+  items: any[], 
+  billNumber: string, 
+  customer: any
+): Promise<void> {
+  const now = new Date();
+  const date = now.toISOString().split('T')[0];
+  const time = now.toLocaleTimeString('en-PK', { 
+    hour: '2-digit', 
+    minute: '2-digit', 
+    hour12: true 
+  });
+  
+  for (const item of items) {
+    // Get product details
+    const productResult = await this.database?.select(
+      'SELECT * FROM products WHERE id = ?',
+      [item.product_id]
+    );
+    
+    if (!productResult || productResult.length === 0) {
+      throw new Error(`Product ${item.product_id} not found`);
+    }
+    
+    const product = productResult[0];
+    const productName = product.name;
+    
+    // Parse quantities
+    const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+    const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+    
+    const availableStock = currentStockData.numericValue;
+    const soldQuantity = itemQuantityData.numericValue;
+    const newStock = availableStock - soldQuantity;
+    
+    if (newStock < 0) {
+      throw new Error(`Insufficient stock for ${productName}. Available: ${availableStock}, Required: ${soldQuantity}`);
+    }
+    
+    // Insert invoice item
+    await this.database?.execute(
+      `INSERT INTO invoice_items (
+        invoice_id, product_id, product_name, quantity, unit_price, 
+        total_price, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      [
+        invoiceId, item.product_id, productName, item.quantity,
+        item.unit_price, item.total_price
+      ]
+    );
+    
+    // Update product stock
+    const newStockString = formatUnitString(
+      createUnitFromNumericValue(newStock, product.unit_type || 'kg-grams'),
+      product.unit_type || 'kg-grams'
+    );
+    
+    await this.database?.execute(
+      'UPDATE products SET current_stock = ?, updated_at = datetime("now") WHERE id = ?',
+      [newStockString, item.product_id]
+    );
+    
+    // Create stock movement record
+    await this.database?.execute(
+      `INSERT INTO stock_movements (
+        product_id, product_name, movement_type, quantity, previous_stock, 
+        new_stock, unit_price, total_value, reason, reference_type, 
+        reference_id, reference_number, customer_id, customer_name, 
+        notes, date, time, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      [
+        item.product_id, productName, 'out', item.quantity, 
+        product.current_stock, newStockString, item.unit_price, 
+        item.total_price, 'Invoice Sale', 'invoice', invoiceId, 
+        billNumber, customer.id, customer.name, 
+        `Sale to ${customer.name} (Bill: ${billNumber})`,
+        date, time, 'system'
+      ]
+    );
+  }
+}
+
+
+private async updateCustomerBalanceInTransaction(
+  customerId: number, 
+  balanceChange: number
+): Promise<void> {
+  if (balanceChange !== 0) {
+    await this.database?.execute(
+      'UPDATE customers SET balance = balance + ?, updated_at = datetime("now") WHERE id = ?',
+      [balanceChange, customerId]
+    );
+  }
+}
+
+private async createLedgerEntriesInTransaction(
+  invoiceId: number,
+  customer: any,
+  grandTotal: number,
+  paymentAmount: number,
+  billNumber: string,
+  paymentMethod: string
+): Promise<void> {
+  const now = new Date();
+  const date = now.toISOString().split('T')[0];
+  const time = now.toLocaleTimeString('en-PK', { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: true 
+  });
+  
+  // Get current balance for customer ledger
+  const balanceResult = await this.database?.select(
+    'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY created_at DESC LIMIT 1',
+    [customer.id]
+  );
+  
+  let currentBalance = balanceResult?.[0]?.balance_after || customer.balance || 0;
+  
+  // Create debit entry for invoice
+  const balanceAfterInvoice = currentBalance + grandTotal;
+  
+  await this.database?.execute(
+    `INSERT INTO customer_ledger_entries (
+      customer_id, customer_name, entry_type, transaction_type, amount, 
+      description, reference_id, reference_number, balance_before, 
+      balance_after, date, time, created_by, notes, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    [
+      customer.id, customer.name, 'debit', 'invoice', grandTotal,
+      `Sale Invoice ${billNumber}`, invoiceId, billNumber, 
+      currentBalance, balanceAfterInvoice, date, time, 'system',
+      `Invoice amount: Rs. ${grandTotal.toFixed(2)}`
+    ]
+  );
+  
+  // If payment made, create credit entry
+  if (paymentAmount > 0) {
+    const balanceAfterPayment = balanceAfterInvoice - paymentAmount;
+    
+    await this.database?.execute(
+      `INSERT INTO customer_ledger_entries (
+        customer_id, customer_name, entry_type, transaction_type, amount, 
+        description, reference_id, reference_number, balance_before, 
+        balance_after, date, time, created_by, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      [
+        customer.id, customer.name, 'credit', 'payment', paymentAmount,
+        `Payment - Invoice ${billNumber}`, invoiceId, billNumber,
+        balanceAfterInvoice, balanceAfterPayment, date, time, 'system',
+        `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}`
+      ]
+    );
+    
+    // Generate payment code
+    const paymentCodeResult = await this.database?.select(
+      'SELECT payment_code FROM payments WHERE payment_code LIKE ? ORDER BY CAST(SUBSTR(payment_code, 2) AS INTEGER) DESC LIMIT 1',
+      ['P%']
+    );
+    
+    let paymentCode = 'P0001';
+    if (paymentCodeResult && paymentCodeResult.length > 0) {
+      const lastCode = paymentCodeResult[0].payment_code;
+      const lastNumber = parseInt(lastCode.substring(1)) || 0;
+      paymentCode = `P${(lastNumber + 1).toString().padStart(4, '0')}`;
+    }
+    
+    // Create payment record
+    await this.database?.execute(
+      `INSERT INTO payments (
+        customer_id, payment_code, amount, payment_method, payment_type,
+        reference_invoice_id, reference, notes, date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      [
+        customer.id, paymentCode, paymentAmount, paymentMethod, 'bill_payment',
+        invoiceId, billNumber, 
+        `Invoice ${billNumber} payment`, date
+      ]
+    );
+  }
+  
+  // Create general ledger entry
+  await this.database?.execute(
+    `INSERT INTO ledger_entries (
+      date, time, type, category, description, amount, running_balance,
+      customer_id, customer_name, reference_id, reference_type, bill_number,
+      notes, created_by, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    [
+      date, time, 'incoming', 'Sale Invoice',
+      `Invoice ${billNumber} - Products sold to ${customer.name}`,
+      grandTotal, 0, customer.id, customer.name, invoiceId,
+      'invoice', billNumber,
+      `Invoice amount: Rs. ${grandTotal.toFixed(2)}`,
+      'system'
+    ]
+  );
 }
 
 // VALIDATION: Enhanced pre-flight checks
@@ -1449,23 +1433,21 @@ private async createInvoiceCore(invoiceData: InvoiceCreationData, _transactionId
   const billNumber = await this.generateUniqueBillNumber();
 
   // Create invoice record
-  const invoiceResult = await this.executeDbWithRetry(async () => {
-    return await this.database?.execute(
-      `INSERT INTO invoices (
-        bill_number, customer_id, customer_name, subtotal, discount, discount_amount,
-        grand_total, payment_amount, payment_method, remaining_balance, notes,
-        status, date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [
-        billNumber, invoiceData.customer_id, customer.name, subtotal,
-        invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
-        invoiceData.payment_method || 'cash', remainingBalance,
-        this.sanitizeInput(invoiceData.notes || '', 1000),
-        remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
-        invoiceData.date || new Date().toISOString().split('T')[0] // Use provided date or today
-      ]
-    );
-  }, 'createInvoiceRecord');
+  const invoiceResult = await this.database?.execute(
+    `INSERT INTO invoices (
+      bill_number, customer_id, customer_name, subtotal, discount, discount_amount,
+      grand_total, payment_amount, payment_method, remaining_balance, notes,
+      status, date, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    [
+      billNumber, invoiceData.customer_id, customer.name, subtotal,
+      invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
+      invoiceData.payment_method || 'cash', remainingBalance,
+      this.sanitizeInput(invoiceData.notes || '', 1000),
+      remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
+      invoiceData.date || new Date().toISOString().split('T')[0] // Use provided date or today
+    ]
+  );
 
   const invoiceId = invoiceResult?.lastInsertId;
   if (!invoiceId) {
@@ -1608,18 +1590,19 @@ private emitInvoiceEvents(invoice: any): void {
     console.warn('Could not emit invoice events:', error);
   }
 }
-
-// ITEMS: Enhanced invoice items creation with proper tracking
 private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNumber: string, customer: any): Promise<void> {
   const now = new Date();
 
   for (const item of items) {
-    // Get product details for accurate tracking
+    // CRITICAL FIX: Ensure we have product data before proceeding
     const product = await this.getProduct(item.product_id);
     if (!product) {
       throw new Error(`Product with ID ${item.product_id} not found`);
     }
 
+    // CRITICAL FIX: Use product name from database, not from item
+    const productName = product.name || item.product_name || `Product ${item.product_id}`;
+    
     // Parse quantities using unit utilities
     const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
     const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
@@ -1629,22 +1612,20 @@ private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNu
     const newStock = availableStock - soldQuantity;
 
     if (newStock < 0) {
-      throw new Error(`Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+      throw new Error(`Insufficient stock for ${productName}. Available: ${availableStock}, Required: ${soldQuantity}`);
     }
 
-    // Create invoice item record
-    await this.executeDbWithRetry(async () => {
-      return await this.database?.execute(
-        `INSERT INTO invoice_items (
-          invoice_id, product_id, product_name, quantity, unit_price, total_price, 
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          invoiceId, item.product_id, product.name, item.quantity,
-          item.unit_price, item.total_price, now.toISOString(), now.toISOString()
-        ]
-      );
-    }, 'createInvoiceItem');
+    // Create invoice item record with guaranteed product name
+    await this.database?.execute(
+      `INSERT INTO invoice_items (
+        invoice_id, product_id, product_name, quantity, unit_price, total_price, 
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        invoiceId, item.product_id, productName, item.quantity,
+        item.unit_price, item.total_price, now.toISOString(), now.toISOString()
+      ]
+    );
 
     // Update product stock
     const newStockString = formatUnitString(
@@ -1652,31 +1633,39 @@ private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNu
       product.unit_type || 'kg-grams'
     );
 
-    await this.executeDbWithRetry(async () => {
-      return await this.database?.execute(
-        'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
-        [newStockString, now.toISOString(), item.product_id]
-      );
-    }, 'updateProductStock');
+    await this.database?.execute(
+      'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+      [newStockString, now.toISOString(), item.product_id]
+    );
 
-    // Create stock movement record for audit trail
-    await this.executeDbWithRetry(async () => {
-      return await this.database?.execute(
-        `INSERT INTO stock_movements (
-          product_id, product_name, movement_type, quantity, previous_stock, new_stock,
-          unit_price, total_value, reason, reference_type, reference_id, reference_number,
-          customer_id, customer_name, notes, date, time, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          item.product_id, product.name, 'out', item.quantity, 
-          product.current_stock, newStockString, item.unit_price, item.total_price,
-          'Invoice Sale', 'invoice', invoiceId, billNumber,
-          customer.id, customer.name, `Sale to ${customer.name} (Bill: ${billNumber})`,
-          now.toISOString().split('T')[0], now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-          'system'
-        ]
-      );
-    }, 'createStockMovement');
+    // CRITICAL FIX: Create stock movement with guaranteed product name
+    await this.database?.execute(
+      `INSERT INTO stock_movements (
+        product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+        unit_price, total_value, reason, reference_type, reference_id, reference_number,
+        customer_id, customer_name, notes, date, time, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        item.product_id, 
+        productName, // CRITICAL: Use guaranteed product name
+        'out', 
+        item.quantity, 
+        product.current_stock, 
+        newStockString, 
+        item.unit_price, 
+        item.total_price,
+        'Invoice Sale', 
+        'invoice', 
+        invoiceId, 
+        billNumber,
+        customer.id, 
+        customer.name, 
+        `Sale to ${customer.name} (Bill: ${billNumber})`,
+        now.toISOString().split('T')[0], 
+        now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        'system'
+      ]
+    );
   }
 }
 
@@ -1775,14 +1764,14 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL CHECK (length(name) > 0),
           category TEXT NOT NULL CHECK (length(category) > 0),
-          unit_type TEXT NOT NULL DEFAULT 'kg-grams' CHECK (unit_type IN ('kg-grams', 'kg', 'piece', 'bag', 'meter', 'ton')),
+          unit_type TEXT NOT NULL DEFAULT 'kg-grams' CHECK (unit_type IN ('kg-grams', 'kg', 'piece', 'bag', 'meter')),
           unit TEXT NOT NULL,
           rate_per_unit REAL NOT NULL CHECK (rate_per_unit > 0),
           current_stock TEXT NOT NULL DEFAULT '0',
           min_stock_alert TEXT NOT NULL DEFAULT '0',
           size TEXT,
           grade TEXT,
-          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'discontinued')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -1802,7 +1791,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           payment_amount REAL NOT NULL DEFAULT 0.0 CHECK (payment_amount >= 0),
           payment_method TEXT,
           remaining_balance REAL NOT NULL CHECK (remaining_balance >= -0.01),
-          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'partially_paid', 'paid', 'cancelled')),
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'partially_paid', 'paid')),
           notes TEXT,
           date TEXT NOT NULL DEFAULT (date('now')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -1835,6 +1824,58 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_bill_number ON invoices(bill_number)`);
       await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id)`);
 
+      // Create payments table as it's critical for many operations
+      await this.database?.execute(`
+        CREATE TABLE IF NOT EXISTS payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          customer_id INTEGER NOT NULL,
+          customer_name TEXT NOT NULL,
+          payment_code TEXT UNIQUE,
+          amount REAL NOT NULL CHECK (amount > 0),
+          payment_method TEXT NOT NULL,
+          reference_invoice_id INTEGER,
+          reference_number TEXT,
+          notes TEXT,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          created_by TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+          FOREIGN KEY (reference_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL ON UPDATE CASCADE
+        )
+      `);
+
+      // Create ledger_entries table as it's critical for accounting
+      await this.database?.execute(`
+        CREATE TABLE IF NOT EXISTS ledger_entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          type TEXT NOT NULL CHECK (type IN ('incoming', 'outgoing')),
+          category TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount REAL NOT NULL CHECK (amount > 0),
+          running_balance REAL NOT NULL,
+          customer_id INTEGER,
+          customer_name TEXT,
+          reference_id INTEGER,
+          reference_type TEXT,
+          bill_number TEXT,
+          notes TEXT,
+          created_by TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE
+        )
+      `);
+
+      // Add indexes for critical payment and ledger tables
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id ON ledger_entries(customer_id)`);
+      await this.database?.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)`);
+
       console.log('✅ Critical tables created successfully for fast startup');
     } catch (error) {
       console.error('❌ Error creating critical tables:', error);
@@ -1843,6 +1884,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
   }
 
   // BACKGROUND: Create remaining tables lazily when needed
+  // NOTE: Duplicate function - commented out to avoid conflicts
+  /*
   private async createRemainingTablesInBackground(): Promise<void> {
     console.log('🔄 Creating remaining tables in background (non-blocking)...');
     
@@ -1872,14 +1915,14 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_id INTEGER NOT NULL,
             product_name TEXT NOT NULL,
-            movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out', 'adjustment')),
+            movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out')),
             quantity REAL NOT NULL CHECK (quantity > 0),
             previous_stock REAL NOT NULL CHECK (previous_stock >= 0),
             new_stock REAL NOT NULL CHECK (new_stock >= 0),
             unit_price REAL NOT NULL CHECK (unit_price >= 0),
             total_value REAL NOT NULL CHECK (total_value >= 0),
             reason TEXT NOT NULL CHECK (length(reason) > 0),
-            reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase', 'return')),
+            reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase')),
             reference_id INTEGER,
             reference_number TEXT,
             customer_id INTEGER,
@@ -1903,7 +1946,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT NOT NULL,
             time TEXT NOT NULL,
-            type TEXT NOT NULL CHECK (type IN ('incoming', 'outgoing')),
+            type TEXT NOT NULL CHECK (type IN ('incoming')),
             category TEXT NOT NULL CHECK (length(category) > 0),
             description TEXT NOT NULL CHECK (length(description) > 0),
             amount REAL NOT NULL CHECK (amount > 0),
@@ -1935,7 +1978,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
             customer_id INTEGER NOT NULL,
             amount REAL NOT NULL CHECK (amount > 0),
             payment_method TEXT NOT NULL CHECK (length(payment_method) > 0),
-            payment_type TEXT NOT NULL CHECK (payment_type IN ('bill_payment', 'advance_payment', 'return_refund')),
+            payment_type TEXT NOT NULL CHECK (payment_type IN ('bill_payment', 'advance_payment')),
             reference_invoice_id INTEGER,
             reference TEXT,
             notes TEXT,
@@ -1974,6 +2017,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       console.warn('⚠️ Background table creation failed (non-critical):', error);
     }
   }
+  */
 
   // PERFORMANCE: Lazy initialization for non-critical tables
   private tablesCreated = new Set<string>();
@@ -2001,20 +2045,141 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
   private async createSpecificTable(tableName: string): Promise<void> {
     // Create specific tables when needed
     switch (tableName) {
+      case 'vendors':
+        await this.database?.execute(`
+          CREATE TABLE IF NOT EXISTS vendors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL CHECK (length(name) > 0),
+            company_name TEXT,
+            phone TEXT,
+            address TEXT,
+            contact_person TEXT,
+            payment_terms TEXT,
+            notes TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+        break;
+
+      case 'stock_receiving':
+        await this.database?.execute(`
+          CREATE TABLE IF NOT EXISTS stock_receiving (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_id INTEGER NOT NULL,
+            vendor_name TEXT NOT NULL,
+            receiving_number TEXT NOT NULL UNIQUE,
+            total_amount REAL NOT NULL CHECK (total_amount > 0),
+            payment_amount REAL NOT NULL DEFAULT 0.0 CHECK (payment_amount >= 0),
+            remaining_balance REAL NOT NULL CHECK (remaining_balance >= 0),
+            payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid')),
+            notes TEXT,
+            truck_number TEXT,
+            reference_number TEXT,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT ON UPDATE CASCADE
+          )
+        `);
+        break;
+
+      case 'vendor_payments':
+        await this.database?.execute(`
+          CREATE TABLE IF NOT EXISTS vendor_payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_id INTEGER NOT NULL,
+            vendor_name TEXT NOT NULL,
+            receiving_id INTEGER,
+            amount REAL NOT NULL CHECK (amount > 0),
+            payment_channel_id INTEGER NOT NULL,
+            payment_channel_name TEXT NOT NULL,
+            reference_number TEXT,
+            cheque_number TEXT,
+            cheque_date TEXT,
+            notes TEXT,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+            FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE SET NULL ON UPDATE CASCADE,
+            FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE RESTRICT ON UPDATE CASCADE
+          )
+        `);
+        break;
+
+      case 'customer_ledger_entries':
+        await this.database?.execute(`
+          CREATE TABLE IF NOT EXISTS customer_ledger_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            customer_name TEXT NOT NULL,
+            entry_type TEXT NOT NULL CHECK (entry_type IN ('debit', 'credit')),
+            transaction_type TEXT NOT NULL CHECK (transaction_type IN ('invoice', 'payment', 'advance', 'manual_entry', 'stock_handover')),
+            amount REAL NOT NULL CHECK (amount > 0),
+            description TEXT NOT NULL CHECK (length(description) > 0),
+            reference_id INTEGER,
+            reference_number TEXT,
+            payment_channel_id INTEGER,
+            payment_channel_name TEXT,
+            balance_before REAL NOT NULL,
+            balance_after REAL NOT NULL,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+            FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE SET NULL ON UPDATE CASCADE
+          )
+        `);
+        break;
+
+      case 'ledger_entries':
+        await this.database?.execute(`
+          CREATE TABLE IF NOT EXISTS ledger_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            type TEXT NOT NULL CHECK (type IN ('incoming', 'outgoing')),
+            category TEXT NOT NULL,
+            description TEXT NOT NULL,
+            amount REAL NOT NULL CHECK (amount > 0),
+            running_balance REAL NOT NULL,
+            customer_id INTEGER,
+            customer_name TEXT,
+            reference_id INTEGER,
+            reference_type TEXT,
+            bill_number TEXT,
+            notes TEXT,
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE
+          )
+        `);
+        break;
+
       case 'stock_movements':
         await this.database?.execute(`
           CREATE TABLE IF NOT EXISTS stock_movements (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             product_id INTEGER NOT NULL,
             product_name TEXT NOT NULL,
-            movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out', 'adjustment')),
+            movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out')),
             quantity REAL NOT NULL CHECK (quantity > 0),
             previous_stock REAL NOT NULL CHECK (previous_stock >= 0),
             new_stock REAL NOT NULL CHECK (new_stock >= 0),
             unit_price REAL NOT NULL CHECK (unit_price >= 0),
             total_value REAL NOT NULL CHECK (total_value >= 0),
             reason TEXT NOT NULL CHECK (length(reason) > 0),
-            reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase', 'return')),
+            reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase')),
             reference_id INTEGER,
             reference_number TEXT,
             customer_id INTEGER,
@@ -2030,11 +2195,40 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           )
         `);
         break;
-      // Add other tables as needed
-    }
-  
 
-      // Create invoice payments table for tracking payment history
+      case 'returns':
+        await this.database?.execute(`
+          CREATE TABLE IF NOT EXISTS returns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            customer_id INTEGER NOT NULL,
+            customer_name TEXT NOT NULL,
+            return_number TEXT NOT NULL UNIQUE,
+            total_amount REAL NOT NULL DEFAULT 0,
+            notes TEXT,
+            date TEXT NOT NULL,
+            time TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE
+          )
+        `);
+        break;
+
+      default:
+        console.warn(`Unknown table: ${tableName}`);
+        break;
+    }
+  }
+
+  private async createRemainingTablesInBackground(): Promise<void> {
+    try {
+      console.log('🔄 Creating remaining database tables in background...');
+      
+      if (!this.database) {
+        console.warn('Database not available for background table creation');
+        return;
+      }
       await this.database?.execute(`
         CREATE TABLE IF NOT EXISTS invoice_payments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2101,7 +2295,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
         CREATE TABLE IF NOT EXISTS payment_channels (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL CHECK (length(name) > 0),
-          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque', 'other')),
+          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque')),
           description TEXT,
           account_number TEXT,
           bank_name TEXT,
@@ -2128,7 +2322,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           amount REAL NOT NULL CHECK (amount > 0),
           payment_channel_id INTEGER NOT NULL,
           payment_channel_name TEXT NOT NULL,
-          payment_type TEXT NOT NULL CHECK (payment_type IN ('invoice_payment', 'advance_payment', 'non_invoice_payment')),
+          payment_type TEXT NOT NULL CHECK (payment_type IN ('invoice_payment', 'advance_payment')),
           reference_invoice_id INTEGER,
           reference_number TEXT,
           cheque_number TEXT,
@@ -2175,7 +2369,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           total_amount REAL NOT NULL CHECK (total_amount > 0),
           payment_amount REAL NOT NULL DEFAULT 0.0 CHECK (payment_amount >= 0),
           remaining_balance REAL NOT NULL CHECK (remaining_balance >= 0),
-          payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid')),
+          payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial')),
           notes TEXT,
           truck_number TEXT,
           reference_number TEXT,
@@ -2257,7 +2451,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           staff_id INTEGER NOT NULL,
           staff_name TEXT NOT NULL,
-          entry_type TEXT NOT NULL CHECK (entry_type IN ('salary', 'advance', 'bonus', 'deduction', 'overtime')),
+          entry_type TEXT NOT NULL CHECK (entry_type IN ('salary', 'advance', 'bonus', 'deduction')),
           amount REAL NOT NULL CHECK (amount > 0),
           description TEXT NOT NULL CHECK (length(description) > 0),
           reference_number TEXT,
@@ -2278,8 +2472,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           customer_id INTEGER NOT NULL,
           customer_name TEXT NOT NULL,
-          entry_type TEXT NOT NULL CHECK (entry_type IN ('debit', 'credit')),
-          transaction_type TEXT NOT NULL CHECK (transaction_type IN ('invoice', 'payment', 'advance', 'manual_entry', 'stock_handover', 'return')),
+          entry_type TEXT NOT NULL CHECK (entry_type IN ('debit')),
+          transaction_type TEXT NOT NULL CHECK (transaction_type IN ('invoice', 'payment', 'advance', 'manual_entry', 'stock_handover')),
           amount REAL NOT NULL CHECK (amount > 0),
           description TEXT NOT NULL CHECK (length(description) > 0),
           reference_id INTEGER,
@@ -2325,7 +2519,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       await this.database?.execute(`
         CREATE TABLE IF NOT EXISTS business_income (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          source TEXT NOT NULL CHECK (source IN ('sales', 'other')),
+          source TEXT NOT NULL CHECK (source IN ('sales')),
           category TEXT NOT NULL CHECK (length(category) > 0),
           description TEXT NOT NULL CHECK (length(description) > 0),
           amount REAL NOT NULL CHECK (amount > 0),
@@ -2421,12 +2615,10 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       console.error('Error creating enhanced tables:', error);
       throw error;
     }
-  
-
+  }
 
   // CRITICAL FIX: Enhanced stock movement creation with complete tracking
-async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
-  return this.executeWithRetry(async () => {
+  async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
     const result = await this.database?.execute(`
       INSERT INTO stock_movements (
         product_id, product_name, movement_type, quantity, previous_stock, new_stock,
@@ -2442,8 +2634,7 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
     ]);
 
     return result?.lastInsertId || 0;
-  }, 'createStockMovement');
-}
+  }
   // CRITICAL FIX: Enhanced stock movements retrieval with advanced filtering
   async getStockMovements(filters: {
     product_id?: number;
@@ -2540,8 +2731,7 @@ async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'u
  * Adjust stock for a product (supports all unit types, real database implementation)
  */
 async adjustStock(productId: number, quantity: number, reason: string, notes: string, customer_id?: number, customer_name?: string): Promise<boolean> {
-  return this.executeWithRetry(async () => {
-    try {
+  try {
     if (!this.isInitialized) {
       await this.initialize();
     }
@@ -2692,8 +2882,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
       await this.database?.execute('ROLLBACK');
       throw error;
     }
-  }, 'adjustStock');
-}
+  }
   /**
    * CRITICAL FIX: Recalculate product stock from movement history
    * This fixes corrupted current_stock values by calculating from actual movements
@@ -2947,7 +3136,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
     } else if (unitType === 'kg') {
       const kg = Math.floor(numericValue / 1000);
       const grams = numericValue % 1000;
-      return grams > 0 ? `${kg}.${grams.toString().padStart(3, '0')}` : `${kg}`;
+      return grams > 0 ? `${kg}.${grams.toString().padStart(3)}` : `${kg}`;
     } else {
       return numericValue.toString();
     }
@@ -3015,7 +3204,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         nextNumber = lastNumber + 1;
       }
 
-      return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+      return `${prefix}${nextNumber.toString().padStart(5)}`;
     } catch (error) {
       console.error('Error generating bill number:', error);
       throw new Error('Failed to generate bill number');
@@ -3041,7 +3230,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         const lastNumber = parseInt(lastCustomerCode.substring(1)) || 0;
         nextNumber = lastNumber + 1;
       }
-      return `${prefix}${nextNumber.toString().padStart(4, '0')}`;
+      return `${prefix}${nextNumber.toString().padStart(4)}`;
     } catch (error) {
       console.error('Error generating customer code:', error);
       throw new Error('Failed to generate customer code');
@@ -3065,7 +3254,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         nextNumber = lastNumber + 1;
       }
 
-      return `${prefix}${nextNumber.toString().padStart(4, '0')}`;
+      return `${prefix}${nextNumber.toString().padStart(4)}`;
     } catch (error) {
       console.error('Error generating payment code:', error);
       throw new Error('Failed to generate payment code');
@@ -3276,16 +3465,14 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
 
   // CRITICAL FIX: Enhanced payment recording with proper transaction handling
   async recordPayment(payment: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'>, _allocateToInvoiceId?: number, inTransaction: boolean = false): Promise<number> {
-    // Use our enhanced lock handling method
-    return this.executeWithLockHandling(async () => {
-      let shouldCommit = false;
-      
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
+    let shouldCommit = false;
+    
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
 
-      // Set busy timeout to prevent immediate locks
-      await this.database?.execute('PRAGMA busy_timeout=10000');
+    // Set busy timeout to prevent immediate locks
+    await this.database?.execute('PRAGMA busy_timeout=10000');
 
       // Only start transaction if not already in one
       if (!inTransaction) {
@@ -3405,7 +3592,6 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         }
         throw error;
       }
-    });
   }  /**
    * Add items to an existing invoice
    */
@@ -4166,7 +4352,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
 
       console.log('Executing customer query:', query, 'with params:', params);
       const customers = await this.database?.select(query, params);
-      console.log('Customer query result:', customers?.length || 0, 'customers found');
+      console.log('Customer query result:', customers?.length || 0);
       return customers || [];
     } catch (error) {
       console.error('Error getting customers:', error);
@@ -4182,6 +4368,9 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         await this.initialize();
       }
 
+      // Ensure customers table exists
+      await this.ensureTableExists('customers');
+
       console.log('Getting customer with ID:', id);
       const result = await this.database?.select('SELECT * FROM customers WHERE id = ?', [id]);
       console.log('Customer query result:', result);
@@ -4193,7 +4382,8 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       return result[0];
     } catch (error) {
       console.error('Error getting customer:', error);
-      return null; // Return null instead of throwing to prevent UI crashes
+      // Provide more specific error message for UI
+      throw new Error(`Failed to load customer details: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
     }
   }
 
@@ -4378,6 +4568,9 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
         await this.initialize();
       }
 
+      // Ensure invoices table exists
+      await this.ensureTableExists('invoices');
+
       const invoices = await this.database?.select(`
         SELECT * FROM invoices WHERE id = ?
       `, [invoiceId]);
@@ -4389,7 +4582,8 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
       return invoices[0];
     } catch (error) {
       console.error('Error getting invoice details:', error);
-      throw error;
+      // Don't throw the error, return a descriptive error message to prevent UI crashes
+      throw new Error(`Failed to load invoice details: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
     }
   }
 
@@ -4805,25 +4999,22 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       // Real database implementation
-      await this.executeDbWithRetry(async () => {
-        return await this.database?.execute(`
-          INSERT INTO invoice_payments (invoice_id, payment_id, amount, payment_method, notes, date, time, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        `, [
-          invoiceId, 
-          paymentId, 
-          amount, 
-          paymentMethod, 
-          notes || '',
-          new Date().toISOString().split('T')[0],
-          new Date().toLocaleTimeString('en-PK', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            hour12: true 
-          })
-        ]);
-      }, 'createInvoicePaymentHistory');
-      
+      return await this.database?.execute(`
+        INSERT INTO invoice_payments (invoice_id, payment_id, amount, payment_method, notes, date, time, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `, [
+        invoiceId, 
+        paymentId, 
+        amount, 
+        paymentMethod, 
+        notes || '',
+        new Date().toISOString().split('T')[0],
+        new Date().toLocaleTimeString('en-PK', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: true 
+        })
+      ]);
     } catch (error) {
       console.error('Error creating invoice payment history:', error);
       // Don't throw here as this is supplementary data
@@ -5193,21 +5384,19 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
     // FIXED: Create DEBIT entry for invoice amount in customer_ledger_entries table
     const balanceAfterInvoice = currentBalance + grandTotal;
-    await this.executeDbWithRetry(async () => {
-      return await this.database?.execute(
-        `INSERT INTO customer_ledger_entries 
-        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          customerId, customerName, 'debit', 'invoice', grandTotal,
-          `Sale Invoice ${billNumber}`,
-          invoiceId, billNumber, currentBalance, balanceAfterInvoice,
-          date, time, 'system',
-          `Invoice amount: Rs. ${grandTotal.toFixed(2)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
-        ]
-      );
-    }, 'createCustomerDebitEntry');
+    await this.database?.execute(
+      `INSERT INTO customer_ledger_entries 
+      (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+       reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        customerId, customerName, 'debit', 'invoice', grandTotal,
+        `Sale Invoice ${billNumber}`,
+        invoiceId, billNumber, currentBalance, balanceAfterInvoice,
+        date, time, 'system',
+        `Invoice amount: Rs. ${grandTotal.toFixed(2)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
+      ]
+    );
 
     console.log(`✅ Debit entry created: Rs. ${grandTotal.toFixed(2)}, Balance: ${currentBalance.toFixed(2)} → ${balanceAfterInvoice.toFixed(2)}`);
 
@@ -5219,21 +5408,19 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const balanceAfterPayment = currentBalance - paymentAmount;
       
       // Create CREDIT entry for payment in customer_ledger_entries table
-      await this.executeDbWithRetry(async () => {
-        return await this.database?.execute(
-          `INSERT INTO customer_ledger_entries 
-          (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-           reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            customerId, customerName, 'credit', 'payment', paymentAmount,
-            `Payment - Invoice ${billNumber}`,
-            invoiceId, billNumber, currentBalance, balanceAfterPayment,
-            date, time, 'system',
-            `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
-          ]
-        );
-      }, 'createCustomerCreditEntry');
+      await this.database?.execute(
+        `INSERT INTO customer_ledger_entries 
+        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          customerId, customerName, 'credit', 'payment', paymentAmount,
+          `Payment - Invoice ${billNumber}`,
+          invoiceId, billNumber, currentBalance, balanceAfterPayment,
+          date, time, 'system',
+          `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
+        ]
+      );
 
       console.log(`✅ Credit entry created: Rs. ${paymentAmount.toFixed(2)}, Balance: ${currentBalance.toFixed(2)} → ${balanceAfterPayment.toFixed(2)}`);
 
@@ -5242,31 +5429,27 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       // CRITICAL FIX: Create payment record directly without nested transaction
       const paymentCode = await this.generatePaymentCode();
-      await this.executeDbWithRetry(async () => {
-        return await this.database?.execute(`
-          INSERT INTO payments (
-            customer_id, payment_code, amount, payment_method, payment_type,
-            reference_invoice_id, reference, notes, date
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          customerId, paymentCode, paymentAmount, paymentMethod, 'bill_payment',
-          invoiceId, billNumber, 
-          `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
-          date
-        ]);
-      }, 'createDirectPaymentRecord');
+      await this.database?.execute(`
+        INSERT INTO payments (
+          customer_id, payment_code, amount, payment_method, payment_type,
+          reference_invoice_id, reference, notes, date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        customerId, paymentCode, paymentAmount, paymentMethod, 'bill_payment',
+        invoiceId, billNumber, 
+        `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
+        date
+      ]);
       
       console.log(`✅ Invoice payment recorded directly: Rs. ${paymentAmount.toFixed(2)}`);
     }
 
     // CRITICAL FIX: Update customer balance in customers table to match ledger
     console.log(`🔧 Updating customer balance: ${customerId} → Rs. ${currentBalance.toFixed(2)}`);
-    await this.executeDbWithRetry(async () => {
-      return await this.database?.execute(
-        'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [currentBalance, customerId]
-      );
-    }, 'updateCustomerBalance');
+    await this.database?.execute(
+      'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [currentBalance, customerId]
+    );
 
     // Verify the update worked
     const updatedCustomer = await this.getCustomer(customerId);
@@ -5317,20 +5500,18 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   }): Promise<void> {
 
     // Real database implementation
-    await this.executeDbWithRetry(async () => {
-      return await this.database?.execute(
-        `INSERT INTO ledger_entries 
-        (date, time, type, category, description, amount, running_balance, customer_id, customer_name, 
-         reference_id, reference_type, bill_number, notes, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [
-          entry.date, entry.time, entry.type, entry.category, entry.description, entry.amount,
-          0, // running_balance calculated separately in real DB
-          entry.customer_id, entry.customer_name, entry.reference_id, entry.reference_type,
-          entry.bill_number, entry.notes, entry.created_by
-        ]
-      );
-    }, 'createLedgerEntry');
+    await this.database?.execute(
+      `INSERT INTO ledger_entries 
+      (date, time, type, category, description, amount, running_balance, customer_id, customer_name, 
+       reference_id, reference_type, bill_number, notes, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        entry.date, entry.time, entry.type, entry.category, entry.description, entry.amount,
+        0, // running_balance calculated separately in real DB
+        entry.customer_id, entry.customer_name, entry.reference_id, entry.reference_type,
+        entry.bill_number, entry.notes, entry.created_by
+      ]
+    );
   }
 
   // CRITICAL FIX: Return Management System
@@ -5660,6 +5841,12 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     try {
       if (!this.isInitialized) await this.initialize();
 
+      // Ensure required tables exist
+      await this.ensureTableExists('customer_ledger_entries');
+      await this.ensureTableExists('customers');
+      await this.ensureTableExists('invoices');
+      await this.ensureTableExists('payments');
+
       const result = await this.database?.select(`
         WITH customer_balances AS (
           SELECT 
@@ -5767,7 +5954,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }));
     } catch (error) {
       console.error('❌ Error getting loan ledger data:', error);
-      throw error;
+      throw new Error(`Failed to load loan ledger data: ${error instanceof Error ? error.message : 'Unknown database error'}`);
     }
   }
 
@@ -6098,7 +6285,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         this.database?.select(`
           SELECT COUNT(*) as low_stock_count
           FROM products 
-          WHERE CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ', ' ') - 1) AS REAL) <= min_stock_level
+          WHERE CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ') - 1) AS REAL) <= min_stock_level
         `),
         
         this.database?.select(`
@@ -6140,8 +6327,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const products = await this.database?.select(`
         SELECT id, name, current_stock, min_stock_level, min_stock_alert, unit_type, category
         FROM products 
-        WHERE CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ', ' ') - 1) AS REAL) <= COALESCE(min_stock_alert, min_stock_level)
-        ORDER BY CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ', ' ') - 1) AS REAL) ASC
+        WHERE CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ') - 1) AS REAL) <= COALESCE(min_stock_alert, min_stock_level)
+        ORDER BY CAST(SUBSTR(current_stock, 1, INSTR(current_stock || ' ') - 1) AS REAL) ASC
         LIMIT 10
       `) || [];
 
@@ -6203,7 +6390,27 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       `;
       
       console.log(`🔄 [DB] Executing query: ${query}`);
-      const channels = await this.database?.select(query);
+      
+      let channels;
+      try {
+        channels = await this.database?.select(query);
+      } catch (queryError: any) {
+        console.warn('❌ [DB] Payment stats query failed, falling back to basic channels:', queryError);
+        // Fallback: Get payment channels without stats if enhanced_payments table doesn't exist
+        const fallbackQuery = `
+          SELECT 
+            pc.*,
+            0 as total_transactions,
+            0 as total_amount,
+            0 as avg_transaction,
+            NULL as last_used
+          FROM payment_channels pc
+          ${whereClause}
+          ORDER BY pc.name ASC
+        `;
+        channels = await this.database?.select(fallbackQuery);
+      }
+      
       console.log(`✅ [DB] Query result:`, channels);
       console.log(`✅ [DB] Found ${channels?.length || 0} payment channels`);
       
@@ -6230,7 +6437,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      const stats = await this.database?.select(`
+      const query = `
         SELECT 
           pc.id as channel_id,
           pc.name as channel_name,
@@ -6261,12 +6468,36 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             COUNT(*) as today_transactions,
             SUM(amount) as today_amount
           FROM enhanced_payments 
-          WHERE date = date('now', 'localtime')
+          WHERE date = date('now')
           GROUP BY payment_channel_id
         ) today_stats ON pc.id = today_stats.payment_channel_id
         WHERE pc.is_active = 1
         ORDER BY stats.total_amount DESC, pc.name ASC
-      `);
+      `;
+      
+      let stats;
+      try {
+        stats = await this.database?.select(query);
+      } catch (queryError: any) {
+        console.warn('❌ [DB] Payment channel stats query failed, falling back to basic stats:', queryError);
+        // Fallback: Get payment channels without enhanced stats if enhanced_payments table doesn't exist
+        const fallbackQuery = `
+          SELECT 
+            pc.id as channel_id,
+            pc.name as channel_name,
+            pc.type as channel_type,
+            0 as total_transactions,
+            0 as total_amount,
+            0 as avg_transaction,
+            NULL as last_used,
+            0 as today_transactions,
+            0 as today_amount
+          FROM payment_channels pc
+          WHERE pc.is_active = 1
+          ORDER BY pc.name ASC
+        `;
+        stats = await this.database?.select(fallbackQuery);
+      }
       
       return stats || [];
     } catch (error) {
@@ -6331,7 +6562,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         CREATE TABLE IF NOT EXISTS payment_channels (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL CHECK (length(name) > 0),
-          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque', 'other')),
+          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque')),
           description TEXT,
           account_number TEXT,
           bank_name TEXT,
@@ -6349,10 +6580,42 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       // Then run the migration to add any missing columns
       await this.migratePaymentChannelsTable();
 
+      // CRITICAL FIX: Also create enhanced_payments table for payment statistics
+      await this.database.execute(`
+        CREATE TABLE IF NOT EXISTS enhanced_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          customer_id INTEGER NOT NULL,
+          customer_name TEXT NOT NULL,
+          amount REAL NOT NULL CHECK (amount > 0),
+          payment_channel_id INTEGER NOT NULL,
+          payment_channel_name TEXT NOT NULL,
+          payment_type TEXT NOT NULL CHECK (payment_type IN ('invoice_payment', 'advance_payment', 'non_invoice_payment')),
+          reference_invoice_id INTEGER,
+          reference_number TEXT,
+          cheque_number TEXT,
+          cheque_date TEXT,
+          notes TEXT,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (customer_id) REFERENCES customers(id),
+          FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id),
+          FOREIGN KEY (reference_invoice_id) REFERENCES invoices(id)
+        )
+      `);
+
+      // Create indexes for enhanced_payments table
+      await this.database.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_customer_id ON enhanced_payments(customer_id)`);
+      await this.database.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_date ON enhanced_payments(date)`);
+      await this.database.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_type ON enhanced_payments(payment_type)`);
+      await this.database.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_channel ON enhanced_payments(payment_channel_id)`);
+
       // NOTE: Disabled auto-creation of default payment channels
       // Users will add payment channels manually through the UI
       
-      console.log('Payment channels table ensured with all required columns');
+      console.log('Payment channels and enhanced_payments tables ensured with all required columns');
     } catch (error) {
       console.warn('Error ensuring payment channels table:', error);
     }
@@ -6936,7 +7199,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      // Get basic analytics
+      // Get basic analytics for the specified time period
       const basicStats = await this.database?.select(`
         SELECT 
           COUNT(*) as total_transactions,
@@ -6945,8 +7208,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           MIN(amount) as min_amount,
           MAX(amount) as max_amount
         FROM enhanced_payments 
-        WHERE payment_channel_id = ?
-      `, [channelId]);
+        WHERE payment_channel_id = ? 
+        AND date >= date('now', '-' || ? || ' days')
+      `, [channelId, days]);
 
       // Get today's stats
       const todayStats = await this.database?.select(`
@@ -6954,7 +7218,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           COUNT(*) as today_transactions,
           COALESCE(SUM(amount), 0) as today_amount
         FROM enhanced_payments 
-        WHERE payment_channel_id = ? AND date = date('now', 'localtime')
+        WHERE payment_channel_id = ? AND date = date('now')
       `, [channelId]);
 
       // Get weekly stats
@@ -6963,7 +7227,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           COUNT(*) as weekly_transactions,
           COALESCE(SUM(amount), 0) as weekly_amount
         FROM enhanced_payments 
-        WHERE payment_channel_id = ? AND date >= date('now', '-7 days')
+        WHERE payment_channel_id = ? AND date >= date('now')
       `, [channelId]);
 
       // Get monthly stats
@@ -6972,7 +7236,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           COUNT(*) as monthly_transactions,
           COALESCE(SUM(amount), 0) as monthly_amount
         FROM enhanced_payments 
-        WHERE payment_channel_id = ? AND date >= date('now', '-30 days')
+        WHERE payment_channel_id = ? AND date >= date('now')
       `, [channelId]);
 
       // Get top customers
@@ -6997,7 +7261,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           COUNT(*) as transaction_count,
           SUM(amount) as total_amount
         FROM enhanced_payments 
-        WHERE payment_channel_id = ? AND date >= date('now', '-${days} days')
+        WHERE payment_channel_id = ? AND date >= date('now')
         GROUP BY hour
         ORDER BY hour
       `, [channelId]);
@@ -7009,7 +7273,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           COUNT(*) as transaction_count,
           SUM(amount) as total_amount
         FROM enhanced_payments 
-        WHERE payment_channel_id = ? AND date >= date('now', '-${days} days')
+        WHERE payment_channel_id = ? AND date >= date('now')
         GROUP BY date
         ORDER BY date ASC
       `, [channelId]);
@@ -7096,7 +7360,10 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-     
+      // Ensure vendor-related tables exist
+      await this.ensureTableExists('vendors');
+      await this.ensureTableExists('stock_receiving');
+      await this.ensureTableExists('vendor_payments');
 
       // Real DB: Use subqueries to aggregate totals
       const vendors = await this.database?.select(`
@@ -7116,7 +7383,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       });
     } catch (error) {
       console.error('Error getting vendors:', error);
-      throw error;
+      throw new Error(`Failed to load vendor data: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);
     }
   }
 
@@ -7176,7 +7443,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       // Use local date (not UTC) for correct local day
       const now = new Date();
-      const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+      const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2) + '-' + String(now.getDate()).padStart(2);
       const paymentAmount = receiving.payment_amount || 0;
       const remainingBalance = receiving.total_amount - paymentAmount;
       const paymentStatus = remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partial' : 'pending');
@@ -7188,7 +7455,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const lastRow = await this.database?.select(`SELECT receiving_number FROM stock_receiving WHERE date = ? ORDER BY id DESC LIMIT 1`, [today]);
       if (lastRow && lastRow.length > 0) {
         const lastNum = parseInt((lastRow[0].receiving_number || '').replace(/^S/, '')) || 0;
-        receivingNumber = `S${(lastNum + 1).toString().padStart(4, '0')}`;
+        receivingNumber = `S${(lastNum + 1).toString().padStart(4)}`;
       } else {
         receivingNumber = 'S0001';
       }
@@ -7314,7 +7581,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         } else if (/^\d{1,4}$/.test(search)) {
           // Search for receiving_number ending with the digits (e.g., S0022)
           query += ` AND substr(receiving_number, -4) = ?`;
-          params.push(search.padStart(4, '0'));
+          params.push(search.padStart(4));
         } else {
           // Fallback: contains search
           query += ` AND UPPER(receiving_number) LIKE ?`;
