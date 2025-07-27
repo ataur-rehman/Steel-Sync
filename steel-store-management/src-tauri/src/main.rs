@@ -14,12 +14,42 @@ async fn authenticate_user(username: String, password: String) -> Result<bool, S
 }
 
 fn main() {
-    // Create database in the root directory to match TypeScript path
-    let data_dir = std::env::current_dir()
-        .expect("Failed to get current directory");
+    // For Tauri v2, we'll use a more direct approach to get app data directory
+    // First, create the database in the expected location
+    let app_name = "com.itehadironstore.app";
     
-    // Define database path - put it directly in the working directory
-    let db_path: PathBuf = data_dir.join("store.db");
+    // Try to get the app data directory using environment variables
+    let app_data_dir = if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .map(|path| std::path::PathBuf::from(path).join(app_name))
+            .unwrap_or_else(|_| {
+                // Fallback to current directory if APPDATA is not available
+                std::env::current_dir()
+                    .expect("Failed to get current directory")
+            })
+    } else {
+        // For non-Windows systems, use appropriate directories
+        std::env::var("HOME")
+            .map(|path| std::path::PathBuf::from(path).join(".local/share").join(app_name))
+            .unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .expect("Failed to get current directory")
+            })
+    };
+    
+    // Ensure the app data directory exists
+    if let Err(e) = std::fs::create_dir_all(&app_data_dir) {
+        eprintln!("Failed to create app data directory: {}", e);
+        // Fallback to current directory
+        let fallback_dir = std::env::current_dir()
+            .expect("Failed to get current directory");
+        println!("[TAURI] Using fallback directory: {}", fallback_dir.display());
+    } else {
+        println!("[TAURI] Using app data directory: {}", app_data_dir.display());
+    }
+    
+    // Define database path in app data directory
+    let db_path: PathBuf = app_data_dir.join("store.db");
     println!("[TAURI] SQLite DB Path: {}", db_path.display());
 
     // Ensure the database file exists by creating a connection
@@ -85,8 +115,8 @@ fn main() {
         }
     }
 
-    // Build the database URL for the plugin - use the same path that works in TypeScript
-    let db_url = "sqlite:store.db".to_string();
+    // Build the database URL for the plugin - use app data directory path
+    let db_url = format!("sqlite:{}", db_path.display());
     println!("[TAURI] Database URL: {}", db_url);
 
     tauri::Builder::default()

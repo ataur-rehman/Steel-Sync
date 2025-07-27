@@ -571,12 +571,13 @@ class NotificationService {
   private async checkOverduePayments(): Promise<void> {
     try {
       await db.initialize();
-      const invoices = await db.getInvoices({});
-      const overdueInvoices = invoices.filter((inv: any) => {
-        const dueDate = new Date(inv.created_at);
-        dueDate.setDate(dueDate.getDate() + 30); // 30 days credit
-        return dueDate < new Date() && inv.grand_total > 0;
-      });
+      const overdueInvoices = await db.getOverdueInvoices(30);
+      
+      // Ensure overdueInvoices is an array
+      if (!Array.isArray(overdueInvoices)) {
+        console.warn('checkOverduePayments: getOverdueInvoices returned non-array:', typeof overdueInvoices);
+        return;
+      }
       
       if (overdueInvoices.length > 0) {
         const recentOverdue = this.notifications.find(n => 

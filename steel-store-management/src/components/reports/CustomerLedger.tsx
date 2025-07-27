@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import {
   Search,
   FileText,
@@ -393,58 +394,56 @@ const CustomerLedger: React.FC = () => {
   useEffect(() => {
     loadCustomers();
     loadPaymentChannels();
-    // ENHANCED: Listen to business events for real-time updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.on) {
-          const handleCustomerBalanceUpdate = async (data: any) => {
-            await loadCustomers();
-            const eventCustomerId = data.customerId || data.customer_id;
-            if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
-              await loadCustomerLedger();
-            }
-          };
-          const handleInvoiceUpdated = async (data: any) => {
-            await loadCustomers();
-            const eventCustomerId = data.customerId || data.customer_id;
-            if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
-              await loadCustomerLedger();
-            }
-          };
-          const handleLedgerUpdate = async (data: any) => {
-            await loadCustomers();
-            const eventCustomerId = data.customerId || data.customer_id;
-            if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
-              await loadCustomerLedger();
-            }
-          };
-          eventBus.on('CUSTOMER_BALANCE_UPDATED', handleCustomerBalanceUpdate);
-          eventBus.on('INVOICE_UPDATED', handleInvoiceUpdated);
-          eventBus.on('CUSTOMER_LEDGER_UPDATED', handleLedgerUpdate);
-          eventBus.on('INVOICE_CREATED', handleInvoiceUpdated);
-          eventBus.on('PAYMENT_RECORDED', handleCustomerBalanceUpdate);
-          eventBus.on('INVOICE_PAYMENT_RECEIVED', handleCustomerBalanceUpdate);
-          eventBus.on('INVOICE_DETAILS_UPDATED', handleLedgerUpdate);
-          (window as any).customerLedgerCleanup = () => {
-            eventBus.off('CUSTOMER_BALANCE_UPDATED', handleCustomerBalanceUpdate);
-            eventBus.off('INVOICE_UPDATED', handleInvoiceUpdated);
-            eventBus.off('CUSTOMER_LEDGER_UPDATED', handleLedgerUpdate);
-            eventBus.off('INVOICE_CREATED', handleInvoiceUpdated);
-            eventBus.off('PAYMENT_RECORDED', handleCustomerBalanceUpdate);
-            eventBus.off('INVOICE_PAYMENT_RECEIVED', handleCustomerBalanceUpdate);
-            eventBus.off('INVOICE_DETAILS_UPDATED', handleLedgerUpdate);
-          };
-          console.log('✅ [CustomerLedger] Enhanced event listeners set up');
-        }
+
+    // FIXED: Proper event bus integration with correct event names
+    const handleCustomerBalanceUpdate = async (data: any) => {
+      await loadCustomers();
+      const eventCustomerId = data.customerId || data.customer_id;
+      if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
+        await loadCustomerLedger();
       }
-    } catch (error) {
-      console.warn('Could not set up enhanced customer ledger event listeners:', error);
-    }
+    };
+
+    const handleInvoiceUpdated = async (data: any) => {
+      await loadCustomers();
+      const eventCustomerId = data.customerId || data.customer_id;
+      if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
+        await loadCustomerLedger();
+      }
+    };
+
+    const handleLedgerUpdate = async (data: any) => {
+      await loadCustomers();
+      const eventCustomerId = data.customerId || data.customer_id;
+      if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
+        await loadCustomerLedger();
+      }
+    };
+
+    // Register event listeners with correct event names
+    eventBus.on(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, handleCustomerBalanceUpdate);
+    eventBus.on('customer:balance_updated', handleCustomerBalanceUpdate); // New event name
+    eventBus.on(BUSINESS_EVENTS.INVOICE_UPDATED, handleInvoiceUpdated);
+    eventBus.on(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, handleLedgerUpdate);
+    eventBus.on('customer_ledger:updated', handleLedgerUpdate); // New event name
+    eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceUpdated);
+    eventBus.on('invoice:created', handleInvoiceUpdated); // New event name
+    eventBus.on(BUSINESS_EVENTS.PAYMENT_RECORDED, handleCustomerBalanceUpdate);
+    eventBus.on(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handleCustomerBalanceUpdate);
+
+    console.log('✅ [CustomerLedger] Enhanced event listeners set up');
+
+    // Cleanup function
     return () => {
-      if ((window as any).customerLedgerCleanup) {
-        (window as any).customerLedgerCleanup();
-      }
+      eventBus.off(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, handleCustomerBalanceUpdate);
+      eventBus.off('customer:balance_updated', handleCustomerBalanceUpdate);
+      eventBus.off(BUSINESS_EVENTS.INVOICE_UPDATED, handleInvoiceUpdated);
+      eventBus.off(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, handleLedgerUpdate);
+      eventBus.off('customer_ledger:updated', handleLedgerUpdate);
+      eventBus.off(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceUpdated);
+      eventBus.off('invoice:created', handleInvoiceUpdated);
+      eventBus.off(BUSINESS_EVENTS.PAYMENT_RECORDED, handleCustomerBalanceUpdate);
+      eventBus.off(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handleCustomerBalanceUpdate);
     };
   }, []);
 

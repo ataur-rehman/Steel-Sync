@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Payment Channels Test</title>
+</head>
+<body>
+    <h1>Simple Payment Channels Test</h1>
+    <button id="testBtn">Test Payment Channels</button>
+    <div id="output"></div>
+
+    <script>
+        document.getElementById('testBtn').addEventListener('click', async () => {
+            const output = document.getElementById('output');
+            output.innerHTML = 'Testing...';
+            
+            try {
+                // Try to access the database directly through Tauri
+                const { invoke } = window.__TAURI__.core;
+                
+                // First check if table exists
+                console.log('Checking if payment_channels table exists...');
+                const tableCheck = await invoke('plugin:sql|execute', {
+                    db: 'sqlite:store.db',
+                    query: "SELECT name FROM sqlite_master WHERE type='table' AND name='payment_channels'",
+                    values: []
+                });
+                console.log('Table check result:', tableCheck);
+                
+                // Try to select payment channels
+                console.log('Selecting payment channels...');
+                const channels = await invoke('plugin:sql|execute', {
+                    db: 'sqlite:store.db', 
+                    query: "SELECT * FROM payment_channels",
+                    values: []
+                });
+                console.log('Channels result:', channels);
+                
+                output.innerHTML = `
+                    <h3>Results:</h3>
+                    <p><strong>Table exists:</strong> ${tableCheck.length > 0 ? 'Yes' : 'No'}</p>
+                    <p><strong>Channels found:</strong> ${channels.length}</p>
+                    <pre>${JSON.stringify(channels, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                output.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html>

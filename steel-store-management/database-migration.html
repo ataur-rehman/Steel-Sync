@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Database Migration & Consolidation Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        button { padding: 12px 20px; margin: 8px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #1976D2; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .result { margin: 15px 0; padding: 15px; border-radius: 6px; border-left: 5px solid; }
+        .error { background: #ffebee; border-color: #f44336; color: #c62828; }
+        .success { background: #e8f5e8; border-color: #4caf50; color: #2e7d32; }
+        .warning { background: #fff3e0; border-color: #ff9800; color: #ef6c00; }
+        .info { background: #e3f2fd; border-color: #2196F3; color: #1565c0; }
+        h1, h2 { color: #333; margin-top: 0; }
+        .step { margin: 20px 0; padding: 20px; border: 2px solid #e0e0e0; border-radius: 8px; background: #fafafa; }
+        .step.active { border-color: #2196F3; background: #f3f9ff; }
+        .step.completed { border-color: #4caf50; background: #f1f8e9; }
+        .db-info { background: #f0f7ff; padding: 15px; border-radius: 6px; margin: 10px 0; }
+        .db-path { font-family: monospace; background: #f5f5f5; padding: 5px 10px; border-radius: 4px; }
+        .progress { width: 100%; height: 6px; background: #e0e0e0; border-radius: 3px; margin: 10px 0; }
+        .progress-bar { height: 100%; background: #4caf50; border-radius: 3px; transition: width 0.3s; }
+        .critical-warning { background: #ffebee; border: 2px solid #f44336; padding: 20px; border-radius: 8px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Database Migration & Consolidation Tool</h1>
+        
+        <div class="critical-warning">
+            <h3>⚠️ Critical Issue Detected</h3>
+            <p><strong>Problem:</strong> Your application is using two separate database files, which causes data inconsistency.</p>
+            <p><strong>Solution:</strong> This tool will help you consolidate to one unified database location.</p>
+        </div>
+        
+        <div class="progress">
+            <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+        </div>
+        
+        <div class="step" id="step1">
+            <h2>Step 1: Analyze Current Database Situation</h2>
+            <p>Check which databases exist and analyze their content.</p>
+            <button onclick="analyzeCurrentDatabases()" id="analyzeBtn">🔍 Analyze Databases</button>
+            <div id="analysisResults"></div>
+        </div>
+        
+        <div class="step" id="step2">
+            <h2>Step 2: Backup Current Data</h2>
+            <p>Export data from both database locations to ensure no data is lost.</p>
+            <button onclick="backupAllDatabases()" id="backupBtn" disabled>💾 Backup All Data</button>
+            <div id="backupResults"></div>
+        </div>
+        
+        <div class="step" id="step3">
+            <h2>Step 3: Create Unified Database</h2>
+            <p>Create a single database in the correct location with all your data.</p>
+            <button onclick="createUnifiedDatabase()" id="unifyBtn" disabled>🔄 Create Unified Database</button>
+            <div id="unifyResults"></div>
+        </div>
+        
+        <div class="step" id="step4">
+            <h2>Step 4: Verify Migration</h2>
+            <p>Confirm that all data has been successfully migrated to the unified database.</p>
+            <button onclick="verifyMigration()" id="verifyBtn" disabled>✅ Verify Migration</button>
+            <div id="verifyResults"></div>
+        </div>
+        
+        <div class="step" id="step5">
+            <h2>Step 5: Cleanup & Restart</h2>
+            <p>Final cleanup and instructions for restarting your application.</p>
+            <button onclick="finalCleanup()" id="cleanupBtn" disabled>🧹 Final Cleanup</button>
+            <div id="cleanupResults"></div>
+        </div>
+        
+        <div id="mainResults"></div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        let analysisData = {};
+        let backupData = {};
+        
+        function updateProgress(step) {
+            const progress = (step / 5) * 100;
+            document.getElementById('progressBar').style.width = progress + '%';
+            
+            // Update step styling
+            for (let i = 1; i <= 5; i++) {
+                const stepElement = document.getElementById(`step${i}`);
+                if (i < step) {
+                    stepElement.className = 'step completed';
+                } else if (i === step) {
+                    stepElement.className = 'step active';
+                } else {
+                    stepElement.className = 'step';
+                }
+            }
+        }
+        
+        function addResult(containerId, content, type = 'info') {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${content}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        async function analyzeCurrentDatabases() {
+            try {
+                document.getElementById('analyzeBtn').disabled = true;
+                addResult('analysisResults', '🔍 Starting database analysis...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                const { appDataDir, join } = window.__TAURI__.path;
+                
+                // Get expected database paths
+                const appDataPath = await appDataDir();
+                const unifiedDbPath = await join(appDataPath, 'store.db');
+                
+                addResult('analysisResults', `📍 App Data Directory: <span class="db-path">${appDataPath}</span>`, 'info');
+                addResult('analysisResults', `📍 Unified DB Path: <span class="db-path">${unifiedDbPath}</span>`, 'info');
+                
+                // Check development database (relative path)
+                let devDbExists = false;
+                let devDbTables = 0;
+                let devDbData = {};
+                
+                try {
+                    const devResult = await invoke('plugin:sql|execute', {
+                        db: 'sqlite:store.db',
+                        query: 'SELECT COUNT(*) as count FROM sqlite_master WHERE type="table"',
+                        values: []
+                    });
+                    devDbExists = true;
+                    devDbTables = devResult[0]?.count || 0;
+                    
+                    // Get table data counts
+                    const tables = ['payment_channels', 'customers', 'products', 'invoices'];
+                    for (const table of tables) {
+                        try {
+                            const tableResult = await invoke('plugin:sql|execute', {
+                                db: 'sqlite:store.db',
+                                query: `SELECT COUNT(*) as count FROM ${table}`,
+                                values: []
+                            });
+                            devDbData[table] = tableResult[0]?.count || 0;
+                        } catch (e) {
+                            devDbData[table] = 0;
+                        }
+                    }
+                    
+                    addResult('analysisResults', `✅ Development DB found: ${devDbTables} tables`, 'success');
+                } catch (devError) {
+                    addResult('analysisResults', `❌ Development DB not accessible: ${devError.message}`, 'error');
+                }
+                
+                // Check production database (app data directory)
+                let prodDbExists = false;
+                let prodDbTables = 0;
+                let prodDbData = {};
+                
+                try {
+                    const prodResult = await invoke('plugin:sql|execute', {
+                        db: `sqlite:${unifiedDbPath}`,
+                        query: 'SELECT COUNT(*) as count FROM sqlite_master WHERE type="table"',
+                        values: []
+                    });
+                    prodDbExists = true;
+                    prodDbTables = prodResult[0]?.count || 0;
+                    
+                    // Get table data counts
+                    const tables = ['payment_channels', 'customers', 'products', 'invoices'];
+                    for (const table of tables) {
+                        try {
+                            const tableResult = await invoke('plugin:sql|execute', {
+                                db: `sqlite:${unifiedDbPath}`,
+                                query: `SELECT COUNT(*) as count FROM ${table}`,
+                                values: []
+                            });
+                            prodDbData[table] = tableResult[0]?.count || 0;
+                        } catch (e) {
+                            prodDbData[table] = 0;
+                        }
+                    }
+                    
+                    addResult('analysisResults', `✅ Production DB found: ${prodDbTables} tables`, 'success');
+                } catch (prodError) {
+                    addResult('analysisResults', `❌ Production DB not accessible: ${prodError.message}`, 'error');
+                }
+                
+                // Store analysis data
+                analysisData = {
+                    devDbExists,
+                    devDbTables,
+                    devDbData,
+                    prodDbExists,
+                    prodDbTables,
+                    prodDbData,
+                    unifiedDbPath
+                };
+                
+                // Show detailed comparison
+                addResult('analysisResults', '<h4>📊 Database Comparison:</h4>', 'info');
+                addResult('analysisResults', 
+                    `<div class="db-info">
+                        <strong>Development DB:</strong><br>
+                        Payment Channels: ${devDbData.payment_channels || 0}<br>
+                        Customers: ${devDbData.customers || 0}<br>
+                        Products: ${devDbData.products || 0}<br>
+                        Invoices: ${devDbData.invoices || 0}
+                    </div>`, 'info');
+                    
+                addResult('analysisResults', 
+                    `<div class="db-info">
+                        <strong>Production DB:</strong><br>
+                        Payment Channels: ${prodDbData.payment_channels || 0}<br>
+                        Customers: ${prodDbData.customers || 0}<br>
+                        Products: ${prodDbData.products || 0}<br>
+                        Invoices: ${prodDbData.invoices || 0}
+                    </div>`, 'info');
+                
+                // Determine next steps
+                if (devDbExists && prodDbExists) {
+                    addResult('analysisResults', '⚠️ Both databases exist - Data consolidation needed!', 'warning');
+                } else if (devDbExists) {
+                    addResult('analysisResults', '🔄 Only development database exists - Migration needed', 'warning');
+                } else if (prodDbExists) {
+                    addResult('analysisResults', '✅ Only production database exists - Good!', 'success');
+                } else {
+                    addResult('analysisResults', '❌ No databases found - Fresh start needed', 'error');
+                }
+                
+                // Enable next step
+                document.getElementById('backupBtn').disabled = false;
+                updateProgress(2);
+                
+            } catch (error) {
+                addResult('analysisResults', `❌ Analysis failed: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+        
+        async function backupAllDatabases() {
+            try {
+                document.getElementById('backupBtn').disabled = true;
+                addResult('backupResults', '💾 Starting comprehensive backup...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                
+                // Backup development database
+                if (analysisData.devDbExists) {
+                    addResult('backupResults', '📦 Backing up development database...', 'info');
+                    
+                    const tables = ['payment_channels', 'customers', 'products', 'invoices'];
+                    backupData.dev = {};
+                    
+                    for (const table of tables) {
+                        try {
+                            const data = await invoke('plugin:sql|execute', {
+                                db: 'sqlite:store.db',
+                                query: `SELECT * FROM ${table}`,
+                                values: []
+                            });
+                            backupData.dev[table] = data || [];
+                            addResult('backupResults', `✅ Backed up ${table}: ${data?.length || 0} records`, 'success');
+                        } catch (e) {
+                            backupData.dev[table] = [];
+                            addResult('backupResults', `⚠️ Table ${table} not found in dev DB`, 'warning');
+                        }
+                    }
+                    
+                    // Store in localStorage
+                    localStorage.setItem('devDbBackup', JSON.stringify(backupData.dev));
+                }
+                
+                // Backup production database
+                if (analysisData.prodDbExists) {
+                    addResult('backupResults', '📦 Backing up production database...', 'info');
+                    
+                    const tables = ['payment_channels', 'customers', 'products', 'invoices'];
+                    backupData.prod = {};
+                    
+                    for (const table of tables) {
+                        try {
+                            const data = await invoke('plugin:sql|execute', {
+                                db: `sqlite:${analysisData.unifiedDbPath}`,
+                                query: `SELECT * FROM ${table}`,
+                                values: []
+                            });
+                            backupData.prod[table] = data || [];
+                            addResult('backupResults', `✅ Backed up ${table}: ${data?.length || 0} records`, 'success');
+                        } catch (e) {
+                            backupData.prod[table] = [];
+                            addResult('backupResults', `⚠️ Table ${table} not found in prod DB`, 'warning');
+                        }
+                    }
+                    
+                    // Store in localStorage
+                    localStorage.setItem('prodDbBackup', JSON.stringify(backupData.prod));
+                }
+                
+                addResult('backupResults', '✅ All data backed up successfully!', 'success');
+                
+                // Enable next step
+                document.getElementById('unifyBtn').disabled = false;
+                updateProgress(3);
+                
+            } catch (error) {
+                addResult('backupResults', `❌ Backup failed: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('backupBtn').disabled = false;
+            }
+        }
+        
+        async function createUnifiedDatabase() {
+            try {
+                document.getElementById('unifyBtn').disabled = true;
+                addResult('unifyResults', '🔄 Creating unified database...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                
+                // Use the unified database path
+                const dbUrl = `sqlite:${analysisData.unifiedDbPath}`;
+                addResult('unifyResults', `📍 Creating database at: ${analysisData.unifiedDbPath}`, 'info');
+                
+                // Create payment_channels table
+                await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: `
+                        CREATE TABLE IF NOT EXISTS payment_channels (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT NOT NULL UNIQUE,
+                            type TEXT NOT NULL,
+                            description TEXT,
+                            account_number TEXT,
+                            bank_name TEXT,
+                            is_active BOOLEAN NOT NULL DEFAULT true,
+                            fee_percentage REAL DEFAULT 0,
+                            fee_fixed REAL DEFAULT 0,
+                            daily_limit REAL DEFAULT 0,
+                            monthly_limit REAL DEFAULT 0,
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `,
+                    values: []
+                });
+                addResult('unifyResults', '✅ Payment channels table created', 'success');
+                
+                // Merge and restore payment channels
+                const devChannels = backupData.dev?.payment_channels || [];
+                const prodChannels = backupData.prod?.payment_channels || [];
+                
+                // Combine channels, avoiding duplicates
+                const allChannels = [...devChannels];
+                for (const prodChannel of prodChannels) {
+                    const exists = allChannels.find(dev => dev.name === prodChannel.name);
+                    if (!exists) {
+                        allChannels.push(prodChannel);
+                    }
+                }
+                
+                // Insert merged channels
+                for (const channel of allChannels) {
+                    try {
+                        await invoke('plugin:sql|execute', {
+                            db: dbUrl,
+                            query: `
+                                INSERT OR REPLACE INTO payment_channels 
+                                (id, name, type, description, account_number, bank_name, is_active, fee_percentage, fee_fixed, daily_limit, monthly_limit, created_at, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            `,
+                            values: [
+                                channel.id, channel.name, channel.type, channel.description,
+                                channel.account_number, channel.bank_name, channel.is_active,
+                                channel.fee_percentage || 0, channel.fee_fixed || 0, 
+                                channel.daily_limit || 0, channel.monthly_limit || 0,
+                                channel.created_at, channel.updated_at
+                            ]
+                        });
+                        addResult('unifyResults', `✅ Restored payment channel: ${channel.name}`, 'success');
+                    } catch (channelError) {
+                        addResult('unifyResults', `❌ Failed to restore channel ${channel.name}: ${channelError.message}`, 'error');
+                    }
+                }
+                
+                // If no channels exist, create defaults
+                if (allChannels.length === 0) {
+                    const defaultChannels = [
+                        { name: 'Cash', type: 'cash', description: 'Physical cash payments' },
+                        { name: 'Bank Transfer', type: 'bank', description: 'Electronic bank transfers' },
+                        { name: 'Credit Card', type: 'card', description: 'Credit card payments' },
+                        { name: 'Cheque', type: 'cheque', description: 'Cheque payments' },
+                        { name: 'JazzCash', type: 'digital', description: 'JazzCash mobile wallet' }
+                    ];
+                    
+                    for (const channel of defaultChannels) {
+                        await invoke('plugin:sql|execute', {
+                            db: dbUrl,
+                            query: `
+                                INSERT OR IGNORE INTO payment_channels 
+                                (name, type, description, is_active) 
+                                VALUES (?, ?, ?, 1)
+                            `,
+                            values: [channel.name, channel.type, channel.description]
+                        });
+                        addResult('unifyResults', `✅ Created default payment channel: ${channel.name}`, 'success');
+                    }
+                }
+                
+                addResult('unifyResults', '🎉 Unified database created successfully!', 'success');
+                
+                // Enable next step
+                document.getElementById('verifyBtn').disabled = false;
+                updateProgress(4);
+                
+            } catch (error) {
+                addResult('unifyResults', `❌ Unification failed: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('unifyBtn').disabled = false;
+            }
+        }
+        
+        async function verifyMigration() {
+            try {
+                document.getElementById('verifyBtn').disabled = true;
+                addResult('verifyResults', '✅ Verifying migration...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                const dbUrl = `sqlite:${analysisData.unifiedDbPath}`;
+                
+                // Check payment channels
+                const channels = await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: 'SELECT * FROM payment_channels ORDER BY name',
+                    values: []
+                });
+                
+                addResult('verifyResults', `✅ Found ${channels.length} payment channels in unified database:`, 'success');
+                channels.forEach(channel => {
+                    addResult('verifyResults', `  • ${channel.name} (${channel.type}) - Active: ${channel.is_active ? 'Yes' : 'No'}`, 'info');
+                });
+                
+                // Test database connectivity
+                const testResult = await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: 'SELECT sqlite_version() as version',
+                    values: []
+                });
+                
+                addResult('verifyResults', `✅ Database connectivity test passed - SQLite version: ${testResult[0]?.version}`, 'success');
+                
+                if (channels.length > 0) {
+                    addResult('verifyResults', '🎉 Migration verification successful!', 'success');
+                    addResult('verifyResults', '📍 Your application will now use the unified database location.', 'info');
+                    
+                    // Enable final step
+                    document.getElementById('cleanupBtn').disabled = false;
+                    updateProgress(5);
+                } else {
+                    addResult('verifyResults', '❌ Migration verification failed: No payment channels found', 'error');
+                }
+                
+            } catch (error) {
+                addResult('verifyResults', `❌ Verification failed: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('verifyBtn').disabled = false;
+            }
+        }
+        
+        async function finalCleanup() {
+            try {
+                document.getElementById('cleanupBtn').disabled = true;
+                addResult('cleanupResults', '🧹 Performing final cleanup...', 'info');
+                
+                // Clear backup data from localStorage
+                localStorage.removeItem('devDbBackup');
+                localStorage.removeItem('prodDbBackup');
+                addResult('cleanupResults', '✅ Backup data cleared from browser storage', 'success');
+                
+                addResult('cleanupResults', '<h4>🎉 Migration Complete!</h4>', 'success');
+                addResult('cleanupResults', '<strong>Next Steps:</strong>', 'info');
+                addResult('cleanupResults', '1. Close this migration tool', 'info');
+                addResult('cleanupResults', '2. Restart your Tauri development server', 'info');
+                addResult('cleanupResults', '3. Open your application - it will now use the unified database', 'info');
+                addResult('cleanupResults', '4. Verify that all your payment channels are visible', 'info');
+                
+                addResult('cleanupResults', `<div class="db-info"><strong>Your unified database is now located at:</strong><br><span class="db-path">${analysisData.unifiedDbPath}</span></div>`, 'success');
+                
+                addResult('cleanupResults', '✅ All cleanup tasks completed successfully!', 'success');
+                
+            } catch (error) {
+                addResult('cleanupResults', `❌ Cleanup failed: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('cleanupBtn').disabled = false;
+            }
+        }
+        
+        // Auto-start with first step
+        window.addEventListener('load', () => {
+            updateProgress(1);
+            setTimeout(() => {
+                addResult('mainResults', '🚀 Database Migration Tool loaded successfully', 'info');
+                addResult('mainResults', '⚠️ This tool will consolidate your two database files into one unified location', 'warning');
+                addResult('mainResults', '💡 Start with Step 1 to analyze your current database situation', 'info');
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

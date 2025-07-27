@@ -76,22 +76,37 @@ const loadProducts = async () => {
     
     const productList = await db.getProducts(debouncedSearchTerm, selectedCategory);
     console.log('Raw products from database:', productList);
-    console.log('Number of products:', productList.length);
+    console.log('Number of products:', Array.isArray(productList) ? productList.length : 0);
     
-    setProducts(productList);
-    console.log('Products state has been updated');
+    // Ensure we have an array before setting products
+    if (Array.isArray(productList)) {
+      setProducts(productList);
+      console.log('Products state has been updated');
+    } else {
+      console.warn('loadProducts: getProducts returned non-array:', typeof productList);
+      setProducts([]);
+    }
     console.log('=== END LOADING PRODUCTS ===');
   } catch (error) {
     toast.error('Failed to load products');
     console.error('Failed to load products:', error);
+    setProducts([]); // Set empty array on error
   }
 };
   const loadCategories = async () => {
     try {
       const categoryList = await db.getCategories();
-      setCategories(categoryList);
+      
+      // Ensure we have an array before setting categories
+      if (Array.isArray(categoryList)) {
+        setCategories(categoryList);
+      } else {
+        console.warn('loadCategories: getCategories returned non-array:', typeof categoryList);
+        setCategories([]);
+      }
     } catch (error) {
       console.error('Failed to load categories:', error);
+      setCategories([]); // Set empty array on error
     }
   };
 
@@ -234,7 +249,7 @@ const loadProducts = async () => {
               aria-label="Filter by category"
             >
               <option value="">All Categories</option>
-              {categories.map((cat) => (
+              {Array.isArray(categories) && categories.map((cat) => (
                 <option key={cat.category} value={cat.category}>
                   {cat.category}
                 </option>
@@ -266,7 +281,7 @@ const loadProducts = async () => {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">
-            {products.length === 0 ? (
+            {!Array.isArray(products) || products.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-6 py-12 text-center">
                   <Package className="h-12 w-12 text-gray-300 mx-auto mb-4" />

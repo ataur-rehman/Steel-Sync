@@ -167,14 +167,20 @@ const DailyLedger: React.FC = () => {
           
           // Subscribe to relevant events
           eventBus.on('DAILY_LEDGER_UPDATED', handleDailyLedgerUpdate);
+          eventBus.on('daily_ledger:updated', handleDailyLedgerUpdate); // New event name
           eventBus.on('INVOICE_CREATED', handleInvoiceCreated);
+          eventBus.on('invoice:created', handleInvoiceCreated); // New event name
           eventBus.on('PAYMENT_RECORDED', handlePaymentReceived);
+          eventBus.on('payment:recorded', handlePaymentReceived); // New event name
           
           // Store cleanup function
           (window as any).dailyLedgerCleanup = () => {
             eventBus.off('DAILY_LEDGER_UPDATED', handleDailyLedgerUpdate);
+            eventBus.off('daily_ledger:updated', handleDailyLedgerUpdate);
             eventBus.off('INVOICE_CREATED', handleInvoiceCreated);
+            eventBus.off('invoice:created', handleInvoiceCreated);
             eventBus.off('PAYMENT_RECORDED', handlePaymentReceived);
+            eventBus.off('payment:recorded', handlePaymentReceived);
           };
         }
       }

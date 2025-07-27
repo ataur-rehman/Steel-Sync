@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, type UnitType } from '../../utils/unitUtils';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import {
   Package,
   TrendingDown,
@@ -149,44 +150,27 @@ const StockReport: React.FC = () => {
   useEffect(() => {
     loadStockData();
     
-    // ENHANCED: Listen to business events for real-time updates
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.on) {
-          const handleStockUpdate = (data: any) => {
-            console.log('📦 Stock report refreshing due to stock update:', data);
-            loadStockData(); // Silent refresh
-          };
+    // FIXED: Proper event bus integration with correct event names
+    const handleStockUpdate = (data: any) => {
+      console.log('📦 Stock report refreshing due to stock update:', data);
+      loadStockData(); // Silent refresh
+    };
 
-          const handleInvoiceCreated = (data: any) => {
-            console.log('📦 Stock report refreshing due to invoice creation:', data);
-            loadStockData(); // Silent refresh
-          };
+    const handleInvoiceCreated = (data: any) => {
+      console.log('📦 Stock report refreshing due to invoice creation:', data);
+      loadStockData(); // Silent refresh
+    };
 
-          const handleStockAdjustment = (data: any) => {
-            console.log('📦 Stock report refreshing due to stock adjustment:', data);
-            loadStockData(); // Silent refresh
-          };
-          
-          // Subscribe to relevant events
-          eventBus.on('STOCK_UPDATED', handleStockUpdate);
-          eventBus.on('INVOICE_CREATED', handleInvoiceCreated);
-          eventBus.on('STOCK_ADJUSTMENT_MADE', handleStockAdjustment);
-          eventBus.on('STOCK_MOVEMENT_CREATED', handleStockUpdate);
-          
-          // Store cleanup function
-          (window as any).stockReportCleanup = () => {
-            eventBus.off('STOCK_UPDATED', handleStockUpdate);
-            eventBus.off('INVOICE_CREATED', handleInvoiceCreated);
-            eventBus.off('STOCK_ADJUSTMENT_MADE', handleStockAdjustment);
-            eventBus.off('STOCK_MOVEMENT_CREATED', handleStockUpdate);
-          };
-        }
-      }
-    } catch (error) {
-      console.warn('Could not set up stock report event listeners:', error);
-    }
+    const handleStockAdjustment = (data: any) => {
+      console.log('📦 Stock report refreshing due to stock adjustment:', data);
+      loadStockData(); // Silent refresh
+    };
+    
+    // Register event listeners with correct event names
+    eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleStockUpdate);
+    eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
+    eventBus.on(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
+    eventBus.on(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
     
     // Set up auto-refresh every 30 seconds as backup
     const intervalId = setInterval(() => {
@@ -197,9 +181,12 @@ const StockReport: React.FC = () => {
     
     return () => {
       // Clean up event listeners
-      if ((window as any).stockReportCleanup) {
-        (window as any).stockReportCleanup();
-      }
+      eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleStockUpdate);
+      eventBus.off(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
+      eventBus.off(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
+      eventBus.off(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
+      
+      // Clean up interval
       clearInterval(intervalId);
     };
   }, []);

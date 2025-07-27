@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Diagnosis - Invoice Issues</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .test-container { max-width: 1200px; margin: 0 auto; }
+        .test-result { margin: 15px 0; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .success { background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .error { background-color: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .info { background-color: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+        .warning { background-color: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+        button { padding: 12px 24px; margin: 8px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #0056b3; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; max-height: 400px; }
+        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #007bff; }
+        .stat-label { color: #6c757d; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🔍 Database Diagnosis - Invoice Issues Analysis</h1>
+        <p>This diagnostic tool will help identify why invoices are creating but not showing proper effects on other pages.</p>
+        
+        <div class="section">
+            <h2>🚀 Quick Diagnosis</h2>
+            <button onclick="runComprehensiveDiagnosis()">Run Full Diagnosis</button>
+            <button onclick="checkInvoiceFlow()">Check Invoice Flow</button>
+            <button onclick="checkLedgerConnections()">Check Ledger Connections</button>
+            <button onclick="clearResults()">Clear Results</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        const results = document.getElementById('results');
+        let db;
+        
+        // Import database service
+        try {
+            const { db: database } = await import('./src/services/database.ts');
+            db = database;
+            await db.initialize();
+            addResult('success', 'Database Connection', 'Successfully connected to database');
+        } catch (error) {
+            addResult('error', 'Database Connection Failed', error.message);
+        }
+        
+        function addResult(type, title, message, details = null) {
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `
+                <strong>${title}</strong><br>
+                ${message}
+                ${details ? `<pre>${details}</pre>` : ''}
+            `;
+            results.appendChild(div);
+        }
+        
+        function clearResults() {
+            results.innerHTML = '';
+        }
+
+        window.runComprehensiveDiagnosis = async function() {
+            clearResults();
+            addResult('info', 'Starting Comprehensive Diagnosis', 'Analyzing database state and invoice flow...');
+            
+            try {
+                // Check database tables existence
+                await checkTablesExistence();
+                
+                // Check data counts
+                await checkDataCounts();
+                
+                // Check invoice creation flow
+                await checkInvoiceCreation();
+                
+                // Check ledger integration
+                await checkLedgerIntegration();
+                
+                // Check payment channels
+                await checkPaymentChannels();
+                
+                // Check customer data
+                await checkCustomerData();
+                
+                addResult('success', 'Diagnosis Complete', 'All checks completed. Review results above for issues.');
+                
+            } catch (error) {
+                addResult('error', 'Diagnosis Failed', error.message);
+            }
+        };
+
+        async function checkTablesExistence() {
+            try {
+                const tables = [
+                    'invoices', 'customers', 'customer_ledger_entries', 'payments', 
+                    'enhanced_payments', 'payment_channels', 'ledger_entries'
+                ];
+                
+                let existingTables = [];
+                let missingTables = [];
+                
+                for (const table of tables) {
+                    try {
+                        const result = await db.dbConnection.select(`SELECT name FROM sqlite_master WHERE type='table' AND name='${table}'`);
+                        if (result && result.length > 0) {
+                            existingTables.push(table);
+                        } else {
+                            missingTables.push(table);
+                        }
+                    } catch (error) {
+                        missingTables.push(table);
+                    }
+                }
+                
+                if (missingTables.length === 0) {
+                    addResult('success', 'Table Structure', `All required tables exist: ${existingTables.join(', ')}`);
+                } else {
+                    addResult('warning', 'Missing Tables', `Missing tables: ${missingTables.join(', ')}`, 
+                        `Existing: ${existingTables.join(', ')}`);
+                }
+                
+            } catch (error) {
+                addResult('error', 'Table Check Failed', error.message);
+            }
+        }
+
+        async function checkDataCounts() {
+            try {
+                const counts = {};
+                const tables = ['invoices', 'customers', 'customer_ledger_entries', 'payments', 'payment_channels'];
+                
+                for (const table of tables) {
+                    try {
+                        const result = await db.dbConnection.select(`SELECT COUNT(*) as count FROM ${table}`);
+                        counts[table] = result[0]?.count || 0;
+                    } catch (error) {
+                        counts[table] = 'ERROR';
+                    }
+                }
+                
+                const statsHtml = Object.entries(counts).map(([table, count]) => 
+                    `<div class="stat-card">
+                        <div class="stat-number">${count}</div>
+                        <div class="stat-label">${table}</div>
+                    </div>`
+                ).join('');
+                
+                addResult('info', 'Data Counts', 'Current record counts in database tables', 
+                    `<div class="stats">${statsHtml}</div>`);
+                    
+            } catch (error) {
+                addResult('error', 'Data Count Check Failed', error.message);
+            }
+        }
+
+        async function checkInvoiceCreation() {
+            try {
+                // Check recent invoices
+                const recentInvoices = await db.dbConnection.select(`
+                    SELECT bill_number, customer_name, grand_total, payment_amount, remaining_balance, created_at 
+                    FROM invoices 
+                    ORDER BY created_at DESC 
+                    LIMIT 5
+                `);
+                
+                if (recentInvoices && recentInvoices.length > 0) {
+                    const invoiceDetails = recentInvoices.map(inv => 
+                        `${inv.bill_number} - ${inv.customer_name} - Rs.${inv.grand_total} (Paid: Rs.${inv.payment_amount})`
+                    ).join('\n');
+                    
+                    addResult('success', 'Recent Invoices Found', `Found ${recentInvoices.length} recent invoices`, invoiceDetails);
+                } else {
+                    addResult('warning', 'No Recent Invoices', 'No invoices found in database');
+                }
+                
+                // Check invoice items
+                try {
+                    const invoiceItems = await db.dbConnection.select(`SELECT COUNT(*) as count FROM invoice_items`);
+                    const itemCount = invoiceItems[0]?.count || 0;
+                    addResult('info', 'Invoice Items', `Found ${itemCount} invoice items in database`);
+                } catch (error) {
+                    addResult('warning', 'Invoice Items Table', 'Could not check invoice_items table');
+                }
+                
+            } catch (error) {
+                addResult('error', 'Invoice Creation Check Failed', error.message);
+            }
+        }
+
+        async function checkLedgerIntegration() {
+            try {
+                // Check if invoices have corresponding ledger entries
+                const ledgerCheck = await db.dbConnection.select(`
+                    SELECT 
+                        i.bill_number,
+                        i.customer_name,
+                        i.grand_total,
+                        COUNT(cle.id) as ledger_entries,
+                        COUNT(p.id) as payment_records
+                    FROM invoices i
+                    LEFT JOIN customer_ledger_entries cle ON i.id = cle.reference_id AND cle.transaction_type = 'invoice'
+                    LEFT JOIN payments p ON i.id = p.reference_invoice_id
+                    GROUP BY i.id
+                    ORDER BY i.created_at DESC
+                    LIMIT 10
+                `);
+                
+                if (ledgerCheck && ledgerCheck.length > 0) {
+                    const missingLedger = ledgerCheck.filter(inv => inv.ledger_entries === 0);
+                    const missingPayments = ledgerCheck.filter(inv => inv.payment_records === 0 && inv.grand_total > 0);
+                    
+                    if (missingLedger.length > 0) {
+                        const missingDetails = missingLedger.map(inv => 
+                            `${inv.bill_number} - ${inv.customer_name} (No ledger entries)`
+                        ).join('\n');
+                        addResult('error', 'Missing Ledger Entries', `${missingLedger.length} invoices missing ledger entries`, missingDetails);
+                    } else {
+                        addResult('success', 'Ledger Integration', 'All invoices have corresponding ledger entries');
+                    }
+                    
+                    if (missingPayments.length > 0) {
+                        const paymentDetails = missingPayments.map(inv => 
+                            `${inv.bill_number} - ${inv.customer_name} (No payment records)`
+                        ).join('\n');
+                        addResult('warning', 'Missing Payment Records', `${missingPayments.length} invoices missing payment records`, paymentDetails);
+                    }
+                } else {
+                    addResult('warning', 'No Invoice Data', 'No invoice data found for ledger integration check');
+                }
+                
+            } catch (error) {
+                addResult('error', 'Ledger Integration Check Failed', error.message);
+            }
+        }
+
+        async function checkPaymentChannels() {
+            try {
+                const channels = await db.dbConnection.select(`SELECT * FROM payment_channels WHERE is_active = 1`);
+                
+                if (channels && channels.length > 0) {
+                    const channelList = channels.map(ch => `${ch.name} (${ch.type})`).join(', ');
+                    addResult('success', 'Payment Channels', `Found ${channels.length} active payment channels`, channelList);
+                    
+                    // Check payment channel usage
+                    const usage = await db.dbConnection.select(`
+                        SELECT pc.name, COUNT(p.id) as usage_count, SUM(p.amount) as total_amount
+                        FROM payment_channels pc
+                        LEFT JOIN payments p ON pc.id = p.payment_channel_id
+                        GROUP BY pc.id
+                    `);
+                    
+                    if (usage && usage.length > 0) {
+                        const usageDetails = usage.map(u => 
+                            `${u.name}: ${u.usage_count || 0} transactions, Rs.${u.total_amount || 0}`
+                        ).join('\n');
+                        addResult('info', 'Payment Channel Usage', 'Payment channel transaction statistics', usageDetails);
+                    }
+                } else {
+                    addResult('error', 'No Payment Channels', 'No active payment channels found');
+                }
+                
+            } catch (error) {
+                addResult('error', 'Payment Channel Check Failed', error.message);
+            }
+        }
+
+        async function checkCustomerData() {
+            try {
+                // Check customer balances vs ledger
+                const customers = await db.dbConnection.select(`
+                    SELECT 
+                        c.id, c.name, c.balance,
+                        COALESCE(SUM(CASE WHEN cle.entry_type = 'debit' THEN cle.amount ELSE -cle.amount END), 0) as calculated_balance
+                    FROM customers c
+                    LEFT JOIN customer_ledger_entries cle ON c.id = cle.customer_id
+                    GROUP BY c.id
+                    HAVING ABS(c.balance - calculated_balance) > 0.01
+                    LIMIT 10
+                `);
+                
+                if (customers && customers.length > 0) {
+                    const balanceIssues = customers.map(c => 
+                        `${c.name}: Stored Rs.${c.balance}, Calculated Rs.${c.calculated_balance}`
+                    ).join('\n');
+                    addResult('warning', 'Customer Balance Mismatch', `${customers.length} customers have balance discrepancies`, balanceIssues);
+                } else {
+                    addResult('success', 'Customer Balances', 'All customer balances are synchronized with ledger');
+                }
+                
+            } catch (error) {
+                addResult('error', 'Customer Data Check Failed', error.message);
+            }
+        }
+
+        window.checkInvoiceFlow = async function() {
+            clearResults();
+            addResult('info', 'Checking Invoice Flow', 'Analyzing invoice creation to ledger flow...');
+            await checkInvoiceCreation();
+            await checkLedgerIntegration();
+        };
+
+        window.checkLedgerConnections = async function() {
+            clearResults();
+            addResult('info', 'Checking Ledger Connections', 'Analyzing ledger table relationships...');
+            await checkLedgerIntegration();
+            await checkCustomerData();
+        };
+
+        window.clearResults = clearResults;
+    </script>
+</body>
+</html>

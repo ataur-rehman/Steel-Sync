@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Creation Test - Fixed</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .test-container { max-width: 1200px; margin: 0 auto; }
+        .test-result { margin: 15px 0; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .success { background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .error { background-color: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .info { background-color: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+        .warning { background-color: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+        button { padding: 12px 24px; margin: 8px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #0056b3; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; max-height: 400px; }
+        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #007bff; }
+        .stat-label { color: #6c757d; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧾 Invoice Creation Test - FIXED VERSION</h1>
+        <p>Testing the fixed invoice creation flow to ensure all integrations work properly.</p>
+        
+        <div class="section">
+            <h2>🚀 Test Invoice Creation Flow</h2>
+            <button onclick="testInvoiceCreation()">Create Test Invoice</button>
+            <button onclick="checkDataIntegration()">Check Data Integration</button>
+            <button onclick="verifyAnalytics()">Verify Analytics</button>
+            <button onclick="clearResults()">Clear Results</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        const results = document.getElementById('results');
+        let db;
+        
+        // Import database service
+        try {
+            const { db: database } = await import('./src/services/database.ts');
+            db = database;
+            await db.initialize();
+            addResult('success', 'Database Connection', 'Successfully connected to database');
+        } catch (error) {
+            addResult('error', 'Database Connection Failed', error.message);
+        }
+        
+        function addResult(type, title, message, details = null) {
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `
+                <strong>${title}</strong><br>
+                ${message}
+                ${details ? `<pre>${details}</pre>` : ''}
+            `;
+            results.appendChild(div);
+        }
+        
+        function clearResults() {
+            results.innerHTML = '';
+        }
+
+        window.testInvoiceCreation = async function() {
+            clearResults();
+            addResult('info', 'Starting Invoice Creation Test', 'Testing the fixed invoice creation flow...');
+            
+            try {
+                // First, get customers
+                const customers = await db.getAllCustomers();
+                if (!customers || customers.length === 0) {
+                    addResult('error', 'No Customers', 'No customers found. Please create a customer first.');
+                    return;
+                }
+
+                // Get products
+                const products = await db.getAllProducts();
+                if (!products || products.length === 0) {
+                    addResult('error', 'No Products', 'No products found. Please create products first.');
+                    return;
+                }
+
+                const testCustomer = customers[0];
+                const testProduct = products[0];
+
+                addResult('info', 'Test Data Found', `Customer: ${testCustomer.name}, Product: ${testProduct.name}`);
+
+                // Create test invoice
+                const testInvoice = {
+                    customer_id: testCustomer.id,
+                    items: [
+                        {
+                            product_id: testProduct.id,
+                            product_name: testProduct.name,
+                            quantity: "2",
+                            unit_price: 100,
+                            total_price: 200
+                        }
+                    ],
+                    discount: 0,
+                    payment_amount: 50,
+                    payment_method: 'cash',
+                    notes: 'Test invoice created to verify fix'
+                };
+
+                addResult('info', 'Creating Invoice', 'Creating test invoice with partial payment...');
+
+                const createdInvoice = await db.createInvoice(testInvoice);
+                
+                addResult('success', 'Invoice Created', `Invoice ${createdInvoice.bill_number} created successfully!`, JSON.stringify(createdInvoice, null, 2));
+
+                // Now verify the integrations
+                await verifyInvoiceIntegrations(createdInvoice);
+
+            } catch (error) {
+                addResult('error', 'Invoice Creation Failed', error.message, error.stack);
+            }
+        };
+
+        async function verifyInvoiceIntegrations(invoice) {
+            try {
+                addResult('info', 'Verifying Integrations', 'Checking if invoice properly integrated with all systems...');
+
+                // Check customer ledger entries
+                const customerLedger = await db.getCustomerLedger(invoice.customer_id, {});
+                const ledgerEntries = customerLedger.transactions || [];
+                const invoiceEntries = ledgerEntries.filter(entry => entry.reference_number === invoice.bill_number);
+                
+                if (invoiceEntries.length > 0) {
+                    addResult('success', 'Customer Ledger Integration', `Found ${invoiceEntries.length} ledger entries for invoice`, 
+                        invoiceEntries.map(e => `${e.entry_type}: Rs.${e.amount} - ${e.description}`).join('\n'));
+                } else {
+                    addResult('error', 'Customer Ledger Missing', 'No customer ledger entries found for this invoice');
+                }
+
+                // Check payments table
+                const payments = await db.dbConnection.select(`
+                    SELECT * FROM payments WHERE reference_invoice_id = ?
+                `, [invoice.id]);
+
+                if (payments && payments.length > 0) {
+                    addResult('success', 'Payment Records', `Found ${payments.length} payment records`, 
+                        payments.map(p => `${p.payment_code}: Rs.${p.amount} via ${p.payment_method}`).join('\n'));
+                } else {
+                    addResult('warning', 'No Payment Records', 'No payment records found (expected if no payment was made)');
+                }
+
+                // Check enhanced payments
+                const enhancedPayments = await db.dbConnection.select(`
+                    SELECT * FROM enhanced_payments WHERE reference_invoice_id = ?
+                `, [invoice.id]);
+
+                if (enhancedPayments && enhancedPayments.length > 0) {
+                    addResult('success', 'Enhanced Payments', `Found ${enhancedPayments.length} enhanced payment records for analytics`, 
+                        enhancedPayments.map(p => `Rs.${p.amount} via ${p.payment_method} (Channel: ${p.payment_channel_name})`).join('\n'));
+                } else {
+                    addResult('warning', 'No Enhanced Payments', 'No enhanced payment records found');
+                }
+
+                // Check daily ledger
+                const dailyLedger = await db.dbConnection.select(`
+                    SELECT * FROM ledger_entries WHERE reference_id = ? AND reference_type IN ('invoice', 'payment')
+                `, [invoice.id]);
+
+                if (dailyLedger && dailyLedger.length > 0) {
+                    addResult('success', 'Daily Ledger Integration', `Found ${dailyLedger.length} daily ledger entries`, 
+                        dailyLedger.map(l => `${l.type}: Rs.${l.amount} - ${l.description}`).join('\n'));
+                } else {
+                    addResult('error', 'Daily Ledger Missing', 'No daily ledger entries found for this invoice');
+                }
+
+                // Check customer balance update
+                const customer = await db.getCustomer(invoice.customer_id);
+                addResult('info', 'Customer Balance', `Customer balance updated to: Rs.${customer.balance}`);
+
+                addResult('success', 'Integration Verification Complete', 'All integration checks completed. Review results above.');
+
+            } catch (error) {
+                addResult('error', 'Integration Verification Failed', error.message);
+            }
+        }
+
+        window.checkDataIntegration = async function() {
+            clearResults();
+            addResult('info', 'Checking Data Integration', 'Verifying data flow between all systems...');
+            
+            try {
+                // Check recent invoices and their integrations
+                const recentInvoices = await db.dbConnection.select(`
+                    SELECT * FROM invoices ORDER BY created_at DESC LIMIT 5
+                `);
+
+                if (recentInvoices && recentInvoices.length > 0) {
+                    addResult('success', 'Recent Invoices', `Found ${recentInvoices.length} recent invoices`);
+                    
+                    for (const invoice of recentInvoices) {
+                        await verifyInvoiceIntegrations(invoice);
+                    }
+                } else {
+                    addResult('warning', 'No Recent Invoices', 'No recent invoices found to verify');
+                }
+
+            } catch (error) {
+                addResult('error', 'Data Integration Check Failed', error.message);
+            }
+        };
+
+        window.verifyAnalytics = async function() {
+            clearResults();
+            addResult('info', 'Verifying Analytics', 'Checking if payment channel analytics are working...');
+            
+            try {
+                // Get payment channels
+                const channels = await db.getPaymentChannels();
+                
+                if (channels && channels.length > 0) {
+                    addResult('success', 'Payment Channels Found', `Found ${channels.length} payment channels`);
+                    
+                    // Test analytics for first channel
+                    const firstChannel = channels[0];
+                    const analytics = await db.getPaymentChannelAnalytics(firstChannel.id, 30);
+                    
+                    addResult('success', 'Payment Channel Analytics', `Analytics for ${firstChannel.name}`, JSON.stringify(analytics, null, 2));
+                } else {
+                    addResult('error', 'No Payment Channels', 'No payment channels found');
+                }
+
+            } catch (error) {
+                addResult('error', 'Analytics Verification Failed', error.message);
+            }
+        };
+
+        window.clearResults = clearResults;
+    </script>
+</body>
+</html>

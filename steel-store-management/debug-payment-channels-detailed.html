@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Payment Channels Debug Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        button { padding: 12px 20px; margin: 8px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer; }
+        button:hover { background: #1976D2; }
+        .result { margin: 15px 0; padding: 15px; border-radius: 6px; border-left: 5px solid; }
+        .error { background: #ffebee; border-color: #f44336; color: #c62828; }
+        .success { background: #e8f5e8; border-color: #4caf50; color: #2e7d32; }
+        .warning { background: #fff3e0; border-color: #ff9800; color: #ef6c00; }
+        .info { background: #e3f2fd; border-color: #2196F3; color: #1565c0; }
+        .channel-item { background: #f9f9f9; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ddd; }
+        .duplicate { background: #ffcdd2; border-color: #f44336; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f2f2f2; }
+        .actions { margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Payment Channels Debug & Cleanup Tool</h1>
+        
+        <div class="actions">
+            <button onclick="analyzePaymentChannels()">🔍 Analyze Current Channels</button>
+            <button onclick="showRawData()">📊 Show Raw Database Data</button>
+            <button onclick="fixDuplicates()">🛠️ Fix Duplicates</button>
+            <button onclick="recreateDefaults()">🔄 Recreate Default Channels</button>
+            <button onclick="clearAll()">🗑️ Clear All Channels</button>
+        </div>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        function addResult(content, type = 'info') {
+            const container = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${content}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        async function analyzePaymentChannels() {
+            try {
+                addResult('🔍 Starting comprehensive payment channels analysis...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                const { appDataDir, join } = window.__TAURI__.path;
+                
+                // Get the unified database path
+                const appDataPath = await appDataDir();
+                const dbPath = await join(appDataPath, 'store.db');
+                const dbUrl = `sqlite:${dbPath}`;
+                
+                addResult(`📍 Using database: ${dbPath}`, 'info');
+                
+                // Check if payment_channels table exists
+                const tableCheck = await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: "SELECT name FROM sqlite_master WHERE type='table' AND name='payment_channels'",
+                    values: []
+                });
+                
+                if (!tableCheck || tableCheck.length === 0) {
+                    addResult('❌ payment_channels table does not exist!', 'error');
+                    return;
+                }
+                
+                addResult('✅ payment_channels table exists', 'success');
+                
+                // Get all payment channels with detailed info
+                const allChannels = await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: 'SELECT * FROM payment_channels ORDER BY name, id',
+                    values: []
+                });
+                
+                addResult(`📊 Found ${allChannels.length} total payment channels`, 'info');
+                
+                // Check for duplicates by name
+                const nameCount = {};
+                const duplicates = [];
+                
+                allChannels.forEach(channel => {
+                    const lowerName = channel.name.toLowerCase();
+                    if (!nameCount[lowerName]) {
+                        nameCount[lowerName] = [];
+                    }
+                    nameCount[lowerName].push(channel);
+                });
+                
+                // Find duplicates
+                Object.keys(nameCount).forEach(name => {
+                    if (nameCount[name].length > 1) {
+                        duplicates.push({ name, channels: nameCount[name] });
+                    }
+                });
+                
+                if (duplicates.length > 0) {
+                    addResult(`⚠️ Found ${duplicates.length} duplicate channel names:`, 'warning');
+                    
+                    let tableHtml = '<table><tr><th>Name</th><th>ID</th><th>Type</th><th>Active</th><th>Created</th></tr>';
+                    
+                    duplicates.forEach(dup => {
+                        addResult(`  • "${dup.name}" appears ${dup.channels.length} times`, 'warning');
+                        dup.channels.forEach(channel => {
+                            tableHtml += `<tr class="duplicate">
+                                <td>${channel.name}</td>
+                                <td>${channel.id}</td>
+                                <td>${channel.type}</td>
+                                <td>${channel.is_active}</td>
+                                <td>${channel.created_at}</td>
+                            </tr>`;
+                        });
+                    });
+                    
+                    tableHtml += '</table>';
+                    addResult(tableHtml, 'warning');
+                } else {
+                    addResult('✅ No duplicate channel names found', 'success');
+                }
+                
+                // Show all channels
+                let allChannelsHtml = '<h3>All Payment Channels:</h3><table><tr><th>ID</th><th>Name</th><th>Type</th><th>Active</th><th>Description</th></tr>';
+                
+                allChannels.forEach(channel => {
+                    const isDupe = duplicates.some(dup => 
+                        dup.channels.some(dupChannel => dupChannel.id === channel.id)
+                    );
+                    
+                    allChannelsHtml += `<tr ${isDupe ? 'class="duplicate"' : ''}>
+                        <td>${channel.id}</td>
+                        <td>${channel.name}</td>
+                        <td>${channel.type}</td>
+                        <td>${channel.is_active ? 'Yes' : 'No'}</td>
+                        <td>${channel.description || 'N/A'}</td>
+                    </tr>`;
+                });
+                
+                allChannelsHtml += '</table>';
+                addResult(allChannelsHtml, 'info');
+                
+            } catch (error) {
+                addResult(`❌ Analysis failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function showRawData() {
+            try {
+                addResult('📊 Fetching raw database data...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                const { appDataDir, join } = window.__TAURI__.path;
+                
+                const appDataPath = await appDataDir();
+                const dbPath = await join(appDataPath, 'store.db');
+                const dbUrl = `sqlite:${dbPath}`;
+                
+                // Get raw data
+                const rawResult = await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: 'SELECT * FROM payment_channels',
+                    values: []
+                });
+                
+                addResult(`📊 Raw query result type: ${typeof rawResult}`, 'info');
+                addResult(`📊 Raw query result constructor: ${rawResult?.constructor?.name}`, 'info');
+                addResult(`📊 Is array: ${Array.isArray(rawResult)}`, 'info');
+                
+                if (rawResult) {
+                    addResult(`📊 Raw result length: ${rawResult.length}`, 'info');
+                    addResult('<pre>' + JSON.stringify(rawResult, null, 2) + '</pre>', 'info');
+                } else {
+                    addResult('❌ Raw result is null/undefined', 'error');
+                }
+                
+            } catch (error) {
+                addResult(`❌ Failed to get raw data: ${error.message}`, 'error');
+            }
+        }
+        
+        async function fixDuplicates() {
+            try {
+                addResult('🛠️ Starting duplicate cleanup...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                const { appDataDir, join } = window.__TAURI__.path;
+                
+                const appDataPath = await appDataDir();
+                const dbPath = await join(appDataPath, 'store.db');
+                const dbUrl = `sqlite:${dbPath}`;
+                
+                // Get all channels
+                const allChannels = await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: 'SELECT * FROM payment_channels ORDER BY name, created_at',
+                    values: []
+                });
+                
+                // Group by lowercase name
+                const groups = {};
+                allChannels.forEach(channel => {
+                    const key = channel.name.toLowerCase();
+                    if (!groups[key]) {
+                        groups[key] = [];
+                    }
+                    groups[key].push(channel);
+                });
+                
+                // Fix duplicates - keep the first one, delete others
+                for (const [name, channels] of Object.entries(groups)) {
+                    if (channels.length > 1) {
+                        addResult(`🔧 Fixing duplicates for "${name}" (${channels.length} found)`, 'warning');
+                        
+                        // Keep the first one (oldest), delete the rest
+                        for (let i = 1; i < channels.length; i++) {
+                            await invoke('plugin:sql|execute', {
+                                db: dbUrl,
+                                query: 'DELETE FROM payment_channels WHERE id = ?',
+                                values: [channels[i].id]
+                            });
+                            addResult(`  ✅ Deleted duplicate ID: ${channels[i].id}`, 'success');
+                        }
+                    }
+                }
+                
+                addResult('🎉 Duplicate cleanup completed!', 'success');
+                
+                // Re-analyze to confirm
+                setTimeout(analyzePaymentChannels, 1000);
+                
+            } catch (error) {
+                addResult(`❌ Failed to fix duplicates: ${error.message}`, 'error');
+            }
+        }
+        
+        async function recreateDefaults() {
+            try {
+                addResult('🔄 Recreating default payment channels...', 'info');
+                
+                const { invoke } = window.__TAURI__.core;
+                const { appDataDir, join } = window.__TAURI__.path;
+                
+                const appDataPath = await appDataDir();
+                const dbPath = await join(appDataPath, 'store.db');
+                const dbUrl = `sqlite:${dbPath}`;
+                
+                const defaultChannels = [
+                    { name: 'Cash', type: 'cash', description: 'Physical cash payments' },
+                    { name: 'Bank Transfer', type: 'bank', description: 'Electronic bank transfers' },
+                    { name: 'Credit Card', type: 'card', description: 'Credit card payments' },
+                    { name: 'Cheque', type: 'cheque', description: 'Cheque payments' },
+                    { name: 'JazzCash', type: 'digital', description: 'JazzCash mobile wallet' }
+                ];
+                
+                for (const channel of defaultChannels) {
+                    try {
+                        await invoke('plugin:sql|execute', {
+                            db: dbUrl,
+                            query: `
+                                INSERT OR IGNORE INTO payment_channels 
+                                (name, type, description, is_active) 
+                                VALUES (?, ?, ?, 1)
+                            `,
+                            values: [channel.name, channel.type, channel.description]
+                        });
+                        addResult(`✅ Created/ensured default channel: ${channel.name}`, 'success');
+                    } catch (channelError) {
+                        addResult(`⚠️ Failed to create ${channel.name}: ${channelError.message}`, 'warning');
+                    }
+                }
+                
+                addResult('🎉 Default channels recreation completed!', 'success');
+                
+                // Re-analyze to confirm
+                setTimeout(analyzePaymentChannels, 1000);
+                
+            } catch (error) {
+                addResult(`❌ Failed to recreate defaults: ${error.message}`, 'error');
+            }
+        }
+        
+        async function clearAll() {
+            if (!confirm('⚠️ This will delete ALL payment channels. Are you sure?')) {
+                return;
+            }
+            
+            try {
+                addResult('🗑️ Clearing all payment channels...', 'warning');
+                
+                const { invoke } = window.__TAURI__.core;
+                const { appDataDir, join } = window.__TAURI__.path;
+                
+                const appDataPath = await appDataDir();
+                const dbPath = await join(appDataPath, 'store.db');
+                const dbUrl = `sqlite:${dbPath}`;
+                
+                await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: 'DELETE FROM payment_channels',
+                    values: []
+                });
+                
+                addResult('✅ All payment channels cleared', 'success');
+                
+                // Reset auto-increment
+                await invoke('plugin:sql|execute', {
+                    db: dbUrl,
+                    query: "DELETE FROM sqlite_sequence WHERE name='payment_channels'",
+                    values: []
+                });
+                
+                addResult('✅ Auto-increment counter reset', 'success');
+                
+                // Re-analyze to confirm
+                setTimeout(analyzePaymentChannels, 1000);
+                
+            } catch (error) {
+                addResult(`❌ Failed to clear channels: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-start analysis
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                addResult('🚀 Payment Channels Debug Tool loaded', 'info');
+                addResult('💡 Click "Analyze Current Channels" to start diagnosis', 'info');
+            }, 500);
+        });
+    </script>
+</body>
+</html>

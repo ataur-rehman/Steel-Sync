@@ -129,11 +129,11 @@ const PaymentChannelDetailView: React.FC = () => {
 
   const loadChannelDetails = async (channelId: number) => {
     try {
-      // Get channel details
-      const channels = await db.getPaymentChannels(true); // Include inactive
-      const channelData = channels.find(c => c.id === channelId);
+      // Get single channel details with statistics
+      const channelData = await db.getPaymentChannel(channelId);
       if (channelData) {
         setChannel(channelData);
+        console.log('✅ Loaded channel details:', channelData);
       } else {
         throw new Error('Channel not found');
       }

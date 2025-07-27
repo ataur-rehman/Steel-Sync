@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import InvoiceDetails from './InvoiceDetails';
 import Modal from '../common/Modal';
 import { formatUnitString } from '../../utils/unitUtils';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import {
   Search,
   Filter,
@@ -128,54 +129,34 @@ const InvoiceList: React.FC = () => {
   useEffect(() => {
     loadData();
     
-    // YOUR ORIGINAL event bus integration
-    try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.on) {
-          const handleInvoiceCreated = (data: any) => {
-            console.log('🧾 Invoice list refreshing due to invoice creation:', data);
-            loadData();
-          };
+    // FIXED: Proper event bus integration with correct event names
+    const handleInvoiceCreated = (data: any) => {
+      console.log('🧾 Invoice list refreshing due to invoice creation:', data);
+      loadData();
+    };
 
-          const handleInvoiceUpdated = (data: any) => {
-            console.log('🧾 Invoice list refreshing due to invoice update:', data);
-            loadData();
-          };
+    const handleInvoiceUpdated = (data: any) => {
+      console.log('🧾 Invoice list refreshing due to invoice update:', data);
+      loadData();
+    };
 
-          const handlePaymentReceived = (data: any) => {
-            console.log('🧾 Invoice list refreshing due to payment:', data);
-            loadData();
-          };
+    const handlePaymentReceived = (data: any) => {
+      console.log('🧾 Invoice list refreshing due to payment:', data);
+      loadData();
+    };
 
-          const handleInvoiceDetailsUpdated = (data: any) => {
-            console.log('🧾 Invoice list refreshing due to invoice details update:', data);
-            loadData();
-          };
-          
-          eventBus.on('INVOICE_CREATED', handleInvoiceCreated);
-          eventBus.on('INVOICE_UPDATED', handleInvoiceUpdated);
-          eventBus.on('PAYMENT_RECORDED', handlePaymentReceived);
-          eventBus.on('INVOICE_PAYMENT_RECEIVED', handlePaymentReceived);
-          eventBus.on('INVOICE_DETAILS_UPDATED', handleInvoiceDetailsUpdated);
-          
-          (window as any).invoiceListCleanup = () => {
-            eventBus.off('INVOICE_CREATED', handleInvoiceCreated);
-            eventBus.off('INVOICE_UPDATED', handleInvoiceUpdated);
-            eventBus.off('PAYMENT_RECORDED', handlePaymentReceived);
-            eventBus.off('INVOICE_PAYMENT_RECEIVED', handlePaymentReceived);
-            eventBus.off('INVOICE_DETAILS_UPDATED', handleInvoiceDetailsUpdated);
-          };
-        }
-      }
-    } catch (error) {
-      console.warn('Could not set up invoice list event listeners:', error);
-    }
+    // Register event listeners with correct event names
+    eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
+    eventBus.on(BUSINESS_EVENTS.INVOICE_UPDATED, handleInvoiceUpdated);
+    eventBus.on(BUSINESS_EVENTS.PAYMENT_RECORDED, handlePaymentReceived);
+    eventBus.on(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handlePaymentReceived);
 
+    // Cleanup function
     return () => {
-      if ((window as any).invoiceListCleanup) {
-        (window as any).invoiceListCleanup();
-      }
+      eventBus.off(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
+      eventBus.off(BUSINESS_EVENTS.INVOICE_UPDATED, handleInvoiceUpdated);
+      eventBus.off(BUSINESS_EVENTS.PAYMENT_RECORDED, handlePaymentReceived);
+      eventBus.off(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handlePaymentReceived);
     };
   }, []);
 

@@ -123,6 +123,23 @@ export const BUSINESS_EVENTS = {
   RETURN_UPDATED: 'return:updated'
 };
 
+// Register default listeners to prevent "no listeners" warnings
+const registerDefaultListeners = () => {
+  const defaultHandler = (_data?: any) => {
+    // Silent default handler - just prevents the warning
+  };
+
+  // Register silent listeners for commonly emitted events that might not always have active listeners
+  eventBus.on(BUSINESS_EVENTS.DAILY_LEDGER_UPDATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, defaultHandler);
+};
+
+// Initialize default listeners (called after BUSINESS_EVENTS is defined)
+registerDefaultListeners();
+
 // Helper function to trigger refresh for all relevant components after invoice creation
 export const triggerInvoiceCreatedRefresh = (invoiceData: any) => {
   console.log('🔄 Triggering refresh for all components after invoice creation...');

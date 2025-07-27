@@ -339,6 +339,9 @@ function AppContent() {
               </div>
             } />
             
+            {/* Database Debug Tools */}
+
+            
             {/* Catch-all redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

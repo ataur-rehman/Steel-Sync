@@ -89,19 +89,19 @@ export default function Dashboard() {
       // Load real data from database
       const [dashboardStats, invoices, lowStock] = await Promise.all([
         db.getDashboardStats(),
-        db.getInvoices({ limit: 5 }),
+        db.getRecentInvoices(5),
         db.getLowStockProducts()
       ]);
 
       console.log('📊 Dashboard: Data loaded:', {
         stats: dashboardStats,
-        invoicesCount: invoices.length,
-        lowStockCount: lowStock.length
+        invoicesCount: Array.isArray(invoices) ? invoices.length : 0,
+        lowStockCount: Array.isArray(lowStock) ? lowStock.length : 0
       });
 
       setStats(dashboardStats);
-      setRecentInvoices(invoices);
-      setLowStockProducts(lowStock);
+      setRecentInvoices(Array.isArray(invoices) ? invoices : []);
+      setLowStockProducts(Array.isArray(lowStock) ? lowStock : []);
 
     } catch (error) {
       console.error('❌ Dashboard: Error loading data:', error);
@@ -220,7 +220,7 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="divide-y divide-gray-100">
-            {recentInvoices.length === 0 ? (
+            {!Array.isArray(recentInvoices) || recentInvoices.length === 0 ? (
               <div className="px-6 py-12 text-center">
                 <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
                   #

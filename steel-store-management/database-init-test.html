@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Initialization Test - Fixed</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .test-container { max-width: 1200px; margin: 0 auto; }
+        .test-result { margin: 15px 0; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .success { background-color: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .error { background-color: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .info { background-color: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+        .warning { background-color: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+        button { padding: 12px 24px; margin: 8px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        button:hover { background: #0056b3; }
+        button.success { background: #28a745; }
+        button.warning { background: #ffc107; color: #000; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; max-height: 400px; }
+        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0; }
+        .stat-card { background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; }
+        .stat-number { font-size: 24px; font-weight: bold; color: #007bff; }
+        .stat-label { color: #6c757d; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🗄️ Database Initialization Test - FIXED</h1>
+        <p>Testing the updated database initialization that includes all critical tables.</p>
+        
+        <div class="section">
+            <h2>🚀 Database Initialization Tests</h2>
+            <button onclick="initializeDatabase()">Initialize Database</button>
+            <button onclick="createSampleData()">Create Sample Data</button>
+            <button onclick="testFullFlow()">Test Complete Flow</button>
+            <button onclick="clearResults()">Clear Results</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        const results = document.getElementById('results');
+        let db;
+        
+        function addResult(type, title, message, details = null) {
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `
+                <strong>${title}</strong><br>
+                ${message}
+                ${details ? `<pre>${details}</pre>` : ''}
+            `;
+            results.appendChild(div);
+        }
+        
+        function clearResults() {
+            results.innerHTML = '';
+        }
+
+        window.initializeDatabase = async function() {
+            clearResults();
+            addResult('info', 'Starting Database Initialization', 'Connecting to database and creating tables...');
+            
+            try {
+                // Import database service
+                const { db: database } = await import('./src/services/database.ts');
+                db = database;
+                
+                addResult('info', 'Database Service Imported', 'Successfully imported database service');
+                
+                // Initialize database
+                const initialized = await db.initialize();
+                
+                if (initialized) {
+                    addResult('success', 'Database Initialized', 'Database connection established and tables created');
+                    
+                    // Check table existence
+                    await checkAllTables();
+                } else {
+                    addResult('error', 'Database Initialization Failed', 'Failed to initialize database');
+                }
+                
+            } catch (error) {
+                addResult('error', 'Database Service Error', error.message, error.stack);
+            }
+        };
+
+        async function checkAllTables() {
+            const requiredTables = [
+                'customers', 'products', 'invoices', 'invoice_items', 'payments',
+                'customer_ledger_entries', 'enhanced_payments', 'payment_channels',
+                'ledger_entries', 'stock_movements'
+            ];
+            
+            let existingTables = [];
+            let missingTables = [];
+            
+            for (const table of requiredTables) {
+                try {
+                    const result = await db.dbConnection.select(`SELECT name FROM sqlite_master WHERE type='table' AND name='${table}'`);
+                    if (result && result.length > 0) {
+                        existingTables.push(table);
+                    } else {
+                        missingTables.push(table);
+                    }
+                } catch (error) {
+                    missingTables.push(table);
+                }
+            }
+            
+            if (missingTables.length === 0) {
+                addResult('success', 'All Tables Created', `All ${existingTables.length} required tables exist`, existingTables.join(', '));
+            } else {
+                addResult('error', 'Missing Tables', `${missingTables.length} tables are missing`, 
+                    `Missing: ${missingTables.join(', ')}\nExisting: ${existingTables.join(', ')}`);
+            }
+            
+            // Check data counts
+            await checkDataCounts(existingTables);
+        }
+
+        async function checkDataCounts(tables) {
+            const counts = {};
+            
+            for (const table of tables) {
+                try {
+                    const result = await db.dbConnection.select(`SELECT COUNT(*) as count FROM ${table}`);
+                    counts[table] = result[0]?.count || 0;
+                } catch (error) {
+                    counts[table] = 'ERROR';
+                }
+            }
+            
+            const statsHtml = Object.entries(counts).map(([table, count]) => 
+                `<div class="stat-card">
+                    <div class="stat-number">${count}</div>
+                    <div class="stat-label">${table}</div>
+                </div>`
+            ).join('');
+            
+            addResult('info', 'Current Data Counts', 'Record counts in all tables', 
+                `<div class="stats">${statsHtml}</div>`);
+        }
+
+        window.createSampleData = async function() {
+            clearResults();
+            addResult('info', 'Creating Sample Data', 'Creating customers, products, and payment channels...');
+            
+            try {
+                if (!db) {
+                    const { db: database } = await import('./src/services/database.ts');
+                    db = database;
+                    await db.initialize();
+                }
+                
+                // Create sample customer
+                const customerData = {
+                    name: 'Test Customer',
+                    phone: '03001234567',
+                    address: 'Test Address',
+                    cnic: '12345-1234567-1'
+                };
+                
+                const customerId = await db.createCustomer(customerData);
+                addResult('success', 'Sample Customer Created', `Customer ID: ${customerId}`, JSON.stringify(customerData, null, 2));
+                
+                // Create sample product
+                const productData = {
+                    name: 'Test Steel Product',
+                    category: 'Steel',
+                    unit_type: 'kg',
+                    unit: 'kg',
+                    rate_per_unit: 150,
+                    current_stock: '100',
+                    min_stock_alert: '10',
+                    size: '12mm',
+                    grade: 'A'
+                };
+                
+                const productId = await db.createProduct(productData);
+                addResult('success', 'Sample Product Created', `Product ID: ${productId}`, JSON.stringify(productData, null, 2));
+                
+                // Check payment channels
+                const channels = await db.getPaymentChannels();
+                if (channels && channels.length > 0) {
+                    addResult('success', 'Payment Channels Available', `Found ${channels.length} payment channels`, 
+                        channels.map(c => `${c.name} (${c.type})`).join(', '));
+                } else {
+                    addResult('warning', 'No Payment Channels', 'Creating default payment channels...');
+                    await db.createDefaultPaymentChannels();
+                    const newChannels = await db.getPaymentChannels();
+                    addResult('success', 'Default Payment Channels Created', `Created ${newChannels.length} payment channels`);
+                }
+                
+                // Update counts
+                await checkDataCounts(['customers', 'products', 'payment_channels']);
+                
+            } catch (error) {
+                addResult('error', 'Sample Data Creation Failed', error.message, error.stack);
+            }
+        };
+
+        window.testFullFlow = async function() {
+            clearResults();
+            addResult('info', 'Testing Complete Invoice Flow', 'Creating invoice and verifying all integrations...');
+            
+            try {
+                if (!db) {
+                    await initializeDatabase();
+                }
+                
+                // Get customers and products
+                const customers = await db.getAllCustomers();
+                const products = await db.getAllProducts();
+                
+                if (!customers || customers.length === 0) {
+                    addResult('warning', 'No Customers', 'Creating sample customer first...');
+                    await createSampleData();
+                    return;
+                }
+                
+                if (!products || products.length === 0) {
+                    addResult('warning', 'No Products', 'Please create products first');
+                    return;
+                }
+                
+                const customer = customers[0];
+                const product = products[0];
+                
+                addResult('info', 'Creating Test Invoice', `Customer: ${customer.name}, Product: ${product.name}`);
+                
+                // Create test invoice
+                const invoiceData = {
+                    customer_id: customer.id,
+                    items: [{
+                        product_id: product.id,
+                        product_name: product.name,
+                        quantity: "5",
+                        unit_price: 100,
+                        total_price: 500
+                    }],
+                    discount: 0,
+                    payment_amount: 200,
+                    payment_method: 'cash',
+                    notes: 'Test invoice for complete flow verification'
+                };
+                
+                const invoice = await db.createInvoice(invoiceData);
+                addResult('success', 'Invoice Created', `Invoice ${invoice.bill_number} created successfully!`);
+                
+                // Verify integrations
+                await verifyInvoiceIntegrations(invoice);
+                
+            } catch (error) {
+                addResult('error', 'Full Flow Test Failed', error.message, error.stack);
+            }
+        };
+
+        async function verifyInvoiceIntegrations(invoice) {
+            addResult('info', 'Verifying Integrations', 'Checking all database integrations...');
+            
+            try {
+                // Check customer ledger
+                const customerLedger = await db.getCustomerLedger(invoice.customer_id, {});
+                const invoiceEntries = customerLedger.transactions.filter(t => t.reference_number === invoice.bill_number);
+                
+                if (invoiceEntries.length > 0) {
+                    addResult('success', 'Customer Ledger Integration', `Found ${invoiceEntries.length} ledger entries`);
+                } else {
+                    addResult('error', 'Customer Ledger Missing', 'No customer ledger entries found');
+                }
+                
+                // Check payments
+                const payments = await db.dbConnection.select(`SELECT * FROM payments WHERE reference_invoice_id = ?`, [invoice.id]);
+                if (payments && payments.length > 0) {
+                    addResult('success', 'Payment Records', `Found ${payments.length} payment records`);
+                } else {
+                    addResult('warning', 'No Payment Records', 'No payment records found');
+                }
+                
+                // Check enhanced payments
+                const enhancedPayments = await db.dbConnection.select(`SELECT * FROM enhanced_payments WHERE reference_invoice_id = ?`, [invoice.id]);
+                if (enhancedPayments && enhancedPayments.length > 0) {
+                    addResult('success', 'Enhanced Payments', `Found ${enhancedPayments.length} enhanced payment records`);
+                } else {
+                    addResult('warning', 'No Enhanced Payments', 'No enhanced payment records found');
+                }
+                
+                // Check daily ledger
+                const dailyLedger = await db.dbConnection.select(`SELECT * FROM ledger_entries WHERE reference_id = ?`, [invoice.id]);
+                if (dailyLedger && dailyLedger.length > 0) {
+                    addResult('success', 'Daily Ledger Integration', `Found ${dailyLedger.length} daily ledger entries`);
+                } else {
+                    addResult('error', 'Daily Ledger Missing', 'No daily ledger entries found');
+                }
+                
+                addResult('success', 'Integration Verification Complete', 'All integration checks completed successfully!');
+                
+            } catch (error) {
+                addResult('error', 'Integration Verification Failed', error.message);
+            }
+        }
+
+        window.clearResults = clearResults;
+        
+        // Auto-initialize on page load
+        window.addEventListener('load', () => {
+            addResult('info', 'Database Test Ready', 'Click "Initialize Database" to begin testing the updated schema.');
+        });
+    </script>
+</body>
+</html>

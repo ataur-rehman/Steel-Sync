@@ -22,7 +22,7 @@
   },
   "plugins": {
     "sql": {
-      "preload": ["sqlite:store.db"]
+      "preload": []
     }
   },
   "app": {
