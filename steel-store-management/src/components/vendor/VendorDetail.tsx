@@ -3,6 +3,9 @@ import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { ActivityType, ModuleType } from '../../services/activityLogger';
+import { formatReceivingNumber } from '../../utils/numberFormatting';
 import SmartDetailHeader from '../common/SmartDetailHeader';
 import { Trash2, FileText, Search } from 'lucide-react';
 
@@ -13,20 +16,10 @@ const formatCurrency = (amount: number) => {
   }).format(amount);
 };
 
-// Helper to format receiving number as S0001
-const formatReceivingNumber = (num: string) => {
-  if (!num) return '-';
-  if (/^S\d{4,}$/.test(num)) return num;
-  const match = num.match(/(\d{4,})$/);
-  if (match) {
-    return `S${match[1]}`;
-  }
-  return num;
-};
-
 const VendorDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { getFromPage, navigateTo } = useSmartNavigation();
+  const activityLogger = useActivityLogger();
   const [vendor, setVendor] = useState<any>(null);
   const [vendorPayments, setVendorPayments] = useState<any[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
@@ -81,6 +74,15 @@ const VendorDetail: React.FC = () => {
     if (confirmed) {
       try {
         await db.deleteVendor(vendor.id);
+        
+        // Log the vendor deletion activity
+        activityLogger.logCustomActivity(
+          ActivityType.DELETE,
+          ModuleType.VENDORS,
+          vendor.id,
+          `Deleted vendor: ${vendor.name} (Phone: ${vendor.phone || 'N/A'})`
+        );
+        
         toast.success('Vendor deleted successfully');
         navigateTo('/vendors');
       } catch (error) {

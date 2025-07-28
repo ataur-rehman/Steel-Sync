@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 interface User {
   id: string;
   username: string;
+  role: string;
+  permissions?: Record<string, string> | string[]; // Support both module-based and legacy permissions
 }
 
 interface AuthContextType {
@@ -41,28 +43,145 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.log('Attempting to authenticate:', username);
       
       let isAuthenticated = false;
+      let userRole = 'worker';
+      let userId = '1';
       
       if (isTauri()) {
-        // Use Tauri authentication
-        isAuthenticated = await invoke('authenticate_user', {
-          username: username,
-          password: password
-        });
-        console.log('Tauri authentication result:', isAuthenticated);
-      } else {
-        // Browser fallback - simulate authentication
+        try {
+          // Use Tauri authentication with database check
+          const authResult = await invoke('authenticate_user', {
+            username: username,
+            password: password
+          });
+          
+          if (authResult && typeof authResult === 'object' && 'success' in authResult) {
+            const result = authResult as { success: boolean; role?: string; id?: string };
+            isAuthenticated = result.success || false;
+            userRole = result.role || 'worker';
+            userId = result.id || '1';
+          } else {
+            isAuthenticated = !!authResult;
+          }
+          
+          console.log('Tauri authentication result:', { isAuthenticated, userRole, userId });
+        } catch (error) {
+          console.error('Tauri authentication error:', error);
+          // Fallback to browser authentication
+          isAuthenticated = false;
+        }
+      }
+      
+      // Browser fallback - check against common test credentials and database
+      if (!isAuthenticated) {
         console.log('Using browser fallback authentication');
-        isAuthenticated = username === 'admin' && password === 'admin123';
-        console.log('Browser authentication result:', isAuthenticated);
+        
+        // Check hardcoded admin credentials
+        if (username === 'admin' && password === 'admin123') {
+          isAuthenticated = true;
+          userRole = 'admin';
+          userId = '1';
+        } else {
+          // Try to authenticate against the staff database
+          try {
+            console.log('Attempting staff lookup for:', username);
+            const { staffService } = await import('../services/staffService');
+            // Since authentication is removed, just verify staff exists and is active
+            const allStaff = await staffService.getAllStaff({ search: username });
+            const staff = allStaff.find(s => 
+              s.full_name.toLowerCase() === username.toLowerCase() && s.is_active
+            );
+            
+            if (staff) {
+              isAuthenticated = true;
+              userRole = staff.role;
+              userId = staff.id.toString();
+              
+              // 🔧 CRITICAL FIX: Load actual custom permissions from database
+              try {
+                const { staffService } = await import('../services/staffService');
+                const customPermissions = await staffService.getStaffPermissions(staff.id);
+                
+                console.log('✅ Staff authentication successful:', { 
+                  username, 
+                  role: userRole, 
+                  userId,
+                  employeeId: staff.employee_id,
+                  customPermissions: customPermissions
+                });
+                
+                // Set user with actual database permissions (this is the critical fix!)
+                setUser({
+                  id: userId,
+                  username: username,
+                  role: userRole,
+                  permissions: customPermissions // Use database permissions instead of hardcoded ones
+                });
+                
+              } catch (error) {
+                console.error('Failed to load custom permissions, using role defaults:', error);
+                // Fallback to empty permissions if database load fails
+                setUser({
+                  id: userId,
+                  username: username,
+                  role: userRole,
+                  permissions: {} // This will make useRoleAccess fall back to role defaults
+                });
+              }
+              
+              // Early return for database authentication
+              // Log the login event
+              try {
+                const { auditLogService } = await import('../services/auditLogService');
+                await auditLogService.logEvent({
+                  user_id: parseInt(userId),
+                  user_name: username,
+                  action: 'LOGIN',
+                  entity_type: 'SYSTEM',
+                  entity_id: parseInt(userId),
+                  description: `User ${username} logged in with role: ${userRole}`,
+                  new_values: { role: userRole, login_time: new Date().toISOString() }
+                });
+              } catch (error) {
+                console.error('Failed to log login event:', error);
+              }
+              
+              return true;
+            } else {
+              console.log('❌ Database authentication failed: Invalid credentials or user not found');
+            }
+          } catch (error) {
+            console.error('❌ Database authentication error:', error);
+          }
+        }
+        
+        console.log('Browser authentication result:', { isAuthenticated, userRole });
       }
 
       if (isAuthenticated) {
         const newUser: User = {
-          id: '1',
-          username: username
+          id: userId,
+          username: username,
+          role: userRole
         };
         
         setUser(newUser);
+        
+        // Log the login event
+        try {
+          const { auditLogService } = await import('../services/auditLogService');
+          await auditLogService.logEvent({
+            user_id: parseInt(userId),
+            user_name: username,
+            action: 'LOGIN',
+            entity_type: 'SYSTEM',
+            entity_id: parseInt(userId),
+            description: `User ${username} logged in with role: ${userRole}`,
+            new_values: { role: userRole, login_time: new Date().toISOString() }
+          });
+        } catch (error) {
+          console.error('Failed to log login event:', error);
+        }
+        
         return true;
       }
       
@@ -73,7 +192,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    if (user) {
+      // Log the logout event
+      try {
+        const { auditLogService } = await import('../services/auditLogService');
+        await auditLogService.logEvent({
+          user_id: parseInt(user.id),
+          user_name: user.username,
+          action: 'LOGOUT',
+          entity_type: 'SYSTEM',
+          entity_id: parseInt(user.id),
+          description: `User ${user.username} logged out`,
+          old_values: { logout_time: new Date().toISOString() }
+        });
+      } catch (error) {
+        console.error('Failed to log logout event:', error);
+      }
+    }
+    
     setUser(null);
   };
 

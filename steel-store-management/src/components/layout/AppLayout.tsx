@@ -23,6 +23,7 @@ import {
   Truck,
   CreditCard
 } from 'lucide-react';
+import { useRoleAccess } from '../../hooks/useRoleAccess';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -30,10 +31,12 @@ interface AppLayoutProps {
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [companyName, setCompanyName] = useState('Itehad Iron Store');
   const { user, logout } = useAuth();
   const { navigateTo, getCurrentTab } = useNavigation();
+  const { hasPermission, isAdmin } = useRoleAccess();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -130,6 +133,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       icon: Settings,
       children: [
         { name: 'Staff Management', href: '/staff', icon: Users },
+        { name: 'Activity Logger', href: '/audit', icon: Activity },
         { name: 'Payment Channels', href: '/payment/channels', icon: CreditCard },
         { name: 'Business Finance', href: '/finance', icon: BarChart3 }
       ]
@@ -142,7 +146,16 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         { name: 'Daily Ledger', href: '/reports/daily', icon: Activity },
         { name: 'Customer Ledger', href: '/reports/customer', icon: Users }
       ]
-    }
+    },
+    ...(isAdmin ? [{
+      name: 'Administration',
+      icon: Settings,
+      children: [
+        { name: 'Role Management', href: '/admin/roles', icon: Settings },
+        { name: 'Database Panel', href: '/init-db', icon: Settings },
+        { name: 'Notifications', href: '/notifications', icon: Bell }
+      ]
+    }] : [])
   ];
 
   const formatTimeAgo = (dateString: string) => {
@@ -187,49 +200,71 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
 
   const Sidebar = () => (
-    <div className="flex flex-col w-64 bg-gray-800">
-      <div className="flex items-center justify-center h-16 px-4 bg-gray-900">
-        <h1 className="text-white text-lg font-semibold">{companyName}</h1>
+    <div className={`flex flex-col bg-gray-800 h-full transition-all duration-300 ${
+      sidebarCollapsed ? 'w-16' : 'w-64'
+    }`}>
+      {/* Fixed Header with Collapse Button */}
+      <div className="flex items-center justify-between h-16 px-4 bg-gray-900 flex-shrink-0">
+        {!sidebarCollapsed && (
+          <h1 className="text-white text-lg font-semibold truncate">{companyName}</h1>
+        )}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="p-1 text-gray-400 hover:text-white transition-colors"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          <Menu className="h-5 w-5" />
+        </button>
       </div>
       
-      <nav className="flex-1 px-2 py-4 space-y-2">
+      {/* Scrollable Navigation Area */}
+      <nav className="flex-1 px-2 py-4 space-y-2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
         {navigation.map((item) =>
           item.children ? (
             <div key={item.name} className="space-y-1">
-              <div className={`flex items-center px-2 py-2 text-sm font-medium transition-colors ${
-                isNavigationItemActive(item)
-                  ? 'text-white bg-gray-700 rounded-md'
-                  : 'text-gray-300'
-              }`}>
-                <item.icon className="mr-3 h-5 w-5" />
-                {item.name}
-                {item.badge && (
-                  <span className="ml-auto bg-red-600 text-white text-xs px-2 py-1 rounded-full">
-                    {item.badge}
-                  </span>
-                )}
-              </div>
-              <div className="ml-8 space-y-1">
-                {item.children.map((child) => (
-                  <button
-                    key={child.name}
-                    onClick={() => navigateTo(child.href)}
-                    className={`block w-full text-left px-2 py-2 text-sm rounded-md transition-colors ${
-                      isChildNavigationItemActive(child)
-                        ? 'bg-gray-700 text-white'
-                        : 'text-gray-300 hover:text-white hover:bg-gray-700'
-                    }`}
-                  >
-                    <child.icon className="mr-3 h-4 w-4 inline" />
-                    {child.name}
-                    {child.badge && (
-                      <span className="ml-auto bg-red-600 text-white text-xs px-2 py-1 rounded-full">
-                        {child.badge}
+              <div 
+                className={`flex items-center px-2 py-2 text-sm font-medium transition-colors cursor-pointer ${
+                  isNavigationItemActive(item)
+                    ? 'text-white bg-gray-700 rounded-md'
+                    : 'text-gray-300 hover:text-white hover:bg-gray-700 rounded-md'
+                }`}
+                title={sidebarCollapsed ? item.name : ''}
+              >
+                <item.icon className="h-5 w-5 flex-shrink-0" />
+                {!sidebarCollapsed && (
+                  <>
+                    <span className="ml-3 truncate">{item.name}</span>
+                    {item.badge && (
+                      <span className="ml-auto bg-red-600 text-white text-xs px-2 py-1 rounded-full flex-shrink-0">
+                        {item.badge}
                       </span>
                     )}
-                  </button>
-                ))}
+                  </>
+                )}
               </div>
+              {!sidebarCollapsed && (
+                <div className="ml-8 space-y-1">
+                  {item.children.map((child) => (
+                    <button
+                      key={child.name}
+                      onClick={() => navigateTo(child.href)}
+                      className={`flex items-center w-full text-left px-2 py-2 text-sm rounded-md transition-colors ${
+                        isChildNavigationItemActive(child)
+                          ? 'bg-gray-700 text-white'
+                          : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                      }`}
+                    >
+                      <child.icon className="mr-3 h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{child.name}</span>
+                      {child.badge && (
+                        <span className="ml-auto bg-red-600 text-white text-xs px-2 py-1 rounded-full flex-shrink-0">
+                          {child.badge}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <button
@@ -240,20 +275,62 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                   ? 'bg-gray-700 text-white'
                   : 'text-gray-300 hover:text-white hover:bg-gray-700'
               }`}
+              title={sidebarCollapsed ? item.name : ''}
             >
-              <item.icon className="mr-3 h-5 w-5" />
-              {item.name}
-              {item.badge && (
-                <span className="ml-auto bg-red-600 text-white text-xs px-2 py-1 rounded-full">
-                  {item.badge}
-                </span>
+              <item.icon className="h-5 w-5 flex-shrink-0" />
+              {!sidebarCollapsed && (
+                <>
+                  <span className="ml-3 truncate">{item.name}</span>
+                  {item.badge && (
+                    <span className="ml-auto bg-red-600 text-white text-xs px-2 py-1 rounded-full flex-shrink-0">
+                      {item.badge}
+                    </span>
+                  )}
+                </>
               )}
             </button>
           )
         )}
       </nav>
       
-     
+      {/* Fixed Footer (optional - for user info or logout) */}
+      <div className="flex-shrink-0 p-4 border-t border-gray-700">
+        {sidebarCollapsed ? (
+          <div className="flex flex-col items-center space-y-2">
+            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+              <span className="text-white text-sm font-medium">
+                {user?.username?.charAt(0).toUpperCase() || 'U'}
+              </span>
+            </div>
+            <button
+              onClick={logout}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+              <span className="text-white text-sm font-medium">
+                {user?.username?.charAt(0).toUpperCase() || 'U'}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">{user?.username || 'Admin'}</p>
+              <p className="text-xs text-gray-400 truncate">{user?.role || 'Administrator'}</p>
+            </div>
+            <button
+              onClick={logout}
+              className="p-1 text-gray-400 hover:text-white transition-colors"
+              title="Logout"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 
@@ -340,7 +417,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
       {/* Sidebar - always fixed */}
-      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 h-screen shadow-sm">
+      <div className={`fixed inset-y-0 left-0 z-50 bg-white border-r border-gray-200 h-screen shadow-sm transition-all duration-300 ${
+        sidebarCollapsed ? 'w-16' : 'w-64'
+      }`}>
         <Sidebar />
       </div>
 
@@ -352,8 +431,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         />
       )}
 
-      {/* Main content with left margin for sidebar */}
-      <div className="flex-1 flex flex-col overflow-hidden lg:ml-64" style={{ marginLeft: '16rem' }}>
+      {/* Main content with dynamic left margin for sidebar */}
+      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${
+        sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'
+      }`} style={{ marginLeft: sidebarCollapsed ? '4rem' : '16rem' }}>
         {/* Mobile top bar */}
         <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between shadow-sm">
           <button
@@ -387,8 +468,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         </div>
 
-        {/* Desktop header - fixed */}
-        <header className="hidden lg:flex fixed top-0 left-64 right-0 bg-white shadow-sm border-b border-gray-200 px-8 py-3 items-center justify-end z-40 w-[calc(100%-16rem)]">
+        {/* Desktop header - fixed with dynamic positioning */}
+        <header className={`hidden lg:flex fixed top-0 right-0 bg-white shadow-sm border-b border-gray-200 px-8 py-3 items-center justify-end z-40 transition-all duration-300 ${
+          sidebarCollapsed ? 'left-16' : 'left-64'
+        }`} style={{ left: sidebarCollapsed ? '4rem' : '16rem' }}>
           <div className="flex items-center space-x-4">
             <div className="relative">
               <button

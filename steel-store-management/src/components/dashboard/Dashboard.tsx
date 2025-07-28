@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
 import { formatUnitString } from '../../utils/unitUtils';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 
@@ -238,7 +239,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm font-medium text-gray-900">
-                        Invoice #{invoice.bill_number}
+                        Invoice #{formatInvoiceNumber(invoice.bill_number)}
                       </p>
                       <p className="text-sm text-gray-500 mt-1">{invoice.customer_name}</p>
                     </div>

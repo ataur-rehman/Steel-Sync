@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
+import { formatReceivingNumber } from '../../utils/numberFormatting';
 import { Search, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
@@ -242,7 +243,7 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
                         {vendorReceivings.map((receiving, idx) => (
                           <tr key={receiving.id || idx} className="hover:bg-gray-50 transition-colors">
                             <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                              {receiving.receiving_number}
+                              {formatReceivingNumber(receiving.receiving_number)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                               {new Date(receiving.date).toLocaleDateString()}
@@ -502,7 +503,7 @@ const StockReceivingList: React.FC = () => {
                 return (
                   <tr key={receiving.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {receiving.receiving_number}
+                      {formatReceivingNumber(receiving.receiving_number)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {new Date(receiving.date).toLocaleDateString()}<br />

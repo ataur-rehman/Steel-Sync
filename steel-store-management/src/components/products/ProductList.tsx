@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { db } from '../../services/database';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import { Package, Search, Plus, Edit, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../common/Modal';
@@ -8,6 +9,7 @@ import { formatUnitString, parseUnit } from '../../utils/unitUtils';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 
 const ProductList: React.FC = () => {
+  const activityLogger = useActivityLogger();
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,6 +172,10 @@ const loadProducts = async () => {
     try {
       console.log(`🗑️ Deleting product: ${deletingProduct.name} (ID: ${deletingProduct.id})`);
       await db.deleteProduct(deletingProduct.id);
+      
+      // Log activity
+      await activityLogger.logProductDeleted(deletingProduct.id, deletingProduct.name);
+      
       console.log(`✅ Product deleted successfully: ${deletingProduct.id}`);
       toast.success('Product deleted successfully!');
     } catch (error) {

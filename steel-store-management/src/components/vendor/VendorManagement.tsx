@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Edit, Trash2, Search, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 
 interface Vendor {
   id: number;
@@ -35,6 +36,7 @@ interface VendorFormData {
 const VendorManagement: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const activityLogger = useActivityLogger();
   
   // State variables
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -135,7 +137,15 @@ const VendorManagement: React.FC = () => {
       return;
     }
     try {
+      // Get vendor name before deletion for logging
+      const vendor = vendors.find(v => v.id === id);
+      const vendorName = vendor?.name || 'Unknown Vendor';
+      
       await db.deleteVendor(id);
+      
+      // Log activity
+      await activityLogger.logVendorDeleted(id, vendorName);
+      
       toast.success('Vendor deleted successfully');
       await loadVendors();
     } catch (error) {
@@ -157,9 +167,13 @@ const VendorManagement: React.FC = () => {
           notes: '',
           is_active: formData.is_active
         });
+        
+        // Log activity
+        await activityLogger.logVendorUpdated(editingVendor.id, formData.name, formData);
+        
         toast.success('Vendor updated successfully');
       } else {
-        await db.createVendor({
+        const result = await db.createVendor({
           name: formData.name,
           company_name: '',
           phone: formData.phone,
@@ -168,6 +182,10 @@ const VendorManagement: React.FC = () => {
           payment_terms: formData.payment_terms,
           notes: ''
         });
+        
+        // Log activity
+        await activityLogger.logVendorCreated(result, formData.name);
+        
         toast.success('Vendor created successfully');
       }
       await loadVendors();

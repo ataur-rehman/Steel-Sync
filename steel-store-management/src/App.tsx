@@ -24,11 +24,18 @@ import CustomerLoanDetail from './components/loan/CustomerLoanDetail';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
 import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
 import StaffManagement from './components/staff/StaffManagement';
+import ActivityLogger from './components/admin/ActivityLogger';
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
 import NotificationsPage from './components/notifications/NotificationsPage';
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
+
+import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
+import RoleManagementComplete from './components/admin/RoleManagementComplete';
+import PermissionManagementSimple from './components/admin/PermissionManagementSimple';
+import ActivityLoggerProfessional from './components/admin/ActivityLoggerProfessional';
 
 import toast from 'react-hot-toast';
 import './styles/globals.css';
@@ -199,26 +206,56 @@ function AppContent() {
             <Route path="/dashboard" element={<Dashboard />} />
             
             {/* Products Management */}
-            <Route path="/products" element={<ProductList />} />
+            <Route path="/products" element={
+              <ProtectedRoute module="products" level="view">
+                <ProductList />
+              </ProtectedRoute>
+            } />
             
             
             {/* Customer Management with Deep Linking */}
-            <Route path="/customers" element={<CustomerList />} />
-            <Route path="/customers/new" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Add New Customer</h2>
-                <p className="text-gray-600">Customer creation form will be implemented here.</p>
-              </div>
+            <Route path="/customers" element={
+              <ProtectedRoute module="customers" level="view">
+                <CustomerList />
+              </ProtectedRoute>
             } />
-            <Route path="/customers/:id" element={<CustomerProfile />} />
+            <Route path="/customers/new" element={
+              <ProtectedRoute module="customers" level="edit">
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Add New Customer</h2>
+                  <p className="text-gray-600">Customer creation form will be implemented here.</p>
+                </div>
+              </ProtectedRoute>
+            } />
+            <Route path="/customers/:id" element={
+              <ProtectedRoute module="customers" level="view">
+                <CustomerProfile />
+              </ProtectedRoute>
+            } />
             
             {/* Billing System with Full Traceability */}
-            <Route path="/billing/new" element={<InvoiceForm />} />
-            <Route path="/billing/list" element={<InvoiceList />} />
-            <Route path="/billing/view/:id" element={<InvoiceDetailsPage />} />
+            <Route path="/billing/new" element={
+              <ProtectedRoute module="sales" level="edit">
+                <InvoiceForm />
+              </ProtectedRoute>
+            } />
+            <Route path="/billing/list" element={
+              <ProtectedRoute module="reports" level="view">
+                <InvoiceList />
+              </ProtectedRoute>
+            } />
+            <Route path="/billing/view/:id" element={
+              <ProtectedRoute module="sales" level="view">
+                <InvoiceDetailsPage />
+              </ProtectedRoute>
+            } />
             
            
-<Route path="/stock/receiving/:id/add-payment" element={<StockReceivingPayment />} />
+<Route path="/stock/receiving/:id/add-payment" element={
+  <ProtectedRoute module="inventory" level="edit">
+    <StockReceivingPayment />
+  </ProtectedRoute>
+} />
 
             {/* Returns with Original Invoice Linking */}
             <Route path="/returns" element={<Returns />} />
@@ -236,43 +273,145 @@ function AppContent() {
             } />
             
             {/* Reports with Drill-down Capabilities */}
-            <Route path="/reports/daily" element={<DailyLedger />} />
-            <Route path="/reports/customer" element={<CustomerLedger />} />
-            <Route path="/reports/stock" element={<StockReport />} />
+            <Route path="/reports/daily" element={
+              <ProtectedRoute module="reports" level="view">
+                <DailyLedger />
+              </ProtectedRoute>
+            } />
+            <Route path="/reports/customer" element={
+              <ProtectedRoute module="reports" level="view">
+                <CustomerLedger />
+              </ProtectedRoute>
+            } />
+            <Route path="/reports/stock" element={
+              <ProtectedRoute module="reports" level="view">
+                <StockReport />
+              </ProtectedRoute>
+            } />
         
             {/* Enhanced Customer Management */}
            
             
             {/* Payment Channel Management */}
-            <Route path="/payment/channels" element={<PaymentChannelManagement />} />
-            <Route path="/payment/channels/:id" element={<PaymentChannelDetailView />} />
+            <Route path="/payment/channels" element={
+              <ProtectedRoute module="payments" level="view">
+                <PaymentChannelManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="/payment/channels/:id" element={
+              <ProtectedRoute module="payments" level="view">
+                <PaymentChannelDetailView />
+              </ProtectedRoute>
+            } />
             
-            {/* Staff Management */}
-            <Route path="/staff" element={<StaffManagement />} />
+            {/* Staff Management - Professional Version */}
+            <Route path="/staff" element={
+              <ProtectedRoute module="user_management" level="view">
+                <StaffManagement />
+              </ProtectedRoute>
+            } />
+            
+            {/* Activity Logger - NEW REDESIGNED VERSION */}
+            <Route path="/audit" element={
+              <ProtectedRoute module="audit" level="view">
+                <ActivityLoggerProfessional />
+              </ProtectedRoute>
+            } />
+            
+            {/* Legacy Activity Logger - OLD VERSION */}
+            <Route path="/audit/legacy" element={
+              <ProtectedRoute module="audit" level="view">
+                <ActivityLogger />
+              </ProtectedRoute>
+            } />
+            
+            {/* Role Management System - NEW COMPLETE VERSION */}
+            <Route path="/admin/roles" element={
+              <ProtectedRoute module="user_management" level="full">
+                <RoleManagementComplete />
+              </ProtectedRoute>
+            } />
+            
+         
+            
+            {/* Role Management System (Admin Only) */}
+            <Route path="/admin/users" element={
+              <ProtectedRoute module="user_management" level="full">
+                <RoleManagementComplete />
+              </ProtectedRoute>
+            } />
+            
+            {/* Permission Management (Admin Only) */}
+            <Route path="/admin/permissions" element={
+              <ProtectedRoute module="user_management" level="full">
+                <PermissionManagementSimple />
+              </ProtectedRoute>
+            } />
+            
+            {/* Activity Logger Redesigned (Admin Only) */}
+            <Route path="/admin/activity" element={
+              <ProtectedRoute module="audit" level="view">
+                <ActivityLoggerProfessional />
+              </ProtectedRoute>
+            } />
             
             {/* Business Finance Dashboard */}
-            <Route path="/finance" element={<BusinessFinanceDashboard />} />
+            <Route path="/finance" element={
+              <ProtectedRoute module="reports" level="view">
+                <BusinessFinanceDashboard />
+              </ProtectedRoute>
+            } />
             
             {/* Product Movement Details */}
 
-            <Route path="/stock/receiving/:id" element={<StockReceivingDetail />} />
+            <Route path="/stock/receiving/:id" element={
+              <ProtectedRoute module="inventory" level="view">
+                <StockReceivingDetail />
+              </ProtectedRoute>
+            } />
             {/* Stock Management */}
-            <Route path="/stock/receiving" element={<StockReceivingList />} />
-            <Route path="/stock/receiving/new" element={<StockReceivingNew />} />
+            <Route path="/stock/receiving" element={
+              <ProtectedRoute module="inventory" level="view">
+                <StockReceivingList />
+              </ProtectedRoute>
+            } />
+            <Route path="/stock/receiving/new" element={
+              <ProtectedRoute module="inventory" level="edit">
+                <StockReceivingNew />
+              </ProtectedRoute>
+            } />
             
             {/* Vendor Management */}
-            <Route path="/vendors" element={<VendorManagement />} />
-            <Route path="/vendors/:id" element={<VendorDetail />} />
+            <Route path="/vendors" element={
+              <ProtectedRoute module="vendors" level="view">
+                <VendorManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="/vendors/:id" element={
+              <ProtectedRoute module="vendors" level="view">
+                <VendorDetail />
+              </ProtectedRoute>
+            } />
             <Route path="/vendors/edit/:id" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Vendor</h2>
-                <p className="text-gray-600">Vendor edit form will be implemented here.</p>
-              </div>
+              <ProtectedRoute module="vendors" level="edit">
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Vendor</h2>
+                  <p className="text-gray-600">Vendor edit form will be implemented here.</p>
+                </div>
+              </ProtectedRoute>
             } />
             
             {/* Loan Management */}
-            <Route path="/loan/ledger" element={<LoanLedger />} />
-            <Route path="/loan-detail/:customerId" element={<CustomerLoanDetail />} />
+            <Route path="/loan/ledger" element={
+              <ProtectedRoute module="reports" level="view">
+                <LoanLedger />
+              </ProtectedRoute>
+            } />
+            <Route path="/loan-detail/:customerId" element={
+              <ProtectedRoute module="reports" level="view">
+                <CustomerLoanDetail />
+              </ProtectedRoute>
+            } />
             
             {/* Activity Timeline */}
             <Route path="/activity" element={
@@ -341,6 +480,19 @@ function AppContent() {
             
             {/* Database Debug Tools */}
 
+            
+            {/* Database Initialization (Public Access) */}
+            <Route path="/init-db" element={
+              <div className="min-h-screen bg-gray-50 p-6">
+                <div className="max-w-4xl mx-auto">
+                  <div className="mb-6">
+                    <h1 className="text-3xl font-bold text-gray-900">Database Initialization</h1>
+                    <p className="text-gray-600">Initialize the database tables for the Steel Store Management System</p>
+                  </div>
+                  <DatabaseInitPanel />
+                </div>
+              </div>
+            } />
             
             {/* Catch-all redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />

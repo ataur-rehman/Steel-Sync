@@ -4,8 +4,8 @@ class EventBus {
   private debug: boolean = false; // Set to true for debugging
 
   constructor() {
-    // Enable debugging in development
-    this.debug = import.meta.env.DEV || false;
+    // Disable debugging to reduce console noise
+    this.debug = false; // Set to true only when debugging events
   }
 
   on(event: string, callback: Function) {
@@ -111,6 +111,14 @@ export const BUSINESS_EVENTS = {
   VENDOR_CREATED: 'vendor:created',
   VENDOR_UPDATED: 'vendor:updated',
   VENDOR_DELETED: 'vendor:deleted',
+  
+  // Staff events
+  STAFF_CREATED: 'staff:created',
+  STAFF_UPDATED: 'staff:updated',
+  STAFF_DELETED: 'staff:deleted',
+  STAFF_STATUS_CHANGED: 'staff:status_changed',
+  STAFF_LOGIN: 'staff:login',
+  STAFF_LOGOUT: 'staff:logout',
   
   // Ledger events
   CUSTOMER_LEDGER_UPDATED: 'customer_ledger:updated',

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { ActivityType, ModuleType } from '../../services/activityLogger';
 import type { Product } from '../../types';
 import { toast } from 'react-hot-toast';
 import { formatUnitString, parseUnit } from '../../utils/unitUtils';
@@ -11,6 +13,7 @@ interface StockAdjustmentProps {
 
 export default function StockAdjustment({ product, onSuccess }: StockAdjustmentProps) {
   const { db } = useDatabase();
+  const activityLogger = useActivityLogger();
   const [loading, setLoading] = useState(false);
   const [adjustment, setAdjustment] = useState({
     type: 'add' as 'add' | 'subtract',
@@ -67,6 +70,14 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
         finalQuantity,
         'manual_adjustment', 
         adjustment.notes
+      );
+      
+      // Log the stock adjustment activity
+      activityLogger.logCustomActivity(
+        ActivityType.UPDATE,
+        ModuleType.STOCK,
+        product.id,
+        `${adjustment.type === 'add' ? 'Added' : 'Subtracted'} ${adjustment.quantity} of ${product.name} (${adjustment.notes || 'No notes'})`
       );
       
       toast.success('Stock adjusted successfully');

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import InvoiceDetails from './InvoiceDetails';
 import Modal from '../common/Modal';
 import { formatUnitString } from '../../utils/unitUtils';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import {
   Search,
@@ -753,7 +754,7 @@ const InvoiceList: React.FC = () => {
                           <Receipt className="h-5 w-5 text-blue-600" />
                         </div>
                         <div>
-                          <h3 className="font-semibold text-gray-900">{invoice.bill_number}</h3>
+                          <h3 className="font-semibold text-gray-900">{formatInvoiceNumber(invoice.bill_number)}</h3>
                           <p className="text-xs text-gray-500">{formatDate(invoice.created_at)}</p>
                         </div>
                       </div>
@@ -904,7 +905,7 @@ const InvoiceList: React.FC = () => {
                             <div className="flex items-center space-x-3">
                               
                               <div>
-                                <div className="text-sm font-semibold text-gray-900">{invoice.bill_number}</div>
+                                <div className="text-sm font-semibold text-gray-900">{formatInvoiceNumber(invoice.bill_number)}</div>
                                 {invoice.notes && (
                                   <div className="text-xs text-gray-500 truncate max-w-32" title={invoice.notes}>
                                     {invoice.notes}

@@ -17,6 +17,7 @@ import {
 import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 
 interface LoanCustomer {
@@ -34,6 +35,7 @@ interface LoanCustomer {
 
 const LoanLedger: React.FC = () => {
   const navigate = useNavigate();
+  const activityLogger = useActivityLogger();
   const [customers, setCustomers] = useState<LoanCustomer[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<LoanCustomer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,7 +198,7 @@ const LoanLedger: React.FC = () => {
     navigate(`/payment?customer_id=${customerId}&source=loan_ledger`);
   };
 
-  const exportToCSV = () => {
+  const exportToCSV = async () => {
     const headers = [
       'Customer Name', 'Phone', 'Outstanding Amount', 
       'Days Overdue', 'Last Payment Date'
@@ -221,6 +223,9 @@ const LoanLedger: React.FC = () => {
     a.download = `loan-ledger-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
+    
+    // Log activity
+    await activityLogger.logReportExported('Loan Ledger', 'CSV');
     
     toast.success('Loan ledger exported successfully');
   };

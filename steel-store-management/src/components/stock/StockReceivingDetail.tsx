@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
 import { formatUnitString } from '../../utils/unitUtils';
+import { formatReceivingNumber } from '../../utils/numberFormatting';
 import toast from 'react-hot-toast';
 import { Plus } from 'lucide-react';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
@@ -115,7 +116,7 @@ const StockReceivingDetail: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <SmartDetailHeader
-        title={`Receiving #${receiving.receiving_number}`}
+        title={`Receiving #${formatReceivingNumber(receiving.receiving_number)}`}
         subtitle={`Received on ${new Date(receiving.date).toLocaleDateString()} • ${items.length} items`}
         fromPage={getFromPage() || undefined}
         backButtonMode="auto"
@@ -342,7 +343,7 @@ const StockReceivingDetail: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <span className="block text-sm font-medium text-gray-500 mb-1">Receiving Number</span>
-                <span className="text-sm text-gray-900 font-mono">{receiving.receiving_number}</span>
+                <span className="text-sm text-gray-900 font-mono">{formatReceivingNumber(receiving.receiving_number)}</span>
               </div>
               <div>
                 <span className="block text-sm font-medium text-gray-500 mb-1">Date</span>

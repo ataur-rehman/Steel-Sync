@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import type { Customer } from '../../types';
 import { toast } from 'react-hot-toast';
 
@@ -10,6 +11,7 @@ interface CustomerFormProps {
 
 export default function CustomerForm({ customer, onSuccess }: CustomerFormProps) {
   const { db } = useDatabase();
+  const activityLogger = useActivityLogger();
   const [loading, setLoading] = useState(false);
   const [showOptional, setShowOptional] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -56,10 +58,20 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
 
     try {
       if (customer) {
+        // Update customer
         await db.updateCustomer(customer.id, formData);
+        
+        // Log activity
+        await activityLogger.logCustomerUpdated(customer.id, formData.name, formData);
+        
         toast.success('Customer updated successfully');
       } else {
-        await db.createCustomer(formData);
+        // Create customer
+        const newCustomerId = await db.createCustomer(formData);
+        
+        // Log activity
+        await activityLogger.logCustomerCreated(newCustomerId, formData.name);
+        
         toast.success('Customer created successfully');
       }
       onSuccess();

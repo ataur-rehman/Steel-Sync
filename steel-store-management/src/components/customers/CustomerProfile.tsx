@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { toast } from 'react-hot-toast';
 import { formatCurrency } from '../../utils/calculations';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { useNavigation } from '../../hooks/useNavigation';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
@@ -498,7 +499,7 @@ export default function CustomerProfile() {
                             </div>
                             <div>
                               <div className="text-sm font-medium text-gray-900">
-                                #{invoice.bill_number || invoice.id}
+                                #{invoice.bill_number ? formatInvoiceNumber(invoice.bill_number) : invoice.id}
                               </div>
                               <div className="text-xs text-gray-500">
                                 ID: {invoice.id}

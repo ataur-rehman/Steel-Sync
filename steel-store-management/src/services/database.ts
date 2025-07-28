@@ -9232,6 +9232,112 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       throw error;
     }
   }
+
+  // ==========================================
+  // STAFF MANAGEMENT METHODS
+  // ==========================================
+
+  /**
+   * Execute raw SQL command (for CREATE, INSERT, UPDATE, DELETE)
+   */
+  async executeCommand(query: string, params: any[] = []): Promise<any> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      return await this.dbConnection.execute(query, params);
+    } catch (error) {
+      console.error('❌ [DB] Command execution failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Initialize staff management tables
+   */
+  async initializeStaffTables(): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Enhanced staff table with additional fields
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS staff_management (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT UNIQUE,
+          full_name TEXT NOT NULL,
+          phone TEXT,
+          role TEXT NOT NULL CHECK (role IN ('admin', 'manager', 'salesperson', 'accountant', 'stock_manager')),
+          department TEXT NOT NULL,
+          hire_date TEXT NOT NULL,
+          salary REAL DEFAULT 0,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          last_login TEXT,
+          permissions TEXT NOT NULL DEFAULT '[]',
+          created_by TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          password_hash TEXT,
+          employee_id TEXT UNIQUE,
+          address TEXT,
+          cnic TEXT,
+          emergency_contact TEXT,
+          position TEXT,
+          basic_salary REAL DEFAULT 0,
+          joining_date TEXT
+        )
+      `);
+
+      // Staff sessions table for session management
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS staff_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_id INTEGER NOT NULL,
+          token TEXT NOT NULL UNIQUE,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          expires_at DATETIME NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          ip_address TEXT,
+          user_agent TEXT,
+          FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE
+        )
+      `);
+
+      // Staff activity log table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS staff_activities (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_id INTEGER NOT NULL,
+          staff_name TEXT NOT NULL,
+          activity_type TEXT NOT NULL CHECK (activity_type IN ('login', 'logout', 'action', 'error')),
+          description TEXT NOT NULL,
+          ip_address TEXT,
+          user_agent TEXT,
+          metadata TEXT DEFAULT '{}',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE
+        )
+      `);
+
+      // Create indexes for performance
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_username ON staff_management(username)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_email ON staff_management(email)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_role ON staff_management(role)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_department ON staff_management(department)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_active ON staff_management(is_active)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_sessions_token ON staff_sessions(token)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_sessions_staff_id ON staff_sessions(staff_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_activities_staff_id ON staff_activities(staff_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_activities_created_at ON staff_activities(created_at)`);
+
+      console.log('✅ [DB] Staff management tables initialized successfully');
+    } catch (error) {
+      console.error('❌ [DB] Failed to initialize staff management tables:', error);
+      throw error;
+    }
+  }
 }
 
 // Initialize enhanced features in the background without interfering with main functionality

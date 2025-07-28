@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/calculations';
 import { parseCurrency } from '../../utils/currency';
 import { formatUnitString, parseUnit, validateUnit, getUnitTypeConfig } from '../../utils/unitUtils';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 
 import {
   Plus,
@@ -377,7 +378,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Invoice ${invoice.bill_number}</title>
+          <title>Invoice ${formatInvoiceNumber(invoice.bill_number)}</title>
           <style>
             @page { size: 80mm auto; margin: 0; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -418,7 +419,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
           <div class="invoice-info">
             <div class="invoice-row">
               <span>Invoice#:</span>
-              <span><strong>${invoice.bill_number}</strong></span>
+              <span><strong>${formatInvoiceNumber(invoice.bill_number)}</strong></span>
             </div>
             <div class="invoice-row">
               <span>Date:</span>
@@ -567,7 +568,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             </button>
             <div>
               <h1 className="text-xl font-semibold text-gray-900">
-                Invoice #{invoice.bill_number}
+                Invoice #{formatInvoiceNumber(invoice.bill_number)}
               </h1>
               <p className="text-sm text-gray-500">{formatDateTime(invoice.created_at)}</p>
             </div>

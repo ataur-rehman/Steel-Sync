@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
+import { formatReceivingNumber } from '../../utils/numberFormatting';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { ActivityType, ModuleType } from '../../services/activityLogger';
 import toast from 'react-hot-toast';
 
 interface PaymentForm {
@@ -21,6 +24,7 @@ const StockReceivingPayment: React.FC = () => {
     const [showOptional, setShowOptional] = useState(false);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const activityLogger = useActivityLogger();
   
   const [receiving, setReceiving] = useState<any>(null);
   const [, setVendor] = useState<any>(null);
@@ -185,6 +189,14 @@ const StockReceivingPayment: React.FC = () => {
       // Update stock receiving payment status
       await db.updateStockReceivingPayment(receiving.id, form.amount);
       
+      // Log the payment recording activity
+      activityLogger.logCustomActivity(
+        ActivityType.PAYMENT,
+        ModuleType.PAYMENTS,
+        paymentId,
+        `Recorded payment of ₹${form.amount.toLocaleString()} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
+      );
+      
       toast.success('Payment recorded successfully!');
       // Navigate back to the receiving detail page to show updated data
       navigate(`/stock/receiving/${receiving.id}`);
@@ -236,7 +248,7 @@ const StockReceivingPayment: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Add Payment</h1>
-          <p className="mt-1 text-sm text-gray-500">Record payment for receiving #{receiving.receiving_number}</p>
+          <p className="mt-1 text-sm text-gray-500">Record payment for receiving #{formatReceivingNumber(receiving.receiving_number)}</p>
         </div>
         <button
           onClick={() => navigate('/stock/receiving')}
@@ -252,7 +264,7 @@ const StockReceivingPayment: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm text-gray-500 mb-1">Receiving #</label>
-            <p className="text-sm font-semibold text-gray-900">{receiving.receiving_number}</p>
+            <p className="text-sm font-semibold text-gray-900">{formatReceivingNumber(receiving.receiving_number)}</p>
           </div>
           <div>
             <label className="block text-sm text-gray-500 mb-1">Vendor</label>

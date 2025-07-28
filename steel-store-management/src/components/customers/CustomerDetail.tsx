@@ -2,14 +2,19 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { ActivityType, ModuleType } from '../../services/activityLogger';
 import type { Customer } from '../../types';
 import { toast } from 'react-hot-toast';
 import { Edit, Trash2, FileText, DollarSign, Calendar, MapPin, Phone, CreditCard } from 'lucide-react';
 import { formatCurrency } from '../../utils/calculations';
-import SmartDetailHeader from '../common/SmartDetailHeader';export default function CustomerDetail() {
+import SmartDetailHeader from '../common/SmartDetailHeader';
+
+export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const { db } = useDatabase();
   const { navigateTo, goBack, getFromPage } = useSmartNavigation();
+  const activityLogger = useActivityLogger();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -41,6 +46,15 @@ import SmartDetailHeader from '../common/SmartDetailHeader';export default funct
     
     try {
       await db.deleteCustomer(customer.id);
+      
+      // Log the customer deletion activity
+      activityLogger.logCustomActivity(
+        ActivityType.DELETE,
+        ModuleType.CUSTOMERS,
+        customer.id,
+        `Deleted customer: ${customer.name} (Phone: ${customer.phone})`
+      );
+      
       toast.success('Customer deleted successfully');
       navigateTo('/customers');
     } catch (error: any) {

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 
 interface PaymentChannel {
   id: number;
@@ -58,6 +59,7 @@ interface PaymentChannelStats {
 
 const PaymentChannelManagement: React.FC = () => {
   const navigate = useNavigate();
+  const activityLogger = useActivityLogger();
   const [channels, setChannels] = useState<PaymentChannel[]>([]);
   const [stats, setStats] = useState<PaymentChannelStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -176,13 +178,22 @@ const PaymentChannelManagement: React.FC = () => {
     }
 
     try {
+      let result;
       if (editingChannel) {
         // Update existing channel
-        await db.updatePaymentChannel(editingChannel.id, formData);
+        result = await db.updatePaymentChannel(editingChannel.id, formData);
+        
+        // Log activity
+        await activityLogger.logPaymentChannelUpdated(editingChannel.id, formData.name);
+        
         toast.success('Payment channel updated successfully');
       } else {
         // Create new channel
-        await db.createPaymentChannel(formData);
+        result = await db.createPaymentChannel(formData);
+        
+        // Log activity
+        await activityLogger.logPaymentChannelCreated(result, formData.name, formData.type);
+        
         toast.success('Payment channel created successfully');
       }
       
@@ -226,6 +237,10 @@ const PaymentChannelManagement: React.FC = () => {
     
     try {
       await db.deletePaymentChannel(channel.id);
+      
+      // Log activity
+      await activityLogger.logPaymentChannelDeleted(channel.id, channel.name);
+      
       const action = hasTransactions ? 'deactivated' : 'deleted';
       toast.success(`Payment channel ${action} successfully`);
       await loadData();
@@ -237,7 +252,14 @@ const PaymentChannelManagement: React.FC = () => {
 
   const toggleStatus = async (id: number) => {
     try {
+      const channel = channels.find(c => c.id === id);
       const newStatus = await db.togglePaymentChannelStatus(id);
+      
+      // Log activity
+      if (channel) {
+        await activityLogger.logPaymentChannelStatusChanged(id, channel.name, newStatus);
+      }
+      
       toast.success(`Payment channel ${newStatus ? 'activated' : 'deactivated'} successfully`);
       await loadData();
     } catch (error: any) {

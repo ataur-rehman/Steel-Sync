@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import {
   RotateCcw,
   Search,
@@ -556,7 +557,7 @@ const Returns: React.FC = () => {
                           </div>
                           {returnItem.invoice_number && (
                             <div className="text-sm text-blue-600">
-                              Ref: {returnItem.invoice_number}
+                              Ref: {formatInvoiceNumber(returnItem.invoice_number)}
                             </div>
                           )}
                         </div>
@@ -685,7 +686,7 @@ const Returns: React.FC = () => {
                     <p><span className="text-gray-600">Refund Method:</span> {selectedReturn.refund_method && typeof selectedReturn.refund_method === 'string' ? selectedReturn.refund_method.replace('_', ' ') : 'N/A'}</p>
                     <p><span className="text-gray-600">Reason:</span> {selectedReturn.reason}</p>
                     {selectedReturn.invoice_number && (
-                      <p><span className="text-gray-600">Original Invoice:</span> {selectedReturn.invoice_number}</p>
+                      <p><span className="text-gray-600">Original Invoice:</span> {formatInvoiceNumber(selectedReturn.invoice_number)}</p>
                     )}
                   </div>
                 </div>
@@ -890,7 +891,7 @@ const Returns: React.FC = () => {
                       .filter(invoice => !newReturn.customer_id || invoice.customer_id === newReturn.customer_id)
                       .map(invoice => (
                         <option key={invoice.id} value={invoice.id}>
-                          {invoice.bill_number} - {formatCurrency(invoice.grand_total)}
+                          {formatInvoiceNumber(invoice.bill_number)} - {formatCurrency(invoice.grand_total)}
                         </option>
                       ))
                     }

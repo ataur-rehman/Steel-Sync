@@ -3,7 +3,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
+import { formatCustomerCode, formatInvoiceNumber } from '../../utils/numberFormatting';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import {
   Search,
   FileText,
@@ -295,6 +297,7 @@ const CustomerLedger: React.FC = () => {
   // State management
   const navigate = useNavigate();
   const location = useLocation();
+  const activityLogger = useActivityLogger();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransaction[]>([]);
@@ -639,7 +642,7 @@ const CustomerLedger: React.FC = () => {
       }, selectedInvoice || undefined);
       
       const invoiceInfo = selectedInvoice ? 
-        ` (allocated to Invoice ${customerInvoices.find(inv => inv.id === selectedInvoice)?.bill_number})` : '';
+        ` (allocated to Invoice ${formatInvoiceNumber(customerInvoices.find(inv => inv.id === selectedInvoice)?.bill_number || '')})` : '';
       
       toast.success(`Payment of ${formatCurrency(newPayment.amount)} recorded for ${selectedCustomer.name}${invoiceInfo}`);
       
@@ -695,7 +698,7 @@ const CustomerLedger: React.FC = () => {
     });
   };
 
-  const exportLedger = () => {
+  const exportLedger = async () => {
     if (!selectedCustomer || !filteredTransactions.length) {
       toast.error('No data to export');
       return;
@@ -722,6 +725,9 @@ const CustomerLedger: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    
+    // Log activity
+    await activityLogger.logReportExported(`Customer Ledger (${selectedCustomer.name})`, 'CSV');
     
     toast.success('Ledger exported successfully');
   };
@@ -760,7 +766,7 @@ const CustomerLedger: React.FC = () => {
           
           <div class="customer-info">
             <strong>Account Name:</strong> ${selectedCustomer.name}<br>
-            <strong>Account No.:</strong> ${selectedCustomer.customer_code || selectedCustomer.id.toString().padStart(6, '0')}<br>
+            <strong>Account No.:</strong> ${formatCustomerCode(selectedCustomer.customer_code || selectedCustomer.id.toString().padStart(6, '0'))}<br>
             <strong>Phone:</strong> ${selectedCustomer.phone || 'N/A'}<br>
             <strong>Current Balance:</strong> ${formatCurrency(selectedCustomer.total_balance)}
           </div>
@@ -875,7 +881,7 @@ const CustomerLedger: React.FC = () => {
               <h3 className="text-sm font-medium text-gray-500 mb-2">Account Information</h3>
               <div className="space-y-1">
                 <p className="text-lg font-semibold text-gray-900">{selectedCustomer?.name}</p>
-                <p className="text-sm text-gray-600">Account No: {selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0')}</p>
+                <p className="text-sm text-gray-600">Account No: {formatCustomerCode(selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0') || '')}</p>
                 {selectedCustomer?.phone && (
                   <p className="text-sm text-gray-600">Phone: {selectedCustomer.phone}</p>
                 )}
@@ -1198,7 +1204,7 @@ const CustomerLedger: React.FC = () => {
                     <option value="">General Payment (No specific invoice)</option>
                     {customerInvoices.map(invoice => (
                       <option key={invoice.id} value={invoice.id}>
-                        {invoice.bill_number} - Balance: {formatCurrency(invoice.balance_amount)} (Date: {invoice.date})
+                        {formatInvoiceNumber(invoice.bill_number)} - Balance: {formatCurrency(invoice.balance_amount)} (Date: {invoice.date})
                       </option>
                     ))}
                   </select>

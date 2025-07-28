@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
 import { formatUnitString } from '../../utils/unitUtils';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { Printer, Edit, Trash2, DollarSign, Package, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SmartDetailHeader from '../common/SmartDetailHeader';
@@ -100,7 +101,7 @@ export default function InvoiceView() {
     if (!invoice) return;
     
     const confirmed = window.confirm(
-      `Are you sure you want to delete Invoice #${invoice.bill_number}? This action cannot be undone.`
+      `Are you sure you want to delete Invoice #${formatInvoiceNumber(invoice.bill_number)}? This action cannot be undone.`
     );
     
     if (confirmed) {
@@ -170,7 +171,7 @@ export default function InvoiceView() {
   return (
     <div className="min-h-screen bg-gray-50">
       <SmartDetailHeader
-        title={`Invoice #${invoice.bill_number}`}
+        title={`Invoice #${formatInvoiceNumber(invoice.bill_number)}`}
         subtitle={`${invoice.customer_name} • ${new Date(invoice.created_at).toLocaleDateString()}`}
         backToListPath="/billing/list"
         backToListLabel="Back to Invoices"
@@ -209,7 +210,7 @@ export default function InvoiceView() {
           <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6">
             <div className="flex justify-between items-start">
               <div>
-                <h1 className="text-2xl font-bold">Invoice #{invoice.bill_number}</h1>
+                <h1 className="text-2xl font-bold">Invoice #{formatInvoiceNumber(invoice.bill_number)}</h1>
                 <p className="text-blue-100 mt-1">
                   Created on {new Date(invoice.date).toLocaleDateString()}
                 </p>

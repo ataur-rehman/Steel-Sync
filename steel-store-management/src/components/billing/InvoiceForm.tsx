@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, hasSufficientStock, getStockAsNumber, getAlertLevelAsNumber, type UnitType } from '../../utils/unitUtils';
 import { parseCurrency, roundCurrency, addCurrency, subtractCurrency } from '../../utils/currency';
 import { calculateTotal, calculateDiscount } from '../../utils/calculations';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { 
   Search, 
   Trash2, 
@@ -92,6 +94,7 @@ const InvoiceForm: React.FC = () => {
   const [showOptional, setShowOptional] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const activityLogger = useActivityLogger();
   
   // Helper function to convert quantity string to numeric value for calculations - YOUR FUNCTION
   const getQuantityAsNumber = (quantityString: string, unitType?: string): number => {
@@ -602,12 +605,24 @@ const handleSubmit = async () => {
     // Create invoice - the database will handle all retries internally
     const result = await db.createInvoice(invoiceData);
     
+    // Log activity
+    try {
+      await activityLogger.logInvoiceCreated(
+        result.bill_number, 
+        selectedCustomer?.name || 'Unknown Customer',
+        calculations.grandTotal
+      );
+    } catch (error) {
+      console.error('Failed to log invoice creation activity:', error);
+      // Don't fail the main operation if logging fails
+    }
+    
     // Success
     import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
       triggerInvoiceCreatedRefresh(result);
     });
     
-    toast.success(`Invoice created successfully! Bill Number: ${result.bill_number}`, {
+    toast.success(`Invoice created successfully! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
       duration: 5000
     });
     

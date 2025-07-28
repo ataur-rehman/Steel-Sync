@@ -5,6 +5,7 @@ import { db } from '../../services/database';
 import { formatCurrency } from '../../utils/formatters';
 import { parseUnit, formatUnitString } from '../../utils/unitUtils';
 import toast from 'react-hot-toast';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 
 interface StockReceivingItem {
   product_id: number;
@@ -30,6 +31,7 @@ interface StockReceivingForm {
 
 const StockReceivingNew: React.FC = () => {
   const navigate = useNavigate();
+  const activityLogger = useActivityLogger();
   const [vendors, setVendors] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -250,7 +252,7 @@ const StockReceivingNew: React.FC = () => {
     try {
       setSubmitting(true);
       
-      await db.createStockReceiving({
+      const result = await db.createStockReceiving({
         vendor_id: form.vendor_id,
         vendor_name: form.vendor_name,
         total_amount: form.total_amount,
@@ -261,6 +263,9 @@ const StockReceivingNew: React.FC = () => {
         created_by: 'admin',
         items: form.items
       });
+
+      // Log activity
+      await activityLogger.logStockReceivingCreated(result, form.vendor_name, form.total_amount);
 
       toast.success('Stock receiving created successfully!');
       navigate('/stock/receiving');

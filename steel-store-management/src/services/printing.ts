@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { formatInvoiceNumber } from '../utils/numberFormatting';
 
 export class PrintingService {
   async printInvoice(invoice: any) {
@@ -154,7 +155,7 @@ export class PrintingService {
               ${invoice.customer_address || 'N/A'}
             </div>
             <div class="invoice-info">
-              <div class="invoice-number">Invoice: ${invoice.bill_number}</div>
+              <div class="invoice-number">Invoice: ${formatInvoiceNumber(invoice.bill_number)}</div>
               <div>Date: ${new Date(invoice.created_at).toLocaleDateString('en-PK', { 
                 year: 'numeric', 
                 month: 'short', 

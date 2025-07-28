@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { 
   ArrowLeft,
   Calendar,
@@ -105,7 +106,7 @@ const CustomerLoanDetail: React.FC = () => {
 
         return {
           id: invoice.id,
-          invoice_number: invoice.invoice_number || `INV-${invoice.id}`,
+          invoice_number: invoice.bill_number || `INV-${invoice.id}`,
           date: invoice.date,
           total_amount: invoice.total_amount,
           paid_amount: paidAmount,
@@ -422,7 +423,7 @@ const CustomerLoanDetail: React.FC = () => {
                 <div>
                   <h4 className="text-sm font-medium text-red-800">Urgent: Overdue Payment</h4>
                   <p className="text-sm text-red-700">
-                    Invoice {summary.oldestUnpaidInvoice.invoice_number} is {summary.oldestUnpaidInvoice.days_overdue} days overdue 
+                    Invoice {formatInvoiceNumber(summary.oldestUnpaidInvoice.invoice_number)} is {summary.oldestUnpaidInvoice.days_overdue} days overdue 
                     with {formatCurrency(summary.oldestUnpaidInvoice.outstanding)} outstanding.
                   </p>
                 </div>
@@ -490,7 +491,7 @@ const CustomerLoanDetail: React.FC = () => {
                       {invoices.map((invoice) => (
                         <tr key={invoice.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm font-medium text-gray-900">{invoice.invoice_number}</div>
+                            <div className="text-sm font-medium text-gray-900">{formatInvoiceNumber(invoice.invoice_number)}</div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="text-sm text-gray-900">{new Date(invoice.date).toLocaleDateString()}</div>

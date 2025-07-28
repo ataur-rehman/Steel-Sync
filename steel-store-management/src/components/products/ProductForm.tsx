@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../../services/database';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 import { 
   validateUnit, 
@@ -18,6 +19,7 @@ interface ProductFormProps {
 }
 
 const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel }) => {
+  const activityLogger = useActivityLogger();
   const [showOptional, setShowOptional] = useState(false);
   
   // Helper function to get display value for editing - using parseUnit for consistency
@@ -135,9 +137,17 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
       let result;
       if (product) {
         result = await db.updateProduct(product.id, productData);
+        
+        // Log activity
+        await activityLogger.logProductUpdated(product.id, fullName, productData);
+        
         toast.success('Product updated successfully!');
       } else {
         result = await db.createProduct(productData);
+        
+        // Log activity
+        await activityLogger.logProductCreated(result, fullName);
+        
         toast.success('Product added successfully!');
       }
 

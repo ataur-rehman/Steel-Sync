@@ -2,8 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
+import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
+import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import {
   Calendar,
   TrendingUp,
@@ -96,6 +98,7 @@ const OUTGOING_CATEGORIES = [
 const DailyLedger: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const activityLogger = useActivityLogger();
   
   // Core state
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -415,7 +418,7 @@ const DailyLedger: React.FC = () => {
             }, selectedInvoice || undefined);
 
             const invoiceInfo = selectedInvoice ? 
-              ` (allocated to Invoice ${customerInvoices.find(inv => inv.id === selectedInvoice)?.bill_number})` : '';
+              ` (allocated to Invoice ${formatInvoiceNumber(customerInvoices.find(inv => inv.id === selectedInvoice)?.bill_number || '')})` : '';
             
             toast.success(`Customer payment recorded successfully${invoiceInfo} and integrated with daily & customer ledgers`);
             
@@ -642,40 +645,51 @@ const DailyLedger: React.FC = () => {
     setSelectedDate(currentDate.toISOString().split('T')[0]);
   };
 
-  const exportData = () => {
+  const exportData = async () => {
     if (!entries.length) {
       toast.error('No data to export');
       return;
     }
 
-    const csvContent = [
-      ['Date', 'Time', 'Type', 'Category', 'Description', 'Amount', 'Customer', 'Payment Method', 'Notes', 'Bill Number', 'Source'],
-      ...entries.map(entry => [
-        entry.date,
-        entry.time,
-        entry.type,
-        entry.category,
-        entry.description,
-        entry.amount.toString(),
-        entry.customer_name || '',
-        entry.payment_method || '',
-        entry.notes || '',
-        entry.bill_number || '',
-        entry.is_manual ? 'Manual' : 'System'
-      ])
-    ].map(row => row.join(',')).join('\n');
+    try {
+      const csvContent = [
+        ['Date', 'Time', 'Type', 'Category', 'Description', 'Amount', 'Customer', 'Payment Method', 'Notes', 'Bill Number', 'Source'],
+        ...entries.map(entry => [
+          entry.date,
+          entry.time,
+          entry.type,
+          entry.category,
+          entry.description,
+          entry.amount.toString(),
+          entry.customer_name || '',
+          entry.payment_method || '',
+          entry.notes || '',
+          entry.bill_number || '',
+          entry.is_manual ? 'Manual' : 'System'
+        ])
+      ].map(row => row.join(',')).join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `daily_ledger_${selectedDate}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
-    toast.success('Data exported successfully');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `daily_ledger_${selectedDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      // Log export activity
+      await activityLogger.logReportExported(
+        'Daily Ledger', 
+        `Date: ${selectedDate}, Entries: ${entries.length}`
+      );
+      
+      toast.success('Data exported successfully');
+    } catch (error) {
+      console.error('Failed to export daily ledger:', error);
+      toast.error('Failed to export data');
+    }
   };
 
   // Enhanced filter entries - now includes bill number search
@@ -795,7 +809,7 @@ const DailyLedger: React.FC = () => {
             )}
             {entry.bill_number && (
               <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                {entry.bill_number}
+                {formatInvoiceNumber(entry.bill_number)}
               </span>
             )}
           </div>
@@ -1216,7 +1230,7 @@ const DailyLedger: React.FC = () => {
                           <option value="">General Payment (No specific invoice)</option>
                           {customerInvoices.map(invoice => (
                             <option key={invoice.id} value={invoice.id}>
-                              {invoice.bill_number} - Balance: {formatCurrency(invoice.remaining_balance)} (Date: {invoice.date})
+                              {formatInvoiceNumber(invoice.bill_number)} - Balance: {formatCurrency(invoice.remaining_balance)} (Date: {invoice.date})
                             </option>
                           ))}
                         </select>
