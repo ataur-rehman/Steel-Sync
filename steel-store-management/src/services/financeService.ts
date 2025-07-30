@@ -357,24 +357,43 @@ class FinanceService {
         `, [monthStr]);
 
         // Get expenses for the month (salaries + business expenses)
-        const salaryExpensesResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(payment_amount), 0) as salary_expenses
-          FROM salary_payments 
-          WHERE payment_month = ?
-        `, [monthStr]);
+        let salaryExpenses = 0;
+        try {
+          const salaryExpensesResult = await db.executeRawQuery(`
+            SELECT COALESCE(SUM(payment_amount), 0) as salary_expenses
+            FROM salary_payments 
+            WHERE payment_month = ?
+          `, [monthStr]);
+          salaryExpenses = salaryExpensesResult[0]?.salary_expenses || 0;
+        } catch (error: any) {
+          if (error.message?.includes('no such table: salary_payments')) {
+            console.warn('salary_payments table not found, using 0 for salary expenses');
+            salaryExpenses = 0;
+          } else {
+            throw error;
+          }
+        }
 
-        const businessExpensesResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(amount), 0) as business_expenses
-          FROM business_expenses 
-          WHERE strftime('%Y-%m', date) = ?
-        `, [monthStr]);
+        let businessExpenses = 0;
+        try {
+          const businessExpensesResult = await db.executeRawQuery(`
+            SELECT COALESCE(SUM(amount), 0) as business_expenses
+            FROM business_expenses 
+            WHERE strftime('%Y-%m', date) = ?
+          `, [monthStr]);
+          businessExpenses = businessExpensesResult[0]?.business_expenses || 0;
+        } catch (error: any) {
+          if (error.message?.includes('no such table: business_expenses')) {
+            console.warn('business_expenses table not found, using 0 for business expenses');
+            businessExpenses = 0;
+          } else {
+            throw error;
+          }
+        }
 
         const revenue = (revenueResult[0] as any)?.revenue || 0;
         const steelPurchases = (steelPurchasesResult[0] as any)?.steel_purchases || 0;
-        const totalExpenses = ((salaryExpensesResult[0] as any)?.salary_expenses || 0) + 
-                            ((businessExpensesResult[0] as any)?.business_expenses || 0);
-
-        const profit = revenue - steelPurchases - totalExpenses;
+        const totalExpenses = salaryExpenses + businessExpenses;        const profit = revenue - steelPurchases - totalExpenses;
 
         // Cash flow calculation (simplified)
         const cashFlow = revenue - totalExpenses;
@@ -431,11 +450,22 @@ class FinanceService {
         GROUP BY category
       `, [lastMonthStr]);
 
-      const lastMonthSalaryResult = await db.executeRawQuery(`
-        SELECT COALESCE(SUM(payment_amount), 0) as amount
-        FROM salary_payments 
-        WHERE payment_month = ?
-      `, [lastMonthStr]);
+      let lastMonthSalary = 0;
+      try {
+        const lastMonthSalaryResult = await db.executeRawQuery(`
+          SELECT COALESCE(SUM(payment_amount), 0) as amount
+          FROM salary_payments 
+          WHERE payment_month = ?
+        `, [lastMonthStr]);
+        lastMonthSalary = lastMonthSalaryResult[0]?.amount || 0;
+      } catch (error: any) {
+        if (error.message?.includes('no such table: salary_payments')) {
+          console.warn('salary_payments table not found, using 0 for last month salary');
+          lastMonthSalary = 0;
+        } else {
+          throw error;
+        }
+      }
 
       // Calculate total expenses
       const businessExpensesByCategory = businessExpensesResult as any[];
@@ -445,8 +475,7 @@ class FinanceService {
 
       const breakdown: ExpenseBreakdown[] = [];
 
-      // Add salary expenses
-      const lastMonthSalary = (lastMonthSalaryResult[0] as any)?.amount || 0;
+      // Add salary expenses (using lastMonthSalary we calculated above)
       const salaryTrend = lastMonthSalary > 0 ? ((totalSalaryExpenses - lastMonthSalary) / lastMonthSalary) * 100 : 0;
       
       breakdown.push({
@@ -612,11 +641,22 @@ class FinanceService {
         const monthName = date.toLocaleDateString('en-US', { month: 'short' });
 
         // Get salary expenses
-        const salaryResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(payment_amount), 0) as amount
-          FROM salary_payments 
-          WHERE payment_month = ?
-        `, [monthStr]);
+        let salaries = 0;
+        try {
+          const salaryResult = await db.executeRawQuery(`
+            SELECT COALESCE(SUM(payment_amount), 0) as amount
+            FROM salary_payments 
+            WHERE payment_month = ?
+          `, [monthStr]);
+          salaries = salaryResult[0]?.amount || 0;
+        } catch (error: any) {
+          if (error.message?.includes('no such table: salary_payments')) {
+            console.warn('salary_payments table not found, using 0 for salary expenses');
+            salaries = 0;
+          } else {
+            throw error;
+          }
+        }
 
         // Get business expenses by category
         const expensesResult = await db.executeRawQuery(`
@@ -628,7 +668,7 @@ class FinanceService {
           GROUP BY category
         `, [monthStr]);
 
-        const salaries = (salaryResult[0] as any)?.amount || 0;
+        // Now we use the salaries value we already calculated above
         const expenses = expensesResult as any[];
         
         const transport = expenses.find(e => e.category === 'transport')?.amount || 0;
@@ -685,22 +725,42 @@ class FinanceService {
         `, [monthStr]);
 
         // Get total expenses
-        const salaryResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(payment_amount), 0) as salaries
-          FROM salary_payments 
-          WHERE payment_month = ?
-        `, [monthStr]);
+        let salaries = 0;
+        try {
+          const salaryResult = await db.executeRawQuery(`
+            SELECT COALESCE(SUM(payment_amount), 0) as salaries
+            FROM salary_payments 
+            WHERE payment_month = ?
+          `, [monthStr]);
+          salaries = salaryResult[0]?.salaries || 0;
+        } catch (error: any) {
+          if (error.message?.includes('no such table: salary_payments')) {
+            console.warn('salary_payments table not found, using 0 for salaries');
+            salaries = 0;
+          } else {
+            throw error;
+          }
+        }
 
-        const businessExpensesResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(amount), 0) as expenses
-          FROM business_expenses 
-          WHERE strftime('%Y-%m', date) = ?
-        `, [monthStr]);
+        let businessExpenses = 0;
+        try {
+          const businessExpensesResult = await db.executeRawQuery(`
+            SELECT COALESCE(SUM(amount), 0) as expenses
+            FROM business_expenses 
+            WHERE strftime('%Y-%m', date) = ?
+          `, [monthStr]);
+          businessExpenses = businessExpensesResult[0]?.expenses || 0;
+        } catch (error: any) {
+          if (error.message?.includes('no such table: business_expenses')) {
+            console.warn('business_expenses table not found, using 0 for business expenses');
+            businessExpenses = 0;
+          } else {
+            throw error;
+          }
+        }
 
         const revenue = (revenueResult[0] as any)?.revenue || 0;
         const cogs = (cogsResult[0] as any)?.cogs || 0;
-        const salaries = (salaryResult[0] as any)?.salaries || 0;
-        const businessExpenses = (businessExpensesResult[0] as any)?.expenses || 0;
         
         const grossProfit = revenue - cogs;
         const totalExpenses = salaries + businessExpenses;

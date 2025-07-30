@@ -133,7 +133,7 @@ class StaffService {
             COALESCE(created_by, 'system') as created_by,
             COALESCE(created_at, datetime('now')) as created_at,
             COALESCE(updated_at, datetime('now')) as updated_at
-          FROM staff;
+          FROM staff_management;
         `);
         
         // Drop old table and rename new one
@@ -191,7 +191,7 @@ class StaffService {
       
       // Check if it already exists
       const existing = await db.executeRawQuery(
-        'SELECT id FROM staff WHERE employee_id = ?',
+        'SELECT id FROM staff_management WHERE employee_id = ?',
         [employeeId]
       );
       
@@ -454,7 +454,7 @@ class StaffService {
       }
 
       const result = await db.executeCommand(
-        `SELECT permissions FROM staff WHERE id = ?`,
+        `SELECT permissions FROM staff_management WHERE id = ?`,
         [id]
       );
 
@@ -493,7 +493,7 @@ class StaffService {
         }
       }
 
-      await db.executeCommand('DELETE FROM staff WHERE id = ?', [id]);
+      await db.executeCommand('DELETE FROM staff_management WHERE id = ?', [id]);
 
       // Log audit event
       await auditLogService.logEvent({
@@ -521,7 +521,7 @@ class StaffService {
    */
   async getStaffById(id: number): Promise<Staff | null> {
     try {
-      const rows = await db.executeRawQuery('SELECT * FROM staff WHERE id = ?', [id]);
+      const rows = await db.executeRawQuery('SELECT * FROM staff_management WHERE id = ?', [id]);
       if (rows.length === 0) return null;
 
       const row = rows[0];
@@ -552,7 +552,7 @@ class StaffService {
    */
   async getStaffByEmployeeId(employeeId: string): Promise<Staff | null> {
     try {
-      const rows = await db.executeRawQuery('SELECT * FROM staff WHERE employee_id = ?', [employeeId]);
+      const rows = await db.executeRawQuery('SELECT * FROM staff_management WHERE employee_id = ?', [employeeId]);
       if (rows.length === 0) return null;
 
       const row = rows[0];
@@ -589,7 +589,7 @@ class StaffService {
     offset?: number;
   } = {}): Promise<Staff[]> {
     try {
-      let query = 'SELECT * FROM staff WHERE 1=1';
+      let query = 'SELECT * FROM staff_management WHERE 1=1';
       const params: any[] = [];
 
       if (filters.role) {
@@ -649,27 +649,80 @@ class StaffService {
    */
   async getStaffStatistics(): Promise<StaffStatistics> {
     try {
-      const [totalResult] = await db.executeRawQuery('SELECT COUNT(*) as count FROM staff');
-      const [activeResult] = await db.executeRawQuery('SELECT COUNT(*) as count FROM staff WHERE is_active = 1');
-      const [inactiveResult] = await db.executeRawQuery('SELECT COUNT(*) as count FROM staff WHERE is_active = 0');
+      // Initialize default values in case tables don't exist
+      let totalCount = 0;
+      let activeCount = 0;
+      let inactiveCount = 0;
+      let roleStats: any[] = [];
+      let recentActivitiesCount = 0;
+      let onlineCount = 0;
+
+      try {
+        const [totalResult] = await db.executeRawQuery('SELECT COUNT(*) as count FROM staff_management');
+        totalCount = totalResult.count;
+      } catch (error: any) {
+        if (error.message?.includes('no such table: staff_management')) {
+          console.warn('Staff management table not found, returning default values');
+        } else {
+          throw error;
+        }
+      }
+
+      try {
+        const [activeResult] = await db.executeRawQuery('SELECT COUNT(*) as count FROM staff_management WHERE is_active = 1');
+        activeCount = activeResult.count;
+      } catch (error: any) {
+        if (!error.message?.includes('no such table')) {
+          throw error;
+        }
+      }
+
+      try {
+        const [inactiveResult] = await db.executeRawQuery('SELECT COUNT(*) as count FROM staff_management WHERE is_active = 0');
+        inactiveCount = inactiveResult.count;
+      } catch (error: any) {
+        if (!error.message?.includes('no such table')) {
+          throw error;
+        }
+      }
       
-      const roleStats = await db.executeRawQuery(`
-        SELECT role, COUNT(*) as count 
-        FROM staff 
-        GROUP BY role
-      `);
+      try {
+        roleStats = await db.executeRawQuery(`
+          SELECT role, COUNT(*) as count 
+          FROM staff_management 
+          GROUP BY role
+        `);
+      } catch (error: any) {
+        if (!error.message?.includes('no such table')) {
+          throw error;
+        }
+      }
       
-      const [recentActivitiesResult] = await db.executeRawQuery(`
-        SELECT COUNT(*) as count 
-        FROM staff_activities 
-        WHERE created_at >= date('now', '-7 days')
-      `);
+      try {
+        const [recentActivitiesResult] = await db.executeRawQuery(`
+          SELECT COUNT(*) as count 
+          FROM staff_activities 
+          WHERE created_at >= date('now', '-7 days')
+        `);
+        recentActivitiesCount = recentActivitiesResult.count;
+      } catch (error: any) {
+        if (!error.message?.includes('no such table')) {
+          throw error;
+        }
+      }
       
-      const [onlineResult] = await db.executeRawQuery(`
-        SELECT COUNT(DISTINCT staff_id) as count 
-        FROM staff_sessions 
-        WHERE is_active = 1 AND expires_at > datetime('now')
-      `);
+      try {
+        const [onlineResult] = await db.executeRawQuery(`
+          SELECT COUNT(DISTINCT staff_id) as count 
+          FROM staff_sessions 
+          WHERE is_active = 1 AND expires_at > datetime('now')
+        `);
+        onlineCount = onlineResult.count;
+      } catch (error: any) {
+        if (!error.message?.includes('no such table')) {
+          throw error;
+        }
+      }
 
       const by_role: Record<string, number> = {};
       roleStats.forEach((stat: any) => {
@@ -677,12 +730,12 @@ class StaffService {
       });
 
       return {
-        total: totalResult.count,
-        active: activeResult.count,
-        inactive: inactiveResult.count,
+        total: totalCount,
+        active: activeCount,
+        inactive: inactiveCount,
         by_role,
-        recent_activities: recentActivitiesResult.count,
-        online_now: onlineResult.count
+        recent_activities: recentActivitiesCount,
+        online_now: onlineCount
       };
     } catch (error) {
       console.error('❌ Error fetching staff statistics:', error);
@@ -695,7 +748,7 @@ class StaffService {
    */
   async getStaffCount(filters: { role?: string; active?: boolean } = {}): Promise<number> {
     try {
-      let query = 'SELECT COUNT(*) as count FROM staff WHERE 1=1';
+      let query = 'SELECT COUNT(*) as count FROM staff_management WHERE 1=1';
       const params: any[] = [];
 
       if (filters.role) {

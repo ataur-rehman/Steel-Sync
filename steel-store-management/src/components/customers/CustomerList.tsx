@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useDetailNavigation } from '../../hooks/useDetailNavigation';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
@@ -12,7 +11,6 @@ import { formatCurrency } from '../../utils/calculations';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import ConfirmationModal from '../common/ConfirmationModal';
 export default function CustomerList() {
-  const navigate = useNavigate();
   const { navigateToDetail } = useDetailNavigation();
   const { db } = useDatabase();
   const activityLogger = useActivityLogger();

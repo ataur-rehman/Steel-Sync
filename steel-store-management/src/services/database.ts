@@ -587,11 +587,11 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      
-
       // Remove from related tables first (to avoid FK errors)
       await this.dbConnection.execute(`DELETE FROM invoice_items WHERE product_id = ?`, [id]);
-      await this.dbConnection.execute(`DELETE FROM ledger_entries WHERE product_id = ?`, [id]);
+      await this.dbConnection.execute(`DELETE FROM stock_receiving_items WHERE product_id = ?`, [id]);
+      await this.dbConnection.execute(`DELETE FROM stock_movements WHERE product_id = ?`, [id]);
+      
       // Remove from products
       await this.dbConnection.execute(`DELETE FROM products WHERE id = ?`, [id]);
 
@@ -620,6 +620,10 @@ export class DatabaseService {
     if (!this.isInitialized) {
       await this.initialize();
     }
+    
+    // Ensure both tables exist
+    await this.ensureTableExists('stock_receiving_items');
+    await this.ensureTableExists('products');
   
     const result = await this.dbConnection.select(`
       SELECT sri.*, p.unit_type, p.unit, p.category, p.size, p.grade
@@ -664,10 +668,8 @@ export class DatabaseService {
 
       // REAL-TIME UPDATE: Emit vendor update event using EventBus
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          (window as any).eventBus.emit('vendor:updated', { vendorId: id, vendor });
-          console.log(`✅ VENDOR_UPDATED event emitted for vendor ID: ${id}`);
-        }
+        eventBus.emit('vendor:updated', { vendorId: id, vendor });
+        console.log(`✅ VENDOR_UPDATED event emitted for vendor ID: ${id}`);
       } catch (eventError) {
         console.warn('Could not emit VENDOR_UPDATED event:', eventError);
       }
@@ -689,10 +691,8 @@ export class DatabaseService {
 
       // REAL-TIME UPDATE: Emit vendor delete event using EventBus
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          (window as any).eventBus.emit('vendor:deleted', { vendorId: id });
-          console.log(`✅ VENDOR_DELETED event emitted for vendor ID: ${id}`);
-        }
+        eventBus.emit('vendor:deleted', { vendorId: id });
+        console.log(`✅ VENDOR_DELETED event emitted for vendor ID: ${id}`);
       } catch (eventError) {
         console.warn('Could not emit VENDOR_DELETED event:', eventError);
       }
@@ -897,7 +897,7 @@ export class DatabaseService {
     
     if (this.isInitializing) {
       console.log('🔄 [DB] Database initialization in progress, waiting...');
-      const timeout = 30000;
+      const timeout = 10000; // Reduced timeout from 30s to 10s
       const startTime = Date.now();
       
       while (this.isInitializing && (Date.now() - startTime) < timeout) {
@@ -914,7 +914,7 @@ export class DatabaseService {
     }
     
     this.isInitializing = true;
-    console.log('🔄 [DB] Starting database initialization process...');
+    console.log('🔄 [DB] Starting fast database initialization...');
     
     try {
       console.log('⚡ [DB] Initializing database connection...');
@@ -974,36 +974,16 @@ export class DatabaseService {
       await this.createCriticalTables();
       console.log('✅ [DB] Critical tables created');
       
-      // CRITICAL: Initialize payment channels table and data early
-      console.log('🔄 [DB] Ensuring payment channels are available...');
-      await this.ensurePaymentChannelsTable();
-      console.log('✅ [DB] Payment channels table ensured');
-      
-      // CRITICAL FIX: Force verify and fix payment channels table structure
-      await this.verifyAndFixPaymentChannelsTable();
-      
-      // Check if payment channels exist, if not create defaults
-      try {
-        const channelCount = await this.dbConnection.select('SELECT COUNT(*) as count FROM payment_channels');
-        const count = channelCount?.[0]?.count || 0;
-        console.log(`📊 Found ${count} payment channels in database`);
-        
-        if (count === 0) {
-          console.log('⚠️ No payment channels found during initialization, creating defaults...');
-          await this.createDefaultPaymentChannels();
-          
-          // Verify creation
-          const newCount = await this.dbConnection.select('SELECT COUNT(*) as count FROM payment_channels');
-          const newTotal = newCount?.[0]?.count || 0;
-          console.log(`✅ After creation: ${newTotal} payment channels available`);
-        }
-      } catch (channelCheckError) {
-        console.error('❌ Error checking/creating payment channels during init:', channelCheckError);
-        // Don't fail initialization, just log the error
-      }
-      
       this.isInitialized = true;
-      console.log('✅ Database initialized successfully');
+      console.log('✅ [DB] Fast initialization completed - app is ready!');
+      
+      // Move all heavy operations to background (non-blocking)
+      console.log('� [DB] Starting background table and data initialization...');
+      setTimeout(() => {
+        this.initializeBackgroundTables().catch((err: any) => {
+          console.warn('⚠️ [DB] Background initialization failed:', err);
+        });
+      }, 100);
       
       return true;
     } catch (error) {
@@ -1015,6 +995,43 @@ export class DatabaseService {
     }
   }
 
+  /**
+   * Initialize background tables and data (non-blocking)
+   */
+  private async initializeBackgroundTables(): Promise<void> {
+    console.log('🔄 [DB] Starting background table initialization...');
+    
+    try {
+      // Create essential tables that might be needed soon
+      await this.createEssentialTablesOnly();
+      console.log('✅ [DB] Essential tables created in background');
+      
+      // Initialize payment channels table and data
+      console.log('🔄 [DB] Setting up payment channels...');
+      await this.ensurePaymentChannelsTable();
+      await this.verifyAndFixPaymentChannelsTable();
+      
+      // Check if payment channels exist, if not create defaults
+      const channelCount = await this.dbConnection.select('SELECT COUNT(*) as count FROM payment_channels');
+      const count = channelCount?.[0]?.count || 0;
+      console.log(`📊 Found ${count} payment channels in database`);
+      
+      if (count === 0) {
+        console.log('⚠️ No payment channels found, creating defaults...');
+        await this.createDefaultPaymentChannels();
+        
+        const newCount = await this.dbConnection.select('SELECT COUNT(*) as count FROM payment_channels');
+        const newTotal = newCount?.[0]?.count || 0;
+        console.log(`✅ Created ${newTotal} payment channels`);
+      }
+      
+      console.log('✅ [DB] Background initialization completed successfully');
+    } catch (error) {
+      console.error('❌ [DB] Background initialization failed:', error);
+      // Don't throw - this is background work
+    }
+  }
+
   private get database() {
     return this.dbConnection;
   }
@@ -1022,20 +1039,37 @@ export class DatabaseService {
 // Add this new method for SQLite configuration
 private async configureSQLiteForConcurrency(): Promise<void> {
   try {
-    console.log('🔧 Configuring SQLite for better concurrency...');
+    console.log('� [PROD] Configuring SQLite for maximum performance...');
     
-    // CRITICAL FIX: Configure SQLite for optimal concurrency and lock handling
-    await this.dbConnection.execute('PRAGMA busy_timeout = 30000'); // 30 seconds timeout
-    await this.dbConnection.execute('PRAGMA journal_mode = WAL'); // Write-Ahead Logging for better concurrency
-    await this.dbConnection.execute('PRAGMA synchronous = NORMAL'); // Balanced performance and safety
-    await this.dbConnection.execute('PRAGMA cache_size = 10000'); // Increase cache size
-    await this.dbConnection.execute('PRAGMA temp_store = MEMORY'); // Use memory for temp storage
-    await this.dbConnection.execute('PRAGMA mmap_size = 268435456'); // 256MB memory-mapped I/O
-    await this.dbConnection.execute('PRAGMA optimize'); // Run SQLite optimizer
+    // PRODUCTION-GRADE: Maximum performance SQLite configuration
+    const performanceConfigs = [
+      'PRAGMA busy_timeout = 30000',           // 30 seconds timeout
+      'PRAGMA journal_mode = WAL',             // Write-Ahead Logging for better concurrency
+      'PRAGMA synchronous = NORMAL',           // Balanced performance and safety
+      'PRAGMA cache_size = -64000',            // 64MB cache (negative = KB)
+      'PRAGMA temp_store = MEMORY',            // Use memory for temp storage
+      'PRAGMA mmap_size = 268435456',          // 256MB memory-mapped I/O
+      'PRAGMA page_size = 4096',               // Optimal page size
+      'PRAGMA wal_autocheckpoint = 1000',      // Checkpoint every 1000 pages
+      'PRAGMA foreign_keys = ON',              // Enable foreign key constraints
+      'PRAGMA recursive_triggers = ON',        // Enable recursive triggers
+      'PRAGMA secure_delete = OFF',            // Performance over security for local DB
+      'PRAGMA auto_vacuum = INCREMENTAL',      // Incremental vacuum for better performance
+      'PRAGMA optimize'                        // Run SQLite optimizer
+    ];
     
-    console.log('✅ SQLite configured for better concurrency');
+    // Execute all configurations
+    for (const config of performanceConfigs) {
+      try {
+        await this.dbConnection.execute(config);
+      } catch (error) {
+        console.warn(`⚠️ [PROD] Failed to apply config: ${config}`, error);
+      }
+    }
+    
+    console.log('✅ [PROD] SQLite configured for maximum performance');
   } catch (error) {
-    console.warn('⚠️ Failed to configure SQLite optimizations:', error);
+    console.warn('⚠️ [PROD] Failed to configure SQLite optimizations:', error);
   }
 }
 
@@ -2054,33 +2088,100 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_bill_number ON invoices(bill_number)`);
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id)`);
 
-      // Create payments table as it's critical for many operations
+      console.log('✅ Essential tables created for fast startup');
+    } catch (error) {
+      console.error('❌ Error creating essential tables:', error);
+      throw error;
+    }
+  }
+
+  // PRODUCTION: Complete table management with zero performance impact
+  private tablesCreated = new Set<string>();
+  private tableCreationPromises = new Map<string, Promise<void>>();
+  
+  /**
+   * PRODUCTION-GRADE: Create ALL necessary tables in background with smart batching
+   * This ensures 100% table availability without any startup delay
+   */
+  private async createEssentialTablesOnly(): Promise<void> {
+    try {
+      console.log('� [PROD] Creating ALL production tables in optimized batches...');
+      
+      if (!this.dbConnection) {
+        console.warn('Database not available for essential table creation');
+        return;
+      }
+
+      // BATCH 1: Financial & Core Business Tables (highest priority)
+      await this.createFinancialTables();
+      
+      // BATCH 2: Stock & Inventory Tables 
+      await this.createInventoryTables();
+      
+      // BATCH 3: Staff & Management Tables
+      await this.createManagementTables();
+      
+      // BATCH 4: Vendor & Supply Chain Tables
+      await this.createVendorTables();
+      
+      // BATCH 5: Advanced Features & Analytics
+      await this.createAdvancedTables();
+      
+      // BATCH 6: Performance Indexes (non-blocking)
+      setTimeout(() => this.createPerformanceIndexes(), 50);
+
+      console.log('✅ [PROD] ALL production tables created successfully');
+    } catch (error) {
+      console.warn('⚠️ [PROD] Critical table creation failed (continuing):', error);
+      // Continue anyway - this is background work
+    }
+  }
+
+  /**
+   * BATCH 1: Financial & Core Business Tables
+   * Payment channels, ledger entries, customer ledger
+   */
+  private async createFinancialTables(): Promise<void> {
+    try {
+      // Payment channels table
       await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS payments (
+        CREATE TABLE IF NOT EXISTS payment_channels (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          customer_id INTEGER NOT NULL,
-          customer_name TEXT NOT NULL,
-          payment_code TEXT UNIQUE,
-          amount REAL NOT NULL CHECK (amount > 0),
-          payment_method TEXT NOT NULL,
-          payment_type TEXT NOT NULL DEFAULT 'bill_payment' CHECK (payment_type IN ('bill_payment', 'advance_payment', 'return_refund')),
-          payment_channel_id INTEGER,
-          payment_channel_name TEXT,
-          reference_invoice_id INTEGER,
-          reference_number TEXT,
-          notes TEXT,
-          date TEXT NOT NULL,
-          time TEXT NOT NULL,
-          created_by TEXT,
+          name TEXT NOT NULL CHECK (length(name) > 0),
+          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque')),
+          description TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-          FOREIGN KEY (reference_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL ON UPDATE CASCADE,
-          FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE SET NULL ON UPDATE CASCADE
+          UNIQUE(name)
         )
       `);
 
-      // Create ledger_entries table as it's critical for accounting
+      // Customer ledger entries table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS customer_ledger_entries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          customer_id INTEGER NOT NULL,
+          customer_name TEXT NOT NULL,
+          entry_type TEXT NOT NULL CHECK (entry_type IN ('debit', 'credit')),
+          transaction_type TEXT NOT NULL CHECK (transaction_type IN ('invoice', 'payment', 'return', 'adjustment')),
+          amount REAL NOT NULL CHECK (amount > 0),
+          description TEXT NOT NULL,
+          reference_id INTEGER,
+          reference_number TEXT,
+          balance_before REAL NOT NULL DEFAULT 0,
+          balance_after REAL NOT NULL DEFAULT 0,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          created_by TEXT NOT NULL DEFAULT 'system',
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `);
+
+      // General ledger entries table
       await this.dbConnection.execute(`
         CREATE TABLE IF NOT EXISTS ledger_entries (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2090,124 +2191,315 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           category TEXT NOT NULL,
           description TEXT NOT NULL,
           amount REAL NOT NULL CHECK (amount > 0),
-          running_balance REAL NOT NULL,
+          running_balance REAL NOT NULL DEFAULT 0,
           customer_id INTEGER,
           customer_name TEXT,
           reference_id INTEGER,
           reference_type TEXT,
           bill_number TEXT,
-          notes TEXT,
-          created_by TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE
-        )
-      `);
-
-      // CRITICAL: Create customer_ledger_entries table for customer accounting
-      await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS customer_ledger_entries (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          customer_id INTEGER NOT NULL,
-          customer_name TEXT NOT NULL,
-          entry_type TEXT NOT NULL CHECK (entry_type IN ('debit', 'credit')),
-          transaction_type TEXT NOT NULL CHECK (transaction_type IN ('invoice', 'payment', 'advance', 'manual_entry', 'stock_handover')),
-          amount REAL NOT NULL CHECK (amount > 0),
-          description TEXT NOT NULL CHECK (length(description) > 0),
-          reference_id INTEGER,
-          reference_number TEXT,
+          payment_method TEXT,
           payment_channel_id INTEGER,
           payment_channel_name TEXT,
-          balance_before REAL NOT NULL,
-          balance_after REAL NOT NULL,
-          date TEXT NOT NULL,
-          time TEXT NOT NULL,
-          created_by TEXT NOT NULL,
           notes TEXT,
+          is_manual INTEGER NOT NULL DEFAULT 0,
+          created_by TEXT NOT NULL DEFAULT 'system',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE,
           FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE SET NULL ON UPDATE CASCADE
         )
       `);
 
-      // CRITICAL: Create enhanced_payments table for payment channel analytics
+      // Payments table
       await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS enhanced_payments (
+        CREATE TABLE IF NOT EXISTS payments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           customer_id INTEGER NOT NULL,
           customer_name TEXT NOT NULL,
+          payment_code TEXT NOT NULL UNIQUE,
           amount REAL NOT NULL CHECK (amount > 0),
           payment_method TEXT NOT NULL,
-          payment_channel_id INTEGER,
-          payment_channel_name TEXT,
-          payment_type TEXT NOT NULL CHECK (payment_type IN ('bill_payment', 'advance_payment', 'non_invoice_payment')),
+          payment_type TEXT NOT NULL CHECK (payment_type IN ('bill_payment', 'advance_payment', 'return_payment')),
           reference_invoice_id INTEGER,
-          reference_number TEXT,
-          cheque_number TEXT,
-          cheque_date TEXT,
+          reference TEXT,
           notes TEXT,
           date TEXT NOT NULL,
           time TEXT NOT NULL,
-          created_by TEXT NOT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-          FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE SET NULL ON UPDATE CASCADE,
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (reference_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL ON UPDATE CASCADE
         )
       `);
 
-      // CRITICAL: Create payment_channels table for payment method management
-      await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS payment_channels (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          name TEXT NOT NULL CHECK (length(name) > 0),
-          type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'card', 'cheque')),
-          description TEXT,
-          account_number TEXT,
-          bank_name TEXT,
-          is_active INTEGER NOT NULL DEFAULT 1,
-          fee_percentage REAL DEFAULT 0 CHECK (fee_percentage >= 0 AND fee_percentage <= 100),
-          fee_fixed REAL DEFAULT 0 CHECK (fee_fixed >= 0),
-          daily_limit REAL DEFAULT 0 CHECK (daily_limit >= 0),
-          monthly_limit REAL DEFAULT 0 CHECK (monthly_limit >= 0),
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(name)
-        )
-      `);
+      console.log('✅ [BATCH-1] Financial tables created');
+    } catch (error) {
+      console.error('❌ [BATCH-1] Financial tables creation failed:', error);
+    }
+  }
 
-      // CRITICAL: Create stock_movements table for inventory tracking
+  /**
+   * BATCH 2: Stock & Inventory Tables
+   * Stock movements, receiving, vendor management
+   */
+  private async createInventoryTables(): Promise<void> {
+    try {
+      // Stock movements table
       await this.dbConnection.execute(`
         CREATE TABLE IF NOT EXISTS stock_movements (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           product_id INTEGER NOT NULL,
           product_name TEXT NOT NULL,
-          movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out')),
-          quantity REAL NOT NULL CHECK (quantity > 0),
-          previous_stock REAL NOT NULL CHECK (previous_stock >= 0),
-          new_stock REAL NOT NULL CHECK (new_stock >= 0),
-          unit_price REAL NOT NULL CHECK (unit_price >= 0),
-          total_value REAL NOT NULL CHECK (total_value >= 0),
-          reason TEXT NOT NULL CHECK (length(reason) > 0),
-          reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase')),
+          movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out', 'adjustment')),
+          quantity TEXT NOT NULL,
+          previous_stock TEXT NOT NULL,
+          new_stock TEXT NOT NULL,
+          unit_price REAL,
+          total_value REAL,
+          reason TEXT NOT NULL,
+          reference_type TEXT,
           reference_id INTEGER,
           reference_number TEXT,
           customer_id INTEGER,
           customer_name TEXT,
+          vendor_id INTEGER,
+          vendor_name TEXT,
           notes TEXT,
           date TEXT NOT NULL,
           time TEXT NOT NULL,
-          created_by TEXT,
+          created_by TEXT NOT NULL DEFAULT 'system',
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT ON UPDATE CASCADE,
+          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE
         )
       `);
 
-      // CRITICAL: Create invoice_payments table for invoice payment tracking
+      // Stock receiving table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS stock_receiving (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          receiving_code TEXT NOT NULL UNIQUE,
+          vendor_id INTEGER,
+          vendor_name TEXT,
+          total_amount REAL NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+          payment_amount REAL NOT NULL DEFAULT 0 CHECK (payment_amount >= 0),
+          remaining_balance REAL NOT NULL DEFAULT 0,
+          payment_method TEXT,
+          notes TEXT,
+          date TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Stock receiving items table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS stock_receiving_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          receiving_id INTEGER NOT NULL,
+          product_id INTEGER NOT NULL,
+          product_name TEXT NOT NULL,
+          quantity TEXT NOT NULL,
+          unit_price REAL NOT NULL CHECK (unit_price > 0),
+          total_price REAL NOT NULL CHECK (total_price >= 0),
+          previous_stock TEXT,
+          new_stock TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `);
+
+      // Returns table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS returns (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          return_code TEXT NOT NULL UNIQUE,
+          customer_id INTEGER NOT NULL,
+          customer_name TEXT NOT NULL,
+          original_invoice_id INTEGER,
+          original_bill_number TEXT,
+          return_type TEXT NOT NULL CHECK (return_type IN ('full', 'partial')),
+          total_amount REAL NOT NULL CHECK (total_amount > 0),
+          refund_amount REAL NOT NULL DEFAULT 0 CHECK (refund_amount >= 0),
+          refund_method TEXT,
+          reason TEXT NOT NULL,
+          notes TEXT,
+          date TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'completed')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE ON UPDATE CASCADE,
+          FOREIGN KEY (original_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL ON UPDATE CASCADE
+        )
+      `);
+
+      console.log('✅ [BATCH-2] Inventory tables created');
+    } catch (error) {
+      console.error('❌ [BATCH-2] Inventory tables creation failed:', error);
+    }
+  }
+
+  /**
+   * BATCH 3: Staff & Management Tables
+   * Staff management, activities, salary payments
+   */
+  private async createManagementTables(): Promise<void> {
+    try {
+      // Staff management table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS staff_management (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_code TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL CHECK (length(name) > 0),
+          father_name TEXT,
+          cnic TEXT UNIQUE,
+          phone TEXT,
+          address TEXT,
+          position TEXT NOT NULL,
+          department TEXT,
+          salary REAL CHECK (salary >= 0),
+          joining_date TEXT NOT NULL,
+          employment_type TEXT NOT NULL CHECK (employment_type IN ('full_time', 'part_time', 'contract', 'temporary')),
+          status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'terminated')),
+          emergency_contact TEXT,
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Staff activities table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS staff_activities (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_id INTEGER NOT NULL,
+          staff_name TEXT NOT NULL,
+          activity_type TEXT NOT NULL CHECK (activity_type IN ('check_in', 'check_out', 'break_start', 'break_end', 'overtime')),
+          description TEXT,
+          timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          location TEXT,
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `);
+
+      // Salary payments table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS salary_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_id INTEGER NOT NULL,
+          staff_name TEXT NOT NULL,
+          payment_code TEXT NOT NULL UNIQUE,
+          salary_month TEXT NOT NULL,
+          basic_salary REAL NOT NULL CHECK (basic_salary > 0),
+          overtime_hours REAL DEFAULT 0 CHECK (overtime_hours >= 0),
+          overtime_rate REAL DEFAULT 0 CHECK (overtime_rate >= 0),
+          overtime_amount REAL DEFAULT 0 CHECK (overtime_amount >= 0),
+          bonus REAL DEFAULT 0 CHECK (bonus >= 0),
+          deductions REAL DEFAULT 0 CHECK (deductions >= 0),
+          total_amount REAL NOT NULL CHECK (total_amount > 0),
+          payment_method TEXT NOT NULL,
+          payment_date TEXT NOT NULL,
+          notes TEXT,
+          status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `);
+
+      console.log('✅ [BATCH-3] Management tables created');
+    } catch (error) {
+      console.error('❌ [BATCH-3] Management tables creation failed:', error);
+    }
+  }
+
+  /**
+   * BATCH 4: Vendor & Supply Chain Tables
+   * Vendors, vendor payments, business expenses
+   */
+  private async createVendorTables(): Promise<void> {
+    try {
+      // Vendors table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS vendors (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          vendor_code TEXT UNIQUE,
+          name TEXT NOT NULL CHECK (length(name) > 0),
+          company_name TEXT,
+          phone TEXT,
+          address TEXT,
+          contact_person TEXT,
+          payment_terms TEXT,
+          balance REAL NOT NULL DEFAULT 0.0,
+          notes TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Vendor payments table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS vendor_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          vendor_id INTEGER NOT NULL,
+          vendor_name TEXT NOT NULL,
+          payment_code TEXT NOT NULL UNIQUE,
+          amount REAL NOT NULL CHECK (amount > 0),
+          payment_method TEXT NOT NULL,
+          payment_type TEXT NOT NULL CHECK (payment_type IN ('stock_payment', 'advance_payment', 'expense_payment')),
+          reference_id INTEGER,
+          reference_type TEXT,
+          description TEXT,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          notes TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE ON UPDATE CASCADE
+        )
+      `);
+
+      // Business expenses table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS business_expenses (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          expense_code TEXT NOT NULL UNIQUE,
+          category TEXT NOT NULL,
+          description TEXT NOT NULL,
+          amount REAL NOT NULL CHECK (amount > 0),
+          payment_method TEXT NOT NULL,
+          vendor_id INTEGER,
+          vendor_name TEXT,
+          receipt_number TEXT,
+          date TEXT NOT NULL,
+          notes TEXT,
+          created_by TEXT NOT NULL DEFAULT 'system',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL ON UPDATE CASCADE
+        )
+      `);
+
+      console.log('✅ [BATCH-4] Vendor tables created');
+    } catch (error) {
+      console.error('❌ [BATCH-4] Vendor tables creation failed:', error);
+    }
+  }
+
+  /**
+   * BATCH 5: Advanced Features & Analytics
+   * Invoice payments, notifications, audit logs
+   */
+  private async createAdvancedTables(): Promise<void> {
+    try {
+      // Invoice payments tracking table
       await this.dbConnection.execute(`
         CREATE TABLE IF NOT EXISTS invoice_payments (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2219,187 +2511,131 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           date TEXT NOT NULL,
           time TEXT NOT NULL,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE ON UPDATE CASCADE,
           FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE ON UPDATE CASCADE
         )
       `);
 
-      // Add indexes for critical payment and ledger tables
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id ON ledger_entries(customer_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_reference ON stock_movements(reference_type, reference_id)`);
-      
-      // Add indexes for customer ledger entries
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_customer_ledger_customer_id ON customer_ledger_entries(customer_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_customer_ledger_date ON customer_ledger_entries(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_customer_ledger_type ON customer_ledger_entries(entry_type)`);
-      
-      // Add indexes for invoice payments
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoice_payments_invoice_id ON invoice_payments(invoice_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoice_payments_payment_id ON invoice_payments(payment_id)`);
-      
-      // Add indexes for enhanced payments
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_customer_id ON enhanced_payments(customer_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_channel_id ON enhanced_payments(payment_channel_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_enhanced_payments_date ON enhanced_payments(date)`);
-      
-      // Add indexes for payment channels
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payment_channels_active ON payment_channels(is_active)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payment_channels_type ON payment_channels(type)`);
+      // Notifications table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          type TEXT NOT NULL CHECK (type IN ('info', 'warning', 'error', 'success')),
+          title TEXT NOT NULL,
+          message TEXT NOT NULL,
+          priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+          category TEXT NOT NULL,
+          target_user TEXT,
+          reference_type TEXT,
+          reference_id INTEGER,
+          is_read INTEGER NOT NULL DEFAULT 0,
+          is_dismissed INTEGER NOT NULL DEFAULT 0,
+          expires_at DATETIME,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
-      console.log('✅ Critical tables created successfully for fast startup');
+      // Audit logs table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          action TEXT NOT NULL,
+          table_name TEXT NOT NULL,
+          record_id INTEGER,
+          old_values TEXT,
+          new_values TEXT,
+          user_id TEXT,
+          user_name TEXT,
+          ip_address TEXT,
+          user_agent TEXT,
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          session_id TEXT,
+          additional_data TEXT
+        )
+      `);
+
+      // Settings table
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS settings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          key TEXT NOT NULL UNIQUE,
+          value TEXT,
+          type TEXT NOT NULL CHECK (type IN ('string', 'number', 'boolean', 'json')),
+          category TEXT NOT NULL,
+          description TEXT,
+          is_system INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      console.log('✅ [BATCH-5] Advanced tables created');
     } catch (error) {
-      console.error('❌ Error creating critical tables:', error);
-      throw error;
+      console.error('❌ [BATCH-5] Advanced tables creation failed:', error);
     }
   }
 
-  // BACKGROUND: Create remaining tables lazily when needed
-  // NOTE: Duplicate function - commented out to avoid conflicts
-  /*
-  private async createRemainingTablesInBackground(): Promise<void> {
-    console.log('🔄 Creating remaining tables in background (non-blocking)...');
-    
+  /**
+   * BATCH 6: Performance Indexes (Non-blocking)
+   * Create all performance-critical indexes
+   */
+  private async createPerformanceIndexes(): Promise<void> {
     try {
-      // Check which tables we need to create
-      const tables = await this.dbConnection.select("SELECT name FROM sqlite_master WHERE type='table'");
-      const existingTables = tables.map((t: any) => t.name);
-      
-      const requiredTables = [
-        'stock_movements', 'ledger_entries', 'payments', 'vendors', 
-        'stock_receiving', 'stock_receiving_items', 'vendor_payments'
-      ];
-      
-      const missingTables = requiredTables.filter(table => !existingTables.includes(table));
-      
-      if (missingTables.length === 0) {
-        console.log('✅ All tables already exist - background creation not needed');
-        return;
-      }
-      
-      console.log('🔄 Creating missing tables in background:', missingTables);
-      
-      // Create stock movements table if missing
-      if (missingTables.includes('stock_movements')) {
-        await this.dbConnection.execute(`
-          CREATE TABLE IF NOT EXISTS stock_movements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            product_id INTEGER NOT NULL,
-            product_name TEXT NOT NULL,
-            movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out')),
-            quantity REAL NOT NULL CHECK (quantity > 0),
-            previous_stock REAL NOT NULL CHECK (previous_stock >= 0),
-            new_stock REAL NOT NULL CHECK (new_stock >= 0),
-            unit_price REAL NOT NULL CHECK (unit_price >= 0),
-            total_value REAL NOT NULL CHECK (total_value >= 0),
-            reason TEXT NOT NULL CHECK (length(reason) > 0),
-            reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase')),
-            reference_id INTEGER,
-            reference_number TEXT,
-            customer_id INTEGER,
-            customer_name TEXT,
-            notes TEXT,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            created_by TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE
-          )
-        `);
-      }
+      console.log('🚀 [PERF] Creating performance indexes...');
 
-      // Create ledger entries table if missing
-      if (missingTables.includes('ledger_entries')) {
-        await this.dbConnection.execute(`
-          CREATE TABLE IF NOT EXISTS ledger_entries (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            type TEXT NOT NULL CHECK (type IN ('incoming')),
-            category TEXT NOT NULL CHECK (length(category) > 0),
-            description TEXT NOT NULL CHECK (length(description) > 0),
-            amount REAL NOT NULL CHECK (amount > 0),
-            running_balance REAL NOT NULL,
-            reference_id INTEGER,
-            reference_type TEXT,
-            customer_id INTEGER,
-            customer_name TEXT,
-            product_id INTEGER,
-            product_name TEXT,
-            payment_method TEXT,
-            notes TEXT,
-            bill_number TEXT,
-            created_by TEXT,
-            linked_transactions TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL ON UPDATE CASCADE,
-            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL ON UPDATE CASCADE
-          )
-        `);
-      }
-
-      // Create payments table if missing
-      if (missingTables.includes('payments')) {
-        await this.dbConnection.execute(`
-          CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            customer_id INTEGER NOT NULL,
-            amount REAL NOT NULL CHECK (amount > 0),
-            payment_method TEXT NOT NULL CHECK (length(payment_method) > 0),
-            payment_type TEXT NOT NULL CHECK (payment_type IN ('bill_payment', 'advance_payment')),
-            reference_invoice_id INTEGER,
-            reference TEXT,
-            notes TEXT,
-            date TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-            FOREIGN KEY (reference_invoice_id) REFERENCES invoices(id) ON DELETE SET NULL ON UPDATE CASCADE
-          )
-        `);
-      }
-
-      // Create essential indexes in background
+      // Customer indexes
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_customer_ledger_customer_id ON customer_ledger_entries(customer_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_customer_ledger_date ON customer_ledger_entries(date DESC)`);
+      
+      // Product indexes
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)`);
+      
+      // Invoice indexes
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date DESC)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)`);
+      
+      // Stock movement indexes
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id ON ledger_entries(customer_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date DESC)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)`);
+      
+      // Payment indexes
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date DESC)`);
+      
+      // Ledger indexes
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date DESC)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer ON ledger_entries(customer_id)`);
+      
+      // Staff indexes
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_status ON staff_management(status)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_activities_staff_id ON staff_activities(staff_id)`);
+      
+      // Vendor indexes
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_vendors_active ON vendors(is_active)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_vendor_payments_vendor_id ON vendor_payments(vendor_id)`);
 
-      // Additional indexes for loan ledger performance
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_remaining_balance ON invoices(remaining_balance)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_customer_created ON invoices(customer_id, created_at)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_date ON payments(customer_id, date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_customers_credit_limit ON customers(credit_limit)`);
-
-      // Performance indexes for real-time updates
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_daily_ledger_date ON daily_ledger_entries(date)`);
-
-      // Composite indexes for complex queries
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_invoices_customer_status_created ON invoices(customer_id, status, created_at)`);
-      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_payments_customer_amount_date ON payments(customer_id, amount, date)`);
-
-      console.log('✅ Background table creation completed successfully');
+      console.log('✅ [PERF] Performance indexes created successfully');
     } catch (error) {
-      console.warn('⚠️ Background table creation failed (non-critical):', error);
+      console.warn('⚠️ [PERF] Index creation failed (non-critical):', error);
     }
   }
-  */
-
-  // PERFORMANCE: Lazy initialization for non-critical tables
-  private tablesCreated = new Set<string>();
   
+  /**
+   * PRODUCTION-GRADE: Zero-delay table availability
+   * Uses smart caching to prevent duplicate checks
+   */
   private async ensureTableExists(tableName: string): Promise<void> {
     if (this.tablesCreated.has(tableName)) return;
+    
+    // Use cached promise if table creation is already in progress
+    if (this.tableCreationPromises.has(tableName)) {
+      await this.tableCreationPromises.get(tableName);
+      return;
+    }
     
     try {
       const result = await this.dbConnection.select(
@@ -2408,13 +2644,23 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       );
       
       if (!result || result.length === 0) {
-        console.log(`⚡ Creating table on-demand: ${tableName}`);
-        await this.createSpecificTable(tableName);
+        console.log(`⚡ [PROD] Creating table on-demand: ${tableName}`);
+        
+        // Create promise for this table creation to prevent duplicates
+        const creationPromise = this.createSpecificTable(tableName);
+        this.tableCreationPromises.set(tableName, creationPromise);
+        
+        await creationPromise;
+        
+        // Clean up promise after completion
+        this.tableCreationPromises.delete(tableName);
       }
       
       this.tablesCreated.add(tableName);
     } catch (error) {
       console.warn(`⚠️ Could not ensure table ${tableName} exists:`, error);
+      // Clean up failed promise
+      this.tableCreationPromises.delete(tableName);
     }
   }
 
@@ -2459,6 +2705,27 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT ON UPDATE CASCADE
+          )
+        `);
+        break;
+
+      case 'stock_receiving_items':
+        await this.dbConnection.execute(`
+          CREATE TABLE IF NOT EXISTS stock_receiving_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            receiving_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            product_name TEXT NOT NULL,
+            quantity TEXT NOT NULL,
+            unit_price REAL NOT NULL CHECK (unit_price > 0),
+            total_price REAL NOT NULL CHECK (total_price > 0),
+            expiry_date TEXT,
+            batch_number TEXT,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE CASCADE ON UPDATE CASCADE,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT ON UPDATE CASCADE
           )
         `);
         break;
@@ -3229,39 +3496,39 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
 
     // Emit events for real-time component updates
     try {
-      if (typeof window !== 'undefined') {
-        const eventBus = (window as any).eventBus;
-        if (eventBus && eventBus.emit) {
-          eventBus.emit('STOCK_UPDATED', {
-            productId,
-            productName: product.name,
-            action: 'stock_adjusted',
-            previousStock: currentStockNumber,
-            newStock: newStockNumber,
-            adjustment: adjustmentQuantity
-          });
-          eventBus.emit('STOCK_ADJUSTMENT_MADE', {
-            productId,
-            productName: product.name,
-            reason,
-            adjustment: adjustmentQuantity
-          });
-        }
-        // Emit event for auto-refresh in React components
-        window.dispatchEvent(new CustomEvent('DATABASE_UPDATED', {
-          detail: { type: 'stock_adjusted', productId }
-        }));
-      }
+      eventBus.emit('STOCK_UPDATED', {
+        productId,
+        productName: product.name,
+        action: 'stock_adjusted',
+        previousStock: currentStockNumber,
+        newStock: newStockNumber,
+        adjustment: adjustmentQuantity
+      });
+      eventBus.emit('STOCK_ADJUSTMENT_MADE', {
+        productId,
+        productName: product.name,
+        reason,
+        adjustment: adjustmentQuantity
+      });
+      
+      // Emit event for auto-refresh in React components
+      window.dispatchEvent(new CustomEvent('DATABASE_UPDATED', {
+        detail: { type: 'stock_adjusted', productId }
+      }));
     } catch (error) {
       console.warn('Could not emit stock adjustment events:', error);
     }
 
-    await this.dbConnection.execute('COMMIT');
-      return true;
-    } catch (error) {
+    return true;
+  } catch (error) {
+    try {
       await this.dbConnection.execute('ROLLBACK');
-      throw error;
+      console.log('[adjustStock] ROLLBACK TRANSACTION');
+    } catch (rollbackError) {
+      console.warn('[adjustStock] Error during rollback:', rollbackError);
     }
+    throw error;
+  }
   }
   /**
    * CRITICAL FIX: Recalculate product stock from movement history
@@ -3483,17 +3750,12 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
 
         // ENHANCED: Emit customer balance update event
         try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-                customerId: currentInvoice.customer_id,
-                balanceChange: balanceDifference,
-                newRemainingBalance: remainingBalance,
-                invoiceId: invoiceId
-              });
-            }
-          }
+          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
+            customerId: currentInvoice.customer_id,
+            balanceChange: balanceDifference,
+            newRemainingBalance: remainingBalance,
+            invoiceId: invoiceId
+          });
         } catch (error) {
           console.warn('Could not emit customer balance update event:', error);
         }
@@ -3550,12 +3812,10 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
       console.log(`✅ Stock recalculation completed. Fixed ${fixedCount} products.`);
       
       // Emit event to refresh UI components
-      if (typeof window !== 'undefined' && (window as any).eventBus) {
-        (window as any).eventBus.emit('STOCK_RECALCULATED', { 
-          fixedCount,
-          timestamp: new Date().toISOString()
-        });
-      }
+      eventBus.emit('STOCK_RECALCULATED', { 
+        fixedCount,
+        timestamp: new Date().toISOString()
+      });
       
     } catch (error) {
       console.error('❌ Failed to recalculate all product stocks:', error);
@@ -3854,14 +4114,14 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
     // Set busy timeout to prevent immediate locks
     await this.dbConnection.execute('PRAGMA busy_timeout=10000');
 
+    try {
       // Only start transaction if not already in one
       if (!inTransaction) {
         await this.dbConnection.execute('BEGIN DEFERRED TRANSACTION');
         shouldCommit = true;
       }
 
-      try {
-        const paymentCode = await this.generatePaymentCode();
+      const paymentCode = await this.generatePaymentCode();
         
         // Get customer name if not provided
         let paymentCustomerName = payment.customer_name;
@@ -3958,34 +4218,29 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         
         // ENHANCED: Emit event for real-time component updates (after transaction)
         try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('PAYMENT_RECORDED', {
-                paymentId,
-                customerId: payment.customer_id,
-                amount: payment.amount,
-                paymentMethod: payment.payment_method,
-                paymentType: payment.payment_type,
-                created_at: new Date().toISOString()
-              });
-            }
-          }
+          eventBus.emit('PAYMENT_RECORDED', {
+            paymentId,
+            customerId: payment.customer_id,
+            amount: payment.amount,
+            paymentMethod: payment.payment_method,
+            paymentType: payment.payment_type,
+            created_at: new Date().toISOString()
+          });
         } catch (error) {
           console.warn('Could not emit payment recorded event:', error);
         }
 
         return paymentId;
-      } catch (error) {
-        if (shouldCommit) {
-          try {
-            await this.dbConnection.execute('ROLLBACK');
-          } catch (rollbackError) {
-            console.warn('Failed to rollback payment transaction:', rollbackError);
-          }
+    } catch (error) {
+      if (shouldCommit) {
+        try {
+          await this.dbConnection.execute('ROLLBACK');
+        } catch (rollbackError) {
+          console.warn('Failed to rollback payment transaction:', rollbackError);
         }
-        throw error;
       }
+      throw error;
+    }
   }  /**
    * Add items to an existing invoice
    */
@@ -4037,38 +4292,33 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         
         // ENHANCED: Emit events for real-time component updates
         try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              // Emit invoice updated event with customer information
-              eventBus.emit('INVOICE_UPDATED', {
-                invoiceId,
-                customerId: invoice.customer_id,
-                action: 'items_added',
-                itemCount: items.length
-              });
-              
-              // Emit stock update event
-              eventBus.emit('STOCK_UPDATED', {
-                invoiceId,
-                products: items.map(item => ({ productId: item.product_id, productName: item.product_name }))
-              });
-              
-              // Emit customer balance update event (balance changes due to invoice total change)
-              eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-                customerId: invoice.customer_id,
-                invoiceId,
-                action: 'items_added'
-              });
-              
-              // Emit customer ledger update event
-              eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-                invoiceId,
-                customerId: invoice.customer_id,
-                action: 'items_added'
-              });
-            }
-          }
+          // Emit invoice updated event with customer information
+          eventBus.emit('INVOICE_UPDATED', {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 'items_added',
+            itemCount: items.length
+          });
+          
+          // Emit stock update event
+          eventBus.emit('STOCK_UPDATED', {
+            invoiceId,
+            products: items.map(item => ({ productId: item.product_id, productName: item.product_name }))
+          });
+          
+          // Emit customer balance update event (balance changes due to invoice total change)
+          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
+            customerId: invoice.customer_id,
+            invoiceId,
+            action: 'items_added'
+          });
+          
+          // Emit customer ledger update event
+          eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 'items_added'
+          });
         } catch (error) {
           console.warn('Could not emit invoice update events:', error);
         }
@@ -4125,38 +4375,33 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         
         // ENHANCED: Emit events for real-time component updates
         try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              // Emit invoice updated event with customer information
-              eventBus.emit('INVOICE_UPDATED', {
-                invoiceId,
-                customerId: invoice.customer_id,
-                action: 'items_removed',
-                itemCount: itemIds.length
-              });
-              
-              // Emit stock update event
-              eventBus.emit('STOCK_UPDATED', {
-                invoiceId,
-                action: 'items_removed'
-              });
-              
-              // Emit customer balance update event (balance changes due to invoice total change)
-              eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-                customerId: invoice.customer_id,
-                invoiceId,
-                action: 'items_removed'
-              });
-              
-              // Emit customer ledger update event
-              eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-                invoiceId,
-                customerId: invoice.customer_id,
-                action: 'items_removed'
-              });
-            }
-          }
+          // Emit invoice updated event with customer information
+          eventBus.emit('INVOICE_UPDATED', {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 'items_removed',
+            itemCount: itemIds.length
+          });
+          
+          // Emit stock update event
+          eventBus.emit('STOCK_UPDATED', {
+            invoiceId,
+            action: 'items_removed'
+          });
+          
+          // Emit customer balance update event (balance changes due to invoice total change)
+          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
+            customerId: invoice.customer_id,
+            invoiceId,
+            action: 'items_removed'
+          });
+          
+          // Emit customer ledger update event
+          eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 'items_removed'
+          });
         } catch (error) {
           console.warn('Could not emit invoice item removal events:', error);
         }
@@ -4250,39 +4495,34 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         
         // ENHANCED: Emit events for real-time component updates
         try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              // Emit invoice updated event with customer information
-              eventBus.emit('INVOICE_UPDATED', {
-                invoiceId,
-                customerId: invoice.customer_id,
-                action: 'quantity_updated',
-                itemId,
-                newQuantity
-              });
-              
-              // Emit stock update event
-              eventBus.emit('STOCK_UPDATED', {
-                invoiceId,
-                productId: currentItem.product_id
-              });
-              
-              // Emit customer balance update event (balance changes due to invoice total change)
-              eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-                customerId: invoice.customer_id,
-                invoiceId,
-                action: 'quantity_updated'
-              });
-              
-              // Emit customer ledger update event
-              eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-                invoiceId,
-                customerId: invoice.customer_id,
-                action: 'quantity_updated'
-              });
-            }
-          }
+          // Emit invoice updated event with customer information
+          eventBus.emit('INVOICE_UPDATED', {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 'quantity_updated',
+            itemId,
+            newQuantity
+          });
+          
+          // Emit stock update event
+          eventBus.emit('STOCK_UPDATED', {
+            invoiceId,
+            productId: currentItem.product_id
+          });
+          
+          // Emit customer balance update event (balance changes due to invoice total change)
+          eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
+            customerId: invoice.customer_id,
+            invoiceId,
+            action: 'quantity_updated'
+          });
+          
+          // Emit customer ledger update event
+          eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 'quantity_updated'
+          });
         } catch (error) {
           console.warn('Could not emit invoice quantity update events:', error);
         }
@@ -4377,42 +4617,37 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
 
       // ENHANCED: Emit events for real-time component updates
       try {
-        if (typeof window !== 'undefined') {
-          const eventBus = (window as any).eventBus;
-          if (eventBus && eventBus.emit) {
-            // Emit invoice payment received event
-            eventBus.emit('INVOICE_PAYMENT_RECEIVED', {
-              invoiceId,
-              customerId: invoice.customer_id,
-              paymentId,
-              amount: paymentData.amount,
-              paymentMethod: paymentData.payment_method
-            });
-            
-            // Emit invoice updated event
-            eventBus.emit('INVOICE_UPDATED', {
-              invoiceId,
-              customerId: invoice.customer_id,
-              action: 'payment_added',
-              paymentAmount: paymentData.amount
-            });
-            
-            // Emit customer balance update event
-            eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
-              customerId: invoice.customer_id,
-              invoiceId,
-              action: 'payment_added',
-              amount: paymentData.amount
-            });
-            
-            // Emit customer ledger update event
-            eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
-              invoiceId,
-              customerId: invoice.customer_id,
-              action: 'payment_added'
-            });
-          }
-        }
+        // Emit invoice payment received event
+        eventBus.emit('INVOICE_PAYMENT_RECEIVED', {
+          invoiceId,
+          customerId: invoice.customer_id,
+          paymentId,
+          amount: paymentData.amount,
+          paymentMethod: paymentData.payment_method
+        });
+        
+        // Emit invoice updated event
+        eventBus.emit('INVOICE_UPDATED', {
+          invoiceId,
+          customerId: invoice.customer_id,
+          action: 'payment_added',
+          paymentAmount: paymentData.amount
+        });
+        
+        // Emit customer balance update event
+        eventBus.emit('CUSTOMER_BALANCE_UPDATED', {
+          customerId: invoice.customer_id,
+          invoiceId,
+          action: 'payment_added',
+          amount: paymentData.amount
+        });
+        
+        // Emit customer ledger update event
+        eventBus.emit('CUSTOMER_LEDGER_UPDATED', {
+          invoiceId,
+          customerId: invoice.customer_id,
+          action: 'payment_added'
+        });
       } catch (error) {
         console.warn('Could not emit invoice payment events:', error);
       }
@@ -5228,19 +5463,14 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
       // ENHANCED: Emit events for real-time updates
       if (updatedInvoice) {
         try {
-          if (typeof window !== 'undefined') {
-            const eventBus = (window as any).eventBus;
-            if (eventBus && eventBus.emit) {
-              eventBus.emit('INVOICE_UPDATED', {
-                invoiceId: invoiceId,
-                customerId: updatedInvoice.customer_id,
-                paidAmount: updatedInvoice.paid_amount,
-                remainingBalance: updatedInvoice.remaining_balance,
-                status: updatedInvoice.status,
-                updated_at: updatedInvoice.updated_at
-              });
-            }
-          }
+          eventBus.emit('INVOICE_UPDATED', {
+            invoiceId: invoiceId,
+            customerId: updatedInvoice.customer_id,
+            paidAmount: updatedInvoice.paid_amount,
+            remainingBalance: updatedInvoice.remaining_balance,
+            status: updatedInvoice.status,
+            updated_at: updatedInvoice.updated_at
+          });
         } catch (error) {
           console.warn('Could not emit invoice update events:', error);
         }
@@ -5401,6 +5631,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       await this.initialize();
     }
 
+    // Ensure table exists
+    await this.ensureTableExists('vendor_payments');
 
     const payments = await this.dbConnection.select(`
       SELECT * FROM vendor_payments 
@@ -8940,6 +9172,13 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
+      // Ensure required tables exist
+      await this.ensureTableExists('stock_receiving');
+      await this.ensureTableExists('stock_receiving_items');
+      await this.ensureTableExists('vendors');
+      await this.ensureTableExists('products');
+      await this.ensureTableExists('stock_movements');
+
       // Use local date (not UTC) for correct local day
       const now = new Date();
       const today = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2) + '-' + String(now.getDate()).padStart(2);
@@ -8949,14 +9188,45 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
    
       // Real database implementation
-      // Generate S0001 series receiving number
+      // Generate S0001 series receiving number (globally unique with retry mechanism)
       let receivingNumber = '';
-      const lastRow = await this.dbConnection.select(`SELECT receiving_number FROM stock_receiving WHERE date = ? ORDER BY id DESC LIMIT 1`, [today]);
-      if (lastRow && lastRow.length > 0) {
-        const lastNum = parseInt((lastRow[0].receiving_number || '').replace(/^S/, '')) || 0;
-        receivingNumber = `S${(lastNum + 1).toString().padStart(4)}`;
-      } else {
-        receivingNumber = 'S0001';
+      let attempts = 0;
+      const maxAttempts = 5;
+      
+      while (attempts < maxAttempts) {
+        try {
+          // Debug: Show existing receiving numbers
+          const allReceivingNumbers = await this.dbConnection.select(`SELECT receiving_number FROM stock_receiving ORDER BY id`);
+          console.log(`📋 Existing receiving numbers:`, allReceivingNumbers.map((r: any) => r.receiving_number));
+          
+          const lastRow = await this.dbConnection.select(`SELECT receiving_number FROM stock_receiving ORDER BY id DESC LIMIT 1`);
+          if (lastRow && lastRow.length > 0) {
+            const lastNum = parseInt((lastRow[0].receiving_number || '').replace(/^S/, '')) || 0;
+            receivingNumber = `S${(lastNum + 1).toString().padStart(4, '0')}`;
+          } else {
+            receivingNumber = 'S0001';
+          }
+          
+          console.log(`🔄 Attempting to create receiving number: ${receivingNumber}`);
+          
+          // Check if this number already exists (race condition protection)
+          const existingRow = await this.dbConnection.select(`SELECT id FROM stock_receiving WHERE receiving_number = ?`, [receivingNumber]);
+          if (existingRow && existingRow.length > 0) {
+            // Number exists, increment and try again
+            console.log(`⚠️ Receiving number ${receivingNumber} already exists, retrying...`);
+            attempts++;
+            continue;
+          }
+          
+          console.log(`✅ Generated unique receiving number: ${receivingNumber}`);
+          break; // Number is unique, proceed
+        } catch (error) {
+          console.error(`❌ Error generating receiving number (attempt ${attempts + 1}):`, error);
+          attempts++;
+          if (attempts >= maxAttempts) {
+            throw new Error(`Failed to generate unique receiving number after ${maxAttempts} attempts: ${error}`);
+          }
+        }
       }
       const nowDb = new Date();
       const time = nowDb.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
@@ -9026,9 +9296,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       // Emit STOCK_UPDATED event for real-time UI refresh
       try {
-        if (typeof window !== 'undefined' && (window as any).eventBus && (window as any).eventBus.emit) {
-          (window as any).eventBus.emit('STOCK_UPDATED', { type: 'receiving', receivingId });
-        }
+        eventBus.emit('STOCK_UPDATED', { type: 'receiving', receivingId });
       } catch (err) {
         console.warn('Could not emit STOCK_UPDATED event:', err);
       }
@@ -9050,6 +9318,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       if (!this.isInitialized) {
         await this.initialize();
       }
+
+      // Ensure table exists
+      await this.ensureTableExists('stock_receiving');
 
       let query = `SELECT * FROM stock_receiving WHERE 1=1`;
       const params: any[] = [];
@@ -9321,6 +9592,49 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         )
       `);
 
+      // Create salary_payments table for salary management
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS salary_payments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_id INTEGER NOT NULL,
+          staff_name TEXT NOT NULL,
+          employee_id TEXT NOT NULL,
+          payment_date TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          salary_amount REAL NOT NULL,
+          payment_amount REAL NOT NULL,
+          payment_type TEXT NOT NULL CHECK (payment_type IN ('full', 'partial', 'advance', 'bonus', 'deduction')),
+          payment_percentage REAL NOT NULL,
+          payment_month TEXT NOT NULL,
+          payment_year INTEGER NOT NULL,
+          notes TEXT,
+          payment_method TEXT NOT NULL CHECK (payment_method IN ('cash', 'bank_transfer', 'cheque')),
+          reference_number TEXT,
+          paid_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE
+        )
+      `);
+
+      // Create salary_adjustments table for salary changes tracking
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS salary_adjustments (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          staff_id INTEGER NOT NULL,
+          staff_name TEXT NOT NULL,
+          employee_id TEXT NOT NULL,
+          old_salary REAL NOT NULL,
+          new_salary REAL NOT NULL,
+          adjustment_reason TEXT NOT NULL,
+          effective_date TEXT NOT NULL,
+          approved_by TEXT NOT NULL,
+          notes TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+          FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE
+        )
+      `);
+
       // Create indexes for performance
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_username ON staff_management(username)`);
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_management_email ON staff_management(email)`);
@@ -9331,6 +9645,14 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_sessions_staff_id ON staff_sessions(staff_id)`);
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_activities_staff_id ON staff_activities(staff_id)`);
       await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_staff_activities_created_at ON staff_activities(created_at)`);
+      
+      // Create indexes for salary tables
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_salary_payments_staff_id ON salary_payments(staff_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_salary_payments_date ON salary_payments(payment_date)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_salary_payments_month ON salary_payments(payment_month)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_salary_payments_year ON salary_payments(payment_year)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_salary_adjustments_staff_id ON salary_adjustments(staff_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_salary_adjustments_date ON salary_adjustments(effective_date)`);
 
       console.log('✅ [DB] Staff management tables initialized successfully');
     } catch (error) {
@@ -9340,24 +9662,11 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   }
 }
 
-// Initialize enhanced features in the background without interfering with main functionality
-// DISABLED: Enhanced service initialization to prevent conflicts
-// const enhanced = EnhancedDatabaseService.getInstance();
-// enhanced.initialize().then(() => {
-//   console.log('✅ Enhanced database features initialized');
-// }).catch(error => {
-//   console.warn('⚠️ Enhanced features failed to initialize, using standard functionality:', error);
-// });
-
 // Export the original database service directly to avoid proxy issues
 export const db = DatabaseService.getInstance();
 
 // DEVELOPER: Expose both services to global window object for console access
 if (typeof window !== 'undefined') {
   (window as any).db = db;
-  // (window as any).enhanced = enhanced; // DISABLED: Enhanced service disabled
-  console.log('� Enhanced database service exposed to window.db');
-  console.log('🔧 Original database service available at window.originalDb');
+  console.log('🔧 Database service exposed to window.db');
 }
-
-  

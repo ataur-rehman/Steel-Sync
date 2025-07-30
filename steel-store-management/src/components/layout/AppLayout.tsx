@@ -127,7 +127,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         { name: 'Invoice List', href: '/billing/list', icon: FileText }
       ]
     },
-    { name: 'Returns', href: '/returns', icon: RotateCcw },
+   
     {
       name: 'Management',
       icon: Settings,
@@ -152,7 +152,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       icon: Settings,
       children: [
         { name: 'Role Management', href: '/admin/roles', icon: Settings },
-        { name: 'Database Panel', href: '/init-db', icon: Settings },
         { name: 'Notifications', href: '/notifications', icon: Bell }
       ]
     }] : [])
@@ -293,44 +292,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         )}
       </nav>
       
-      {/* Fixed Footer (optional - for user info or logout) */}
-      <div className="flex-shrink-0 p-4 border-t border-gray-700">
-        {sidebarCollapsed ? (
-          <div className="flex flex-col items-center space-y-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-              <span className="text-white text-sm font-medium">
-                {user?.username?.charAt(0).toUpperCase() || 'U'}
-              </span>
-            </div>
-            <button
-              onClick={logout}
-              className="p-1 text-gray-400 hover:text-white transition-colors"
-              title="Logout"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-              <span className="text-white text-sm font-medium">
-                {user?.username?.charAt(0).toUpperCase() || 'U'}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">{user?.username || 'Admin'}</p>
-              <p className="text-xs text-gray-400 truncate">{user?.role || 'Administrator'}</p>
-            </div>
-            <button
-              onClick={logout}
-              className="p-1 text-gray-400 hover:text-white transition-colors"
-              title="Logout"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-      </div>
+ 
     </div>
   );
 

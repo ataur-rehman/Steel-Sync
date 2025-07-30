@@ -232,6 +232,16 @@ function AppContent() {
                 <CustomerProfile />
               </ProtectedRoute>
             } />
+            <Route path="/customers/:id/edit" element={
+              <ProtectedRoute module="customers" level="edit">
+                <CustomerProfile />
+              </ProtectedRoute>
+            } />
+            <Route path="/customers/:id/ledger" element={
+              <ProtectedRoute module="customers" level="view">
+                <CustomerLedger />
+              </ProtectedRoute>
+            } />
             
             {/* Billing System with Full Traceability */}
             <Route path="/billing/new" element={

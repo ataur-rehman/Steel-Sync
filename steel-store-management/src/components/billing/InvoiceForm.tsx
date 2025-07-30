@@ -97,7 +97,7 @@ const InvoiceForm: React.FC = () => {
   const activityLogger = useActivityLogger();
   
   // Helper function to convert quantity string to numeric value for calculations - YOUR FUNCTION
-  const getQuantityAsNumber = (quantityString: string, unitType?: string): number => {
+    const getQuantityAsNumber = (quantityString: string, unitType?: string): number => {
     try {
       const parsed = parseUnit(quantityString, unitType as any || 'kg-grams');
       return parsed.numericValue;
