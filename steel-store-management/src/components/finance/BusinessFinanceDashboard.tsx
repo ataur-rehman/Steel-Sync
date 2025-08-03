@@ -113,7 +113,17 @@ interface ExpenseFormData {
 }
 
 const BusinessFinanceDashboard: React.FC = () => {
-  const { user } = useAuth();
+  // Add error handling for useAuth
+  let user = null;
+  try {
+    const authContext = useAuth();
+    user = authContext.user;
+  } catch (error) {
+    console.error('useAuth error in BusinessFinanceDashboard:', error);
+    // Use fallback values
+    user = { username: 'Unknown User', id: '0' };
+  }
+  
   const activityLogger = useActivityLogger();
   const [financialData, setFinancialData] = useState<FinancialSummary | null>(null);
   const [loading, setLoading] = useState(true);

@@ -3,7 +3,24 @@ import { useAuth } from '../../hooks/useAuth';
 import { LogOut, User } from 'lucide-react';
 
 export default function Header() {
-  const { user, logout } = useAuth();
+  // Add error handling for useAuth
+  let user = null;
+  let logout = () => {};
+  try {
+    const authContext = useAuth();
+    user = authContext.user;
+    logout = authContext.logout;
+  } catch (error) {
+    console.error('useAuth error in Header:', error);
+    // Use fallback values
+    user = { username: 'Unknown User' };
+    logout = () => {
+      console.warn('Logout called but auth context unavailable');
+      // Fallback logout behavior
+      localStorage.removeItem('auth_user');
+      window.location.href = '/';
+    };
+  }
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200">

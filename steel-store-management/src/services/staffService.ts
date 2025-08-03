@@ -11,6 +11,9 @@ import { db } from './database';
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
 import { auditLogService } from './auditLogService';
 
+// PERFORMANCE: Track initialization to prevent repeated calls
+let staffTablesInitialized = false;
+
 export interface Staff {
   id: number;
   full_name: string;
@@ -88,7 +91,15 @@ class StaffService {
    * Initialize staff tables with audit logging support
    */
   async initializeTables(): Promise<void> {
+    // PERFORMANCE: Skip if already initialized
+    if (staffTablesInitialized) {
+      console.log('✅ [STAFF] Tables already initialized, skipping...');
+      return;
+    }
+
     try {
+      console.log('🔄 [STAFF] Initializing staff tables...');
+      
       // Initialize audit logging first
       await auditLogService.initializeTables();
 
@@ -171,6 +182,10 @@ class StaffService {
       await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(is_active);`);
 
       console.log('✅ Staff tables initialized successfully (without department field)');
+      
+      // Mark as initialized to prevent repeated calls
+      staffTablesInitialized = true;
+      console.log('✅ [STAFF] Staff service initialization completed');
     } catch (error) {
       console.error('❌ Error initializing staff tables:', error);
       throw error;

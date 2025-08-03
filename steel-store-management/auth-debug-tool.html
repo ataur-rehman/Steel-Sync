@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication Debug Tool</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .btn:hover { background: #2563eb; }
+        .output {
+            background: #1f2937;
+            color: #f3f4f6;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 15px;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .status.success { background: #d1fae5; color: #065f46; }
+        .status.error { background: #fee2e2; color: #991b1b; }
+        .status.warning { background: #fef3c7; color: #92400e; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Authentication Debug Tool</h1>
+        <p>Use this tool to debug authentication context issues in your React application.</p>
+
+        <div id="status" class="status warning">
+            <strong>Status:</strong> Checking authentication context...
+        </div>
+
+        <div>
+            <button class="btn" onclick="checkAuthContext()">Check Auth Context</button>
+            <button class="btn" onclick="checkLocalStorage()">Check Local Storage</button>
+            <button class="btn" onclick="testLogin()">Test Login</button>
+            <button class="btn" onclick="clearStorage()">Clear Storage</button>
+            <button class="btn" onclick="clearOutput()">Clear Output</button>
+        </div>
+
+        <div class="output" id="output">Waiting for commands...\n\nClick any button above to start debugging.</div>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const status = document.getElementById('status');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            output.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function updateStatus(message, type = 'warning') {
+            status.textContent = message;
+            status.className = `status ${type}`;
+        }
+
+        function clearOutput() {
+            output.textContent = 'Output cleared.\n';
+        }
+
+        function checkAuthContext() {
+            log('Checking authentication context...', 'info');
+            
+            try {
+                // Check if React app is loaded
+                if (typeof window.React === 'undefined') {
+                    log('React not detected in global scope', 'warning');
+                } else {
+                    log('React detected in global scope', 'success');
+                }
+
+                // Check for auth-related localStorage items
+                const authUser = localStorage.getItem('auth_user');
+                if (authUser) {
+                    log('Found auth_user in localStorage:', 'success');
+                    try {
+                        const parsed = JSON.parse(authUser);
+                        log(`User data: ${JSON.stringify(parsed, null, 2)}`, 'info');
+                    } catch (e) {
+                        log('Failed to parse auth_user data', 'error');
+                    }
+                } else {
+                    log('No auth_user found in localStorage', 'info');
+                }
+
+                // Check for window.location and routing
+                log(`Current URL: ${window.location.href}`, 'info');
+                log(`Current pathname: ${window.location.pathname}`, 'info');
+
+                // Check for React Router
+                if (window.history && window.history.pushState) {
+                    log('Browser supports History API (React Router compatible)', 'success');
+                } else {
+                    log('Browser does not support History API', 'warning');
+                }
+
+                updateStatus('Auth context check completed', 'success');
+
+            } catch (error) {
+                log(`Error checking auth context: ${error.message}`, 'error');
+                updateStatus('Auth context check failed', 'error');
+            }
+        }
+
+        function checkLocalStorage() {
+            log('Checking localStorage contents...', 'info');
+            
+            try {
+                const keys = Object.keys(localStorage);
+                log(`Found ${keys.length} localStorage items:`, 'info');
+                
+                keys.forEach(key => {
+                    const value = localStorage.getItem(key);
+                    if (key.includes('auth') || key.includes('user') || key.includes('login')) {
+                        log(`🔑 ${key}: ${value?.substring(0, 100)}${value?.length > 100 ? '...' : ''}`, 'info');
+                    } else {
+                        log(`📄 ${key}: (${value?.length || 0} chars)`, 'info');
+                    }
+                });
+
+                updateStatus('localStorage check completed', 'success');
+
+            } catch (error) {
+                log(`Error checking localStorage: ${error.message}`, 'error');
+                updateStatus('localStorage check failed', 'error');
+            }
+        }
+
+        function testLogin() {
+            log('Testing authentication...', 'info');
+            
+            try {
+                // Create a test user object
+                const testUser = {
+                    id: '1',
+                    username: 'admin',
+                    role: 'admin',
+                    loginTime: new Date().toISOString()
+                };
+
+                // Save to localStorage
+                localStorage.setItem('auth_user', JSON.stringify(testUser));
+                log('Test user saved to localStorage', 'success');
+
+                // Try to trigger a page reload to test auth restoration
+                log('Test user data:', 'info');
+                log(JSON.stringify(testUser, null, 2), 'info');
+
+                updateStatus('Test login completed - check if app recognizes user', 'success');
+
+            } catch (error) {
+                log(`Error in test login: ${error.message}`, 'error');
+                updateStatus('Test login failed', 'error');
+            }
+        }
+
+        function clearStorage() {
+            log('Clearing all localStorage...', 'info');
+            
+            try {
+                const keyCount = Object.keys(localStorage).length;
+                localStorage.clear();
+                log(`Cleared ${keyCount} localStorage items`, 'success');
+                
+                updateStatus('Storage cleared - reload page to test clean state', 'success');
+
+            } catch (error) {
+                log(`Error clearing storage: ${error.message}`, 'error');
+                updateStatus('Storage clear failed', 'error');
+            }
+        }
+
+        // Auto-run initial check
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Authentication Debug Tool loaded', 'success');
+            setTimeout(checkAuthContext, 1000);
+        });
+
+        // Listen for React app events
+        window.addEventListener('error', (event) => {
+            log(`Global error detected: ${event.error?.message || event.message}`, 'error');
+            if (event.error?.message?.includes('useAuth')) {
+                updateStatus('useAuth error detected!', 'error');
+                log('This error suggests the AuthProvider is not wrapping the component properly', 'warning');
+            }
+        });
+
+        // Listen for unhandled promise rejections
+        window.addEventListener('unhandledrejection', (event) => {
+            log(`Unhandled promise rejection: ${event.reason}`, 'error');
+        });
+    </script>
+</body>
+</html>

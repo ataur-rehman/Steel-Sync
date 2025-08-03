@@ -5,6 +5,9 @@
 
 import { db } from './database';
 
+// PERFORMANCE: Track initialization to prevent repeated calls
+let auditTablesInitialized = false;
+
 export interface AuditLog {
   id: number;
   user_id: number;
@@ -51,7 +54,15 @@ class AuditLogService {
    * Initialize audit log tables
    */
   async initializeTables(): Promise<void> {
+    // PERFORMANCE: Skip if already initialized
+    if (auditTablesInitialized) {
+      console.log('✅ [AUDIT] Tables already initialized, skipping...');
+      return;
+    }
+
     try {
+      console.log('🔄 [AUDIT] Initializing audit log tables...');
+      
       await db.executeCommand(`
         CREATE TABLE IF NOT EXISTS audit_logs (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,6 +100,10 @@ class AuditLogService {
       `);
 
       console.log('✅ Audit log tables initialized successfully');
+      
+      // Mark as initialized to prevent repeated calls
+      auditTablesInitialized = true;
+      console.log('✅ [AUDIT] Audit service initialization completed');
     } catch (error) {
       console.error('❌ Error initializing audit log tables:', error);
       throw error;

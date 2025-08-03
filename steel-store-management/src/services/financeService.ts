@@ -8,6 +8,9 @@ import { db } from './database';
 import { salaryHistoryService } from './salaryHistoryService';
 import { auditLogService } from './auditLogService';
 
+// PERFORMANCE: Track initialization to prevent repeated calls
+let financeTablesInitialized = false;
+
 export interface BusinessMetrics {
   totalSales: number;
   totalPurchases: number;
@@ -130,7 +133,15 @@ class FinanceService {
    * Initialize finance-related tables
    */
   async initializeTables(): Promise<void> {
+    // PERFORMANCE: Skip if already initialized
+    if (financeTablesInitialized) {
+      console.log('✅ [FINANCE] Tables already initialized, skipping...');
+      return;
+    }
+
     try {
+      console.log('🔄 [FINANCE] Initializing finance tables...');
+      
       // Business expenses table
       await db.executeCommand(`
         CREATE TABLE IF NOT EXISTS business_expenses (
@@ -188,6 +199,10 @@ class FinanceService {
       await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_financial_targets_date ON financial_targets(year, month)`);
 
       console.log('✅ Finance tables initialized successfully');
+      
+      // Mark as initialized to prevent repeated calls
+      financeTablesInitialized = true;
+      console.log('✅ [FINANCE] Finance service initialization completed');
     } catch (error) {
       console.error('❌ Error initializing finance tables:', error);
       throw error;

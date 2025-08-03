@@ -34,7 +34,23 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [companyName, setCompanyName] = useState('Itehad Iron Store');
-  const { user, logout } = useAuth();
+  
+  // Add error handling for useAuth
+  let user, logout;
+  try {
+    const authContext = useAuth();
+    user = authContext.user;
+    logout = authContext.logout;
+  } catch (error) {
+    console.error('useAuth error in AppLayout:', error);
+    // Fallback to default values
+    user = null;
+    logout = () => {
+      console.warn('Logout attempted but auth context not available');
+      window.location.reload();
+    };
+  }
+  
   const { navigateTo, getCurrentTab } = useNavigation();
   const { hasPermission, isAdmin } = useRoleAccess();
   const location = useLocation();

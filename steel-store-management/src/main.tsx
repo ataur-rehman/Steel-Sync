@@ -4,20 +4,17 @@ import App from './App';
 import { db } from './services/database';
 import { eventBus, BUSINESS_EVENTS } from './utils/eventBus';
 
-// Initialize database and expose to window for developer access
-console.log('🔄 [MAIN] Starting database initialization...');
+// Database will be initialized by DatabaseProvider - no duplicate initialization needed
+console.log('🔄 [MAIN] Database will be initialized by DatabaseProvider...');
 
-db.initialize().then(() => {
-  console.log('✅ [MAIN] Database initialized and ready');
-  
-  // Expose database testing functions to window for debugging
-  (window as any).testDatabase = async () => {
-    console.log('🔍 Running comprehensive database test...');
-    await db.diagnoseInvoiceSystem();
-  };
-  
-  (window as any).testInvoiceCreation = async () => {
-    console.log('✨ Testing invoice creation...');
+// Expose database testing functions to window for debugging
+(window as any).testDatabase = async () => {
+  console.log('🔍 Running comprehensive database test...');
+  await db.diagnoseInvoiceSystem();
+};
+
+(window as any).testInvoiceCreation = async () => {
+  console.log('✨ Testing invoice creation...');
     
     try {
       // Get or create test customer
@@ -80,15 +77,9 @@ db.initialize().then(() => {
       throw error;
     }
   };
-  
-  console.log('🔧 Database testing functions available:');
-  console.log('- Call testDatabase() to run diagnosis');
-  console.log('- Call testInvoiceCreation() to test invoice creation');
-  
-}).catch(error => {
-  console.error('❌ [MAIN] Database initialization failed:', error);
-  console.error('❌ [MAIN] Error details:', error.stack);
-});
+console.log('🔧 Database testing functions available:');
+console.log('- Call testDatabase() to run diagnosis');
+console.log('- Call testInvoiceCreation() to test invoice creation');
 
 // Expose eventBus globally for cross-component communication
 (window as any).eventBus = eventBus;

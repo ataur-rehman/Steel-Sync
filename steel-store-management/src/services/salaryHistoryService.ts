@@ -7,6 +7,9 @@
 import { db } from './database';
 import { auditLogService } from './auditLogService';
 
+// PERFORMANCE: Track initialization to prevent repeated calls
+let salaryTablesInitialized = false;
+
 export interface SalaryPayment {
   id: number;
   staff_id: number;
@@ -67,7 +70,15 @@ class SalaryHistoryService {
    * Initialize salary history tables
    */
   async initializeTables(): Promise<void> {
+    // PERFORMANCE: Skip if already initialized
+    if (salaryTablesInitialized) {
+      console.log('✅ [SALARY] Tables already initialized, skipping...');
+      return;
+    }
+
     try {
+      console.log('🔄 [SALARY] Initializing salary history tables...');
+      
       // Create salary_payments table
       await db.executeCommand(`
         CREATE TABLE IF NOT EXISTS salary_payments (
@@ -134,6 +145,10 @@ class SalaryHistoryService {
       `);
 
       console.log('Salary history tables initialized successfully');
+      
+      // Mark as initialized to prevent repeated calls
+      salaryTablesInitialized = true;
+      console.log('✅ [SALARY] Salary service initialization completed');
     } catch (error) {
       console.error('Error initializing salary history tables:', error);
       throw error;

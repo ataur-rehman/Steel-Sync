@@ -2,8 +2,8 @@ import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import VendorDetail from './components/vendor/VendorDetail';
 import { Toaster } from 'react-hot-toast';
-import { AuthProvider, useAuth } from './hooks/useAuth';
-import { DatabaseProvider } from './hooks/useDatabase';
+import { useAuth } from './hooks/useAuth';
+import { SafeAuthProvider } from './components/auth/AuthErrorBoundary';
 import { NavigationProvider } from './hooks/useNavigation';
 import { settingsService } from './services/settingsService';
 import AppLayout from './components/layout/AppLayout';
@@ -530,10 +530,8 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <DatabaseProvider>
-        <AppContent />
-      </DatabaseProvider>
+    <SafeAuthProvider>
+      <AppContent />
       <Toaster 
         position="top-right"
         toastOptions={{
@@ -542,7 +540,7 @@ function App() {
             background: '#333',
             color: '#fff',
           },
-success: {
+          success: {
             style: {
               background: '#10B981',
               color: '#fff',
@@ -564,7 +562,7 @@ success: {
           },
         }}
       />
-    </AuthProvider>
+    </SafeAuthProvider>
   );
 }
 

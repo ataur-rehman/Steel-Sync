@@ -20,7 +20,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    // More detailed error with debugging info
+    console.error('useAuth called outside AuthProvider. Current context:', context);
+    console.error('Stack trace:', new Error().stack);
+    throw new Error('useAuth must be used within an AuthProvider. Make sure your component is wrapped with <AuthProvider>.');
   }
   return context;
 };
@@ -35,7 +38,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Initialize auth state
+    console.log('AuthProvider initializing...');
+    
+    // Check for existing authentication state
+    try {
+      const savedUser = localStorage.getItem('auth_user');
+      if (savedUser) {
+        const parsedUser = JSON.parse(savedUser);
+        console.log('Restored user from localStorage:', parsedUser);
+        setUser(parsedUser);
+      }
+    } catch (error) {
+      console.warn('Failed to restore user from localStorage:', error);
+      localStorage.removeItem('auth_user'); // Clear corrupted data
+    }
+    
     setLoading(false);
+    console.log('AuthProvider initialized');
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {
@@ -166,6 +186,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setUser(newUser);
         
+        // Save to localStorage for persistence
+        try {
+          localStorage.setItem('auth_user', JSON.stringify(newUser));
+          console.log('User state saved to localStorage');
+        } catch (error) {
+          console.warn('Failed to save user to localStorage:', error);
+        }
+        
         // Log the login event
         try {
           const { auditLogService } = await import('../services/auditLogService');
@@ -212,6 +240,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     setUser(null);
+    
+    // Clear localStorage
+    try {
+      localStorage.removeItem('auth_user');
+      console.log('User state cleared from localStorage');
+    } catch (error) {
+      console.warn('Failed to clear user from localStorage:', error);
+    }
   };
 
   return (
