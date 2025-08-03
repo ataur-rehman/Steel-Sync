@@ -36,6 +36,7 @@ import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
 import RoleManagementComplete from './components/admin/RoleManagementComplete';
 import PermissionManagementSimple from './components/admin/PermissionManagementSimple';
 import ActivityLoggerProfessional from './components/admin/ActivityLoggerProfessional';
+import PaymentChannelDebug from './components/debug/PaymentChannelDebug';
 
 import toast from 'react-hot-toast';
 import './styles/globals.css';
@@ -503,6 +504,11 @@ function AppContent() {
                 </div>
               </div>
             } />
+            
+            {/* Debug Routes for Development */}
+            {import.meta.env.DEV && (
+              <Route path="/debug/payment-channels" element={<PaymentChannelDebug />} />
+            )}
             
             {/* Catch-all redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />

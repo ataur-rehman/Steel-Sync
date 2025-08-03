@@ -14,6 +14,7 @@ export interface AuditLog {
   entity_id: number | string;
   old_values?: Record<string, any>;
   new_values?: Record<string, any>;
+  table_name: string;
   description: string;
   ip_address?: string;
   user_agent?: string;
@@ -29,6 +30,7 @@ export interface AuditLogFormData {
   entity_id: number | string;
   old_values?: Record<string, any>;
   new_values?: Record<string, any>;
+  table_name?: string;
   description: string;
   ip_address?: string;
   user_agent?: string;
@@ -101,28 +103,38 @@ class AuditLogService {
       const oldValuesJson = data.old_values ? JSON.stringify(data.old_values) : null;
       const newValuesJson = data.new_values ? JSON.stringify(data.new_values) : null;
 
+      // Defensive: Ensure required fields for NOT NULL constraints
+      const action = data.action || 'CREATE';
+      const entity_type = data.entity_type || 'SYSTEM';
+      const entity_id = data.entity_id != null ? String(data.entity_id) : '0';
+      const description = data.description || '';
+      const user_id = data.user_id != null ? data.user_id : 0;
+      const user_name = data.user_name || 'system';
+      const table_name = data.table_name || entity_type || 'unknown';
+
       await db.executeCommand(
         `INSERT INTO audit_logs (
           user_id, user_name, action, entity_type, entity_id,
-          old_values, new_values, description, ip_address, user_agent,
+          old_values, new_values, table_name, description, ip_address, user_agent,
           timestamp, session_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
         [
-          data.user_id,
-          data.user_name,
-          data.action,
-          data.entity_type,
-          String(data.entity_id),
+          user_id,
+          user_name,
+          action,
+          entity_type,
+          entity_id,
           oldValuesJson,
           newValuesJson,
-          data.description,
+          table_name,
+          description,
           data.ip_address || null,
           data.user_agent || null,
           data.session_id || null
         ]
       );
 
-      console.log(`📝 Audit logged: ${data.action} on ${data.entity_type} by ${data.user_name}`);
+      console.log(`📝 Audit logged: ${action} on ${entity_type} by ${user_name}`);
     } catch (error) {
       console.error('❌ Error logging audit event:', error);
       // Don't throw error to prevent breaking main operations
@@ -200,6 +212,7 @@ class AuditLogService {
         entity_id: row.entity_id,
         old_values: row.old_values ? JSON.parse(row.old_values) : undefined,
         new_values: row.new_values ? JSON.parse(row.new_values) : undefined,
+        table_name: row.table_name,
         description: row.description,
         ip_address: row.ip_address,
         user_agent: row.user_agent,
@@ -274,9 +287,20 @@ class AuditLogService {
       const result = await db.executeRawQuery(query, params);
       
       return result.map((row: any) => ({
-        ...row,
-        old_values: row.old_values ? JSON.parse(row.old_values) : null,
-        new_values: row.new_values ? JSON.parse(row.new_values) : null
+        id: row.id,
+        user_id: row.user_id,
+        user_name: row.user_name,
+        action: row.action,
+        entity_type: row.entity_type,
+        entity_id: row.entity_id,
+        old_values: row.old_values ? JSON.parse(row.old_values) : undefined,
+        new_values: row.new_values ? JSON.parse(row.new_values) : undefined,
+        table_name: row.table_name,
+        description: row.description,
+        ip_address: row.ip_address,
+        user_agent: row.user_agent,
+        timestamp: row.timestamp,
+        session_id: row.session_id
       }));
     } catch (error) {
       console.error('❌ Error fetching audit logs:', error);

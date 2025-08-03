@@ -111,6 +111,8 @@ export const BUSINESS_EVENTS = {
   VENDOR_CREATED: 'vendor:created',
   VENDOR_UPDATED: 'vendor:updated',
   VENDOR_DELETED: 'vendor:deleted',
+  VENDOR_PAYMENT_CREATED: 'vendor:payment_created',
+  VENDOR_BALANCE_UPDATED: 'vendor:balance_updated',
   
   // Staff events
   STAFF_CREATED: 'staff:created',
@@ -143,6 +145,8 @@ const registerDefaultListeners = () => {
   eventBus.on(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, defaultHandler);
   eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, defaultHandler);
   eventBus.on(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.VENDOR_PAYMENT_CREATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.VENDOR_BALANCE_UPDATED, defaultHandler);
 };
 
 // Initialize default listeners (called after BUSINESS_EVENTS is defined)
@@ -224,6 +228,17 @@ export const triggerReturnProcessedRefresh = (returnData: any) => {
   });
   
   console.log('✅ Refresh events triggered for all components');
+};
+
+// Helper function to trigger refresh for vendor payments
+export const triggerVendorPaymentRefresh = (paymentData: any) => {
+  console.log('🔄 Triggering refresh for vendor payment...');
+  
+  eventBus.emit(BUSINESS_EVENTS.VENDOR_PAYMENT_CREATED, paymentData);
+  eventBus.emit(BUSINESS_EVENTS.VENDOR_BALANCE_UPDATED, paymentData);
+  eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, paymentData);
+  
+  console.log('✅ All refresh events emitted for vendor payment');
 };
 
 export default eventBus;

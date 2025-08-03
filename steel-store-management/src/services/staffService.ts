@@ -208,6 +208,36 @@ class StaffService {
   }
 
   /**
+   * Generate unique staff code
+   */
+  async generateStaffCode(): Promise<string> {
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (attempts < maxAttempts) {
+      const timestamp = Date.now().toString();
+      const random = Math.random().toString(36).substr(2, 3).toUpperCase();
+      const staffCode = `STF-${timestamp.slice(-4)}-${random}`;
+      
+      // Check if it already exists
+      const existing = await db.executeRawQuery(
+        'SELECT id FROM staff_management WHERE staff_code = ?',
+        [staffCode]
+      );
+      
+      if (existing.length === 0) {
+        return staffCode;
+      }
+      
+      attempts++;
+      // Add small delay to ensure different timestamp
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    
+    throw new Error('Failed to generate unique staff code after multiple attempts');
+  }
+
+  /**
    * Create new staff member with audit logging - simplified without authentication
    */
   async createStaff(staffData: Partial<StaffFormData> & { created_by: string; full_name: string; role: Staff['role'] }): Promise<Staff> {
@@ -217,24 +247,26 @@ class StaffService {
         throw new Error('Missing required fields: full_name and role are required');
       }
 
-      // Auto-generate employee ID
+      // Auto-generate employee ID and staff code
       const employeeId = await this.generateEmployeeId();
+      const staffCode = await this.generateStaffCode();
 
       console.log(`Creating staff member: ${staffData.full_name} with role: ${staffData.role}`);
 
-      // Create staff record - simplified
+      // Create staff record - use staff_management table consistently with all required columns
       await db.executeCommand(
-        `INSERT INTO staff (
-          full_name, employee_id, phone, role,
+        `INSERT INTO staff_management (
+          full_name, employee_id, staff_code, phone, role,
           hire_date, salary, is_active, address, cnic, emergency_contact,
           created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
         [
           staffData.full_name,
           employeeId,
+          staffCode,
           staffData.phone || null,
           staffData.role,
-          staffData.hire_date,
+          staffData.hire_date || new Date().toISOString().split('T')[0],
           staffData.salary || 0,
           staffData.is_active ? 1 : 0,
           staffData.address || null,

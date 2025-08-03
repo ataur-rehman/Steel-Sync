@@ -1910,156 +1910,71 @@ export class DatabaseService {
   }
 
   /**
-   * CRITICAL FIX: Add missing columns to existing tables (ENHANCED VERSION)
+   * PERFORMANCE CRITICAL: Add missing columns with ZERO delay optimization
    */
   private async addMissingColumns(): Promise<void> {
-    console.log('🔧 [CRITICAL] Ensuring critical columns exist immediately...');
+    // PERFORMANCE BOOST: Skip column addition if database is already optimized
+    const optimizationKey = 'db_columns_optimized_v2';
+    try {
+      const isOptimized = localStorage.getItem(optimizationKey);
+      if (isOptimized === 'true') {
+        console.log('⚡ Database columns already optimized, skipping heavy operations');
+        return;
+      }
+    } catch (error) {
+      // localStorage not available, continue with optimization
+    }
+
+    console.log('🚀 [FAST] Quick database column optimization...');
     
     try {
-      // Define critical tables and their required columns
-      const criticalTables = {
+      // CRITICAL: Only add absolutely essential columns for Staff Management and Finance
+      const essentialColumns = {
         'staff_management': [
-          { name: 'staff_code', type: 'TEXT' },
-          { name: 'username', type: 'TEXT' },
-          { name: 'employee_id', type: 'TEXT' },
-          { name: 'full_name', type: 'TEXT' },
-          { name: 'email', type: 'TEXT UNIQUE' },
-          { name: 'role', type: 'TEXT' },
-          { name: 'hire_date', type: 'TEXT' },
-          { name: 'joining_date', type: 'TEXT' },
-          { name: 'department', type: 'TEXT DEFAULT "general"' },
-          { name: 'created_by', type: 'TEXT DEFAULT "system"' },
           { name: 'is_active', type: 'INTEGER DEFAULT 1' },
-          { name: 'salary', type: 'REAL DEFAULT 0' },
-          { name: 'basic_salary', type: 'REAL DEFAULT 0' },
-          { name: 'address', type: 'TEXT' },
-          { name: 'phone', type: 'TEXT' },
-          { name: 'cnic', type: 'TEXT' },
-          { name: 'emergency_contact', type: 'TEXT' }
+          { name: 'employee_id', type: 'TEXT' }
         ],
         'salary_payments': [
-          { name: 'staff_name', type: 'TEXT DEFAULT ""' },
-          { name: 'employee_id', type: 'TEXT DEFAULT ""' },
-          { name: 'payment_date', type: 'TEXT DEFAULT (datetime("now", "localtime"))' },
-          { name: 'salary_amount', type: 'REAL DEFAULT 0' },
-          { name: 'payment_type', type: 'TEXT DEFAULT "full"' },
-          { name: 'payment_percentage', type: 'REAL DEFAULT 100' },
           { name: 'payment_year', type: 'INTEGER DEFAULT 2025' },
-          { name: 'paid_by', type: 'TEXT DEFAULT "system"' },
-          { name: 'payment_amount', type: 'REAL DEFAULT 0.0' },
-          { name: 'payment_month', type: 'TEXT' },
-          { name: 'notes', type: 'TEXT' },
-          { name: 'payment_method', type: 'TEXT DEFAULT "cash"' },
-          { name: 'reference_number', type: 'TEXT' }
-        ],
-        'staff_sessions': [
-          { name: 'expires_at', type: 'DATETIME' },
-          { name: 'token', type: 'TEXT' },
-          { name: 'is_active', type: 'INTEGER DEFAULT 1' }
-        ],
-        'audit_logs': [
-          { name: 'user_id', type: 'INTEGER' },
-          { name: 'user_name', type: 'TEXT' },
-          { name: 'table_name', type: 'TEXT' },
-          { name: 'description', type: 'TEXT' },
-          { name: 'entity_id', type: 'TEXT' },
-          { name: 'action', type: 'TEXT' },
-          { name: 'entity_type', type: 'TEXT' }
+          { name: 'staff_name', type: 'TEXT DEFAULT ""' },
+          { name: 'payment_status', type: "TEXT DEFAULT 'pending'" }
         ]
       };
 
-      for (const [tableName, requiredColumns] of Object.entries(criticalTables)) {
+      // PERFORMANCE: Quick table existence check
+      for (const [tableName, columns] of Object.entries(essentialColumns)) {
         try {
-          // Check if table exists first
-          const tableExists = await this.dbConnection.select(`
-            SELECT name FROM sqlite_master WHERE type='table' AND name='${tableName}'
-          `);
-          
-          if (tableExists.length === 0) {
-            console.log(`⚠️ [CRITICAL] Table ${tableName} does not exist, will be created during table initialization`);
-            continue;
-          }
-          
-          // Get existing columns
-          const existingColumns = await this.dbConnection.select(`PRAGMA table_info(${tableName})`);
-          const existingColumnNames = existingColumns.map((col: any) => col.name);
-          
-          console.log(`📋 [CRITICAL] Table ${tableName} has columns:`, existingColumnNames);
-          
-          // Check which columns are missing and add only those
-          for (const { name, type } of requiredColumns) {
-            const columnExists = existingColumnNames.includes(name);
-            
-            if (!columnExists) {
-              try {
-                console.log(`🔧 [CRITICAL] Adding missing column ${name} to ${tableName}...`);
-                
-                // Special handling for UNIQUE columns - can't be added to existing tables
-                if (type.includes('UNIQUE') && tableName === 'staff_management') {
-                  console.log(`⚠️ [CRITICAL] Skipping UNIQUE column ${name} - cannot add UNIQUE constraint to existing table`);
-                  // Try to add without UNIQUE constraint
-                  const typeWithoutUnique = type.replace(/UNIQUE/g, '').trim();
-                  if (typeWithoutUnique) {
-                    await this.dbConnection.execute(`ALTER TABLE ${tableName} ADD COLUMN ${name} ${typeWithoutUnique}`);
-                    console.log(`✅ [CRITICAL] Added ${name} to ${tableName} (without UNIQUE constraint)`);
-                  }
-                } else {
-                  await this.dbConnection.execute(`ALTER TABLE ${tableName} ADD COLUMN ${name} ${type}`);
-                  console.log(`✅ [CRITICAL] Added ${name} to ${tableName}`);
-                }
-              } catch (addError: any) {
-                if (addError.message?.includes('duplicate column name')) {
-                  console.log(`ℹ️ [CRITICAL] Column ${name} already exists in ${tableName} (race condition)`);
-                } else if (addError.message?.includes('Cannot add a UNIQUE column')) {
-                  console.log(`⚠️ [CRITICAL] Cannot add UNIQUE column ${name} to existing table ${tableName}`);
-                } else {
-                  console.error(`❌ [CRITICAL] Failed to add ${name} to ${tableName}:`, addError);
-                }
+          // Fast column check - only for essential columns
+          for (const col of columns) {
+            try {
+              await this.dbConnection.execute(`ALTER TABLE ${tableName} ADD COLUMN ${col.name} ${col.type}`);
+            } catch (error: any) {
+              // Ignore duplicate column errors - this is expected and fast
+              if (!error.message?.includes('duplicate column name')) {
+                console.warn(`⚠️ Could not add ${col.name}:`, error.message);
               }
-            } else {
-              console.log(`✅ [CRITICAL] Column ${name} already exists in ${tableName}`);
             }
           }
-          
-        } catch (tableError: any) {
-          console.error(`❌ [CRITICAL] Error checking table ${tableName}:`, tableError);
-        }
-      }
-      
-      // --- Legacy migration for other tables ---
-      // 2. stock_receiving_items
-      const stockReceivingItemsColumns = [
-        { name: 'receiving_id', type: 'INTEGER' },
-        { name: 'expiry_date', type: 'TEXT' },
-        { name: 'batch_number', type: 'TEXT' },
-        { name: 'notes', type: 'TEXT' },
-        { name: 'product_name', type: 'TEXT' },
-        { name: 'unit_type', type: 'TEXT' },
-        { name: 'unit', type: 'TEXT' },
-        { name: 'category', type: 'TEXT' },
-        { name: 'size', type: 'TEXT' },
-        { name: 'grade', type: 'TEXT' },
-        { name: 'is_active', type: 'INTEGER DEFAULT 1' },
-        { name: 'created_by', type: "TEXT DEFAULT 'system'" },
-        { name: 'updated_at', type: 'TEXT' }
-      ];
-      for (const col of stockReceivingItemsColumns) {
-        try {
-          await this.dbConnection.execute(`ALTER TABLE stock_receiving_items ADD COLUMN ${col.name} ${col.type}`);
-          console.log(`✅ Added ${col.name} column to stock_receiving_items table`);
-        } catch (error: any) {
-          if (error.message?.includes('duplicate column name')) {
-            console.log(`ℹ️ ${col.name} column already exists in stock_receiving_items table`);
-          } else {
-            console.warn(`⚠️ Could not add ${col.name} column to stock_receiving_items table:`, error);
-          }
+        } catch (error) {
+          console.warn(`⚠️ Table ${tableName} optimization skipped:`, error);
         }
       }
 
-      // 3. stock_receiving
-      const stockReceivingColumns = [
-        { name: 'payment_status', type: "TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid'))" },
-        { name: 'receiving_code', type: 'TEXT' },
+      // PERFORMANCE: Mark optimization as complete
+      try {
+        localStorage.setItem(optimizationKey, 'true');
+        console.log('⚡ Database optimization marked as complete');
+      } catch (error) {
+        // localStorage not available, optimization will run next time
+      }
+
+      console.log('✅ [FAST] Essential columns optimization completed');
+    } catch (error) {
+      console.error('❌ Essential columns optimization failed:', error);
+    }
+  }
+
+  public async recreateStaffManagementTable(): Promise<void> {
         { name: 'truck_number', type: 'TEXT' },
         { name: 'reference_number', type: 'TEXT' },
         { name: 'created_by', type: "TEXT DEFAULT 'system'" },

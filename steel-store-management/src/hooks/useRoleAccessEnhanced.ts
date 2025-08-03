@@ -492,8 +492,8 @@ export const useRoleAccess = () => {
     }
     
     // If user has specific permissions from database, use those
-    if (user.permissions && user.permissions.length > 0) {
-      const userPermissions = user.permissions;
+    if (user.permissions && Array.isArray(user.permissions) && user.permissions.length > 0) {
+      const userPermissions = user.permissions as string[];
       const rolePermissions = {} as RolePermissions;
       
       // Initialize all permissions to false
@@ -502,7 +502,7 @@ export const useRoleAccess = () => {
       });
       
       // Set permissions based on user's database permissions
-      userPermissions.forEach(permission => {
+      userPermissions.forEach((permission: string) => {
         if ((rolePermissions as any).hasOwnProperty(permission)) {
           (rolePermissions as any)[permission] = true;
         }
