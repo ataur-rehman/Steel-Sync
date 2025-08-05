@@ -98,6 +98,183 @@ export const DATABASE_SCHEMAS = {
     )
   `,
 
+  // CORE PRODUCT MANAGEMENT
+  PRODUCTS: `
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL CHECK (length(name) > 0),
+      category TEXT DEFAULT 'general',
+      unit_type TEXT DEFAULT 'piece',
+      unit TEXT DEFAULT 'piece',
+      rate_per_unit REAL DEFAULT 0.0 CHECK (rate_per_unit >= 0),
+      min_stock_alert TEXT DEFAULT '0',
+      size TEXT,
+      grade TEXT,
+      status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      current_stock REAL DEFAULT 0.0,
+      stock_value REAL DEFAULT 0.0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+
+  // CUSTOMERS
+  CUSTOMERS: `
+    CREATE TABLE IF NOT EXISTS customers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL CHECK (length(name) > 0),
+      phone TEXT,
+      address TEXT,
+      balance REAL DEFAULT 0.0,
+      total_purchases REAL DEFAULT 0.0,
+      last_purchase_date TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+
+  // INVOICES
+  INVOICES: `
+    CREATE TABLE IF NOT EXISTS invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_number TEXT UNIQUE NOT NULL,
+      customer_id INTEGER NOT NULL,
+      customer_name TEXT NOT NULL,
+      total_amount REAL NOT NULL CHECK (total_amount >= 0),
+      discount REAL DEFAULT 0.0 CHECK (discount >= 0),
+      grand_total REAL NOT NULL CHECK (grand_total >= 0),
+      payment_amount REAL DEFAULT 0.0 CHECK (payment_amount >= 0),
+      payment_method TEXT DEFAULT 'cash',
+      remaining_balance REAL DEFAULT 0.0,
+      date TEXT NOT NULL DEFAULT (date('now')),
+      time TEXT NOT NULL,
+      notes TEXT,
+      status TEXT DEFAULT 'completed' CHECK (status IN ('pending', 'completed', 'cancelled')),
+      payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id)
+    )
+  `,
+
+  // INVOICE ITEMS
+  INVOICE_ITEMS: `
+    CREATE TABLE IF NOT EXISTS invoice_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      quantity TEXT NOT NULL,
+      unit_price REAL NOT NULL CHECK (unit_price >= 0),
+      total_price REAL NOT NULL CHECK (total_price >= 0),
+      unit TEXT DEFAULT 'piece',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `,
+
+  // STOCK MOVEMENTS
+  STOCK_MOVEMENTS: `
+    CREATE TABLE IF NOT EXISTS stock_movements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out', 'adjustment')),
+      quantity REAL NOT NULL,
+      previous_stock REAL NOT NULL DEFAULT 0,
+      new_stock REAL NOT NULL DEFAULT 0,
+      unit_price REAL DEFAULT 0.0 CHECK (unit_price >= 0),
+      total_value REAL DEFAULT 0.0,
+      reason TEXT NOT NULL,
+      reference_type TEXT CHECK (reference_type IN ('invoice', 'adjustment', 'initial', 'purchase', 'return')),
+      reference_id INTEGER,
+      reference_number TEXT,
+      customer_id INTEGER,
+      customer_name TEXT,
+      notes TEXT,
+      date TEXT NOT NULL DEFAULT (date('now')),
+      time TEXT NOT NULL,
+      unit_type TEXT,
+      created_by TEXT DEFAULT 'system',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `,
+
+  // LEDGER ENTRIES
+  LEDGER_ENTRIES: `
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL DEFAULT (date('now')),
+      type TEXT NOT NULL CHECK (type IN ('incoming', 'outgoing')),
+      category TEXT NOT NULL,
+      description TEXT NOT NULL,
+      amount REAL NOT NULL CHECK (amount > 0),
+      customer_id INTEGER,
+      customer_name TEXT,
+      product_id INTEGER,
+      product_name TEXT,
+      payment_method TEXT DEFAULT 'cash',
+      payment_channel_id INTEGER,
+      payment_channel_name TEXT,
+      notes TEXT,
+      is_manual INTEGER DEFAULT 0,
+      time TEXT NOT NULL,
+      reference_type TEXT,
+      reference_id INTEGER,
+      created_by TEXT DEFAULT 'system',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id),
+      FOREIGN KEY (product_id) REFERENCES products(id)
+    )
+  `,
+
+  // PAYMENT CHANNELS
+  PAYMENT_CHANNELS: `
+    CREATE TABLE IF NOT EXISTS payment_channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE CHECK (length(name) > 0),
+      type TEXT NOT NULL CHECK (type IN ('cash', 'bank', 'digital', 'credit')),
+      account_number TEXT,
+      bank_name TEXT,
+      branch TEXT,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+
+  // PAYMENTS
+  PAYMENTS: `
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payment_code TEXT UNIQUE,
+      customer_id INTEGER NOT NULL,
+      customer_name TEXT NOT NULL,
+      amount REAL NOT NULL CHECK (amount > 0),
+      payment_method TEXT DEFAULT 'cash',
+      payment_channel_id INTEGER,
+      payment_channel_name TEXT,
+      payment_type TEXT NOT NULL CHECK (payment_type IN ('bill_payment', 'advance_payment', 'return_refund')),
+      reference_invoice_id INTEGER,
+      reference TEXT,
+      notes TEXT,
+      date TEXT NOT NULL DEFAULT (date('now')),
+      payment_amount REAL DEFAULT 0.0 CHECK (payment_amount >= 0),
+      payment_status TEXT DEFAULT 'completed' CHECK (payment_status IN ('pending', 'completed', 'cancelled')),
+      created_by TEXT DEFAULT 'system',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id),
+      FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id)
+    )
+  `,
+
   // AUDIT LOGS
   AUDIT_LOGS: `
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -140,10 +317,74 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_salary_payments_status ON salary_payments(payment_status)'
   ],
   
+  STAFF_SESSIONS: [
+    'CREATE INDEX IF NOT EXISTS idx_staff_sessions_staff_id ON staff_sessions(staff_id)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_sessions_token ON staff_sessions(token)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_sessions_expires_at ON staff_sessions(expires_at)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_sessions_is_active ON staff_sessions(is_active)'
+  ],
+  
   BUSINESS_EXPENSES: [
     'CREATE INDEX IF NOT EXISTS idx_business_expenses_date ON business_expenses(date)',
     'CREATE INDEX IF NOT EXISTS idx_business_expenses_category ON business_expenses(category)',
     'CREATE INDEX IF NOT EXISTS idx_business_expenses_status ON business_expenses(payment_status)'
+  ],
+  
+  PRODUCTS: [
+    'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
+    'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
+    'CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)',
+    'CREATE INDEX IF NOT EXISTS idx_products_unit_type ON products(unit_type)'
+  ],
+  
+  CUSTOMERS: [
+    'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(balance)'
+  ],
+  
+  INVOICES: [
+    'CREATE INDEX IF NOT EXISTS idx_invoices_bill_number ON invoices(bill_number)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_payment_status ON invoices(payment_status)'
+  ],
+  
+  INVOICE_ITEMS: [
+    'CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_items_product_id ON invoice_items(product_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_items_product_name ON invoice_items(product_name)'
+  ],
+  
+  STOCK_MOVEMENTS: [
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_name ON stock_movements(product_name)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_reference ON stock_movements(reference_type, reference_id)'
+  ],
+  
+  LEDGER_ENTRIES: [
+    'CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)',
+    'CREATE INDEX IF NOT EXISTS idx_ledger_entries_type ON ledger_entries(type)',
+    'CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id ON ledger_entries(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ledger_entries_product_id ON ledger_entries(product_id)',
+    'CREATE INDEX IF NOT EXISTS idx_ledger_entries_category ON ledger_entries(category)'
+  ],
+  
+  PAYMENTS: [
+    'CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_type ON payments(payment_type)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_code ON payments(payment_code)'
+  ],
+  
+  PAYMENT_CHANNELS: [
+    'CREATE INDEX IF NOT EXISTS idx_payment_channels_name ON payment_channels(name)',
+    'CREATE INDEX IF NOT EXISTS idx_payment_channels_type ON payment_channels(type)',
+    'CREATE INDEX IF NOT EXISTS idx_payment_channels_active ON payment_channels(is_active)'
   ],
   
   AUDIT_LOGS: [

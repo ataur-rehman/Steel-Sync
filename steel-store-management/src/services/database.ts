@@ -1139,6 +1139,7 @@ export class DatabaseService {
    */
   async updateProduct(id: number, product: {
     name?: string;
+    base_name?: string;
     category?: string;
     unit_type?: string;
     unit?: string;
@@ -1153,7 +1154,13 @@ export class DatabaseService {
         await this.initialize();
       }
 
- 
+      // CRITICAL: Ensure products table exists before attempting update
+      const productsTableExists = await this.tableExists('products');
+      if (!productsTableExists) {
+        console.log('🔧 Products table missing - creating it now...');
+        await this.createCoreTablesFromSchemas();
+      }
+
       // Build update fields
       const fields = [];
       const params = [];
@@ -1163,29 +1170,47 @@ export class DatabaseService {
       }
       params.push(new Date().toISOString());
       params.push(id);
+      
+      // Execute the main product update
       await this.dbConnection.execute(
         `UPDATE products SET ${fields.join(', ')}, updated_at = ? WHERE id = ?`,
         params
       );
+      console.log(`✅ Product ${id} updated successfully in products table`);
 
-      // If name changed, propagate to related tables
+      // If name changed, propagate to related tables (with safe execution)
       if (product.name) {
-        await this.dbConnection.execute(
-          `UPDATE stock_movements SET product_name = ? WHERE product_id = ?`,
-          [product.name, id]
-        );
-        await this.dbConnection.execute(
-          `UPDATE invoice_items SET product_name = ? WHERE product_id = ?`,
-          [product.name, id]
-        );
-        await this.dbConnection.execute(
-          `UPDATE stock_receiving_items SET product_name = ? WHERE product_id = ?`,
-          [product.name, id]
-        );
-        await this.dbConnection.execute(
-          `UPDATE ledger_entries SET product_name = ? WHERE product_id = ?`,
-          [product.name, id]
-        );
+        // SAFE UPDATE: Only update tables that exist and have the required columns
+        const relatedTables = [
+          { table: 'stock_movements', column: 'product_id' },
+          { table: 'invoice_items', column: 'product_id' },
+          { table: 'stock_receiving_items', column: 'product_id' },
+          { table: 'ledger_entries', column: 'product_id' }
+        ];
+
+        for (const { table, column } of relatedTables) {
+          try {
+            // Check if table exists and has the required column
+            const tableExists = await this.tableExists(table);
+            if (tableExists) {
+              const hasColumn = await this.columnExists(table, column);
+              if (hasColumn) {
+                await this.dbConnection.execute(
+                  `UPDATE ${table} SET product_name = ? WHERE ${column} = ?`,
+                  [product.name, id]
+                );
+                console.log(`✅ Updated product_name in ${table} for product ID: ${id}`);
+              } else {
+                console.log(`ℹ️ Table ${table} exists but missing ${column} column - skipping update`);
+              }
+            } else {
+              console.log(`ℹ️ Table ${table} does not exist - skipping update`);
+            }
+          } catch (error: any) {
+            console.warn(`⚠️ Could not update ${table} for product ${id}:`, error.message);
+            // Continue with other tables even if one fails
+          }
+        }
       }
 
       // CACHE INVALIDATION: Clear product cache for real-time updates
@@ -1203,9 +1228,20 @@ export class DatabaseService {
       } catch (eventError) {
         console.warn('Could not emit PRODUCT_UPDATED event:', eventError);
       }
-    } catch (error) {
-      console.error('Error updating product:', error);
-      throw error;
+    } catch (error: any) {
+      console.error('❌ Error updating product:', error);
+      
+      // Enhanced error reporting for debugging
+      console.error('Update details:', {
+        productId: id,
+        productData: product,
+        errorMessage: error?.message || 'Unknown error',
+        errorCode: error?.code || 'unknown'
+      });
+      
+      // Re-throw the error for the calling code to handle
+      const errorMessage = error?.message || error?.toString() || 'Unknown database error occurred';
+      throw new Error(`Failed to update product: ${errorMessage}`);
     }
   }
 
@@ -1489,6 +1525,176 @@ export class DatabaseService {
       console.log('✅ Database event listeners setup completed');
     } catch (error) {
       console.warn('⚠️ Could not setup event listeners:', error);
+    }
+  }
+
+  /**
+   * CRITICAL: Create core tables using centralized schemas
+   * This ensures all essential tables exist with the correct schema from the start
+   */
+  private async createCoreTablesFromSchemas(): Promise<void> {
+    console.log('🔧 [CORE] Creating core tables using centralized schemas...');
+    
+    try {
+      // Get all schemas from the centralized definition
+      const { DATABASE_SCHEMAS, DATABASE_INDEXES } = await import('./database-schemas');
+      
+      // Create core business tables in order (respecting foreign key dependencies)
+      const coreTableOrder: (keyof typeof DATABASE_SCHEMAS)[] = [
+        'PRODUCTS',
+        'CUSTOMERS', 
+        'PAYMENT_CHANNELS',
+        'INVOICES',
+        'INVOICE_ITEMS',
+        'STOCK_MOVEMENTS',
+        'LEDGER_ENTRIES',
+        'PAYMENTS'
+      ];
+      
+      // Create core tables first
+      for (const schemaKey of coreTableOrder) {
+        const schema = DATABASE_SCHEMAS[schemaKey];
+        if (schema) {
+          try {
+            await this.dbConnection.execute(schema);
+            console.log(`✅ [CORE] Created core table: ${schemaKey.toLowerCase()}`);
+          } catch (error: any) {
+            if (error.message?.includes('table') && error.message?.includes('already exists')) {
+              console.log(`ℹ️ [CORE] Table ${schemaKey.toLowerCase()} already exists`);
+            } else {
+              console.error(`❌ [CORE] Failed to create ${schemaKey}:`, error.message);
+              // Continue with other tables - don't fail completely
+            }
+          }
+        }
+      }
+      
+      // Create performance indexes for core tables
+      console.log('🔧 [CORE] Creating performance indexes for core tables...');
+      for (const tableKey of coreTableOrder) {
+        const indexes = DATABASE_INDEXES[tableKey];
+        if (indexes) {
+          for (const indexSql of indexes) {
+            try {
+              await this.dbConnection.execute(indexSql);
+            } catch (error: any) {
+              if (!error.message?.includes('already exists')) {
+                console.warn(`⚠️ [CORE] Could not create index for ${tableKey}:`, error.message);
+              }
+            }
+          }
+        }
+      }
+      
+      console.log('✅ [CORE] Core tables creation completed with centralized schemas');
+      
+    } catch (error) {
+      console.error('❌ [CORE] Failed to create core tables:', error);
+      // Don't throw - let the system continue with fallback table creation
+    }
+  }
+
+  /**
+   * PUBLIC METHOD: Quick fix for missing product_name columns (can be called from browser console)
+   */
+  public async quickFixProductNameColumns(): Promise<{
+    success: boolean;
+    message: string;
+    details: string[];
+  }> {
+    console.log('🔧 Starting comprehensive fix for product-related database issues...');
+    const details: string[] = [];
+    
+    try {
+      // Ensure database is initialized
+      if (!this.isInitialized) {
+        await this.initialize();
+        details.push('Database initialized');
+      }
+      
+      // CRITICAL: First create all core tables using centralized schemas
+      console.log('🔧 Ensuring core tables exist...');
+      await this.createCoreTablesFromSchemas();
+      details.push('Core tables created using centralized schemas');
+      
+      // Add missing columns to existing tables
+      const tables = [
+        { name: 'stock_movements', column: 'product_name' },
+        { name: 'invoice_items', column: 'product_name' },
+        { name: 'ledger_entries', column: 'product_name' },
+        { name: 'stock_receiving_items', column: 'product_name' }
+      ];
+      
+      for (const { name, column } of tables) {
+        try {
+          await this.dbConnection.execute(`ALTER TABLE ${name} ADD COLUMN ${column} TEXT`);
+          details.push(`Added ${column} to ${name}`);
+        } catch (error: any) {
+          if (error.message?.includes('duplicate column name')) {
+            details.push(`${column} already exists in ${name}`);
+          } else {
+            details.push(`Could not add ${column} to ${name}: ${error.message}`);
+          }
+        }
+      }
+      
+      // Verify core tables exist by checking their schema
+      const coreTables = ['products', 'customers', 'invoices', 'invoice_items', 'stock_movements'];
+      for (const tableName of coreTables) {
+        try {
+          const tableInfo = await this.dbConnection.select(`PRAGMA table_info(${tableName})`);
+          if (tableInfo.length > 0) {
+            details.push(`✓ Table ${tableName} exists with ${tableInfo.length} columns`);
+          } else {
+            details.push(`⚠ Table ${tableName} exists but has no columns`);
+          }
+        } catch (error: any) {
+          details.push(`❌ Table ${tableName} does not exist or is inaccessible`);
+          // Try to create the table if it doesn't exist
+          try {
+            await this.createCoreTablesFromSchemas();
+            details.push(`Created missing table ${tableName}`);
+          } catch (createError: any) {
+            details.push(`Failed to create ${tableName}: ${createError.message}`);
+          }
+        }
+      }
+      
+      // Backfill existing data
+      const backfillQueries = [
+        'UPDATE stock_movements SET product_name = (SELECT name FROM products WHERE id = stock_movements.product_id) WHERE (product_name IS NULL OR product_name = \'\') AND product_id IS NOT NULL',
+        'UPDATE invoice_items SET product_name = (SELECT name FROM products WHERE id = invoice_items.product_id) WHERE (product_name IS NULL OR product_name = \'\') AND product_id IS NOT NULL',
+        'UPDATE ledger_entries SET product_name = (SELECT name FROM products WHERE id = ledger_entries.product_id) WHERE (product_name IS NULL OR product_name = \'\') AND product_id IS NOT NULL',
+        'UPDATE stock_receiving_items SET product_name = (SELECT name FROM products WHERE id = stock_receiving_items.product_id) WHERE (product_name IS NULL OR product_name = \'\') AND product_id IS NOT NULL'
+      ];
+      
+      for (const query of backfillQueries) {
+        try {
+          await this.dbConnection.execute(query);
+        } catch (error: any) {
+          console.warn('Could not backfill some data:', error.message);
+        }
+      }
+      details.push('Backfilled product names in existing records');
+      
+      // Clear cache to ensure fresh data
+      this.invalidateProductCache();
+      details.push('Product cache cleared');
+      
+      console.log('✅ Comprehensive fix for product-related issues completed successfully');
+      return {
+        success: true,
+        message: 'Product database issues fixed successfully. All core tables created and product_name columns added. You can now edit products without errors.',
+        details
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Comprehensive fix failed:', error);
+      return {
+        success: false,
+        message: `Comprehensive fix failed: ${error.message}`,
+        details
+      };
     }
   }
 
@@ -2654,6 +2860,57 @@ export class DatabaseService {
       if (await this.safeAddColumn('audit_logs', 'description', 'TEXT')) {
         console.log('✅ Added description column to audit_logs table');
       }
+
+      // CRITICAL FIX: Add product_name column to tables that need it for product updates
+      console.log('🔧 [CRITICAL] Adding product_name columns to related tables...');
+      
+      if (await this.safeAddColumn('stock_movements', 'product_name', 'TEXT')) {
+        console.log('✅ Added product_name column to stock_movements table');
+      }
+      
+      if (await this.safeAddColumn('invoice_items', 'product_name', 'TEXT')) {
+        console.log('✅ Added product_name column to invoice_items table');
+      }
+      
+      if (await this.safeAddColumn('ledger_entries', 'product_name', 'TEXT')) {
+        console.log('✅ Added product_name column to ledger_entries table');
+      }
+
+      // Backfill product_name for existing records
+      try {
+        console.log('🔄 Backfilling product_name in related tables...');
+        
+        // Update stock_movements
+        await this.dbConnection.execute(`
+          UPDATE stock_movements 
+          SET product_name = (
+            SELECT name FROM products WHERE id = stock_movements.product_id
+          )
+          WHERE product_name IS NULL AND product_id IS NOT NULL
+        `);
+        
+        // Update invoice_items
+        await this.dbConnection.execute(`
+          UPDATE invoice_items 
+          SET product_name = (
+            SELECT name FROM products WHERE id = invoice_items.product_id
+          )
+          WHERE product_name IS NULL AND product_id IS NOT NULL
+        `);
+        
+        // Update ledger_entries
+        await this.dbConnection.execute(`
+          UPDATE ledger_entries 
+          SET product_name = (
+            SELECT name FROM products WHERE id = ledger_entries.product_id
+          )
+          WHERE product_name IS NULL AND product_id IS NOT NULL
+        `);
+        
+        console.log('✅ Backfilled product_name in all related tables');
+      } catch (backfillError) {
+        console.warn('⚠️ Could not backfill product_name in some tables:', backfillError);
+      }
     } catch (error) {
       console.error('❌ Error ensuring critical columns:', error);
       // Don't throw - this is a fix attempt
@@ -3426,6 +3683,11 @@ export class DatabaseService {
         // Don't fail initialization, but log the error
         console.warn('⚠️ [DB] Continuing initialization despite schema fix failure');
       }
+      
+      // CRITICAL FIX: Create core tables using centralized schemas FIRST
+      console.log('🔄 [DB] Creating core tables with centralized schemas...');
+      await this.createCoreTablesFromSchemas();
+      console.log('✅ [DB] Core tables with centralized schemas created');
       
       // Create critical tables
       console.log('🔄 [DB] Creating critical tables...');

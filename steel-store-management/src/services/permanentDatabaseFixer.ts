@@ -44,10 +44,19 @@ class PermanentDatabaseFixer {
     console.log('🔧 [PERMANENT-FIX] Starting comprehensive database fixes...');
     
     try {
+      // CRITICAL: Create ALL tables first before adding columns
+      await this.ensureProductTableWithBaseName();
       await this.ensureVendorTables();
       await this.ensureFinancialTables();
       await this.ensurePaymentTables();
       await this.ensureStaffTables();
+      await this.ensureAllCoreTables(); // Ensure ALL tables exist first
+      
+      // THEN add missing columns (now that all tables exist)
+      await this.addAllMissingColumns();
+      await this.applyProductNameFixes();
+      await this.createEssentialIndexes();
+      await this.applyDataIntegrityFixes();
       await this.ensureIndexesAndConstraints();
       await this.validateTableStructures();
       
@@ -479,7 +488,407 @@ class PermanentDatabaseFixer {
    */
   public resetFixes(): void {
     this.fixesApplied.clear();
-    console.log('🔄 [PERMANENT-FIX] Fixes reset, will reapply on next run');
+  }
+
+  /**
+   * PERMANENT FIX: Ensure products table has base_name column
+   */
+  private async ensureProductTableWithBaseName(): Promise<void> {
+    if (this.fixesApplied.has('product_base_name')) return;
+    
+    console.log('🔧 [PERMANENT-FIX] Ensuring products table with base_name...');
+    const db = this.getDb();
+    
+    try {
+      // Create products table with base_name support
+      await db.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS products (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          base_name TEXT, -- For clean editing without double concatenation
+          name2 TEXT, -- Legacy field
+          category TEXT NOT NULL DEFAULT 'Steel Products',
+          unit_type TEXT NOT NULL DEFAULT 'kg-grams',
+          unit TEXT DEFAULT '1',
+          rate_per_unit REAL NOT NULL DEFAULT 0,
+          current_stock TEXT DEFAULT '0',
+          min_stock_alert TEXT DEFAULT '0',
+          size TEXT, -- Optional size specification
+          grade TEXT, -- Optional grade specification
+          status TEXT DEFAULT 'active',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Add base_name column if it doesn't exist
+      try {
+        await db.dbConnection.execute('ALTER TABLE products ADD COLUMN base_name TEXT');
+        console.log('✅ [PERMANENT-FIX] Added base_name column to products');
+      } catch (error: any) {
+        if (error.message?.includes('duplicate column name')) {
+          console.log('ℹ️ [PERMANENT-FIX] base_name column already exists');
+        }
+      }
+
+      this.fixesApplied.add('product_base_name');
+      console.log('✅ [PERMANENT-FIX] Products table with base_name ensured');
+    } catch (error) {
+      console.error('❌ [PERMANENT-FIX] Failed to ensure products table:', error);
+    }
+  }
+
+  /**
+   * PERMANENT FIX: Add all missing columns to existing tables
+   */
+  private async addAllMissingColumns(): Promise<void> {
+    if (this.fixesApplied.has('missing_columns')) return;
+    
+    console.log('🔧 [PERMANENT-FIX] Adding all missing columns...');
+    const db = this.getDb();
+
+    const columnsToAdd = [
+      // Products table
+      { table: 'products', column: 'base_name', type: 'TEXT' },
+      { table: 'products', column: 'name2', type: 'TEXT' }, // Legacy field used by ProductForm
+      { table: 'products', column: 'size', type: 'TEXT' },
+      { table: 'products', column: 'grade', type: 'TEXT' },
+      { table: 'products', column: 'status', type: 'TEXT DEFAULT "active"' },
+      
+      // Invoice table
+      { table: 'invoices', column: 'payment_amount', type: 'REAL DEFAULT 0' },
+      
+      // Related tables for product_name denormalization
+      { table: 'invoice_items', column: 'product_name', type: 'TEXT' },
+      { table: 'stock_movements', column: 'product_name', type: 'TEXT' },
+      { table: 'ledger_entries', column: 'product_name', type: 'TEXT' },
+      { table: 'stock_receiving_items', column: 'product_name', type: 'TEXT' },
+      
+      // Payment channels
+      { table: 'payments', column: 'payment_channel_id', type: 'INTEGER' },
+      { table: 'payments', column: 'payment_channel_name', type: 'TEXT' },
+      { table: 'ledger_entries', column: 'payment_channel_id', type: 'INTEGER' },
+      { table: 'ledger_entries', column: 'payment_channel_name', type: 'TEXT' },
+    ];
+
+    for (const { table, column, type } of columnsToAdd) {
+      try {
+        await db.dbConnection.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+        console.log(`✅ [PERMANENT-FIX] Added column ${table}.${column}`);
+      } catch (error: any) {
+        const errorMessage = error?.message || error?.toString() || 'Unknown error';
+        
+        if (errorMessage.includes('duplicate column name') || 
+            errorMessage.includes('no such table')) {
+          // Column exists or table doesn't exist - both are acceptable
+          if (errorMessage.includes('no such table')) {
+            console.log(`ℹ️ [PERMANENT-FIX] Table ${table} doesn't exist yet - will be created later`);
+          } else {
+            console.log(`ℹ️ [PERMANENT-FIX] Column ${table}.${column} already exists`);
+          }
+        } else {
+          console.warn(`⚠️ [PERMANENT-FIX] Could not add ${table}.${column}: ${errorMessage}`);
+        }
+      }
+    }
+
+    this.fixesApplied.add('missing_columns');
+    console.log('✅ [PERMANENT-FIX] All missing columns processed');
+  }
+
+  /**
+   * PERMANENT FIX: Apply product name fixes (base name extraction and backfill)
+   */
+  private async applyProductNameFixes(): Promise<void> {
+    if (this.fixesApplied.has('product_name_fixes')) return;
+    
+    console.log('🔧 [PERMANENT-FIX] Applying product name fixes...');
+    const db = this.getDb();
+
+    try {
+      // Extract base names from existing products
+      const products = await db.dbConnection.select('SELECT id, name, size, grade, base_name FROM products');
+      
+      for (const product of products) {
+        // Only update if base_name is missing
+        if (!product.base_name && product.name) {
+          let baseName = product.name;
+          
+          // Remove size part if it exists
+          if (product.size && baseName.includes(` • ${product.size}`)) {
+            baseName = baseName.replace(` • ${product.size}`, '');
+          }
+          
+          // Remove grade part if it exists
+          if (product.grade && baseName.includes(` • G${product.grade}`)) {
+            baseName = baseName.replace(` • G${product.grade}`, '');
+          }
+          
+          await db.dbConnection.execute(
+            'UPDATE products SET base_name = ? WHERE id = ?',
+            [baseName.trim(), product.id]
+          );
+        }
+      }
+      
+      console.log(`✅ [PERMANENT-FIX] Base names extracted for ${products.length} products`);
+
+      // Backfill product names in related tables
+      const backfillQueries = [
+        `UPDATE invoice_items SET product_name = (
+          SELECT name FROM products WHERE id = invoice_items.product_id
+        ) WHERE (product_name IS NULL OR product_name = '') AND product_id IS NOT NULL`,
+        
+        `UPDATE stock_movements SET product_name = (
+          SELECT name FROM products WHERE id = stock_movements.product_id
+        ) WHERE (product_name IS NULL OR product_name = '') AND product_id IS NOT NULL`,
+        
+        `UPDATE ledger_entries SET product_name = (
+          SELECT name FROM products WHERE id = ledger_entries.product_id
+        ) WHERE (product_name IS NULL OR product_name = '') AND product_id IS NOT NULL`,
+
+        `UPDATE stock_receiving_items SET product_name = (
+          SELECT name FROM products WHERE id = stock_receiving_items.product_id
+        ) WHERE (product_name IS NULL OR product_name = '') AND product_id IS NOT NULL`
+      ];
+
+      for (const query of backfillQueries) {
+        try {
+          await db.dbConnection.execute(query);
+        } catch (error) {
+          // Table might not exist yet, which is fine
+        }
+      }
+
+      this.fixesApplied.add('product_name_fixes');
+      console.log('✅ [PERMANENT-FIX] Product name fixes applied');
+    } catch (error) {
+      console.error('❌ [PERMANENT-FIX] Product name fixes failed:', error);
+    }
+  }
+
+  /**
+   * PERMANENT FIX: Create essential performance indexes
+   */
+  private async createEssentialIndexes(): Promise<void> {
+    if (this.fixesApplied.has('essential_indexes')) return;
+    
+    console.log('🔧 [PERMANENT-FIX] Creating essential performance indexes...');
+    const db = this.getDb();
+
+    const indexes = [
+      // Products
+      'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
+      'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
+      'CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)',
+      'CREATE INDEX IF NOT EXISTS idx_products_base_name ON products(base_name)',
+      
+      // Customers
+      'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
+      'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
+      
+      // Invoices
+      'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date)',
+      'CREATE INDEX IF NOT EXISTS idx_invoices_bill_number ON invoices(bill_number)',
+      
+      // Invoice Items
+      'CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id)',
+      'CREATE INDEX IF NOT EXISTS idx_invoice_items_product_id ON invoice_items(product_id)',
+      
+      // Payments
+      'CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)',
+      
+      // Stock Movements
+      'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)',
+      'CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)',
+      
+      // Ledger Entries
+      'CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)',
+      'CREATE INDEX IF NOT EXISTS idx_ledger_entries_customer_id ON ledger_entries(customer_id)',
+      'CREATE INDEX IF NOT EXISTS idx_ledger_entries_type ON ledger_entries(type)',
+    ];
+
+    for (const indexSql of indexes) {
+      try {
+        await db.dbConnection.execute(indexSql);
+      } catch (error) {
+        // Indexes may already exist or table may not exist, which is fine
+      }
+    }
+
+    this.fixesApplied.add('essential_indexes');
+    console.log('✅ [PERMANENT-FIX] Essential indexes created');
+  }
+
+  /**
+   * PERMANENT FIX: Apply data integrity fixes
+   */
+  private async applyDataIntegrityFixes(): Promise<void> {
+    if (this.fixesApplied.has('data_integrity')) return;
+    
+    console.log('🔧 [PERMANENT-FIX] Applying data integrity fixes...');
+    const db = this.getDb();
+
+    try {
+      // Update customer balances based on invoices and payments
+      await db.dbConnection.execute(`
+        UPDATE customers SET balance = (
+          COALESCE((
+            SELECT SUM(total_amount - COALESCE(payment_amount, 0))
+            FROM invoices 
+            WHERE invoices.customer_id = customers.id
+          ), 0) - COALESCE((
+            SELECT SUM(amount)
+            FROM payments 
+            WHERE payments.customer_id = customers.id
+          ), 0)
+        ) WHERE EXISTS (SELECT 1 FROM invoices WHERE customer_id = customers.id)
+      `);
+      console.log('✅ [PERMANENT-FIX] Customer balances recalculated');
+    } catch (error) {
+      // Table might not exist yet, which is fine during initialization
+    }
+
+    this.fixesApplied.add('data_integrity');
+    console.log('✅ [PERMANENT-FIX] Data integrity fixes applied');
+  }
+
+  /**
+   * PERMANENT FIX: Ensure ALL core tables exist before adding columns
+   */
+  private async ensureAllCoreTables(): Promise<void> {
+    if (this.fixesApplied.has('all_core_tables')) return;
+    
+    console.log('🔧 [PERMANENT-FIX] Ensuring ALL core tables exist...');
+    const db = this.getDb();
+
+    // Core tables that are referenced in columnsToAdd
+    const coreTables = [
+      {
+        name: 'ledger_entries',
+        sql: `
+          CREATE TABLE IF NOT EXISTS ledger_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            time TEXT,
+            type TEXT NOT NULL,
+            category TEXT,
+            description TEXT,
+            amount REAL NOT NULL,
+            customer_id INTEGER,
+            customer_name TEXT,
+            product_id INTEGER,
+            product_name TEXT,
+            payment_method TEXT,
+            payment_channel_id INTEGER,
+            payment_channel_name TEXT,
+            reference_type TEXT,
+            reference_id INTEGER,
+            notes TEXT,
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `
+      },
+      {
+        name: 'stock_movements',
+        sql: `
+          CREATE TABLE IF NOT EXISTS stock_movements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            product_name TEXT,
+            movement_type TEXT NOT NULL,
+            quantity REAL NOT NULL,
+            previous_stock REAL,
+            new_stock REAL,
+            unit_price REAL,
+            total_value REAL,
+            reason TEXT,
+            reference_type TEXT,
+            reference_id INTEGER,
+            reference_number TEXT,
+            customer_id INTEGER,
+            customer_name TEXT,
+            notes TEXT,
+            date TEXT NOT NULL,
+            time TEXT,
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            unit_type TEXT
+          )
+        `
+      },
+      {
+        name: 'invoice_items',
+        sql: `
+          CREATE TABLE IF NOT EXISTS invoice_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            invoice_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            product_name TEXT,
+            unit_price REAL NOT NULL,
+            quantity REAL NOT NULL,
+            total_price REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `
+      },
+      {
+        name: 'stock_receiving_items',
+        sql: `
+          CREATE TABLE IF NOT EXISTS stock_receiving_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            receiving_id INTEGER NOT NULL,
+            product_id INTEGER NOT NULL,
+            product_name TEXT,
+            quantity REAL NOT NULL,
+            unit_price REAL NOT NULL,
+            total_price REAL NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `
+      },
+      {
+        name: 'payments',
+        sql: `
+          CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            payment_code TEXT,
+            customer_id INTEGER NOT NULL,
+            customer_name TEXT,
+            amount REAL NOT NULL,
+            payment_method TEXT NOT NULL,
+            payment_channel_id INTEGER,
+            payment_channel_name TEXT,
+            payment_type TEXT NOT NULL,
+            reference_invoice_id INTEGER,
+            reference TEXT,
+            notes TEXT,
+            date TEXT NOT NULL,
+            time TEXT,
+            created_by TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          )
+        `
+      }
+    ];
+
+    for (const table of coreTables) {
+      try {
+        await db.dbConnection.execute(table.sql);
+        console.log(`✅ [PERMANENT-FIX] Core table ensured: ${table.name}`);
+      } catch (error: any) {
+        console.warn(`⚠️ [PERMANENT-FIX] Could not ensure table ${table.name}:`, error?.message || error);
+      }
+    }
+
+    this.fixesApplied.add('all_core_tables');
+    console.log('✅ [PERMANENT-FIX] All core tables ensured');
   }
 }
 

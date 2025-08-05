@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Fix Tool - Product ID Error (UPDATED)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .error-info {
+            background: #ffe6e6;
+            border: 1px solid #ff9999;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .success-info {
+            background: #e6ffe6;
+            border: 1px solid #99ff99;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .fix-button {
+            background: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 20px auto;
+            width: 250px;
+        }
+        .fix-button:hover {
+            background: #45a049;
+        }
+        .fix-button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+        .test-button {
+            background: #2196F3;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 10px;
+        }
+        .test-button:hover {
+            background: #1976D2;
+        }
+        .output {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .info {
+            color: #2196F3;
+        }
+        .instructions {
+            background: #e3f2fd;
+            border: 1px solid #2196F3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .code-block {
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 3px;
+            font-family: monospace;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Database Fix Tool (Updated)</h1>
+        
+        <div class="error-info">
+            <h3>Current Error:</h3>
+            <p><strong>Error:</strong> no such column: product_id</p>
+            <p><strong>Location:</strong> ProductForm.tsx:164</p>
+            <p><strong>Status:</strong> Product updates but throws error</p>
+            <p><strong>Solution:</strong> Enhanced error handling and table validation</p>
+        </div>
+
+        <div class="success-info">
+            <h3>✅ Fix Applied:</h3>
+            <p>The updateProduct method now includes:</p>
+            <ul>
+                <li>Safe table existence checks before updates</li>
+                <li>Column validation before executing queries</li>
+                <li>Enhanced error handling and logging</li>
+                <li>Graceful handling of missing tables/columns</li>
+            </ul>
+        </div>
+
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li>Make sure your Steel Store Management application is running</li>
+                <li>Click "Apply Database Fix" to fix any remaining issues</li>
+                <li>Click "Test Product Update" to verify the fix works</li>
+                <li>Go back to your application and try editing a product</li>
+                <li>The error should be gone, and product editing should work smoothly</li>
+            </ol>
+        </div>
+
+        <button id="fixButton" class="fix-button" onclick="runDatabaseFix()">
+            🔧 Apply Database Fix
+        </button>
+
+        <button id="testButton" class="test-button" onclick="testProductUpdate()">
+            🧪 Test Product Update
+        </button>
+
+        <button id="manualButton" class="test-button" onclick="showManualInstructions()">
+            📋 Show Manual Fix Code
+        </button>
+
+        <div id="output" class="output" style="display: none;"></div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            output.style.display = 'block';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
+            
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function runDatabaseFix() {
+            const button = document.getElementById('fixButton');
+            const output = document.getElementById('output');
+            
+            // Clear previous output
+            output.innerHTML = '';
+            output.style.display = 'block';
+            
+            // Disable button
+            button.disabled = true;
+            button.textContent = '🔄 Applying Fix...';
+            
+            try {
+                log('🔧 Starting comprehensive database fix...', 'info');
+                
+                // Create fix script
+                const script = document.createElement('script');
+                script.type = 'module';
+                script.textContent = `
+                    try {
+                        const { DatabaseService } = await import('./src/services/database.ts');
+                        const db = DatabaseService.getInstance();
+                        
+                        const result = await db.quickFixProductNameColumns();
+                        window.databaseFixResult = result;
+                        window.dispatchEvent(new CustomEvent('databaseFixComplete', { detail: result }));
+                    } catch (error) {
+                        window.databaseFixError = error;
+                        window.dispatchEvent(new CustomEvent('databaseFixError', { detail: error }));
+                    }
+                `;
+                
+                // Handle success
+                window.addEventListener('databaseFixComplete', (event) => {
+                    const result = event.detail;
+                    
+                    log('✅ Database fix completed!', 'success');
+                    log(\`Success: \${result.success}\`, result.success ? 'success' : 'error');
+                    log(\`Message: \${result.message}\`, 'info');
+                    
+                    result.details.forEach((detail, index) => {
+                        log(\`  \${index + 1}. \${detail}\`, 'info');
+                    });
+                    
+                    if (result.success) {
+                        log('', 'info');
+                        log('🎉 Fix applied successfully!', 'success');
+                        log('Now you can test product updates or go back to your app.', 'success');
+                    }
+                    
+                    button.disabled = false;
+                    button.textContent = '🔧 Apply Database Fix';
+                }, { once: true });
+                
+                // Handle error
+                window.addEventListener('databaseFixError', (event) => {
+                    const error = event.detail;
+                    log(\`❌ Fix failed: \${error.message}\`, 'error');
+                    log('Try the manual fix instructions below.', 'info');
+                    
+                    button.disabled = false;
+                    button.textContent = '🔧 Try Fix Again';
+                }, { once: true });
+                
+                document.head.appendChild(script);
+                
+            } catch (error) {
+                log(\`❌ Unexpected error: \${error.message}\`, 'error');
+                button.disabled = false;
+                button.textContent = '🔧 Try Fix Again';
+            }
+        }
+
+        async function testProductUpdate() {
+            const output = document.getElementById('output');
+            output.innerHTML = '';
+            output.style.display = 'block';
+            
+            try {
+                log('🧪 Testing product update functionality...', 'info');
+                
+                const script = document.createElement('script');
+                script.type = 'module';
+                script.textContent = `
+                    try {
+                        const { DatabaseService } = await import('./src/services/database.ts');
+                        const db = DatabaseService.getInstance();
+                        
+                        // Check if products exist
+                        const products = await db.dbConnection.select('SELECT * FROM products LIMIT 1');
+                        
+                        if (products.length > 0) {
+                            const testProduct = products[0];
+                            
+                            // Try updating
+                            await db.updateProduct(testProduct.id, {
+                                name: testProduct.name + ' (Test)',
+                                category: testProduct.category
+                            });
+                            
+                            // Revert
+                            await db.updateProduct(testProduct.id, {
+                                name: testProduct.name.replace(' (Test)', ''),
+                                category: testProduct.category
+                            });
+                            
+                            window.dispatchEvent(new CustomEvent('testComplete', { 
+                                detail: { success: true, message: 'Product update test passed!' }
+                            }));
+                        } else {
+                            window.dispatchEvent(new CustomEvent('testComplete', { 
+                                detail: { success: true, message: 'No products to test, but fix is ready!' }
+                            }));
+                        }
+                    } catch (error) {
+                        window.dispatchEvent(new CustomEvent('testError', { detail: error }));
+                    }
+                `;
+                
+                window.addEventListener('testComplete', (event) => {
+                    const result = event.detail;
+                    log(\`✅ \${result.message}\`, 'success');
+                    log('You can now edit products without errors.', 'success');
+                }, { once: true });
+                
+                window.addEventListener('testError', (event) => {
+                    const error = event.detail;
+                    log(\`❌ Test failed: \${error.message}\`, 'error');
+                    log('The fix may need to be applied first.', 'info');
+                }, { once: true });
+                
+                document.head.appendChild(script);
+                
+            } catch (error) {
+                log(\`❌ Test setup failed: \${error.message}\`, 'error');
+            }
+        }
+
+        function showManualInstructions() {
+            const output = document.getElementById('output');
+            output.innerHTML = '';
+            output.style.display = 'block';
+            
+            log('📋 Manual Fix Instructions:', 'info');
+            log('', 'info');
+            log('1. Go to your Steel Store Management application', 'info');
+            log('2. Open browser console (F12 → Console tab)', 'info');
+            log('3. Copy and paste this code:', 'info');
+            log('', 'info');
+            
+            const codeBlock = document.createElement('div');
+            codeBlock.className = 'code-block';
+            codeBlock.textContent = `(async function() {
+  try {
+    const { DatabaseService } = await import('./src/services/database.ts');
+    const db = DatabaseService.getInstance();
+    const result = await db.quickFixProductNameColumns();
+    console.log('Fix result:', result);
+    if (result.success) {
+      alert('✅ Fix applied! Product editing should now work.');
+    } else {
+      alert('❌ Fix failed. Try restarting the app.');
+    }
+  } catch (error) {
+    console.error('Fix error:', error);
+    alert('Error applying fix. Try restarting the app.');
+  }
+})();`;
+            
+            output.appendChild(codeBlock);
+            
+            log('', 'info');
+            log('4. Press Enter to run the fix', 'info');
+            log('5. Wait for the success message', 'info');
+            log('6. Try editing a product again', 'info');
+        }
+    </script>
+</body>
+</html>

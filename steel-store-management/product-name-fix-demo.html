@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Name Concatenation Fix - Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .demo-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .before, .after {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 3px;
+        }
+        .before {
+            background: #ffe6e6;
+            border-left: 4px solid #ff6b6b;
+        }
+        .after {
+            background: #e6ffe6;
+            border-left: 4px solid #51cf66;
+        }
+        .fix-button {
+            background: #4CAF50;
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 20px auto;
+            display: block;
+        }
+        .fix-button:hover {
+            background: #45a049;
+        }
+        .output {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Product Name Concatenation Fix</h1>
+        
+        <div class="demo-section">
+            <h3>Problem Demo:</h3>
+            <div class="before">
+                <strong>❌ Before Fix:</strong><br>
+                1. Product saved as: "Steel Rod • 10mm • G70"<br>
+                2. Edit form loads: "Steel Rod • 10mm • G70" in name field<br>
+                3. User adds size (10mm) and grade (70) again<br>
+                4. Saves as: "Steel Rod • 10mm • G70 • 10mm • G70" ❌ DOUBLED!
+            </div>
+            
+            <div class="after">
+                <strong>✅ After Fix:</strong><br>
+                1. Product saved as: "Steel Rod • 10mm • G70"<br>
+                2. Edit form loads: "Steel Rod" in name field (base name extracted)<br>
+                3. Size field shows: "10mm", Grade field shows: "70"<br>
+                4. Saves as: "Steel Rod • 10mm • G70" ✅ PERFECT!
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h3>How the Fix Works:</h3>
+            <ul>
+                <li>✅ <strong>Base Name Extraction:</strong> Automatically extracts the base product name for editing</li>
+                <li>✅ <strong>Smart Parsing:</strong> Handles various naming formats (•, -, spaces)</li>
+                <li>✅ <strong>Separate Storage:</strong> Stores base_name separately to prevent confusion</li>
+                <li>✅ <strong>Live Preview:</strong> Shows full name preview as you type</li>
+                <li>✅ <strong>Backward Compatible:</strong> Works with existing product data</li>
+            </ul>
+        </div>
+
+        <button class="fix-button" onclick="runFix()">
+            🔧 Apply the Fix Now
+        </button>
+
+        <div id="output" class="output" style="display: none;"></div>
+
+        <div class="demo-section">
+            <h3>Manual Test:</h3>
+            <p>After applying the fix, try this:</p>
+            <ol>
+                <li>Go to your product list</li>
+                <li>Edit a product that has size and grade (like "Steel Rod • 10mm • G70")</li>
+                <li>Notice the name field only shows "Steel Rod"</li>
+                <li>Size field shows "10mm", Grade field shows "70"</li>
+                <li>Make a small change and save</li>
+                <li>The name should remain "Steel Rod • 10mm • G70" (not doubled!)</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            output.style.display = 'block';
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'success' ? 'success' : type === 'error' ? 'error' : '';
+            
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        async function runFix() {
+            const output = document.getElementById('output');
+            output.innerHTML = '';
+            output.style.display = 'block';
+            
+            try {
+                log('🔧 Starting product name concatenation fix...', 'info');
+                
+                const script = document.createElement('script');
+                script.type = 'module';
+                script.textContent = `
+                    try {
+                        const { DatabaseService } = await import('./src/services/database.ts');
+                        const db = DatabaseService.getInstance();
+                        
+                        // Add base_name column
+                        try {
+                            await db.dbConnection.execute('ALTER TABLE products ADD COLUMN base_name TEXT');
+                            console.log('✅ base_name column added');
+                        } catch (error) {
+                            if (error.message?.includes('duplicate')) {
+                                console.log('ℹ️ base_name column already exists');
+                            }
+                        }
+                        
+                        // Extract base names
+                        const products = await db.dbConnection.select('SELECT id, name, size, grade FROM products');
+                        
+                        for (const product of products) {
+                            let baseName = product.name || '';
+                            
+                            if (product.size && baseName.includes(' • ' + product.size)) {
+                                baseName = baseName.replace(' • ' + product.size, '');
+                            }
+                            if (product.grade && baseName.includes(' • G' + product.grade)) {
+                                baseName = baseName.replace(' • G' + product.grade, '');
+                            }
+                            
+                            await db.dbConnection.execute(
+                                'UPDATE products SET base_name = ? WHERE id = ?',
+                                [baseName.trim(), product.id]
+                            );
+                        }
+                        
+                        window.dispatchEvent(new CustomEvent('fixComplete', { 
+                            detail: { success: true, count: products.length }
+                        }));
+                        
+                    } catch (error) {
+                        window.dispatchEvent(new CustomEvent('fixError', { detail: error }));
+                    }
+                `;
+                
+                window.addEventListener('fixComplete', (event) => {
+                    const result = event.detail;
+                    log(\`✅ Fix completed successfully!\`, 'success');
+                    log(\`Updated \${result.count} products with base names\`, 'success');
+                    log('', 'info');
+                    log('🎉 Product editing will now work correctly!', 'success');
+                    log('No more double concatenation issues.', 'success');
+                }, { once: true });
+                
+                window.addEventListener('fixError', (event) => {
+                    const error = event.detail;
+                    log(\`❌ Fix failed: \${error.message}\`, 'error');
+                    log('Try restarting your application.', 'info');
+                }, { once: true });
+                
+                document.head.appendChild(script);
+                
+            } catch (error) {
+                log(\`❌ Setup failed: \${error.message}\`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

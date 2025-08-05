@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Product Name Column Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .error-box {
+            background: #ffebee;
+            border: 1px solid #f44336;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #d32f2f;
+        }
+        .success-box {
+            background: #e8f5e8;
+            border: 1px solid #4caf50;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #2e7d32;
+        }
+        .warning-box {
+            background: #fff3e0;
+            border: 1px solid #ff9800;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #f57c00;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .fix-button {
+            background: #4caf50;
+        }
+        .fix-button:hover {
+            background: #45a049;
+        }
+        .emergency-button {
+            background: #f44336;
+        }
+        .emergency-button:hover {
+            background: #da190b;
+        }
+        .console-code {
+            background: #2d2d2d;
+            color: #f1f1f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #2196f3;
+            background: #f8f9fa;
+        }
+        #output {
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Database Product Name Column Fix</h1>
+            <p>Fix for: <strong>error returned from database: (code: 1) no such column: product_name</strong></p>
+        </div>
+
+        <div class="error-box">
+            <h3>🚨 Problem Description</h3>
+            <p>The error occurs when trying to edit products because the database is missing essential tables or columns like <code>product_name</code> and <code>product_id</code> in related tables.</p>
+            <p><strong>Common errors:</strong></p>
+            <ul>
+                <li><code>no such column: product_name</code></li>
+                <li><code>no such column: product_id</code></li>
+                <li><code>no such table: products</code></li>
+            </ul>
+        </div>
+
+        <div class="step">
+            <h3>📋 Step 1: Comprehensive Fix (Recommended)</h3>
+            <p>This will create all missing tables and add required columns:</p>
+            <button id="quickFix" class="fix-button" onclick="runQuickFix()">🚀 Run Quick Fix</button>
+            <button id="manualFix" onclick="runManualFix()">🔧 Run Manual Schema Fix</button>
+        </div>
+
+        <div class="step">
+            <h3>🆘 Step 2: Emergency Console Fix</h3>
+            <p>If the quick fix doesn't work, copy and paste this code into your browser console (F12):</p>
+            <div class="console-code">
+// Emergency fix - copy and paste this into console
+(async function() {
+  try {
+    const { DatabaseService } = await import('./src/services/database.ts');
+    const db = DatabaseService.getInstance();
+    const result = await db.quickFixProductNameColumns();
+    console.log('Fix result:', result);
+    if (result.success) {
+      alert('✅ Product name columns fixed! Try editing a product now.');
+    } else {
+      alert('❌ Fix failed: ' + result.message);
+    }
+  } catch (error) {
+    console.error('Fix failed:', error);
+    alert('❌ Fix failed. Check console for details.');
+  }
+})();
+            </div>
+            <button class="emergency-button" onclick="copyToClipboard()">📋 Copy Emergency Code</button>
+        </div>
+
+        <div class="step">
+            <h3>🔄 Step 3: Alternative Manual Fix</h3>
+            <p>If you prefer to run SQL commands manually:</p>
+            <div class="console-code">
+// Add missing columns manually
+ALTER TABLE stock_movements ADD COLUMN product_name TEXT;
+ALTER TABLE invoice_items ADD COLUMN product_name TEXT;
+ALTER TABLE ledger_entries ADD COLUMN product_name TEXT;
+ALTER TABLE stock_receiving_items ADD COLUMN product_name TEXT;
+
+// Backfill existing data
+UPDATE stock_movements SET product_name = (SELECT name FROM products WHERE id = stock_movements.product_id) WHERE product_name IS NULL;
+UPDATE invoice_items SET product_name = (SELECT name FROM products WHERE id = invoice_items.product_id) WHERE product_name IS NULL;
+UPDATE ledger_entries SET product_name = (SELECT name FROM products WHERE id = ledger_entries.product_id) WHERE product_name IS NULL;
+            </div>
+        </div>
+
+        <div id="output-container" style="display: none;">
+            <h3>📤 Output</h3>
+            <div id="output"></div>
+        </div>
+
+        <div class="warning-box">
+            <h3>⚠️ Important Notes</h3>
+            <ul>
+                <li>This fix adds missing database columns that are required for product editing</li>
+                <li>It's safe to run multiple times - won't duplicate columns</li>
+                <li>After running the fix, try editing a product to verify it works</li>
+                <li>If you still get errors, check the browser console for more details</li>
+            </ul>
+        </div>
+
+        <div class="success-box" id="successMessage" style="display: none;">
+            <h3>✅ Fix Applied Successfully!</h3>
+            <p>The product name columns have been added to your database. You should now be able to edit products without the "no such column: product_name" error.</p>
+            <p><strong>Next steps:</strong> Try editing a product to verify the fix worked.</p>
+        </div>
+    </div>
+
+    <script>
+        function log(message) {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            output.textContent += `[${timestamp}] ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        function showOutput() {
+            document.getElementById('output-container').style.display = 'block';
+            document.getElementById('output').textContent = '';
+        }
+
+        async function runQuickFix() {
+            const button = document.getElementById('quickFix');
+            button.disabled = true;
+            button.textContent = '⏳ Running Fix...';
+            
+            showOutput();
+            log('🔧 Starting quick fix for product_name columns...');
+            
+            try {
+                const { DatabaseService } = await import('./src/services/database.ts');
+                log('✅ Database service imported');
+                
+                const db = DatabaseService.getInstance();
+                log('📡 Got database instance');
+                
+                const result = await db.quickFixProductNameColumns();
+                log(`📊 Fix result: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+                log(`📝 Message: ${result.message}`);
+                
+                result.details.forEach(detail => log(`   - ${detail}`));
+                
+                if (result.success) {
+                    document.getElementById('successMessage').style.display = 'block';
+                    button.textContent = '✅ Fix Completed';
+                    button.style.background = '#4caf50';
+                } else {
+                    button.textContent = '❌ Fix Failed';
+                    button.style.background = '#f44336';
+                    log('❌ Try the emergency console fix or manual SQL commands');
+                }
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                button.textContent = '❌ Fix Failed';
+                button.style.background = '#f44336';
+                log('💡 Try the emergency console fix instead');
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        async function runManualFix() {
+            const button = document.getElementById('manualFix');
+            button.disabled = true;
+            button.textContent = '⏳ Running Manual Fix...';
+            
+            showOutput();
+            log('🔧 Starting manual database schema fix...');
+            
+            try {
+                const { DatabaseService } = await import('./src/services/database.ts');
+                const db = DatabaseService.getInstance();
+                
+                const result = await db.fixDatabaseSchema();
+                log(`📊 Schema fix result: ${result.success ? 'SUCCESS' : 'PARTIAL'}`);
+                
+                if (result.issues_fixed.length > 0) {
+                    log('✅ Issues fixed:');
+                    result.issues_fixed.forEach(issue => log(`   - ${issue}`));
+                }
+                
+                if (result.remaining_issues.length > 0) {
+                    log('⚠️ Remaining issues:');
+                    result.remaining_issues.forEach(issue => log(`   - ${issue}`));
+                }
+                
+                if (result.success) {
+                    document.getElementById('successMessage').style.display = 'block';
+                    button.textContent = '✅ Manual Fix Completed';
+                    button.style.background = '#4caf50';
+                } else {
+                    button.textContent = '⚠️ Partial Fix';
+                    button.style.background = '#ff9800';
+                }
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                button.textContent = '❌ Fix Failed';
+                button.style.background = '#f44336';
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function copyToClipboard() {
+            const code = `(async function() {
+  try {
+    const { DatabaseService } = await import('./src/services/database.ts');
+    const db = DatabaseService.getInstance();
+    const result = await db.quickFixProductNameColumns();
+    console.log('Fix result:', result);
+    if (result.success) {
+      alert('✅ Product name columns fixed! Try editing a product now.');
+    } else {
+      alert('❌ Fix failed: ' + result.message);
+    }
+  } catch (error) {
+    console.error('Fix failed:', error);
+    alert('❌ Fix failed. Check console for details.');
+  }
+})();`;
+            
+            navigator.clipboard.writeText(code).then(() => {
+                alert('📋 Emergency fix code copied to clipboard!\n\nNow:\n1. Press F12 to open developer console\n2. Paste the code and press Enter\n3. Wait for the fix to complete');
+            }).catch(() => {
+                prompt('Copy this code manually:', code);
+            });
+        }
+    </script>
+</body>
+</html>

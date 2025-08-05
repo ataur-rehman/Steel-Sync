@@ -34,9 +34,63 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
       return unitString?.toString() || '';
     }
   };
+
+  // Helper function to extract base name from concatenated name
+  const extractBaseName = (fullName: string, size?: string, grade?: string): string => {
+    if (!fullName) return '';
+    
+    let baseName = fullName;
+    
+    // Remove size part if it exists (try different formats)
+    if (size) {
+      const sizePatterns = [
+        ` • ${size}`,
+        ` - ${size}`,
+        ` ${size}`,
+        `•${size}`,
+        `-${size}`
+      ];
+      
+      for (const pattern of sizePatterns) {
+        if (baseName.includes(pattern)) {
+          baseName = baseName.replace(pattern, '');
+          break;
+        }
+      }
+    }
+    
+    // Remove grade part if it exists (try different formats)
+    if (grade) {
+      const gradePatterns = [
+        ` • G${grade}`,
+        ` - G${grade}`,
+        ` G${grade}`,
+        `•G${grade}`,
+        `-G${grade}`,
+        ` • ${grade}`,
+        ` - ${grade}`,
+        ` ${grade}`
+      ];
+      
+      for (const pattern of gradePatterns) {
+        if (baseName.includes(pattern)) {
+          baseName = baseName.replace(pattern, '');
+          break;
+        }
+      }
+    }
+    
+    // Clean up any remaining separators at the end
+    baseName = baseName.replace(/\s*[•-]\s*$/, '').trim();
+    
+    return baseName;
+  };
+
+  // Extract base name for editing to prevent double concatenation
+  const baseName = product ? extractBaseName(product.name, product.size, product.grade) : '';
   
   const [formData, setFormData] = useState({
-    name: product?.name || '',
+    name: baseName || '',
     category: product?.category || 'Steel Products',
     unit_type: (product?.unit_type as UnitType) || 'kg-grams',
     rate_per_unit: product?.rate_per_unit?.toString() || '',
@@ -121,7 +175,9 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
 
       // Map form fields to database fields
       const productData = {
-        name: fullName,
+        name: fullName, // Store the concatenated name for display purposes
+        base_name: formData.name, // Store the base name separately to prevent double concatenation
+        name2: fullName, // Legacy field
         category: formData.category,
         unit_type: formData.unit_type,
         unit: '1', // Keep as legacy field
@@ -134,31 +190,31 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
 
       console.log('Submitting product data:', productData);
 
-      let result;
       if (product) {
-        result = await db.updateProduct(product.id, productData);
+        await db.updateProduct(product.id, productData);
         
         // Log activity
         await activityLogger.logProductUpdated(product.id, fullName, productData);
         
         toast.success('Product updated successfully!');
+        
+        // Success - call onSuccess
+        onSuccess();
       } else {
-        result = await db.createProduct(productData);
+        const result = await db.createProduct(productData);
         
         // Log activity
         await activityLogger.logProductCreated(result, fullName);
         
         toast.success('Product added successfully!');
-      }
 
-      console.log('Product operation result:', result);
+        console.log('Product operation result:', result);
 
-      if (product) {
-        onSuccess();
-      } else if (result && result > 0) {
-        onSuccess();
-      } else {
-        throw new Error(`Failed to create product - no valid result returned`);
+        if (result && result > 0) {
+          onSuccess();
+        } else {
+          throw new Error(`Failed to create product - no valid result returned`);
+        }
       }
     } catch (error) {
       console.error('Detailed error saving product:', error);
@@ -191,6 +247,14 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
     }
   };
 
+  // Helper function to generate full product name preview
+  const generateFullNamePreview = (): string => {
+    let fullName = formData.name;
+    if (formData.size) fullName += ` • ${formData.size}`;
+    if (formData.grade) fullName += ` • G${formData.grade}`;
+    return fullName;
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
@@ -212,6 +276,11 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
             disabled={loading}
             aria-invalid={!!errors.name}
           />
+          {(formData.size || formData.grade) && (
+            <p className="text-xs text-blue-600 mt-1">
+              Full name will be: <span className="font-medium">{generateFullNamePreview()}</span>
+            </p>
+          )}
           {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name}</p>}
         </div>
 
