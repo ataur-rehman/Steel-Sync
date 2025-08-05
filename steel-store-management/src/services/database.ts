@@ -1677,6 +1677,10 @@ export class DatabaseService {
       await this.fixStaffManagementIssues();
       details.push('Staff management schema issues resolved');
       
+      // CRITICAL FIX: Ensure staff table has proper columns for salary operations
+      await this.fixStaffTableSchema();
+      details.push('Staff table schema for salary operations fixed');
+      
       // CRITICAL FIX: Clean up orphaned salary payment records
       await this.fixStaffDataIntegrity();
       details.push('Staff data integrity issues resolved');
@@ -3128,6 +3132,123 @@ export class DatabaseService {
   }
 
   /**
+   * PERMANENT FIX: Ensure staff table has proper schema for salary operations
+   * This fixes the "no such column: s.is_active" error permanently
+   */
+  public async fixStaffTableSchema(): Promise<void> {
+    try {
+      console.log('🔧 [SALARY-FIX] Fixing staff table schema for salary operations...');
+      
+      // Check current staff table schema
+      const tableInfo = await this.dbConnection.select("PRAGMA table_info(staff)");
+      const columns = tableInfo.map((col: any) => col.name);
+      
+      console.log('📋 [SALARY-FIX] Current staff table columns:', columns);
+      
+      const fixes = [];
+      
+      // 1. Ensure is_active column exists
+      if (!columns.includes('is_active')) {
+        console.log('➕ [SALARY-FIX] Adding is_active column...');
+        await this.dbConnection.execute(`
+          ALTER TABLE staff ADD COLUMN is_active BOOLEAN DEFAULT 1
+        `);
+        
+        // Update all existing records to be active
+        await this.dbConnection.execute(`
+          UPDATE staff SET is_active = 1 WHERE is_active IS NULL
+        `);
+        fixes.push('Added is_active column');
+      }
+      
+      // 2. Ensure full_name column exists (some schemas use 'name')
+      if (!columns.includes('full_name') && columns.includes('name')) {
+        console.log('➕ [SALARY-FIX] Adding full_name column...');
+        await this.dbConnection.execute(`
+          ALTER TABLE staff ADD COLUMN full_name TEXT
+        `);
+        
+        // Copy name to full_name
+        await this.dbConnection.execute(`
+          UPDATE staff SET full_name = name WHERE full_name IS NULL
+        `);
+        fixes.push('Added full_name column (copied from name)');
+      }
+      
+      // 3. Ensure salary column exists (some schemas use 'basic_salary')
+      if (!columns.includes('salary') && columns.includes('basic_salary')) {
+        console.log('➕ [SALARY-FIX] Adding salary column...');
+        await this.dbConnection.execute(`
+          ALTER TABLE staff ADD COLUMN salary REAL DEFAULT 0
+        `);
+        
+        // Copy basic_salary to salary
+        await this.dbConnection.execute(`
+          UPDATE staff SET salary = basic_salary WHERE salary IS NULL OR salary = 0
+        `);
+        fixes.push('Added salary column (copied from basic_salary)');
+      }
+      
+      // 4. If using status column, create compatibility
+      if (columns.includes('status') && !columns.includes('is_active')) {
+        console.log('➕ [SALARY-FIX] Adding is_active column for status compatibility...');
+        await this.dbConnection.execute(`
+          ALTER TABLE staff ADD COLUMN is_active BOOLEAN DEFAULT 1
+        `);
+        
+        // Set is_active based on status
+        await this.dbConnection.execute(`
+          UPDATE staff SET is_active = CASE 
+            WHEN status = 'active' THEN 1 
+            ELSE 0 
+          END
+        `);
+        fixes.push('Added is_active column (based on status)');
+      }
+      
+      // 5. Fix staff_activities table timestamp column issue
+      try {
+        const activitiesInfo = await this.dbConnection.select("PRAGMA table_info(staff_activities)");
+        const activitiesColumns = activitiesInfo.map((col: any) => col.name);
+        
+        if (!activitiesColumns.includes('timestamp')) {
+          console.log('🔧 [SALARY-FIX] Adding timestamp column to staff_activities...');
+          await this.dbConnection.execute(`
+            ALTER TABLE staff_activities ADD COLUMN timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+          `);
+          fixes.push('Added timestamp column to staff_activities');
+        }
+      } catch (activitiesError) {
+        console.log('ℹ️ [SALARY-FIX] staff_activities table may not exist yet (normal for new installations)');
+      }
+      
+      // Test the problematic query
+      try {
+        const testResult = await this.dbConnection.select(`
+          SELECT COUNT(*) as active_staff_count
+          FROM staff s
+          WHERE s.is_active = 1
+        `);
+        console.log('✅ [SALARY-FIX] Query test successful:', testResult[0]);
+      } catch (testError) {
+        console.error('❌ [SALARY-FIX] Query test failed:', testError);
+        throw testError;
+      }
+      
+      console.log('✅ [SALARY-FIX] Staff table schema fixed successfully');
+      if (fixes.length > 0) {
+        console.log('🔧 [SALARY-FIX] Applied fixes:', fixes);
+      } else {
+        console.log('ℹ️ [SALARY-FIX] No fixes needed - schema was already correct');
+      }
+      
+    } catch (error) {
+      console.error('❌ [SALARY-FIX] Error fixing staff table schema:', error);
+      throw error;
+    }
+  }
+
+  /**
    * CRITICAL FIX: Database lock recovery mechanism
    */
   /**
@@ -3291,6 +3412,14 @@ export class DatabaseService {
         // CRITICAL FIX: Fix staff management schema issues
         await this.fixStaffManagementIssues();
         console.log('✅ [DB] Staff management schema fixed');
+
+        // PERMANENT FIX: Apply all vendor/financial table fixes
+        console.log('🔄 [DB] Applying permanent database fixes...');
+        const { permanentDatabaseFixer } = await import('./permanentDatabaseFixer');
+        // Inject this database service to avoid circular dependency
+        permanentDatabaseFixer.setDatabaseService(this);
+        await permanentDatabaseFixer.applyAllFixes();
+        console.log('✅ [DB] Permanent database fixes applied');
         
       } catch (error) {
         console.error('❌ [DB] Schema fix failed during initialization:', error);

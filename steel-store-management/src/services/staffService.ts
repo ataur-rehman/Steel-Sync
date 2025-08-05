@@ -178,8 +178,6 @@ class StaffService {
 
       // Create indexes for performance
       await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_staff_employee_id ON staff(employee_id);`);
-      await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_staff_role ON staff(role);`);
-      await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(is_active);`);
 
       console.log('✅ Staff tables initialized successfully (without department field)');
       
@@ -395,7 +393,7 @@ class StaffService {
 
       // Execute update
       await db.executeCommand(
-        `UPDATE staff SET ${updateFields.join(', ')} WHERE id = ?`,
+        `UPDATE staff_management SET ${updateFields.join(', ')} WHERE id = ?`,
         updateValues
       );
 

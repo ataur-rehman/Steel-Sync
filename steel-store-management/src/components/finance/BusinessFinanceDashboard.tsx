@@ -22,6 +22,7 @@ import { formatCurrency } from '../../utils/formatters';
 import { financeService, type FinancialSummary } from '../../services/financeService';
 import { useAuth } from '../../hooks/useAuth';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { useAutoRefresh } from '../../services/autoRefreshService';
 import toast from 'react-hot-toast';
 
 // Optimized Loading skeleton - simpler and faster
@@ -229,6 +230,13 @@ const BusinessFinanceDashboard: React.FC = () => {
       setLoading(false);
     }
   }, [selectedPeriod]);
+
+  // AUTO-REFRESH: Enable automatic data updates every 30 seconds
+  useAutoRefresh(
+    loadFinancialData,
+    'business-finance-dashboard',
+    [selectedPeriod]
+  );
 
   useEffect(() => {
     // Optimized initial load with minimal delay

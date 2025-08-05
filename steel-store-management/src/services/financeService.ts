@@ -7,6 +7,7 @@
 import { db } from './database';
 import { salaryHistoryService } from './salaryHistoryService';
 import { auditLogService } from './auditLogService';
+import { DataChangeDetector } from './autoRefreshService';
 
 // PERFORMANCE: Track initialization to prevent repeated calls
 let financeTablesInitialized = false;
@@ -848,6 +849,12 @@ class FinanceService {
 
       // Clear cache after recording new expense
       this.clearCache();
+
+      // Trigger auto-refresh for financial data
+      DataChangeDetector.getInstance().notifyDataChange('business-expense-recorded', {
+        category: expense.category,
+        amount: expense.amount
+      });
 
       // Log audit event
       await auditLogService.logEvent({
