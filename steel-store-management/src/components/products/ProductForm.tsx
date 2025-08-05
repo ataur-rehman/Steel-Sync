@@ -276,11 +276,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
             disabled={loading}
             aria-invalid={!!errors.name}
           />
-          {(formData.size || formData.grade) && (
-            <p className="text-xs text-blue-600 mt-1">
-              Full name will be: <span className="font-medium">{generateFullNamePreview()}</span>
-            </p>
-          )}
           {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name}</p>}
         </div>
 
