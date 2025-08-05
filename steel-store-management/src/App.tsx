@@ -22,6 +22,7 @@ import StockReceivingNew from './components/stock/StockReceivingNew';
 import LoanLedger from './components/loan/LoanLedger';
 import CustomerLoanDetail from './components/loan/CustomerLoanDetail';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
+import PaymentChannelDetail from './components/payment/PaymentChannelDetail';
 import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
 import StaffManagement from './components/staff/StaffManagement';
 import ActivityLogger from './components/admin/ActivityLogger';
@@ -304,6 +305,16 @@ function AppContent() {
            
             
             {/* Payment Channel Management */}
+            <Route path="/payment-channels" element={
+              <ProtectedRoute module="payments" level="view">
+                <PaymentChannelManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="/payment-channels/:id" element={
+              <ProtectedRoute module="payments" level="view">
+                <PaymentChannelDetail />
+              </ProtectedRoute>
+            } />
             <Route path="/payment/channels" element={
               <ProtectedRoute module="payments" level="view">
                 <PaymentChannelManagement />

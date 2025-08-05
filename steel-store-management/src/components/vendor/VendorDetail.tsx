@@ -208,23 +208,56 @@ const VendorDetail: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="space-y-8">
 
-      {/* Vendor Overview - Simplified */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Key Information */}
+      {/* Comprehensive Vendor Overview */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+        {/* Contact Information */}
         <div className="card p-6">
-          <div className="space-y-4">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <div className="w-2 h-2 bg-blue-500 rounded-full mr-2"></div>
+            Contact Information
+          </h3>
+          <div className="space-y-3">
             <div className="flex justify-between items-start">
-  
+              <span className="text-gray-600 text-sm">Company Name</span>
               <div className="text-right">
-                <div className="font-medium text-gray-900">{vendor.name}</div>
-                {vendor.phone && <div className="text-sm text-gray-600">{vendor.phone}</div>}
-                {vendor.email && <div className="text-sm text-blue-600">{vendor.email}</div>}
+                <div className="font-medium text-gray-900">{vendor.company_name || vendor.name}</div>
               </div>
             </div>
             
+            {vendor.contact_person && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-600 text-sm">Contact Person</span>
+                <div className="text-right">
+                  <div className="text-gray-900">{vendor.contact_person}</div>
+                </div>
+              </div>
+            )}
+            
+            {vendor.phone && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-600 text-sm">Phone</span>
+                <div className="text-right">
+                  <a href={`tel:${vendor.phone}`} className="text-blue-600 hover:text-blue-800">
+                    {vendor.phone}
+                  </a>
+                </div>
+              </div>
+            )}
+            
+            {vendor.email && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-600 text-sm">Email</span>
+                <div className="text-right">
+                  <a href={`mailto:${vendor.email}`} className="text-blue-600 hover:text-blue-800 break-all">
+                    {vendor.email}
+                  </a>
+                </div>
+              </div>
+            )}
+            
             {vendor.address && (
               <div className="flex justify-between items-start">
-                <span className="text-gray-600">Address</span>
+                <span className="text-gray-600 text-sm">Address</span>
                 <div className="text-right text-sm text-gray-900 max-w-40">
                   <div>{vendor.address}</div>
                   {vendor.city && <div className="text-gray-600">{vendor.city}</div>}
@@ -232,8 +265,8 @@ const VendorDetail: React.FC = () => {
               </div>
             )}
             
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Status</span>
+            <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+              <span className="text-gray-600 text-sm">Status</span>
               <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                 vendor.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
               }`}>
@@ -245,58 +278,163 @@ const VendorDetail: React.FC = () => {
 
         {/* Financial Overview */}
         <div className="card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <div className="w-2 h-2 bg-green-500 rounded-full mr-2"></div>
+            Financial Summary
+          </h3>
           <div className="space-y-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-900">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">
                 {typeof vendor.total_purchases === 'number' && !isNaN(vendor.total_purchases)
                   ? formatCurrency(vendor.total_purchases)
-                  : <span className="text-gray-400">-</span>}
+                  : <span className="text-gray-400">PKR 0</span>}
               </div>
-              <div className="text-sm text-gray-500">Total Purchases</div>
+              <div className="text-sm text-blue-700 font-medium">Total Purchases</div>
             </div>
             
-            <div className="text-center">
+            <div className="text-center p-4 bg-gradient-to-r from-red-50 to-orange-50 rounded-lg">
               <div className={`text-2xl font-bold ${
                 vendor.outstanding_balance > 0 ? 'text-red-600' : 'text-green-600'
               }`}>
                 {typeof vendor.outstanding_balance === 'number' && !isNaN(vendor.outstanding_balance)
                   ? formatCurrency(vendor.outstanding_balance)
-                  : <span className="text-gray-400">-</span>}
+                  : <span className="text-gray-400">PKR 0</span>}
               </div>
-              <div className="text-sm text-gray-500">Outstanding Balance</div>
+              <div className={`text-sm font-medium ${
+                vendor.outstanding_balance > 0 ? 'text-red-700' : 'text-green-700'
+              }`}>
+                {vendor.outstanding_balance > 0 ? 'Amount Due' : 'Fully Paid'}
+              </div>
+            </div>
+
+            {/* Payment Performance */}
+            <div className="pt-2 space-y-2">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-gray-600">Payment Score</span>
+                <span className={`font-medium ${
+                  vendor.outstanding_balance === 0 ? 'text-green-600' :
+                  vendor.outstanding_balance < 50000 ? 'text-yellow-600' : 'text-red-600'
+                }`}>
+                  {vendor.outstanding_balance === 0 ? 'Excellent' :
+                   vendor.outstanding_balance < 50000 ? 'Good' : 'Needs Attention'}
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Quick Stats */}
+        {/* Business Relationship & Statistics */}
         <div className="card p-6">
-          <div className="space-y-4">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <div className="w-2 h-2 bg-purple-500 rounded-full mr-2"></div>
+            Business Relationship
+          </h3>
+          <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">Total Orders</span>
-              <span className="font-medium">{vendorReceivings.length}</span>
+              <span className="text-gray-600 text-sm">Total Orders</span>
+              <span className="font-medium text-lg text-gray-900">{vendorReceivings.length}</span>
             </div>
             
             <div className="flex justify-between items-center">
-              <span className="text-gray-600">Total Payments</span>
-              <span className="font-medium">{vendorPayments.length}</span>
+              <span className="text-gray-600 text-sm">Total Payments</span>
+              <span className="font-medium text-lg text-gray-900">{vendorPayments.length}</span>
+            </div>
+            
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600 text-sm">Avg Order Value</span>
+              <span className="font-medium text-gray-900">
+                {vendorReceivings.length > 0 && vendor.total_purchases
+                  ? formatCurrency(vendor.total_purchases / vendorReceivings.length)
+                  : <span className="text-gray-400">-</span>}
+              </span>
             </div>
             
             {vendor.last_purchase_date && (
               <div className="flex justify-between items-start">
-                <span className="text-gray-600">Last Order</span>
+                <span className="text-gray-600 text-sm">Last Order</span>
                 <span className="text-sm text-gray-900">
-                  {new Date(vendor.last_purchase_date).toLocaleDateString()}
+                  {new Date(vendor.last_purchase_date).toLocaleDateString('en-PK')}
                 </span>
               </div>
             )}
             
             <div className="flex justify-between items-start">
-              <span className="text-gray-600">Member Since</span>
+              <span className="text-gray-600 text-sm">Member Since</span>
               <span className="text-sm text-gray-900">
-                {new Date(vendor.created_at).toLocaleDateString()}
+                {new Date(vendor.created_at).toLocaleDateString('en-PK')}
               </span>
             </div>
+
+            {vendor.updated_at && vendor.created_at !== vendor.updated_at && (
+              <div className="flex justify-between items-start">
+                <span className="text-gray-600 text-sm">Last Updated</span>
+                <span className="text-sm text-gray-900">
+                  {new Date(vendor.updated_at).toLocaleDateString('en-PK')}
+                </span>
+              </div>
+            )}
+
+            {/* Relationship Duration */}
+            <div className="pt-2 border-t border-gray-100">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600 text-sm">Relationship</span>
+                <span className="text-sm font-medium text-purple-600">
+                  {(() => {
+                    const daysSinceJoined = Math.floor((Date.now() - new Date(vendor.created_at).getTime()) / (1000 * 60 * 60 * 24));
+                    if (daysSinceJoined < 30) return `${daysSinceJoined} days`;
+                    if (daysSinceJoined < 365) return `${Math.floor(daysSinceJoined / 30)} months`;
+                    return `${Math.floor(daysSinceJoined / 365)} years`;
+                  })()}
+                </span>
+              </div>
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* Additional Information & Notes */}
+      {vendor.notes && (
+        <div className="card p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <div className="w-2 h-2 bg-indigo-500 rounded-full mr-2"></div>
+            Additional Information
+          </h3>
+          <div className="bg-gray-50 rounded-lg p-4">
+            <div className="text-sm text-gray-700 whitespace-pre-wrap">{vendor.notes}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Vendor Performance Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-blue-600">
+            {vendorReceivings.filter(r => r.payment_status === 'paid').length}
+          </div>
+          <div className="text-sm text-gray-600">Completed Orders</div>
+        </div>
+        
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-yellow-600">
+            {vendorReceivings.filter(r => r.payment_status === 'partial').length}
+          </div>
+          <div className="text-sm text-gray-600">Partial Payments</div>
+        </div>
+        
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-red-600">
+            {vendorReceivings.filter(r => r.payment_status === 'pending').length}
+          </div>
+          <div className="text-sm text-gray-600">Pending Payments</div>
+        </div>
+        
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-green-600">
+            {vendorReceivings.length > 0 
+              ? `${Math.round((vendorReceivings.filter(r => r.payment_status === 'paid').length / vendorReceivings.length) * 100)}%`
+              : '0%'}
+          </div>
+          <div className="text-sm text-gray-600">Payment Rate</div>
         </div>
       </div>
 
@@ -354,12 +492,7 @@ const VendorDetail: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900">Recent Orders</h3>
             <div className="flex items-center space-x-3">
               <span className="text-sm text-gray-500">{filteredReceivings.length} orders</span>
-              <button
-                onClick={handleViewPurchases}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View All →
-              </button>
+
             </div>
           </div>
         </div>
@@ -432,12 +565,7 @@ const VendorDetail: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900">Recent Payments</h3>
             <div className="flex items-center space-x-3">
               <span className="text-sm text-gray-500">{vendorPayments.length} payments</span>
-              <button
-                onClick={() => console.log('View all payments')}
-                className="text-sm text-green-600 hover:text-green-800 font-medium"
-              >
-                View All →
-              </button>
+
             </div>
           </div>
         </div>

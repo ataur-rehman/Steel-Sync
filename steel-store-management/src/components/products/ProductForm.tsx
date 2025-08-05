@@ -34,7 +34,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
       return unitString?.toString() || '';
     }
   };
-
+  
   // Helper function to extract base name from concatenated name
   const extractBaseName = (fullName: string, size?: string, grade?: string): string => {
     if (!fullName) return '';
@@ -58,7 +58,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         }
       }
     }
-    
+
     // Remove grade part if it exists (try different formats)
     if (grade) {
       const gradePatterns = [
@@ -91,11 +91,11 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
   
   const [formData, setFormData] = useState({
     name: baseName || '',
-    category: product?.category || 'Steel Products',
-    unit_type: (product?.unit_type as UnitType) || 'kg-grams',
-    rate_per_unit: product?.rate_per_unit?.toString() || '',
-    current_stock: getDisplayValue(product?.current_stock, (product?.unit_type as UnitType) || 'kg-grams'),
-    min_stock_alert: getDisplayValue(product?.min_stock_alert, (product?.unit_type as UnitType) || 'kg-grams'),
+        category: product?.category || 'Steel Products',
+        unit_type: (product?.unit_type as UnitType) || 'kg-grams',
+        rate_per_unit: product?.rate_per_unit?.toString() || '',
+        current_stock: getDisplayValue(product?.current_stock, (product?.unit_type as UnitType) || 'kg-grams'),
+        min_stock_alert: getDisplayValue(product?.min_stock_alert, (product?.unit_type as UnitType) || 'kg-grams'),
     size: product?.size || '', // Optional size
     grade: product?.grade || '' // Optional grade
   });
@@ -208,12 +208,12 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         
         toast.success('Product added successfully!');
 
-        console.log('Product operation result:', result);
+      console.log('Product operation result:', result);
 
         if (result && result > 0) {
-          onSuccess();
-        } else {
-          throw new Error(`Failed to create product - no valid result returned`);
+        onSuccess();
+      } else {
+        throw new Error(`Failed to create product - no valid result returned`);
         }
       }
     } catch (error) {

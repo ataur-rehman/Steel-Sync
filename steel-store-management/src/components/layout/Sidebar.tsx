@@ -12,7 +12,8 @@ import {
   Shield,
   UserCheck,
   Key,
-  Activity
+  Activity,
+  CreditCard
 } from 'lucide-react';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
 
@@ -22,6 +23,7 @@ const navigation = [
   { name: 'Customers', href: '/customers', icon: Users, permission: 'manage_customers' },
   { name: 'New Invoice', href: '/billing/new', icon: FileText, permission: 'create_invoice' },
   { name: 'Invoices', href: '/billing/list', icon: DollarSign, permission: 'create_invoice' },
+  { name: 'Payment Channels', href: '/payment-channels', icon: CreditCard, permission: 'create_invoice' },
   { name: 'Returns', href: '/returns', icon: RotateCcw, permission: 'create_invoice' },
   { name: 'Reports', href: '/reports/daily', icon: TrendingUp, permission: 'view_reports' },
   { name: 'Audit Trail', href: '/audit', icon: Shield, permission: 'view_reports' },
