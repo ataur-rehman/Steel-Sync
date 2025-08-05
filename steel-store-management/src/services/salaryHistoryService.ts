@@ -4,8 +4,12 @@
  * Production-level with proper indexing and audit trails
  */
 
-import { db } from './database';
+import { DatabaseService } from './database';
+import { staffIntegrityManager } from './staff-data-integrity-manager';
 import { auditLogService } from './auditLogService';
+
+// Get database instance
+const db = DatabaseService.getInstance();
 
 // PERFORMANCE: Track initialization to prevent repeated calls
 let salaryTablesInitialized = false;
@@ -173,41 +177,50 @@ class SalaryHistoryService {
       
       console.log('Recording payment for staff_id:', data.staff_id, 'amount:', data.payment_amount);
       
-      // Get staff information
-      const staffResult = await db.executeRawQuery(
-        'SELECT id, full_name, employee_id, salary FROM staff WHERE id = ?',
-        [data.staff_id]
-      );
-
-      if (staffResult.length === 0) {
-        throw new Error(`Staff member not found with ID: ${data.staff_id}`);
+      // PRODUCTION FIX: Ensure staff data integrity before proceeding
+      await staffIntegrityManager.ensureStaffDataIntegrity();
+      
+      // Get staff information using integrity manager (checks both tables)
+      const staff = await staffIntegrityManager.findStaffById(data.staff_id);
+      
+      if (!staff) {
+        // Try to get all staff to help with debugging
+        const allStaff = await staffIntegrityManager.getAllActiveStaff();
+        console.warn(`⚠️ [SALARY] Staff member with ID ${data.staff_id} not found. Available staff:`, allStaff.map(s => ({ id: s.id, name: s.full_name, employee_id: s.employee_id })));
+        throw new Error(`Staff member not found with ID: ${data.staff_id}. Available staff count: ${allStaff.length}`);
       }
-
-      const staff = staffResult[0] as any;
       const baseSalary = staff.salary || 0;
       const paymentPercentage = baseSalary > 0 ? (data.payment_amount / baseSalary) * 100 : 0;
 
-      // Insert payment record
+      // Generate unique payment code
+      const timestamp = Date.now();
+      const paymentCode = `SAL-${data.staff_id}-${timestamp}`;
+
+      // Ensure basic_salary meets database constraint (> 0)
+      const validBasicSalary = Math.max(baseSalary, data.payment_amount);
+
+      // Insert payment record aligned with actual database schema
       const result = await db.executeCommand(`
         INSERT INTO salary_payments (
-          staff_id, staff_name, employee_id, payment_date, salary_amount,
-          payment_amount, payment_type, payment_percentage, payment_month,
-          payment_year, notes, payment_method, reference_number, paid_by
-        ) VALUES (?, ?, ?, datetime('now', 'localtime'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          staff_id, staff_name, payment_code, salary_month, basic_salary,
+          overtime_hours, overtime_rate, overtime_amount, bonus, deductions,
+          total_amount, payment_method, payment_date, notes, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'), ?, ?)
       `, [
         data.staff_id,
         staff.full_name,
-        staff.employee_id,
-        baseSalary,
-        data.payment_amount,
-        data.payment_type,
-        paymentPercentage,
+        paymentCode,
         data.payment_month,
-        parseInt(data.payment_month.split('-')[0]),
-        data.notes || '',
+        validBasicSalary,
+        0, // overtime_hours
+        0, // overtime_rate  
+        0, // overtime_amount
+        0, // bonus
+        0, // deductions
+        data.payment_amount, // total_amount
         data.payment_method,
-        data.reference_number || '',
-        paidBy
+        data.notes || '',
+        'paid' // status
       ]);
 
       console.log('Payment insert result:', { 

@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Staff Schema Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        .button:hover { background: #005999; }
+        .button.danger { background: #dc3545; }
+        .button.danger:hover { background: #c82333; }
+        .button.success { background: #28a745; }
+        .button.success:hover { background: #218838; }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .status.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th { background-color: #f2f2f2; }
+        .highlight { background-color: #fff3cd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Staff Schema Fix Test Tool</h1>
+        <p>Test the updated staff data integrity manager with schema-aware operations.</p>
+        
+        <div class="grid">
+            <button class="button" onclick="checkStaffTableSchema()">Check Staff Table Schema</button>
+            <button class="button" onclick="testStaffIntegrityManager()">Test Staff Integrity Manager</button>
+            <button class="button success" onclick="runSchemaFix()">Run Schema Fix</button>
+            <button class="button" onclick="testStaffLookup()">Test Staff Lookup</button>
+            <button class="button" onclick="clearLogs()">Clear Logs</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>📊 Current Status</h3>
+        <div id="status" class="status info">Ready to test...</div>
+    </div>
+
+    <div class="container">
+        <h3>📋 Test Results</h3>
+        <div id="results"></div>
+    </div>
+
+    <div class="container">
+        <h3>📝 Activity Log</h3>
+        <div id="log" class="log">Waiting for operations...\n</div>
+    </div>
+
+    <script>
+        let db = null;
+        let staffIntegrityManager = null;
+
+        // Initialize database connection
+        async function initDatabase() {
+            try {
+                // Check if we're in Tauri environment
+                if (window.__TAURI__) {
+                    // Import from the actual app
+                    const { DatabaseService } = await import('./src/services/database.js');
+                    const { staffIntegrityManager: manager } = await import('./src/services/staff-data-integrity-manager.js');
+                    
+                    db = DatabaseService.getInstance();
+                    staffIntegrityManager = manager;
+                    
+                    log('✅ Database and Staff Integrity Manager initialized');
+                    return true;
+                } else {
+                    log('❌ Not running in Tauri environment');
+                    return false;
+                }
+            } catch (error) {
+                log(`❌ Failed to initialize: ${error.message}`);
+                return false;
+            }
+        }
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.textContent += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function setStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        function addResult(title, content, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `status ${type}`;
+            resultDiv.innerHTML = `<strong>${title}:</strong><br>${content}`;
+            resultsDiv.appendChild(resultDiv);
+        }
+
+        async function checkStaffTableSchema() {
+            log('🔍 Checking staff table schema...');
+            setStatus('Checking staff table schema...', 'info');
+
+            if (!db) {
+                const initialized = await initDatabase();
+                if (!initialized) {
+                    setStatus('Failed to initialize database', 'error');
+                    return;
+                }
+            }
+
+            try {
+                // Check staff table schema
+                const staffColumns = await db.executeRawQuery("PRAGMA table_info(staff)");
+                log(`📋 Staff table has ${staffColumns.length} columns`);
+                
+                const columnList = staffColumns.map(col => `${col.name} (${col.type})`).join(', ');
+                addResult('Staff Table Schema', columnList, 'info');
+
+                // Check staff_management table schema
+                const staffMgmtColumns = await db.executeRawQuery("PRAGMA table_info(staff_management)");
+                log(`📋 Staff_management table has ${staffMgmtColumns.length} columns`);
+                
+                const mgmtColumnList = staffMgmtColumns.map(col => `${col.name} (${col.type})`).join(', ');
+                addResult('Staff Management Table Schema', mgmtColumnList, 'info');
+
+                // Check for missing columns
+                const requiredColumns = ['email', 'status', 'phone', 'address', 'salary', 'position', 'department'];
+                const missingColumns = [];
+                const staffColumnNames = staffColumns.map(col => col.name.toLowerCase());
+                
+                for (const required of requiredColumns) {
+                    if (!staffColumnNames.includes(required.toLowerCase())) {
+                        missingColumns.push(required);
+                    }
+                }
+
+                if (missingColumns.length > 0) {
+                    addResult('Missing Columns in Staff Table', missingColumns.join(', '), 'error');
+                    log(`❌ Missing columns: ${missingColumns.join(', ')}`);
+                } else {
+                    addResult('Staff Table Schema', 'All required columns present', 'success');
+                    log('✅ All required columns are present');
+                }
+
+                setStatus('Schema check completed', 'success');
+
+            } catch (error) {
+                log(`❌ Schema check failed: ${error.message}`);
+                setStatus(`Schema check failed: ${error.message}`, 'error');
+                addResult('Schema Check Error', error.message, 'error');
+            }
+        }
+
+        async function runSchemaFix() {
+            log('🔧 Running schema fix...');
+            setStatus('Running schema fix...', 'info');
+
+            if (!staffIntegrityManager) {
+                const initialized = await initDatabase();
+                if (!initialized) {
+                    setStatus('Failed to initialize', 'error');
+                    return;
+                }
+            }
+
+            try {
+                // Run the staff integrity manager
+                await staffIntegrityManager.ensureStaffDataIntegrity();
+                
+                log('✅ Schema fix completed successfully');
+                setStatus('Schema fix completed successfully', 'success');
+                addResult('Schema Fix', 'Staff data integrity ensured', 'success');
+
+                // Check results
+                await checkStaffTableSchema();
+
+            } catch (error) {
+                log(`❌ Schema fix failed: ${error.message}`);
+                setStatus(`Schema fix failed: ${error.message}`, 'error');
+                addResult('Schema Fix Error', error.message, 'error');
+            }
+        }
+
+        async function testStaffIntegrityManager() {
+            log('🧪 Testing staff integrity manager...');
+            setStatus('Testing staff integrity manager...', 'info');
+
+            if (!staffIntegrityManager) {
+                const initialized = await initDatabase();
+                if (!initialized) {
+                    setStatus('Failed to initialize', 'error');
+                    return;
+                }
+            }
+
+            try {
+                // Test staff lookup
+                log('🔍 Testing staff lookup...');
+                const staff1 = await staffIntegrityManager.findStaffById(1);
+                const staff2 = await staffIntegrityManager.findStaffById(2);
+                
+                log(`👤 Staff ID 1: ${staff1 ? staff1.full_name : 'Not found'}`);
+                log(`👤 Staff ID 2: ${staff2 ? staff2.full_name : 'Not found'}`);
+
+                // Test get all staff
+                log('👥 Testing get all staff...');
+                const allStaff = await staffIntegrityManager.getAllActiveStaff();
+                log(`📊 Found ${allStaff.length} total staff members`);
+
+                addResult('Staff Lookup Test', `Found ${allStaff.length} staff members`, 'success');
+                
+                if (allStaff.length > 0) {
+                    const staffList = allStaff.map(s => `${s.full_name} (${s.employee_id})`).join(', ');
+                    addResult('Active Staff', staffList, 'info');
+                }
+
+                setStatus('Staff integrity manager test completed', 'success');
+
+            } catch (error) {
+                log(`❌ Staff integrity manager test failed: ${error.message}`);
+                setStatus(`Test failed: ${error.message}`, 'error');
+                addResult('Test Error', error.message, 'error');
+            }
+        }
+
+        async function testStaffLookup() {
+            log('🔍 Testing staff lookup for salary operations...');
+            setStatus('Testing staff lookup...', 'info');
+
+            if (!staffIntegrityManager) {
+                const initialized = await initDatabase();
+                if (!initialized) {
+                    setStatus('Failed to initialize', 'error');
+                    return;
+                }
+            }
+
+            try {
+                // Test the specific case that was failing
+                const staff = await staffIntegrityManager.findStaffById(1);
+                
+                if (staff) {
+                    log(`✅ Found staff ID 1: ${staff.full_name}`);
+                    log(`📧 Email: ${staff.email || 'Not set'}`);
+                    log(`📱 Phone: ${staff.phone || 'Not set'}`);
+                    log(`🏢 Position: ${staff.position || 'Not set'}`);
+                    log(`📊 Status: ${staff.status || 'Not set'}`);
+                    
+                    addResult('Staff ID 1 Lookup', `${staff.full_name} - Available for salary operations`, 'success');
+                } else {
+                    log('❌ Staff ID 1 not found - this will cause salary payment errors');
+                    addResult('Staff ID 1 Lookup', 'Not found - salary operations will fail', 'error');
+                }
+
+                setStatus('Staff lookup test completed', 'success');
+
+            } catch (error) {
+                log(`❌ Staff lookup test failed: ${error.message}`);
+                setStatus(`Lookup test failed: ${error.message}`, 'error');
+                addResult('Lookup Test Error', error.message, 'error');
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('log').textContent = 'Logs cleared...\n';
+            document.getElementById('results').innerHTML = '';
+            setStatus('Ready to test...', 'info');
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', async () => {
+            log('🚀 Staff Schema Fix Test Tool loaded');
+            log('💡 Click "Check Staff Table Schema" to see current schema');
+            log('🔧 Click "Run Schema Fix" to fix missing columns');
+            log('🧪 Click "Test Staff Integrity Manager" to verify functionality');
+        });
+    </script>
+</body>
+</html>

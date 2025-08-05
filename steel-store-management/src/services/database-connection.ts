@@ -25,6 +25,8 @@ export class DatabaseConnection {
     }
     this.db = database;
     
+    console.log('🔧 [DB-CONN] Initializing database with optimized settings...');
+    
     // Critical: Set pragmas immediately after connection
     await this.executeDirect('PRAGMA journal_mode=WAL');
     await this.executeDirect('PRAGMA busy_timeout=30000');
@@ -32,6 +34,25 @@ export class DatabaseConnection {
     await this.executeDirect('PRAGMA cache_size=-64000');
     await this.executeDirect('PRAGMA temp_store=MEMORY');
     await this.executeDirect('PRAGMA foreign_keys=ON');
+    
+    console.log('✅ [DB-CONN] Database initialization completed');
+  }
+
+  // Check if database is ready for operations
+  isReady(): boolean {
+    return this.db !== null;
+  }
+
+  // Wait for database to be ready
+  async waitForReady(timeoutMs: number = 10000): Promise<void> {
+    const startTime = Date.now();
+    while (!this.isReady() && (Date.now() - startTime) < timeoutMs) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    if (!this.isReady()) {
+      throw new Error(`Database not ready after ${timeoutMs}ms timeout`);
+    }
   }
 
   private async executeDirect(sql: string, params: any[] = []): Promise<any> {
