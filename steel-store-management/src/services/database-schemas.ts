@@ -98,78 +98,6 @@ export const DATABASE_SCHEMAS = {
     )
   `,
 
-  // VENDORS - DEFINITIVE SCHEMA (PRODUCTION READY)
-  VENDORS: `
-    CREATE TABLE IF NOT EXISTS vendors (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vendor_code TEXT UNIQUE,
-      name TEXT NOT NULL CHECK (length(name) > 0),
-      company_name TEXT,
-      contact_person TEXT,
-      phone TEXT,
-      email TEXT,
-      address TEXT,
-      city TEXT,
-      payment_terms TEXT,
-      notes TEXT,
-      outstanding_balance REAL DEFAULT 0.0 CHECK (outstanding_balance >= 0),
-      total_purchases REAL DEFAULT 0.0 CHECK (total_purchases >= 0),
-      is_active BOOLEAN DEFAULT 1,
-      deactivation_reason TEXT,
-      last_purchase_date TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `,
-
-  // VENDOR PAYMENTS
-  VENDOR_PAYMENTS: `
-    CREATE TABLE IF NOT EXISTS vendor_payments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      vendor_id INTEGER NOT NULL,
-      vendor_name TEXT NOT NULL,
-      payment_code TEXT NOT NULL UNIQUE,
-      amount REAL NOT NULL CHECK (amount > 0),
-      payment_method TEXT NOT NULL,
-      payment_type TEXT NOT NULL CHECK (payment_type IN ('stock_payment', 'advance_payment', 'expense_payment')),
-      reference_id INTEGER,
-      reference_type TEXT,
-      description TEXT,
-      date TEXT NOT NULL,
-      time TEXT NOT NULL,
-      notes TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE ON UPDATE CASCADE
-    )
-  `,
-
-  // STOCK RECEIVING
-  STOCK_RECEIVING: `
-    CREATE TABLE IF NOT EXISTS stock_receiving (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      receiving_code TEXT UNIQUE,
-      vendor_id INTEGER NOT NULL,
-      vendor_name TEXT NOT NULL,
-      receiving_number TEXT NOT NULL UNIQUE,
-      total_amount REAL NOT NULL CHECK (total_amount > 0),
-      payment_amount REAL NOT NULL DEFAULT 0.0 CHECK (payment_amount >= 0),
-      remaining_balance REAL NOT NULL CHECK (remaining_balance >= 0),
-      payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid')),
-      payment_method TEXT,
-      status TEXT DEFAULT 'pending',
-      notes TEXT,
-      truck_number TEXT,
-      reference_number TEXT,
-      date TEXT NOT NULL,
-      time TEXT NOT NULL,
-      created_by TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT ON UPDATE CASCADE
-    )
-  `,
-
   // CORE PRODUCT MANAGEMENT
   PRODUCTS: `
     CREATE TABLE IF NOT EXISTS products (
@@ -194,10 +122,8 @@ export const DATABASE_SCHEMAS = {
   CUSTOMERS: `
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      customer_code TEXT UNIQUE,
       name TEXT NOT NULL CHECK (length(name) > 0),
       phone TEXT,
-      cnic TEXT,
       address TEXT,
       balance REAL DEFAULT 0.0,
       total_purchases REAL DEFAULT 0.0,
@@ -349,6 +275,80 @@ export const DATABASE_SCHEMAS = {
     )
   `,
 
+  // VENDORS
+  VENDORS: `
+    CREATE TABLE IF NOT EXISTS vendors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vendor_code TEXT UNIQUE,
+      name TEXT NOT NULL CHECK (length(name) > 0),
+      company_name TEXT,
+      contact_person TEXT,
+      phone TEXT,
+      email TEXT,
+      address TEXT,
+      city TEXT,
+      payment_terms TEXT,
+      notes TEXT,
+      outstanding_balance REAL DEFAULT 0.0 CHECK (outstanding_balance >= 0),
+      total_purchases REAL DEFAULT 0.0 CHECK (total_purchases >= 0),
+      is_active INTEGER DEFAULT 1,
+      deactivation_reason TEXT,
+      last_purchase_date TEXT,
+      status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+
+  // STOCK RECEIVING
+  STOCK_RECEIVING: `
+    CREATE TABLE IF NOT EXISTS stock_receiving (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      receiving_code TEXT NOT NULL UNIQUE,
+      receiving_number TEXT NOT NULL UNIQUE,
+      vendor_id INTEGER,
+      vendor_name TEXT,
+      total_amount REAL NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+      payment_amount REAL NOT NULL DEFAULT 0 CHECK (payment_amount >= 0),
+      remaining_balance REAL NOT NULL DEFAULT 0,
+      payment_status TEXT NOT NULL DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid')),
+      payment_method TEXT,
+      truck_number TEXT,
+      reference_number TEXT,
+      notes TEXT,
+      date TEXT NOT NULL,
+      time TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT 'system',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'cancelled')),
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `,
+
+  // STOCK RECEIVING ITEMS
+  STOCK_RECEIVING_ITEMS: `
+    CREATE TABLE IF NOT EXISTS stock_receiving_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      receiving_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      quantity TEXT NOT NULL,
+      unit_price REAL NOT NULL CHECK (unit_price > 0),
+      total_price REAL NOT NULL CHECK (total_price >= 0),
+      previous_stock TEXT,
+      new_stock TEXT,
+      expiry_date TEXT,
+      batch_number TEXT,
+      lot_number TEXT,
+      manufacturing_date TEXT,
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `,
+
   // AUDIT LOGS
   AUDIT_LOGS: `
     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -455,6 +455,32 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_payments_code ON payments(payment_code)'
   ],
   
+  VENDORS: [
+    'CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name)',
+    'CREATE INDEX IF NOT EXISTS idx_vendors_company_name ON vendors(company_name)',
+    'CREATE INDEX IF NOT EXISTS idx_vendors_phone ON vendors(phone)',
+    'CREATE INDEX IF NOT EXISTS idx_vendors_active ON vendors(is_active)',
+    'CREATE INDEX IF NOT EXISTS idx_vendors_status ON vendors(status)',
+    'CREATE INDEX IF NOT EXISTS idx_vendors_vendor_code ON vendors(vendor_code)'
+  ],
+
+  STOCK_RECEIVING: [
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_vendor_id ON stock_receiving(vendor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_date ON stock_receiving(date)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_status ON stock_receiving(status)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_payment_status ON stock_receiving(payment_status)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_code ON stock_receiving(receiving_code)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_number ON stock_receiving(receiving_number)'
+  ],
+
+  STOCK_RECEIVING_ITEMS: [
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_receiving_id ON stock_receiving_items(receiving_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_product_id ON stock_receiving_items(product_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_expiry_date ON stock_receiving_items(expiry_date)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_batch_number ON stock_receiving_items(batch_number)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_lot_number ON stock_receiving_items(lot_number)'
+  ],
+  
   PAYMENT_CHANNELS: [
     'CREATE INDEX IF NOT EXISTS idx_payment_channels_name ON payment_channels(name)',
     'CREATE INDEX IF NOT EXISTS idx_payment_channels_type ON payment_channels(type)',
@@ -466,25 +492,6 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id)',
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)',
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)'
-  ],
-  
-  VENDORS: [
-    'CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name)',
-    'CREATE INDEX IF NOT EXISTS idx_vendors_status ON vendors(status)',
-    'CREATE INDEX IF NOT EXISTS idx_vendors_outstanding_balance ON vendors(outstanding_balance)',
-    'CREATE INDEX IF NOT EXISTS idx_vendors_total_purchases ON vendors(total_purchases)'
-  ],
-  
-  VENDOR_PAYMENTS: [
-    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_vendor_id ON vendor_payments(vendor_id)',
-    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_date ON vendor_payments(payment_date)',
-    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_amount ON vendor_payments(amount)'
-  ],
-  
-  STOCK_RECEIVING: [
-    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_vendor_id ON stock_receiving(vendor_id)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_date ON stock_receiving(date)',
-    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_status ON stock_receiving(payment_status)'
   ]
 };
 

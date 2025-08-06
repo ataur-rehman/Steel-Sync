@@ -78,22 +78,26 @@ class PermanentDatabaseFixer {
     console.log('🔧 [PERMANENT-FIX] Ensuring vendor tables...');
 
     try {
-      // 1. Create vendors table
+      // 1. Create vendors table with correct schema
       await this.getDb().executeCommand(`
         CREATE TABLE IF NOT EXISTS vendors (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          vendor_code TEXT UNIQUE NOT NULL,
-          vendor_name TEXT NOT NULL,
+          vendor_code TEXT UNIQUE,
+          name TEXT NOT NULL CHECK (length(name) > 0),
+          company_name TEXT,
           contact_person TEXT,
           phone TEXT,
           email TEXT,
           address TEXT,
           city TEXT,
-          balance REAL DEFAULT 0,
-          credit_limit REAL DEFAULT 0,
-          payment_terms INTEGER DEFAULT 30,
-          is_active INTEGER DEFAULT 1,
+          payment_terms TEXT,
           notes TEXT,
+          outstanding_balance REAL DEFAULT 0.0 CHECK (outstanding_balance >= 0),
+          total_purchases REAL DEFAULT 0.0 CHECK (total_purchases >= 0),
+          is_active INTEGER DEFAULT 1,
+          deactivation_reason TEXT,
+          last_purchase_date TEXT,
+          status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )

@@ -276,14 +276,22 @@ export class DatabaseSchemaManager {
           -- Create vendors table
           CREATE TABLE IF NOT EXISTS vendors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            vendor_code TEXT UNIQUE,
             name TEXT NOT NULL CHECK (length(name) > 0),
             company_name TEXT,
-            phone TEXT,
-            address TEXT,
             contact_person TEXT,
+            phone TEXT,
+            email TEXT,
+            address TEXT,
+            city TEXT,
             payment_terms TEXT,
             notes TEXT,
-            is_active BOOLEAN NOT NULL DEFAULT true,
+            outstanding_balance REAL DEFAULT 0.0 CHECK (outstanding_balance >= 0),
+            total_purchases REAL DEFAULT 0.0 CHECK (total_purchases >= 0),
+            is_active INTEGER DEFAULT 1,
+            deactivation_reason TEXT,
+            last_purchase_date TEXT,
+            status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
           );
