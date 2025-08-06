@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vendor Testing Tool</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        button { margin: 5px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .output { background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 10px; font-family: monospace; white-space: pre-wrap; max-height: 400px; overflow-y: auto; }
+        .error { color: #dc3545; }
+        .success { color: #28a745; }
+        .warning { color: #ffc107; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Vendor Management Testing Tool</h1>
+        <p>Use this tool to test vendor filtering and deactivation functionality.</p>
+
+        <div class="section">
+            <h3>📊 Database Information</h3>
+            <button onclick="testDatabaseConnection()">Test Database Connection</button>
+            <button onclick="checkVendorTable()">Check Vendor Table Schema</button>
+            <button onclick="getAllVendors()">Get All Vendors</button>
+            <button onclick="getVendorStats()">Get Vendor Statistics</button>
+            <div id="dbOutput" class="output"></div>
+        </div>
+
+        <div class="section">
+            <h3>👥 Vendor Management</h3>
+            <button onclick="createTestVendor()">Create Test Vendor</button>
+            <button onclick="createInactiveVendor()">Create Inactive Test Vendor</button>
+            <button onclick="testVendorFiltering()">Test Vendor Filtering</button>
+            <button onclick="testDeactivation()">Test Vendor Deactivation</button>
+            <div id="vendorOutput" class="output"></div>
+        </div>
+
+        <div class="section">
+            <h3>🔄 Fix Operations</h3>
+            <button onclick="fixVendorTable()">Fix Vendor Table Schema</button>
+            <button onclick="clearTestData()">Clear Test Data</button>
+            <div id="fixOutput" class="output"></div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize database reference
+        let db = null;
+
+        // Initialize the database connection
+        async function initDB() {
+            try {
+                if (typeof window !== 'undefined' && window.db) {
+                    db = window.db;
+                    return db;
+                }
+                
+                // Try to import from services
+                if (typeof require !== 'undefined') {
+                    const { db: importedDb } = require('./src/services/database');
+                    db = importedDb;
+                    return db;
+                }
+                
+                throw new Error('Database not available');
+            } catch (error) {
+                throw new Error(`Failed to initialize database: ${error.message}`);
+            }
+        }
+
+        function logOutput(elementId, message, type = 'info') {
+            const output = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearOutput(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        async function testDatabaseConnection() {
+            clearOutput('dbOutput');
+            try {
+                await initDB();
+                logOutput('dbOutput', '✅ Database connection successful', 'success');
+                
+                // Test basic query
+                const result = await db.dbConnection.select('SELECT 1 as test');
+                logOutput('dbOutput', `✅ Basic query test: ${JSON.stringify(result)}`, 'success');
+                
+                // Check if database is ready
+                const isReady = db.isReady();
+                logOutput('dbOutput', `✅ Database ready: ${isReady}`, isReady ? 'success' : 'warning');
+                
+            } catch (error) {
+                logOutput('dbOutput', `❌ Database connection failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkVendorTable() {
+            clearOutput('dbOutput');
+            try {
+                await initDB();
+                
+                // Check if vendors table exists
+                const tableExists = await db.tableExists('vendors');
+                logOutput('dbOutput', `📋 Vendors table exists: ${tableExists}`, tableExists ? 'success' : 'warning');
+                
+                if (tableExists) {
+                    // Get table schema
+                    const schema = await db.dbConnection.select("PRAGMA table_info(vendors)");
+                    logOutput('dbOutput', `📋 Vendors table schema:`, 'info');
+                    schema.forEach(col => {
+                        logOutput('dbOutput', `  - ${col.name} (${col.type}) ${col.notnull ? 'NOT NULL' : ''} ${col.pk ? 'PRIMARY KEY' : ''}`, 'info');
+                    });
+                    
+                    // Check for specific columns
+                    const hasIsActive = schema.some(col => col.name === 'is_active');
+                    const hasDeactivationReason = schema.some(col => col.name === 'deactivation_reason');
+                    
+                    logOutput('dbOutput', `🔍 Has is_active column: ${hasIsActive}`, hasIsActive ? 'success' : 'warning');
+                    logOutput('dbOutput', `🔍 Has deactivation_reason column: ${hasDeactivationReason}`, hasDeactivationReason ? 'success' : 'warning');
+                } else {
+                    logOutput('dbOutput', '⚠️ Vendors table does not exist', 'warning');
+                }
+                
+            } catch (error) {
+                logOutput('dbOutput', `❌ Error checking vendor table: ${error.message}`, 'error');
+            }
+        }
+
+        async function getAllVendors() {
+            clearOutput('dbOutput');
+            try {
+                await initDB();
+                
+                // Get vendors using the database method
+                const vendors = await db.getVendors();
+                logOutput('dbOutput', `📊 Total vendors from getVendors(): ${vendors.length}`, 'info');
+                
+                if (vendors.length > 0) {
+                    logOutput('dbOutput', `📋 First vendor sample:`, 'info');
+                    const sample = vendors[0];
+                    Object.keys(sample).forEach(key => {
+                        logOutput('dbOutput', `  - ${key}: ${sample[key]}`, 'info');
+                    });
+                }
+                
+                // Also try direct query to see all vendors (including inactive)
+                const allVendorsQuery = await db.dbConnection.select(`
+                    SELECT id, name, company_name, contact_person, is_active, created_at 
+                    FROM vendors 
+                    ORDER BY id ASC
+                `);
+                
+                logOutput('dbOutput', `📊 Direct query result: ${allVendorsQuery.length} vendors`, 'info');
+                
+                if (allVendorsQuery.length > 0) {
+                    allVendorsQuery.forEach(vendor => {
+                        const status = vendor.is_active ? '✅ Active' : '❌ Inactive';
+                        const name = vendor.company_name || vendor.contact_person || vendor.name || 'Unnamed';
+                        logOutput('dbOutput', `  ${vendor.id}: ${name} - ${status}`, vendor.is_active ? 'success' : 'warning');
+                    });
+                }
+                
+            } catch (error) {
+                logOutput('dbOutput', `❌ Error getting vendors: ${error.message}`, 'error');
+            }
+        }
+
+        async function getVendorStats() {
+            clearOutput('dbOutput');
+            try {
+                await initDB();
+                
+                // Get vendor statistics
+                const allVendors = await db.dbConnection.select(`
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active,
+                        SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as inactive
+                    FROM vendors
+                `);
+                
+                if (allVendors.length > 0) {
+                    const stats = allVendors[0];
+                    logOutput('dbOutput', `📊 Vendor Statistics:`, 'info');
+                    logOutput('dbOutput', `  - Total: ${stats.total}`, 'info');
+                    logOutput('dbOutput', `  - Active: ${stats.active}`, 'success');
+                    logOutput('dbOutput', `  - Inactive: ${stats.inactive}`, 'warning');
+                    
+                    if (stats.total === 0) {
+                        logOutput('dbOutput', `⚠️ No vendors found in database`, 'warning');
+                    }
+                }
+                
+            } catch (error) {
+                logOutput('dbOutput', `❌ Error getting vendor stats: ${error.message}`, 'error');
+            }
+        }
+
+        async function createTestVendor() {
+            clearOutput('vendorOutput');
+            try {
+                await initDB();
+                
+                const testVendor = {
+                    name: 'Test Active Vendor ' + Date.now(),
+                    company_name: 'Test Company Active',
+                    contact_person: 'John Doe',
+                    phone: '123-456-7890',
+                    address: '123 Test Street',
+                    is_active: true
+                };
+                
+                logOutput('vendorOutput', `🏗️ Creating test vendor: ${testVendor.name}`, 'info');
+                const vendorId = await db.createVendor(testVendor);
+                logOutput('vendorOutput', `✅ Test vendor created with ID: ${vendorId}`, 'success');
+                
+            } catch (error) {
+                logOutput('vendorOutput', `❌ Error creating test vendor: ${error.message}`, 'error');
+            }
+        }
+
+        async function createInactiveVendor() {
+            clearOutput('vendorOutput');
+            try {
+                await initDB();
+                
+                // First create an active vendor
+                const testVendor = {
+                    name: 'Test Inactive Vendor ' + Date.now(),
+                    company_name: 'Test Company Inactive',
+                    contact_person: 'Jane Smith',
+                    phone: '098-765-4321',
+                    address: '456 Test Avenue',
+                    is_active: true
+                };
+                
+                logOutput('vendorOutput', `🏗️ Creating vendor to deactivate: ${testVendor.name}`, 'info');
+                const vendorId = await db.createVendor(testVendor);
+                logOutput('vendorOutput', `✅ Vendor created with ID: ${vendorId}`, 'success');
+                
+                // Then deactivate it
+                logOutput('vendorOutput', `⏸️ Deactivating vendor ${vendorId}`, 'info');
+                await db.deactivateVendor(vendorId, 'Created for testing purposes');
+                logOutput('vendorOutput', `✅ Vendor ${vendorId} deactivated successfully`, 'success');
+                
+            } catch (error) {
+                logOutput('vendorOutput', `❌ Error creating inactive vendor: ${error.message}`, 'error');
+            }
+        }
+
+        async function testVendorFiltering() {
+            clearOutput('vendorOutput');
+            try {
+                await initDB();
+                
+                // Test the actual filtering logic used by the component
+                const allVendors = await db.getVendors();
+                logOutput('vendorOutput', `📋 Testing vendor filtering with ${allVendors.length} vendors`, 'info');
+                
+                // Filter active vendors
+                const activeVendors = allVendors.filter(v => Boolean(v.is_active));
+                logOutput('vendorOutput', `✅ Active vendors: ${activeVendors.length}`, 'success');
+                
+                // Filter inactive vendors  
+                const inactiveVendors = allVendors.filter(v => !Boolean(v.is_active));
+                logOutput('vendorOutput', `❌ Inactive vendors: ${inactiveVendors.length}`, 'warning');
+                
+                // Show sample data
+                if (activeVendors.length > 0) {
+                    const sample = activeVendors[0];
+                    logOutput('vendorOutput', `Sample active vendor: ${sample.company_name || sample.name} (is_active: ${sample.is_active})`, 'info');
+                }
+                
+                if (inactiveVendors.length > 0) {
+                    const sample = inactiveVendors[0];
+                    logOutput('vendorOutput', `Sample inactive vendor: ${sample.company_name || sample.name} (is_active: ${sample.is_active})`, 'info');
+                }
+                
+                // Direct database check
+                const directCount = await db.dbConnection.select(`
+                    SELECT 
+                        SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_count,
+                        SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) as inactive_count
+                    FROM vendors
+                `);
+                
+                if (directCount.length > 0) {
+                    logOutput('vendorOutput', `🔍 Direct DB count - Active: ${directCount[0].active_count}, Inactive: ${directCount[0].inactive_count}`, 'info');
+                }
+                
+            } catch (error) {
+                logOutput('vendorOutput', `❌ Error testing vendor filtering: ${error.message}`, 'error');
+            }
+        }
+
+        async function testDeactivation() {
+            clearOutput('vendorOutput');
+            try {
+                await initDB();
+                
+                // Get an active vendor to test deactivation
+                const activeVendors = await db.dbConnection.select(`
+                    SELECT * FROM vendors WHERE is_active = 1 LIMIT 1
+                `);
+                
+                if (activeVendors.length === 0) {
+                    logOutput('vendorOutput', `⚠️ No active vendors found for deactivation test`, 'warning');
+                    logOutput('vendorOutput', `🏗️ Creating a test vendor first...`, 'info');
+                    
+                    const testVendor = {
+                        name: 'Deactivation Test Vendor ' + Date.now(),
+                        company_name: 'Test Deactivation Co',
+                        contact_person: 'Test Person',
+                        phone: '555-0123',
+                        address: 'Test Address',
+                        is_active: true
+                    };
+                    
+                    const vendorId = await db.createVendor(testVendor);
+                    logOutput('vendorOutput', `✅ Test vendor created with ID: ${vendorId}`, 'success');
+                    
+                    // Now test deactivation
+                    logOutput('vendorOutput', `⏸️ Testing deactivation of vendor ${vendorId}`, 'info');
+                    await db.deactivateVendor(vendorId, 'Testing deactivation functionality');
+                    logOutput('vendorOutput', `✅ Vendor ${vendorId} deactivated successfully`, 'success');
+                    
+                    // Verify deactivation
+                    const deactivatedVendor = await db.dbConnection.select(`
+                        SELECT id, company_name, is_active, deactivation_reason 
+                        FROM vendors WHERE id = ?
+                    `, [vendorId]);
+                    
+                    if (deactivatedVendor.length > 0) {
+                        const vendor = deactivatedVendor[0];
+                        logOutput('vendorOutput', `🔍 Verification - is_active: ${vendor.is_active}, reason: ${vendor.deactivation_reason}`, vendor.is_active ? 'error' : 'success');
+                    }
+                    
+                } else {
+                    const vendor = activeVendors[0];
+                    logOutput('vendorOutput', `⏸️ Testing deactivation of vendor ${vendor.id} (${vendor.company_name || vendor.name})`, 'info');
+                    
+                    await db.deactivateVendor(vendor.id, 'Testing deactivation functionality');
+                    logOutput('vendorOutput', `✅ Vendor ${vendor.id} deactivated successfully`, 'success');
+                    
+                    // Verify deactivation
+                    const deactivatedVendor = await db.dbConnection.select(`
+                        SELECT is_active, deactivation_reason FROM vendors WHERE id = ?
+                    `, [vendor.id]);
+                    
+                    if (deactivatedVendor.length > 0) {
+                        const updated = deactivatedVendor[0];
+                        logOutput('vendorOutput', `🔍 Verification - is_active: ${updated.is_active}, reason: ${updated.deactivation_reason}`, updated.is_active ? 'error' : 'success');
+                    }
+                }
+                
+            } catch (error) {
+                logOutput('vendorOutput', `❌ Error testing deactivation: ${error.message}`, 'error');
+            }
+        }
+
+        async function fixVendorTable() {
+            clearOutput('fixOutput');
+            try {
+                await initDB();
+                
+                logOutput('fixOutput', `🔧 Starting vendor table schema fix...`, 'info');
+                
+                // Check current schema
+                const tableExists = await db.tableExists('vendors');
+                if (!tableExists) {
+                    logOutput('fixOutput', `❌ Vendors table does not exist, creating it...`, 'warning');
+                    await db.createCoreTablesFromSchemas();
+                    logOutput('fixOutput', `✅ Vendors table created`, 'success');
+                }
+                
+                // Check for required columns
+                const schema = await db.dbConnection.select("PRAGMA table_info(vendors)");
+                const columnNames = schema.map(col => col.name);
+                
+                const requiredColumns = [
+                    { name: 'is_active', type: 'INTEGER DEFAULT 1', description: 'Active status' },
+                    { name: 'deactivation_reason', type: 'TEXT', description: 'Reason for deactivation' },
+                    { name: 'company_name', type: 'TEXT', description: 'Company name' },
+                    { name: 'contact_person', type: 'TEXT', description: 'Contact person' }
+                ];
+                
+                for (const col of requiredColumns) {
+                    if (!columnNames.includes(col.name)) {
+                        logOutput('fixOutput', `➕ Adding missing column: ${col.name}`, 'info');
+                        await db.safeAddColumn('vendors', col.name, col.type);
+                        logOutput('fixOutput', `✅ Added column: ${col.name} (${col.description})`, 'success');
+                    } else {
+                        logOutput('fixOutput', `✅ Column exists: ${col.name}`, 'success');
+                    }
+                }
+                
+                logOutput('fixOutput', `🎉 Vendor table schema fix completed`, 'success');
+                
+            } catch (error) {
+                logOutput('fixOutput', `❌ Error fixing vendor table: ${error.message}`, 'error');
+            }
+        }
+
+        async function clearTestData() {
+            clearOutput('fixOutput');
+            try {
+                await initDB();
+                
+                const confirm = window.confirm('Are you sure you want to delete all test vendors? This will remove vendors with "Test" in their name.');
+                if (!confirm) {
+                    logOutput('fixOutput', `❌ Operation cancelled by user`, 'warning');
+                    return;
+                }
+                
+                logOutput('fixOutput', `🧹 Clearing test vendor data...`, 'info');
+                
+                const result = await db.dbConnection.execute(`
+                    DELETE FROM vendors 
+                    WHERE name LIKE '%Test%' 
+                    OR company_name LIKE '%Test%'
+                    OR contact_person LIKE '%Test%'
+                `);
+                
+                logOutput('fixOutput', `✅ Cleared test vendor data`, 'success');
+                logOutput('fixOutput', `📊 Database cleanup completed`, 'info');
+                
+            } catch (error) {
+                logOutput('fixOutput', `❌ Error clearing test data: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-initialize on page load
+        window.addEventListener('load', async () => {
+            try {
+                await testDatabaseConnection();
+            } catch (error) {
+                console.error('Failed to auto-initialize:', error);
+            }
+        });
+    </script>
+</body>
+</html>

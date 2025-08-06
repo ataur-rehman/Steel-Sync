@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 Fix Vendor Payment Issue - IMMEDIATE FIX</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #e74c3c;
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 2.5em;
+        }
+        .error-box {
+            background: #f8d7da;
+            border: 3px solid #dc3545;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        .fix-box {
+            background: #d4edda;
+            border: 3px solid #28a745;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        .warning-box {
+            background: #fff3cd;
+            border: 3px solid #ffc107;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+        button {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 10px;
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(231, 76, 60, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .console-command {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            font-size: 16px;
+            cursor: pointer;
+            border: 2px solid #34495e;
+        }
+        .console-command:hover {
+            background: #34495e;
+            border-color: #3498db;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+            display: none;
+        }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #e74c3c;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .step {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-left: 5px solid #e74c3c;
+            border-radius: 0 8px 8px 0;
+        }
+        .success-icon { color: #28a745; font-size: 1.2em; }
+        .error-icon { color: #dc3545; font-size: 1.2em; }
+        .warning-icon { color: #ffc107; font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Fix Vendor Payment Issue</h1>
+        
+        <div class="error-box">
+            <h3>❌ Current Problem</h3>
+            <p><strong>Error:</strong> <code>NOT NULL constraint failed: payments.customer_id</code></p>
+            <p>This error occurs when trying to process vendor payments because the <code>enhanced_payments</code> table doesn't allow NULL values for customer_id, but vendor payments don't have customers.</p>
+        </div>
+
+        <div class="fix-box">
+            <h3>✅ The Solution</h3>
+            <p>We need to fix the <code>enhanced_payments</code> table schema to allow NULL customer_id values for vendor payments.</p>
+        </div>
+
+        <div class="warning-box">
+            <h3>⚠️ Before You Start</h3>
+            <ul>
+                <li>Make sure your Steel Store Management app is running</li>
+                <li>This fix will modify the database table structure</li>
+                <li>All existing payment data will be preserved</li>
+                <li>The fix takes only a few seconds</li>
+            </ul>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <button onclick="runAutoFix()" id="autoFixBtn">
+                🚀 AUTO FIX - Click to Fix Immediately
+            </button>
+        </div>
+
+        <div class="step">
+            <h4>🔧 Manual Option 1: Browser Console</h4>
+            <p>Open browser console (F12) and run:</p>
+            <div class="console-command" onclick="copyToClipboard('await db.fixEnhancedPaymentsSchema()')">
+                await db.fixEnhancedPaymentsSchema()
+            </div>
+            <small>Click the command above to copy it</small>
+        </div>
+
+        <div class="step">
+            <h4>🔧 Manual Option 2: Console Helper Function</h4>
+            <p>Open browser console (F12) and run:</p>
+            <div class="console-command" onclick="copyToClipboard('fixVendorPaymentIssue()')">
+                fixVendorPaymentIssue()
+            </div>
+            <small>Click the command above to copy it</small>
+        </div>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        let db = null;
+
+        // Initialize database connection
+        async function initializeDatabase() {
+            try {
+                if (window.parent && window.parent.db) {
+                    db = window.parent.db;
+                    console.log('✅ Using parent window database connection');
+                    return true;
+                } else if (window.db) {
+                    db = window.db;
+                    console.log('✅ Using window database connection');
+                    return true;
+                } else {
+                    throw new Error('Database service not available');
+                }
+            } catch (error) {
+                console.error('❌ Database initialization failed:', error);
+                showStatus('error', 'Database connection failed. Please make sure the Steel Store Management app is running in another tab.');
+                return false;
+            }
+        }
+
+        async function runAutoFix() {
+            const btn = document.getElementById('autoFixBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>Fixing Schema...';
+
+            try {
+                showStatus('info', 'Connecting to database...');
+                
+                if (!await initializeDatabase()) {
+                    showStatus('error', 'Cannot connect to database. Please ensure your Steel Store Management app is running.');
+                    return;
+                }
+
+                showStatus('info', 'Running enhanced payments schema fix...');
+
+                // Run the fix
+                const result = await db.fixEnhancedPaymentsSchema();
+
+                if (result.success) {
+                    let statusHtml = '<h3 class="success-icon">✅ VENDOR PAYMENT ISSUE FIXED SUCCESSFULLY!</h3>';
+                    statusHtml += '<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 15px;">';
+                    statusHtml += '<h4>📋 What was fixed:</h4>';
+                    statusHtml += '<ul>';
+                    result.details.forEach(detail => {
+                        statusHtml += `<li>${detail}</li>`;
+                    });
+                    statusHtml += '</ul>';
+                    statusHtml += '</div>';
+                    statusHtml += '<div style="background: #d4edda; padding: 15px; border-radius: 8px; margin-top: 15px; border: 2px solid #28a745;">';
+                    statusHtml += '<h4 class="success-icon">🎉 You can now:</h4>';
+                    statusHtml += '<ul>';
+                    statusHtml += '<li>Process vendor payments without errors</li>';
+                    statusHtml += '<li>Record vendor payments in stock receiving</li>';
+                    statusHtml += '<li>Use payment channels for vendor transactions</li>';
+                    statusHtml += '</ul>';
+                    statusHtml += '<p><strong>Try processing a vendor payment again - it should work perfectly!</strong></p>';
+                    statusHtml += '</div>';
+                    
+                    showStatus('success', statusHtml);
+                } else {
+                    let statusHtml = '<h3 class="error-icon">❌ Schema Fix Failed</h3>';
+                    statusHtml += `<p><strong>Error:</strong> ${result.message}</p>`;
+                    statusHtml += '<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 15px;">';
+                    statusHtml += '<h4>📋 Details:</h4>';
+                    statusHtml += '<ul>';
+                    result.details.forEach(detail => {
+                        statusHtml += `<li>${detail}</li>`;
+                    });
+                    statusHtml += '</ul>';
+                    statusHtml += '</div>';
+                    statusHtml += '<div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin-top: 15px; border: 2px solid #ffc107;">';
+                    statusHtml += '<h4 class="warning-icon">⚠️ Try Manual Fix:</h4>';
+                    statusHtml += '<p>Open browser console (F12) and run: <code>await db.fixEnhancedPaymentsSchema()</code></p>';
+                    statusHtml += '</div>';
+                    
+                    showStatus('error', statusHtml);
+                }
+
+            } catch (error) {
+                console.error('Schema fix failed:', error);
+                showStatus('error', `Fix failed: ${error.message}. Try the manual console commands above.`);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '🚀 AUTO FIX - Click to Fix Immediately';
+            }
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Command copied to clipboard! Paste it in browser console (F12)');
+            }).catch(() => {
+                alert('Copy this command: ' + text);
+            });
+        }
+
+        function showStatus(type, message) {
+            const status = document.getElementById('status');
+            status.style.display = 'block';
+            status.className = '';
+            
+            if (type === 'success') {
+                status.style.background = '#d4edda';
+                status.style.border = '2px solid #28a745';
+                status.style.color = '#155724';
+            } else if (type === 'error') {
+                status.style.background = '#f8d7da';
+                status.style.border = '2px solid #dc3545';
+                status.style.color = '#721c24';
+            } else if (type === 'warning') {
+                status.style.background = '#fff3cd';
+                status.style.border = '2px solid #ffc107';
+                status.style.color = '#856404';
+            } else {
+                status.style.background = '#e8f4fd';
+                status.style.border = '2px solid #3498db';
+                status.style.color = '#0c5460';
+            }
+            
+            status.innerHTML = message;
+        }
+
+        // Load the helper function for manual console use
+        window.fixVendorPaymentIssue = async function() {
+            try {
+                console.log('🔧 IMMEDIATE FIX: Enhanced Payments Schema Fix');
+                console.log('='.repeat(50));
+                
+                console.log('1️⃣ Checking if database service is available...');
+                
+                if (!window.db) {
+                    console.error('❌ Database service not found. Make sure your app is running.');
+                    return false;
+                }
+                
+                console.log('✅ Database service found');
+                
+                console.log('2️⃣ Running enhanced payments schema fix...');
+                
+                // Run the fix
+                const result = await window.db.fixEnhancedPaymentsSchema();
+                
+                if (result.success) {
+                    console.log('✅ SCHEMA FIX SUCCESSFUL!');
+                    console.log('📋 Details:');
+                    result.details.forEach(detail => console.log(`   • ${detail}`));
+                    console.log('');
+                    console.log('🎉 Vendor payments should now work without errors!');
+                    console.log('💡 Try processing a vendor payment again.');
+                    return true;
+                } else {
+                    console.error('❌ SCHEMA FIX FAILED:');
+                    console.error('   Message:', result.message);
+                    console.error('   Details:', result.details);
+                    return false;
+                }
+                
+            } catch (error) {
+                console.error('❌ Error running fix:', error);
+                return false;
+            }
+        };
+
+        // Initialize on load
+        window.addEventListener('load', async () => {
+            console.log('🔧 Vendor Payment Fix Tool loaded');
+            console.log('💡 Click "AUTO FIX" button or run: fixVendorPaymentIssue()');
+        });
+    </script>
+</body>
+</html>

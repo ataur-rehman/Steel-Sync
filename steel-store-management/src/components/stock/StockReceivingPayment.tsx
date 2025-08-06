@@ -164,25 +164,106 @@ const StockReceivingPayment: React.FC = () => {
       });
       
       // Create vendor payment record
-      const paymentId = await db.createVendorPayment({
-        vendor_id: receiving.vendor_id,
-        vendor_name: receiving.vendor_name,
-        receiving_id: receiving.id,
-        amount: form.amount,
-        payment_channel_id: form.payment_channel_id,
-        payment_channel_name: form.payment_channel_name,
-        reference_number: form.reference_number,
-        cheque_number: form.cheque_number,
-        cheque_date: form.cheque_date,
-        notes: form.notes,
-        date: form.date,
-        time: new Date().toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          hour12: true 
-        }),
-        created_by: 'admin' // In real app, get from auth context
-      });
+      let paymentId;
+      try {
+        paymentId = await db.createVendorPayment({
+          vendor_id: receiving.vendor_id,
+          vendor_name: receiving.vendor_name,
+          receiving_id: receiving.id,
+          amount: form.amount,
+          payment_channel_id: form.payment_channel_id,
+          payment_channel_name: form.payment_channel_name,
+          reference_number: form.reference_number,
+          cheque_number: form.cheque_number,
+          cheque_date: form.cheque_date,
+          notes: form.notes,
+          date: form.date,
+          time: new Date().toLocaleTimeString('en-PK', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+          }),
+          created_by: 'admin' // In real app, get from auth context
+        });
+
+        console.log('✅ Vendor payment created successfully with ID:', paymentId);
+        
+      } catch (vendorError: any) {
+        console.error('❌ Vendor payment creation failed:', vendorError);
+        
+        // If vendor payment fails due to foreign key constraint, handle gracefully
+        if (vendorError.message?.includes('FOREIGN KEY constraint failed')) {
+          console.warn('⚠️ Vendor not found, attempting alternative payment recording...');
+          
+          // Try to recreate the vendor first if it's missing
+          let vendorRecreated = false;
+          try {
+            const existingVendors = await db.getVendors();
+            const vendorExists = existingVendors.some(v => v.id === receiving.vendor_id);
+            
+            if (!vendorExists) {
+              console.log('🔧 Attempting to recreate missing vendor...');
+              const newVendorId = await db.createVendor({
+                name: receiving.vendor_name,
+                company_name: receiving.vendor_name,
+                notes: `Recreated vendor for stock receiving payment processing`
+              });
+              
+              if (newVendorId === receiving.vendor_id) {
+                vendorRecreated = true;
+                console.log('✅ Vendor recreated successfully, retrying payment...');
+                
+                // Retry the vendor payment creation
+                paymentId = await db.createVendorPayment({
+                  vendor_id: receiving.vendor_id,
+                  vendor_name: receiving.vendor_name,
+                  receiving_id: receiving.id,
+                  amount: form.amount,
+                  payment_channel_id: form.payment_channel_id,
+                  payment_channel_name: form.payment_channel_name,
+                  reference_number: form.reference_number,
+                  cheque_number: form.cheque_number,
+                  cheque_date: form.cheque_date,
+                  notes: form.notes,
+                  date: form.date,
+                  time: new Date().toLocaleTimeString('en-PK', { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    hour12: true 
+                  }),
+                  created_by: 'admin'
+                });
+              }
+            }
+          } catch (recreateError) {
+            console.error('❌ Failed to recreate vendor:', recreateError);
+          }
+          
+          // If vendor recreation failed or couldn't match ID, fallback to daily ledger
+          if (!vendorRecreated) {
+            console.warn('⚠️ Using fallback: Recording payment in daily ledger instead');
+            
+            await db.createDailyLedgerEntry({
+              type: 'outgoing',
+              amount: form.amount,
+              description: `Payment for stock receiving ${receiving.reference_number} (Vendor: ${receiving.vendor_name}) - Vendor record missing`,
+              payment_method: form.payment_channel_name,
+              category: 'Vendor Payment',
+              customer_id: null,
+              customer_name: null,
+              date: form.date,
+              notes: `${form.notes || ''} | Original vendor ID: ${receiving.vendor_id} | Fallback payment due to missing vendor record`,
+              is_manual: true
+            });
+            
+            paymentId = 0; // Indicate alternative payment method was used
+            console.warn('⚠️ Payment recorded in daily ledger due to missing vendor.');
+          }
+        } else {
+          // Re-throw if it's a different error
+          throw vendorError;
+        }
+      }
       
       console.log('Payment created with ID:', paymentId);
       
@@ -190,14 +271,25 @@ const StockReceivingPayment: React.FC = () => {
       await db.updateStockReceivingPayment(receiving.id, form.amount);
       
       // Log the payment recording activity
+      const paymentDescription = (paymentId && paymentId > 0)
+        ? `Recorded payment of ₹${form.amount.toLocaleString()} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
+        : `Recorded payment of ₹${form.amount.toLocaleString()} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''} - Vendor not found, recorded in daily ledger`;
+      
       activityLogger.logCustomActivity(
         ActivityType.PAYMENT,
         ModuleType.PAYMENTS,
-        paymentId,
-        `Recorded payment of ₹${form.amount.toLocaleString()} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
+        paymentId || 0,
+        paymentDescription
       );
       
-      toast.success('Payment recorded successfully!');
+      if (!paymentId || paymentId === 0) {
+        toast.success('Payment recorded successfully in daily ledger!', {
+          duration: 5000,
+          icon: '⚠️'
+        });
+      } else {
+        toast.success('Payment recorded successfully!');
+      }
       // Navigate back to the receiving detail page to show updated data
       navigate(`/stock/receiving/${receiving.id}`);
       

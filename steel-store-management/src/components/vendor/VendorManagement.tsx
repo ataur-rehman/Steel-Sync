@@ -145,6 +145,75 @@ const VendorManagement: React.FC = () => {
     setShowModal(true);
   };
 
+  // Handle vendor reactivation
+  const handleReactivateVendor = async (vendor: Vendor, event?: React.MouseEvent) => {
+    try {
+      // CRITICAL FIX: Prevent event bubbling and multiple triggers
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      
+      const vendorName = vendor.company_name || vendor.contact_person || `Vendor #${vendor.id}`;
+      
+      console.log(`[REACTIVATE] Reactivating vendor ${vendor.id} (${vendorName})`);
+      
+      await db.updateVendor(vendor.id, { is_active: true });
+      
+      // Log the activity
+      await activityLogger.logVendorUpdated(vendor.id, vendorName, { is_active: true, reason: 'Reactivated' });
+      
+      toast.success(`Vendor "${vendorName}" has been reactivated successfully!`);
+      await loadVendors(); // Refresh the vendor list
+      
+    } catch (error: any) {
+      console.error('Error reactivating vendor:', error);
+      const errorMessage = error?.message || 'Failed to reactivate vendor';
+      toast.error(`Failed to reactivate vendor: ${errorMessage}`);
+    }
+  };
+
+  // Handle vendor deactivation (separate from deletion)
+  const handleDeactivateVendor = async (vendor: Vendor, event?: React.MouseEvent) => {
+    try {
+      // CRITICAL FIX: Prevent event bubbling and multiple triggers
+      if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      
+      const vendorName = vendor.company_name || vendor.contact_person || `Vendor #${vendor.id}`;
+      
+      console.log(`[DEACTIVATE] Request to deactivate vendor ${vendor.id} (${vendorName})`);
+      
+      const confirmDeactivate = window.confirm(
+        `Are you sure you want to deactivate "${vendorName}"?\n\nThis will make the vendor inactive but preserve all data and relationships.`
+      );
+      
+      if (!confirmDeactivate) {
+        console.log(`[DEACTIVATE] User cancelled deactivation of vendor ${vendor.id}`);
+        return;
+      }
+      
+      console.log(`[DEACTIVATE] User confirmed - proceeding with deactivation of vendor ${vendor.id} (${vendorName})`);
+      
+      await db.deactivateVendor(vendor.id, 'Manually deactivated by user');
+      
+      // Log the activity
+      await activityLogger.logVendorUpdated(vendor.id, vendorName, { is_active: false, reason: 'Manually deactivated by user' });
+      
+      toast.success(`Vendor "${vendorName}" has been deactivated successfully!`);
+      await loadVendors(); // Refresh the vendor list
+      
+      console.log(`[DEACTIVATE] Successfully deactivated vendor ${vendor.id} (${vendorName})`);
+      
+    } catch (error: any) {
+      console.error('[DEACTIVATE] Error deactivating vendor:', error);
+      const errorMessage = error?.message || 'Failed to deactivate vendor';
+      toast.error(`Failed to deactivate vendor: ${errorMessage}`);
+    }
+  };
+
   const handleDelete = (vendor: Vendor, event?: React.MouseEvent) => {
     // CRITICAL FIX: Prevent event bubbling and multiple triggers
     if (event) {
@@ -176,6 +245,40 @@ const VendorManagement: React.FC = () => {
       // CRITICAL FIX: Set deleting state to prevent duplicate operations
       setDeletingVendorId(vendor.id);
       
+      // SAFETY CHECK: Verify vendor deletion is safe
+      const safetyCheck = await db.checkVendorDeletionSafety(vendor.id);
+      
+      if (!safetyCheck.canDelete) {
+        // Show detailed error with alternatives
+        const errorMessage = `Cannot delete vendor "${vendorName}":\n\n${safetyCheck.reasons.join('\n')}\n\nAlternatives:\n${safetyCheck.alternatives.join('\n')}`;
+        
+        toast.error(errorMessage, {
+          duration: 8000,
+          style: {
+            maxWidth: '600px',
+            whiteSpace: 'pre-line'
+          }
+        });
+        
+        // Close the delete modal and offer deactivation as alternative
+        setShowDeleteModal(false);
+        setVendorToDelete(null);
+        setDeletingVendorId(null);
+        
+        // Optionally auto-deactivate instead of deleting
+        await db.deactivateVendor(vendor.id, 'Has pending payments or outstanding balance');
+        toast.success(`Vendor "${vendorName}" deactivated instead of deleted`);
+        await loadVendors();
+        
+        return;
+      }
+      
+      // If there are warnings, show them in toast but proceed
+      if (safetyCheck.warnings.length > 0) {
+        const warningMessage = `Warning: ${safetyCheck.warnings.join(', ')}`;
+        toast.error(warningMessage, { duration: 5000 });
+      }
+      
       await db.deleteVendor(vendor.id);
       
       // Log activity
@@ -186,13 +289,15 @@ const VendorManagement: React.FC = () => {
       // Reload vendors to reflect changes
       await loadVendors();
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting vendor:', error);
       
       // Get vendor name for error message
       const vendorName = vendorToDelete?.company_name || vendorToDelete?.contact_person || `Vendor #${vendorToDelete?.id}`;
       
-      toast.error(`Failed to delete vendor "${vendorName}". Please try again.`);
+      // Show specific error message if available
+      const errorMessage = error.message || 'Please try again.';
+      toast.error(`Failed to delete vendor "${vendorName}": ${errorMessage}`);
     } finally {
       // CRITICAL FIX: Always reset deleting state and close modal
       setDeletingVendorId(null);
@@ -309,16 +414,48 @@ const VendorManagement: React.FC = () => {
     totalOutstanding: vendors.reduce((sum, v) => sum + (v.outstanding_balance || 0), 0)
   };
 
-  // Debug information
+  // Debug information - Enhanced logging for filtering issues
   React.useEffect(() => {
-    console.log('Vendor filtering debug:', {
-      totalVendors: vendors.length,
-      filteredVendors: filteredVendors.length,
-      searchTerm,
-      filterStatus,
+    console.log('🔍 [VENDOR FILTER DEBUG] Comprehensive vendor filtering analysis:', {
+      totalVendorsFromDB: vendors.length,
+      filteredVendorsResult: filteredVendors.length,
+      currentSearchTerm: searchTerm,
+      currentFilterStatus: filterStatus,
+      vendorSampleData: vendors.length > 0 ? {
+        firstVendor: {
+          id: vendors[0].id,
+          name: vendors[0].company_name || vendors[0].contact_person || 'Unnamed',
+          is_active: vendors[0].is_active,
+          is_active_type: typeof vendors[0].is_active,
+          is_active_boolean: Boolean(vendors[0].is_active)
+        }
+      } : 'No vendors in database',
+      filteringBreakdown: {
+        totalVendors: vendors.length,
+        activeCount: vendors.filter(v => Boolean(v.is_active)).length,
+        inactiveCount: vendors.filter(v => !Boolean(v.is_active)).length,
+        searchMatches: vendors.filter(vendor => {
+          const searchFields = [
+            vendor.company_name, 
+            vendor.contact_person, 
+            vendor.phone, 
+            vendor.email,
+            vendor.address,
+            vendor.city
+          ].filter(Boolean);
+          return searchTerm === '' || searchFields.some(field => 
+            field?.toLowerCase().includes(searchTerm.toLowerCase())
+          );
+        }).length,
+        statusMatches: {
+          all: vendors.length,
+          active: vendors.filter(v => Boolean(v.is_active)).length,
+          inactive: vendors.filter(v => !Boolean(v.is_active)).length
+        }
+      },
       stats
     });
-  }, [vendors, filteredVendors, searchTerm, filterStatus]);
+  }, [vendors, filteredVendors, searchTerm, filterStatus, stats]);
 
   // Loading state
   if (loading) {
@@ -524,18 +661,57 @@ const VendorManagement: React.FC = () => {
                         >
                           <Edit className="h-4 w-4" />
                         </button>
-                        <button
-                          onClick={(e) => handleDelete(vendor, e)}
-                          className="btn btn-danger flex items-center px-2 py-1 text-xs"
-                          title="Delete Vendor"
-                          disabled={deletingVendorId === vendor.id}
-                        >
-                          {deletingVendorId === vendor.id ? (
-                            <span className="animate-spin">🗑️</span>
-                          ) : (
-                            <Trash2 className="h-4 w-4" />
-                          )}
-                        </button>
+                        
+                        {/* Show different actions based on vendor status */}
+                        {vendor.is_active ? (
+                          <>
+                            {/* Deactivate button for active vendors */}
+                            <button
+                              onClick={(e) => handleDeactivateVendor(vendor, e)}
+                              className="btn btn-warning flex items-center px-2 py-1 text-xs"
+                              title="Deactivate Vendor"
+                            >
+                              <span>⏸️</span>
+                            </button>
+                            {/* Delete button for active vendors */}
+                            <button
+                              onClick={(e) => handleDelete(vendor, e)}
+                              className="btn btn-danger flex items-center px-2 py-1 text-xs"
+                              title="Delete Vendor"
+                              disabled={deletingVendorId === vendor.id}
+                            >
+                              {deletingVendorId === vendor.id ? (
+                                <span className="animate-spin">🗑️</span>
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {/* Reactivate button for inactive vendors */}
+                            <button
+                              onClick={(e) => handleReactivateVendor(vendor, e)}
+                              className="btn btn-success flex items-center px-2 py-1 text-xs"
+                              title="Reactivate Vendor"
+                            >
+                              <span>▶️</span>
+                            </button>
+                            {/* Delete button still available for inactive vendors */}
+                            <button
+                              onClick={(e) => handleDelete(vendor, e)}
+                              className="btn btn-danger flex items-center px-2 py-1 text-xs"
+                              title="Delete Vendor"
+                              disabled={deletingVendorId === vendor.id}
+                            >
+                              {deletingVendorId === vendor.id ? (
+                                <span className="animate-spin">🗑️</span>
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>

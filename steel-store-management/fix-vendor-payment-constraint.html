@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Vendor Payment Constraint - Immediate Fix</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 20px auto; 
+            padding: 20px; 
+            background: #f5f5f5; 
+        }
+        .container { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        .error { 
+            background: #fee; 
+            border: 1px solid #fcc; 
+            padding: 15px; 
+            border-radius: 4px; 
+            margin: 15px 0; 
+            color: #c00; 
+        }
+        .success { 
+            background: #efe; 
+            border: 1px solid #cfc; 
+            padding: 15px; 
+            border-radius: 4px; 
+            margin: 15px 0; 
+            color: #060; 
+        }
+        .info { 
+            background: #eef; 
+            border: 1px solid #ccf; 
+            padding: 15px; 
+            border-radius: 4px; 
+            margin: 15px 0; 
+            color: #006; 
+        }
+        button { 
+            background: #007cba; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            margin: 10px 5px; 
+        }
+        button:hover { background: #005a8a; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .fix-button { background: #28a745; }
+        .fix-button:hover { background: #1e7e34; }
+        code { 
+            background: #f8f9fa; 
+            padding: 2px 6px; 
+            border-radius: 3px; 
+            font-family: 'Courier New', monospace; 
+        }
+        .command-box { 
+            background: #1e1e1e; 
+            color: #fff; 
+            padding: 15px; 
+            border-radius: 4px; 
+            margin: 10px 0; 
+            font-family: 'Courier New', monospace; 
+            overflow-x: auto; 
+        }
+        .step { 
+            margin: 20px 0; 
+            padding: 15px; 
+            border-left: 4px solid #007cba; 
+            background: #f8f9fa; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Fix Vendor Payment Constraint Error</h1>
+        
+        <div class="error">
+            <h3>❌ Current Error:</h3>
+            <p><strong>NOT NULL constraint failed: payments.customer_id</strong></p>
+            <p>This error occurs because vendor payments don't have customers, but the enhanced_payments table requires a customer_id.</p>
+        </div>
+
+        <div class="info">
+            <h3>🎯 Solution:</h3>
+            <p>The database needs to be updated to allow NULL customer_id values for vendor payments. There's already a fix method available - we just need to run it.</p>
+        </div>
+
+        <div class="step">
+            <h3>🚀 Quick Fix (Recommended)</h3>
+            <p>Click the button below to automatically fix the database schema:</p>
+            <button class="fix-button" onclick="autoFix()">🔧 AUTO FIX - Fix Database Schema Now</button>
+            <div id="autoFixResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>📋 Manual Fix Option</h3>
+            <p>If the auto-fix doesn't work, open your browser's Developer Console (F12) and run this command:</p>
+            <div class="command-box">
+await window.db.fixEnhancedPaymentsSchema()
+            </div>
+            <button onclick="copyToClipboard('await window.db.fixEnhancedPaymentsSchema()')">📋 Copy Command</button>
+        </div>
+
+        <div class="step">
+            <h3>🔍 Verify Fix</h3>
+            <p>After running the fix, verify it worked by checking the schema:</p>
+            <div class="command-box">
+// Check if customer_id is now nullable
+const result = await window.db.executeCommand("PRAGMA table_info(enhanced_payments)");
+console.log('Enhanced payments schema:', result);
+            </div>
+            <button onclick="copyToClipboard(`// Check if customer_id is now nullable
+const result = await window.db.executeCommand(\"PRAGMA table_info(enhanced_payments)\");
+console.log('Enhanced payments schema:', result);`)">📋 Copy Verification Command</button>
+        </div>
+
+        <div class="step">
+            <h3>🧪 Test Vendor Payment</h3>
+            <p>After the fix, try creating a vendor payment again to confirm the error is resolved.</p>
+        </div>
+
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        // Auto-fix function
+        async function autoFix() {
+            const button = event.target;
+            const resultDiv = document.getElementById('autoFixResult');
+            
+            button.disabled = true;
+            button.textContent = '🔄 Fixing...';
+            
+            try {
+                // Check if database is available
+                if (!window.db) {
+                    throw new Error('Database service not available. Make sure your application is running.');
+                }
+                
+                // Run the fix
+                console.log('🔧 Running database schema fix...');
+                const result = await window.db.fixEnhancedPaymentsSchema();
+                
+                if (result.success) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <h4>✅ Fix Applied Successfully!</h4>
+                            <p><strong>Message:</strong> ${result.message}</p>
+                            <p><strong>Details:</strong></p>
+                            <ul>
+                                ${result.details.map(detail => `<li>${detail}</li>`).join('')}
+                            </ul>
+                            <p>🎉 You can now process vendor payments without constraint errors!</p>
+                        </div>
+                    `;
+                    
+                    // Log success to console
+                    console.log('✅ Database schema fix completed successfully:', result);
+                    
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="error">
+                            <h4>❌ Fix Failed</h4>
+                            <p><strong>Message:</strong> ${result.message}</p>
+                            <p><strong>Details:</strong></p>
+                            <ul>
+                                ${result.details.map(detail => `<li>${detail}</li>`).join('')}
+                            </ul>
+                            <p>Please try the manual fix option below.</p>
+                        </div>
+                    `;
+                    
+                    console.error('❌ Database schema fix failed:', result);
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="error">
+                        <h4>❌ Error During Fix</h4>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p>Please ensure your application is running and try the manual fix option.</p>
+                    </div>
+                `;
+                
+                console.error('❌ Error during auto-fix:', error);
+            }
+            
+            button.disabled = false;
+            button.textContent = '🔧 AUTO FIX - Fix Database Schema Now';
+        }
+
+        // Copy to clipboard function
+        function copyToClipboard(text) {
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showMessage('📋 Command copied to clipboard!', 'success');
+                }).catch(err => {
+                    console.error('Failed to copy text: ', err);
+                    fallbackCopyTextToClipboard(text);
+                });
+            } else {
+                fallbackCopyTextToClipboard(text);
+            }
+        }
+
+        function fallbackCopyTextToClipboard(text) {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.top = "0";
+            textArea.style.left = "0";
+            textArea.style.position = "fixed";
+            
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                const msg = successful ? 'successful' : 'unsuccessful';
+                showMessage('📋 Command copied to clipboard!', 'success');
+            } catch (err) {
+                showMessage('❌ Failed to copy to clipboard', 'error');
+                console.error('Fallback: Oops, unable to copy', err);
+            }
+            
+            document.body.removeChild(textArea);
+        }
+
+        function showMessage(message, type) {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type;
+            messageDiv.innerHTML = `<p>${message}</p>`;
+            messagesDiv.appendChild(messageDiv);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 3000);
+        }
+
+        // On page load, check if database is available
+        window.addEventListener('load', () => {
+            if (window.db) {
+                showMessage('✅ Database service detected. Auto-fix is available!', 'success');
+            } else {
+                showMessage('⚠️ Database service not detected. Use manual fix options.', 'info');
+            }
+        });
+    </script>
+</body>
+</html>

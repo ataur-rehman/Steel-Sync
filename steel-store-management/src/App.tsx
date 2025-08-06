@@ -24,6 +24,7 @@ import CustomerLoanDetail from './components/loan/CustomerLoanDetail';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
 import PaymentChannelDetail from './components/payment/PaymentChannelDetail';
 import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
+import DataIntegrityManager from './components/admin/DataIntegrityManager';
 import StaffManagement from './components/staff/StaffManagement';
 import ActivityLogger from './components/admin/ActivityLogger';
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
@@ -374,6 +375,13 @@ function AppContent() {
             <Route path="/admin/activity" element={
               <ProtectedRoute module="audit" level="view">
                 <ActivityLoggerProfessional />
+              </ProtectedRoute>
+            } />
+            
+            {/* Data Integrity Manager (Admin Only) */}
+            <Route path="/admin/data-integrity" element={
+              <ProtectedRoute module="audit" level="view">
+                <DataIntegrityManager />
               </ProtectedRoute>
             } />
             

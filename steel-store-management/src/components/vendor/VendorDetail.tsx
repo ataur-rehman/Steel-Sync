@@ -70,9 +70,47 @@ const VendorDetail: React.FC = () => {
   const handleDelete = async () => {
     if (!vendor) return;
     
-    const confirmed = window.confirm(`Are you sure you want to delete vendor "${vendor.name}"?`);
-    if (confirmed) {
-      try {
+    try {
+      // SAFETY CHECK: Verify vendor deletion is safe
+      const safetyCheck = await db.checkVendorDeletionSafety(vendor.id);
+      
+      if (!safetyCheck.canDelete) {
+        // Show detailed error with alternatives
+        const errorMessage = `Cannot delete vendor "${vendor.name}":\n\n${safetyCheck.reasons.join('\n')}\n\nAlternatives:\n${safetyCheck.alternatives.join('\n')}`;
+        
+        toast.error(errorMessage, {
+          duration: 8000,
+          style: {
+            maxWidth: '600px',
+            whiteSpace: 'pre-line'
+          }
+        });
+        
+        // Ask if user wants to deactivate instead
+        const deactivateConfirm = window.confirm(
+          `${errorMessage}\n\nWould you like to deactivate this vendor instead of deleting?`
+        );
+        
+        if (deactivateConfirm) {
+          await db.deactivateVendor(vendor.id, 'Has pending payments or outstanding balance');
+          toast.success(`Vendor "${vendor.name}" deactivated successfully`);
+          navigateTo('/vendors');
+        }
+        
+        return;
+      }
+      
+      // Show warnings if any
+      if (safetyCheck.warnings.length > 0) {
+        const warningMessage = `Warning:\n${safetyCheck.warnings.join('\n')}\n\nAre you sure you want to proceed?`;
+        const proceedConfirm = window.confirm(warningMessage);
+        if (!proceedConfirm) {
+          return;
+        }
+      }
+      
+      const confirmed = window.confirm(`Are you sure you want to delete vendor "${vendor.name}"?`);
+      if (confirmed) {
         await db.deleteVendor(vendor.id);
         
         // Log the vendor deletion activity
@@ -85,9 +123,10 @@ const VendorDetail: React.FC = () => {
         
         toast.success('Vendor deleted successfully');
         navigateTo('/vendors');
-      } catch (error) {
-        toast.error('Failed to delete vendor');
       }
+    } catch (error: any) {
+      const errorMessage = error.message || 'Failed to delete vendor';
+      toast.error(errorMessage);
     }
   };
 
