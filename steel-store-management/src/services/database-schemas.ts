@@ -122,6 +122,7 @@ export const DATABASE_SCHEMAS = {
   CUSTOMERS: `
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_code TEXT UNIQUE,
       name TEXT NOT NULL CHECK (length(name) > 0),
       phone TEXT,
       address TEXT,

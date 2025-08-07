@@ -3840,6 +3840,15 @@ export class DatabaseService {
         await this.fixStaffManagementIssues();
         console.log('✅ [DB] Staff management schema fixed');
 
+        // CRITICAL FIX: Ensure customers table has correct schema
+        console.log('🔄 [DB] Fixing customers table schema...');
+        const customersResult = await this.fixCustomersTableSchema();
+        if (customersResult.success) {
+          console.log('✅ [DB] customers table schema fixed');
+        } else {
+          console.warn('⚠️ [DB] customers table schema fix failed:', customersResult.message);
+        }
+
         // CRITICAL FIX: Ensure vendor_payments table has correct schema
         console.log('🔄 [DB] Fixing vendor_payments table schema...');
         const vendorPaymentsResult = await this.fixVendorPaymentsTableSchema();
@@ -6659,6 +6668,186 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
   }
 
   /**
+   * CRITICAL FIX: Ensure customers table has correct schema with customer_code column
+   * This fixes the "Failed to generate customer code" error
+   */
+  public async fixCustomersTableSchema(): Promise<{
+    success: boolean;
+    message: string;
+    details: string[];
+  }> {
+    const details: string[] = [];
+    
+    try {
+      console.log('🔧 Checking customers table schema...');
+      
+      // Check if customers table exists
+      const tableExists = await this.dbConnection.select(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='customers'"
+      );
+      
+      if (!tableExists || tableExists.length === 0) {
+        console.log('📦 customers table missing, creating with correct schema...');
+        const { DATABASE_SCHEMAS } = await import('./database-schemas');
+        await this.dbConnection.execute(DATABASE_SCHEMAS.CUSTOMERS);
+        details.push('Created customers table with complete schema');
+      } else {
+        // Check current table schema
+        const pragma = await this.dbConnection.select(`PRAGMA table_info(customers)`);
+        const columnNames = pragma.map((col: any) => col.name);
+        
+        console.log('📋 Current customers columns:', columnNames);
+        
+        // Check for ALL required columns
+        const requiredColumns = ['customer_code', 'cnic', 'total_purchases', 'last_purchase_date', 'notes'];
+        const missingColumns = requiredColumns.filter(col => !columnNames.includes(col));
+        
+        if (missingColumns.length > 0) {
+          console.log('❌ customers table missing columns:', missingColumns);
+          
+          // Try to add missing columns one by one
+          let addedColumns = [];
+          let needsRecreation = false;
+          
+          for (const column of missingColumns) {
+            try {
+              let columnDefinition = 'TEXT';
+              if (column === 'customer_code') {
+                // Don't add unique constraint here, will be handled separately
+                columnDefinition = 'TEXT';
+              } else if (column === 'total_purchases') {
+                columnDefinition = 'REAL DEFAULT 0.0';
+              } else if (column === 'last_purchase_date') {
+                columnDefinition = 'TEXT';
+              } else if (column === 'notes') {
+                columnDefinition = 'TEXT';
+              } else if (column === 'cnic') {
+                columnDefinition = 'TEXT';
+              }
+              
+              console.log(`🔄 Adding ${column} column...`);
+              await this.dbConnection.execute(`ALTER TABLE customers ADD COLUMN ${column} ${columnDefinition}`);
+              addedColumns.push(column);
+              details.push(`Added ${column} column`);
+            } catch (alterError) {
+              console.log(`⚠️ Failed to add ${column} column, will recreate table`);
+              needsRecreation = true;
+              break;
+            }
+          }
+          
+          // Create unique index for customer_code if it was added
+          if (addedColumns.includes('customer_code')) {
+            try {
+              await this.dbConnection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code)');
+              details.push('Created unique index for customer_code');
+            } catch (indexError) {
+              console.log('⚠️ Failed to create unique index, will recreate table');
+              needsRecreation = true;
+            }
+          }
+          
+          // If adding columns failed, recreate the entire table
+          if (needsRecreation) {
+            console.log('🔄 Recreating customers table with complete schema...');
+            
+            await this.dbConnection.execute('BEGIN TRANSACTION');
+            
+            try {
+              // Backup existing data
+              const existingData = await this.dbConnection.select('SELECT * FROM customers');
+              
+              // Drop old table
+              await this.dbConnection.execute('DROP TABLE customers');
+              
+              // Create new table with correct schema
+              const { DATABASE_SCHEMAS } = await import('./database-schemas');
+              await this.dbConnection.execute(DATABASE_SCHEMAS.CUSTOMERS);
+              
+              // Restore data with all columns
+              if (existingData && existingData.length > 0) {
+                for (const row of existingData) {
+                  await this.dbConnection.execute(`
+                    INSERT INTO customers (
+                      name, phone, address, cnic, balance, total_purchases, 
+                      last_purchase_date, notes, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  `, [
+                    row.name,
+                    row.phone || null,
+                    row.address || null,
+                    row.cnic || null,
+                    row.balance || 0,
+                    row.total_purchases || 0,
+                    row.last_purchase_date || null,
+                    row.notes || null,
+                    row.created_at || new Date().toISOString(),
+                    row.updated_at || new Date().toISOString()
+                  ]);
+                }
+                details.push(`Migrated ${existingData.length} existing customer records`);
+              }
+              
+              await this.dbConnection.execute('COMMIT');
+              details.push('Successfully recreated customers table with complete schema');
+              
+            } catch (error) {
+              await this.dbConnection.execute('ROLLBACK');
+              throw error;
+            }
+          } else {
+            details.push(`Successfully added ${addedColumns.length} missing columns`);
+          }
+        } else {
+          details.push('customers table schema is correct');
+        }
+      }
+      
+      // Verify the fix worked - check for ALL required columns
+      const finalPragma = await this.dbConnection.select(`PRAGMA table_info(customers)`);
+      const finalColumns = finalPragma.map((col: any) => col.name);
+      
+      const requiredColumns = ['customer_code', 'cnic', 'name', 'phone', 'address', 'balance'];
+      const stillMissing = requiredColumns.filter(col => !finalColumns.includes(col));
+      
+      if (stillMissing.length === 0) {
+        console.log('✅ customers table schema fix successful - all required columns present');
+        details.push('All required columns are present: ' + requiredColumns.join(', '));
+        return {
+          success: true,
+          message: 'customers table schema fixed successfully',
+          details
+        };
+      } else {
+        throw new Error(`Schema fix verification failed - missing columns: ${stillMissing.join(', ')}`);
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to fix customers table schema:', error);
+      details.push(`Error: ${error}`);
+      return {
+        success: false,
+        message: 'Failed to fix customers table schema',
+        details
+      };
+    }
+  }
+
+  /**
+   * PRODUCTION-READY: Ensure customers table exists and has correct schema
+   * Call this before any customer operations to prevent column errors
+   */
+  public async ensureCustomersTableReady(): Promise<boolean> {
+    try {
+      const result = await this.fixCustomersTableSchema();
+      return result.success;
+    } catch (error) {
+      console.error('❌ Failed to ensure customers table readiness:', error);
+      return false;
+    }
+  }
+
+  /**
    * PRODUCTION-READY: Ensure vendor_payments table exists and has correct schema
    * Call this before any vendor payment operations to prevent column errors
    */
@@ -6691,6 +6880,17 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
 
       // Define critical tables and their required columns
       const criticalTables = [
+        {
+          name: 'customers',
+          requiredColumns: [
+            'customer_code',
+            'name',
+            'phone',
+            'address',
+            'balance'
+          ],
+          schemaKey: 'CUSTOMERS'
+        },
         {
           name: 'vendor_payments',
           requiredColumns: [
@@ -6763,8 +6963,17 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           if (missingColumns.length > 0) {
             console.log(`❌ Table ${table.name} missing columns:`, missingColumns);
             
+            // For customers, use our specialized fix
+            if (table.name === 'customers') {
+              const result = await this.fixCustomersTableSchema();
+              if (result.success) {
+                tablesFixed.push(`${table.name} (schema updated)`);
+              } else {
+                errors.push(`Failed to fix ${table.name}: ${result.message}`);
+              }
+            } 
             // For vendor_payments, use our specialized fix
-            if (table.name === 'vendor_payments') {
+            else if (table.name === 'vendor_payments') {
               const result = await this.fixVendorPaymentsTableSchema();
               if (result.success) {
                 tablesFixed.push(`${table.name} (schema updated)`);
@@ -7307,23 +7516,27 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
 
   private async generateCustomerCode(): Promise<string> {
     try {
-      const prefix = 'C';
-      // Check if customer_code column exists before querying
-      const pragma = await this.dbConnection.select(`PRAGMA table_info(customers)`);
-      const hasCustomerCode = pragma && pragma.some((col: any) => col.name === 'customer_code');
-      if (!hasCustomerCode) {
-        throw new Error('customer_code column missing in customers table. Migration failed.');
+      // CRITICAL FIX: Ensure customers table has correct schema before generating code
+      console.log('🔧 Ensuring customers table is ready for code generation...');
+      const tableReady = await this.ensureCustomersTableReady();
+      if (!tableReady) {
+        throw new Error('customers table is not ready - schema validation failed');
       }
+
+      const prefix = 'C';
+      
       const result = await this.dbConnection.select(
         'SELECT customer_code FROM customers WHERE customer_code LIKE ? ORDER BY CAST(SUBSTR(customer_code, 2) AS INTEGER) DESC LIMIT 1',
         [`${prefix}%`]
       );
+      
       let nextNumber = 1;
       if (result && result.length > 0) {
         const lastCustomerCode = result[0].customer_code;
         const lastNumber = parseInt(lastCustomerCode.substring(1)) || 0;
         nextNumber = lastNumber + 1;
       }
+      
       return `${prefix}${nextNumber.toString().padStart(4)}`;
     } catch (error) {
       console.error('Error generating customer code:', error);
@@ -11336,12 +11549,21 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
+      // CRITICAL FIX: Ensure customers table is ready before creating customer
+      console.log('🔧 Ensuring customers table is ready for customer creation...');
+      const tableReady = await this.ensureCustomersTableReady();
+      if (!tableReady) {
+        throw new Error('customers table is not ready - schema validation failed');
+      }
+
       // SECURITY FIX: Input validation
       this.validateCustomerData(customer);
 
-
-
+      console.log('🔄 Generating customer code...');
       const customerCode = await this.generateCustomerCode();
+      console.log('✅ Generated customer code:', customerCode);
+      
+      console.log('🔄 Creating customer record...');
       const result = await this.dbConnection.execute(`
         INSERT INTO customers (
           name, customer_code, phone, address, cnic, balance, created_at, updated_at
@@ -11384,10 +11606,24 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       // PERFORMANCE: Invalidate customer cache for real-time updates
       this.invalidateCustomerCache();
 
+      console.log('✅ Customer created successfully:', { id: customerId, code: customerCode, name: customer.name });
       return customerId;
     } catch (error) {
-      console.error('Error creating customer:', error);
-      throw error;
+      console.error('❌ Error creating customer:', error);
+      
+      // Enhanced error reporting
+      if (error instanceof Error && error.message && error.message.includes('no such column')) {
+        console.error('🔧 Schema error detected - customers table may be missing columns');
+        throw new Error('Customer creation failed: Database schema issue. Please run the customer fix tool.');
+      } else if (error instanceof Error && error.message && error.message.includes('customer_code')) {
+        console.error('🔧 Customer code generation failed');
+        throw new Error('Customer creation failed: Unable to generate customer code. Please check database schema.');
+      } else if (error instanceof Error && error.message && error.message.includes('UNIQUE constraint failed')) {
+        console.error('🔧 Duplicate customer code detected');
+        throw new Error('Customer creation failed: Duplicate customer code. Please try again.');
+      } else {
+        throw new Error(`Customer creation failed: ${error instanceof Error ? error.message : error}`);
+      }
     }
   }
 
