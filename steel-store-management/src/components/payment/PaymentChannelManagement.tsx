@@ -40,15 +40,20 @@ interface PaymentChannel {
 }
 
 interface RecentTransaction {
-  id: number;
+  id: string | number;
   amount: number;
   date: string;
   time: string;
   type: 'incoming' | 'outgoing';
   description: string;
   channel_name: string;
+  channel_id?: number | null;
   reference: string;
   customer_name?: string;
+  payment_type?: string;
+  vendor_name?: string;
+  invoice_number?: string;
+  receiving_id?: number;
 }
 
 const PaymentChannelManagement: React.FC = () => {
@@ -80,6 +85,102 @@ const PaymentChannelManagement: React.FC = () => {
     loadData();
   }, []);
 
+  const debugTransactionData = async () => {
+    console.log('🔍 DEBUGGING: Starting payment channel transaction analysis...');
+    
+    try {
+      // Step 1: Ensure default payment channels exist
+      console.log('1. Ensuring default payment channels exist...');
+      await db.forceCreatePaymentChannels();
+      
+      // Step 2: Get all channels
+      const allChannels = await db.getPaymentChannels(true);
+      console.log(`📋 Found ${allChannels.length} payment channels:`, allChannels);
+      
+      if (allChannels.length === 0) {
+        console.warn('⚠️ No payment channels found! Creating defaults...');
+        // Force creation of defaults if none exist
+        const defaultChannels = [
+          { name: 'Cash', type: 'cash' as const, description: 'Physical cash payments', is_active: true },
+          { name: 'Bank Transfer', type: 'bank' as const, description: 'Electronic bank transfers', is_active: true }
+        ];
+        
+        for (const channel of defaultChannels) {
+          try {
+            const channelId = await db.createPaymentChannel(channel);
+            console.log(`✅ Created channel: ${channel.name} (ID: ${channelId})`);
+          } catch (error) {
+            console.error(`❌ Error creating ${channel.name}:`, error);
+          }
+        }
+      }
+      
+      // Step 3: Check transactions for each channel
+      const refreshedChannels = await db.getPaymentChannels(true);
+      console.log('\n� Checking transactions for each channel...');
+      
+      for (const channel of refreshedChannels) {
+        console.log(`\n🔄 Channel: ${channel.name} (ID: ${channel.id})`);
+        
+        try {
+          const channelTransactions = await db.getPaymentChannelTransactions(channel.id, 5);
+          console.log(`  Found ${channelTransactions.length} transactions:`, channelTransactions);
+          
+          if (channelTransactions.length === 0) {
+            console.log(`  ⚠️ No transactions found for ${channel.name}`);
+            
+            // Check if there are payments in the payments table for this channel
+            try {
+              const count = await db.getPaymentCountForChannel(channel.id);
+              console.log(`  📊 Payments table has ${count} entries for this channel`);
+            } catch (queryError) {
+              console.error(`  ❌ Error checking payments table:`, queryError);
+            }
+          }
+        } catch (error) {
+          console.error(`  ❌ Error loading transactions for ${channel.name}:`, error);
+        }
+      }
+      
+      // Step 4: Check recent payments table entries
+      console.log('\n💰 Checking recent payments table entries...');
+      try {
+        const recentPayments = await db.getRecentPaymentsDebug(10);
+        console.log(`Found ${recentPayments.length} recent payments:`, recentPayments);
+        
+        const paymentsWithChannels = recentPayments.filter((p: any) => p.payment_channel_id);
+        console.log(`Payments with channel associations: ${paymentsWithChannels.length}`);
+        
+      } catch (error) {
+        console.error('Error checking payments table:', error);
+      }
+      
+      // Step 5: Reload transaction data
+      console.log('\n🔄 Reloading transaction data...');
+      await loadRecentTransactions();
+      
+      console.log(`\n📊 Currently loaded transactions (${recentTransactions.length}):`, recentTransactions);
+      
+      // Group by channel
+      const transactionsByChannel = recentTransactions.reduce((acc, transaction) => {
+        const channelName = transaction.channel_name;
+        if (!acc[channelName]) {
+          acc[channelName] = [];
+        }
+        acc[channelName].push(transaction);
+        return acc;
+      }, {} as Record<string, any[]>);
+      
+      console.log('\n📈 Transactions grouped by channel:', transactionsByChannel);
+      
+      toast.success('Debug analysis complete - check browser console');
+      
+    } catch (error) {
+      console.error('❌ Debug analysis error:', error);
+      toast.error('Debug analysis failed');
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -97,8 +198,45 @@ const PaymentChannelManagement: React.FC = () => {
 
   const loadPaymentChannels = async () => {
     try {
+      console.log('🔄 Loading payment channels with statistics...');
       const channelsData = await db.getPaymentChannels(true);
-      setChannels(channelsData || []);
+      console.log(`📋 Found ${channelsData?.length || 0} payment channels`);
+      
+      // CRITICAL FIX: Load payment channel statistics from payment_channel_daily_ledgers
+      const enhancedChannels = [];
+      
+      for (const channel of channelsData || []) {
+        try {
+          // Get analytics for this channel using the proper method
+          const analytics = await db.getPaymentChannelAnalytics(channel.id, 30);
+          
+          const enhancedChannel = {
+            ...channel,
+            total_transactions: analytics?.totalTransactions || 0,
+            total_amount: analytics?.totalAmount || 0,
+            avg_transaction: analytics?.avgTransaction || 0,
+            last_used: analytics?.lastTransactionDate || null
+          };
+          
+          enhancedChannels.push(enhancedChannel);
+          
+          console.log(`💳 ${channel.name}: ₹${analytics?.totalAmount || 0} (${analytics?.totalTransactions || 0} transactions)`);
+          
+        } catch (error) {
+          console.error(`Error loading stats for ${channel.name}:`, error);
+          // Add channel without stats if there's an error
+          enhancedChannels.push({
+            ...channel,
+            total_transactions: 0,
+            total_amount: 0,
+            avg_transaction: 0,
+            last_used: null
+          });
+        }
+      }
+      
+      console.log(`✅ Loaded ${enhancedChannels.length} channels with statistics`);
+      setChannels(enhancedChannels);
     } catch (error) {
       console.error('Error loading payment channels:', error);
       throw error;
@@ -107,58 +245,146 @@ const PaymentChannelManagement: React.FC = () => {
 
   const loadRecentTransactions = async () => {
     try {
-      console.log('Loading transactions...');
+      console.log('🔄 Loading payment channel transactions...');
       
-      // Get recent transactions from multiple recent days
       let allEntries: any[] = [];
-      const dates = [];
       
-      // Get last 30 days to ensure we have enough data
-      for (let i = 0; i <= 30; i++) {
-        const pastDate = new Date();
-        pastDate.setDate(pastDate.getDate() - i);
-        dates.push(pastDate.toISOString().split('T')[0]);
+      try {
+        // ENHANCED APPROACH: Load all channels and their specific transactions
+        const channels = await db.getPaymentChannels(true);
+        console.log(`📋 Loading transactions for ${channels.length} payment channels`);
+        
+        if (channels.length === 0) {
+          console.warn('⚠️ No payment channels found. Creating default channels...');
+          await db.forceCreatePaymentChannels();
+          // Retry loading channels
+          const newChannels = await db.getPaymentChannels(true);
+          console.log(`📋 After creating defaults, found ${newChannels.length} channels`);
+        }
+        
+        const refreshedChannels = await db.getPaymentChannels(true);
+        
+        for (const channel of refreshedChannels) {
+          console.log(`🔄 Loading transactions for channel: ${channel.name} (ID: ${channel.id})`);
+          
+          try {
+            const channelTransactions = await db.getPaymentChannelTransactions(channel.id, 15);
+            console.log(`📊 Found ${channelTransactions.length} transactions for ${channel.name}`);
+            
+            if (channelTransactions && channelTransactions.length > 0) {
+              const formatted = channelTransactions.map((t: any) => ({
+                id: `ch_${channel.id}_${t.id}`, // Ensure unique IDs with channel prefix
+                amount: t.amount || 0,
+                date: t.date,
+                time: t.time || '00:00',
+                type: t.type || 'incoming',
+                description: t.description || `${channel.name} Transaction`,
+                channel_name: channel.name, // CRITICAL: Use the actual channel name
+                channel_id: channel.id, // CRITICAL: Include channel ID for precise filtering
+                reference: t.reference || 'Payment Channel Transaction',
+                customer_name: t.customer_name || t.actual_customer_name || null,
+                payment_type: t.payment_type || 'payment',
+                vendor_name: t.vendor_name || null,
+                invoice_number: t.invoice_number || null,
+                receiving_id: t.receiving_id || null
+              }));
+              
+              allEntries = [...allEntries, ...formatted];
+              console.log(`✅ Added ${formatted.length} transactions for ${channel.name} (Total: ${allEntries.length})`);
+            } else {
+              console.log(`⚠️ No transactions found for ${channel.name}`);
+            }
+          } catch (channelError) {
+            console.error(`❌ Error loading transactions for ${channel.name}:`, channelError);
+          }
+        }
+        
+        console.log(`📊 Total channel-specific transactions loaded: ${allEntries.length}`);
+        
+      } catch (error) {
+        console.error('❌ Error loading payment channel transactions:', error);
       }
       
-      for (const date of dates) {
+      // ENHANCED FALLBACK: Only if no channel transactions found, try alternative approaches
+      if (allEntries.length === 0) {
+        console.log('🔄 No channel-specific transactions found. Trying alternative data sources...');
+        
         try {
-          const result = await db.getDailyLedgerEntries(date, { customer_id: null });
-          if (result.entries && result.entries.length > 0) {
-            allEntries = [...allEntries, ...result.entries];
+          // Alternative 1: Check for transactions in ledger entries with payment method mapping
+          const recentDates = [];
+          const today = new Date();
+          for (let i = 0; i <= 7; i++) { // Only last 7 days for fallback
+            const pastDate = new Date(today);
+            pastDate.setDate(pastDate.getDate() - i);
+            recentDates.push(pastDate.toISOString().split('T')[0]);
           }
-          if (allEntries.length >= 50) break; // Get up to 50 transactions
-        } catch (err) {
-          console.log(`No entries for ${date}`);
-          continue;
+          
+          for (const date of recentDates) {
+            try {
+              const result = await db.getDailyLedgerEntries(date, { customer_id: null });
+              if (result.entries && result.entries.length > 0) {
+                const formatted = result.entries
+                  .filter((t: any) => t.payment_method && t.payment_method !== 'Unknown')
+                  .map((t: any) => ({
+                    id: `ledger_${date}_${t.id}`,
+                    amount: t.amount || 0,
+                    date: t.date,
+                    time: t.time || '00:00',
+                    type: t.type as 'incoming' | 'outgoing',
+                    description: t.description || `${t.payment_method} Transaction`,
+                    channel_name: t.payment_method || 'Unknown',
+                    channel_id: null, // Mark as general transaction without specific channel
+                    reference: t.category || 'Daily Ledger Entry',
+                    customer_name: t.customer_name || null,
+                    payment_type: 'general'
+                  }));
+                
+                allEntries = [...allEntries, ...formatted];
+                console.log(`📊 Fallback: Added ${formatted.length} transactions from ${date}`);
+              }
+              
+              if (allEntries.length >= 20) break; // Limit fallback to reasonable amount
+            } catch (dateError) {
+              console.warn(`⚠️ Error loading entries for ${date}:`, dateError);
+              continue;
+            }
+          }
+          
+          console.log(`📊 Fallback: Total ${allEntries.length} transactions from daily ledger`);
+          
+        } catch (fallbackError) {
+          console.error('❌ Error in fallback transaction loading:', fallbackError);
         }
       }
       
-      console.log('Found entries:', allEntries.length);
-      
       // Sort by date and time (most recent first)
       allEntries.sort((a, b) => {
-        const dateA = new Date(`${a.date} ${a.time || '00:00'}`);
-        const dateB = new Date(`${b.date} ${b.time || '00:00'}`);
-        return dateB.getTime() - dateA.getTime();
+        const dateTimeA = new Date(`${a.date} ${a.time || '00:00'}`);
+        const dateTimeB = new Date(`${b.date} ${b.time || '00:00'}`);
+        return dateTimeB.getTime() - dateTimeA.getTime();
       });
       
-      const formatted = allEntries.slice(0, 50).map((t: any) => ({
-        id: t.id,
-        amount: t.amount || 0,
-        date: t.date,
-        time: t.time || '00:00',
-        type: t.type as 'incoming' | 'outgoing',
-        description: t.description || 'No description',
-        channel_name: t.payment_method || 'Unknown',
-        reference: t.category || '',
-        customer_name: t.customer_name || null
-      }));
+      // Limit to most recent transactions and remove duplicates
+      const uniqueTransactions = allEntries.slice(0, 50);
       
-      console.log('Formatted transactions:', formatted.length);
-      setRecentTransactions(formatted);
+      console.log(`✅ Final transaction count: ${uniqueTransactions.length}`);
+      if (uniqueTransactions.length > 0) {
+        console.log('📝 Sample transactions:', uniqueTransactions.slice(0, 3));
+        
+        // Log channel distribution
+        const channelDistribution = uniqueTransactions.reduce((acc, t) => {
+          const channel = t.channel_name;
+          acc[channel] = (acc[channel] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        
+        console.log('📊 Transaction distribution by channel:', channelDistribution);
+      }
+      
+      setRecentTransactions(uniqueTransactions);
+      
     } catch (error) {
-      console.error('Error loading recent transactions:', error);
-      // Fallback to empty array
+      console.error('❌ Error loading recent transactions:', error);
       setRecentTransactions([]);
     }
   };
@@ -171,8 +397,19 @@ const PaymentChannelManagement: React.FC = () => {
   });
 
   const filteredTransactions = recentTransactions.filter(transaction => {
-    const matchesChannel = selectedChannel === 'all' || transaction.channel_name === selectedChannel;
-    return matchesChannel;
+    if (selectedChannel === 'all') return true;
+    
+    // Enhanced channel matching - check both ID and name
+    const selectedChannelObj = channels.find(c => c.name === selectedChannel);
+    if (selectedChannelObj) {
+      // If we have a channel ID, match by ID for precision
+      if (transaction.channel_id) {
+        return transaction.channel_id === selectedChannelObj.id;
+      }
+    }
+    
+    // Fallback to name matching for general transactions
+    return transaction.channel_name === selectedChannel;
   });
 
   const validateForm = (): boolean => {
@@ -305,6 +542,72 @@ const PaymentChannelManagement: React.FC = () => {
     };
   };
 
+  /**
+   * Generate professional transaction descriptions with proper context
+   */
+  const getTransactionDisplayInfo = (transaction: RecentTransaction) => {
+    const { payment_type, type, description, customer_name, vendor_name, reference, receiving_id, invoice_number } = transaction;
+    
+    let displayDescription = description;
+    let displayCustomer = customer_name;
+    let displayReference = reference;
+    
+    // Enhanced descriptions based on payment type
+    if (payment_type === 'vendor_payment') {
+      displayDescription = `Vendor Payment`;
+      displayCustomer = `Vendor: ${vendor_name || customer_name || 'Unknown Vendor'}`;
+      
+      if (receiving_id) {
+        displayReference = `Stock Receiving #${receiving_id}`;
+      } else if (reference && !reference.includes('Stock Receiving')) {
+        displayReference = reference;
+      }
+    } else if (payment_type === 'customer_payment' || payment_type === 'payment') {
+      displayDescription = `Customer Payment`;
+      displayCustomer = `Customer: ${customer_name || 'Walk-in Customer'}`;
+      
+      if (invoice_number) {
+        displayReference = `Invoice #${invoice_number}`;
+      } else if (reference && !reference.includes('Payment')) {
+        displayReference = reference;
+      }
+    } else if (payment_type === 'invoice_payment') {
+      displayDescription = `Invoice Payment`;
+      displayCustomer = `Customer: ${customer_name || 'Customer'}`;
+      
+      if (invoice_number) {
+        displayReference = `Invoice #${invoice_number}`;
+      }
+    } else if (payment_type === 'advance_payment') {
+      displayDescription = `Advance Payment`;
+      displayCustomer = `Customer: ${customer_name || 'Customer'}`;
+      displayReference = reference || 'Advance Payment';
+    } else if (payment_type === 'expense_payment') {
+      displayDescription = `Business Expense`;
+      displayCustomer = vendor_name ? `Vendor: ${vendor_name}` : (customer_name ? `Payee: ${customer_name}` : undefined);
+      displayReference = reference || 'Business Expense';
+    } else if (payment_type === 'sale') {
+      displayDescription = `Sale Transaction`;
+      displayCustomer = `Customer: ${customer_name || 'Walk-in Customer'}`;
+      
+      if (invoice_number) {
+        displayReference = `Invoice #${invoice_number}`;
+      }
+    }
+    
+    // Clean up default descriptions if they're still generic
+    if (displayDescription.includes('Transaction') && displayDescription.includes(transaction.channel_name)) {
+      displayDescription = payment_type === 'vendor_payment' ? 'Vendor Payment' : 'Customer Payment';
+    }
+    
+    return {
+      description: displayDescription,
+      customer: displayCustomer,
+      reference: displayReference,
+      isOutgoing: type === 'outgoing' || payment_type === 'vendor_payment' || payment_type === 'expense_payment'
+    };
+  };
+
   const totalStats = getTotalStats();
 
   if (loading) {
@@ -325,6 +628,13 @@ const PaymentChannelManagement: React.FC = () => {
           <p className="text-gray-600">Manage payment methods and track transactions</p>
         </div>
         <div className="flex items-center space-x-3">
+          <button
+            onClick={debugTransactionData}
+            className="p-2 text-orange-500 hover:text-orange-700 hover:bg-orange-100 rounded-lg transition-colors"
+            title="Debug Transactions"
+          >
+            <Search className="h-5 w-5" />
+          </button>
           <button
             onClick={() => loadData()}
             className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -473,37 +783,48 @@ const PaymentChannelManagement: React.FC = () => {
               </button>
             </div>
             <div className="p-6">
-              {recentTransactions.slice(0, 5).map((transaction) => (
-                <div key={transaction.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
-                  <div className="flex items-center">
-                    <div className={`p-2 rounded-lg ${
-                      transaction.type === 'incoming' ? 'bg-green-100' : 'bg-red-100'
-                    }`}>
-                      {transaction.type === 'incoming' ? (
-                        <ArrowDownRight className="h-4 w-4 text-green-600" />
-                      ) : (
-                        <ArrowUpRight className="h-4 w-4 text-red-600" />
+              {recentTransactions.slice(0, 5).map((transaction) => {
+                const displayInfo = getTransactionDisplayInfo(transaction);
+                return (
+                  <div key={transaction.id} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+                    <div className="flex items-center">
+                      <div className={`p-2 rounded-lg ${
+                        displayInfo.isOutgoing ? 'bg-red-100' : 'bg-green-100'
+                      }`}>
+                        {displayInfo.isOutgoing ? (
+                          <ArrowUpRight className="h-4 w-4 text-red-600" />
+                        ) : (
+                          <ArrowDownRight className="h-4 w-4 text-green-600" />
+                        )}
+                      </div>
+                      <div className="ml-3">
+                        <p className="font-medium text-gray-900">{displayInfo.description}</p>
+                        <div className="flex items-center space-x-2 text-sm text-gray-500">
+                          <span className="font-medium">{transaction.channel_name}</span>
+                          <span>•</span>
+                          <span>{formatDate(transaction.date)}</span>
+                          {displayInfo.reference && (
+                            <>
+                              <span>•</span>
+                              <span className="text-blue-600">{displayInfo.reference}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className={`font-medium ${
+                        displayInfo.isOutgoing ? 'text-red-600' : 'text-green-600'
+                      }`}>
+                        {displayInfo.isOutgoing ? '-' : '+'}{formatCurrency(transaction.amount)}
+                      </p>
+                      {displayInfo.customer && (
+                        <p className="text-sm text-gray-500">{displayInfo.customer}</p>
                       )}
                     </div>
-                    <div className="ml-3">
-                      <p className="font-medium text-gray-900">{transaction.description}</p>
-                      <p className="text-sm text-gray-500">
-                        <span className="font-medium">{transaction.channel_name}</span> • {formatDate(transaction.date)}
-                      </p>
-                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className={`font-medium ${
-                      transaction.type === 'incoming' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {transaction.type === 'incoming' ? '+' : '-'}{formatCurrency(transaction.amount)}
-                    </p>
-                    {transaction.customer_name && (
-                      <p className="text-sm text-gray-500">{transaction.customer_name}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {recentTransactions.length === 0 && (
                 <p className="text-center text-gray-500 py-8">
                   No recent transactions found. 
@@ -711,50 +1032,62 @@ const PaymentChannelManagement: React.FC = () => {
               </div>
             </div>
             <div className="divide-y divide-gray-200">
-              {filteredTransactions.map((transaction) => (
-                <div key={transaction.id} className="p-6 hover:bg-gray-50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <div className={`p-2 rounded-lg ${
-                        transaction.type === 'incoming' ? 'bg-green-100' : 'bg-red-100'
-                      }`}>
-                        {transaction.type === 'incoming' ? (
-                          <ArrowDownRight className="h-5 w-5 text-green-600" />
-                        ) : (
-                          <ArrowUpRight className="h-5 w-5 text-red-600" />
-                        )}
-                      </div>
-                      <div className="ml-4">
-                        <div className="flex items-center space-x-2">
-                          <p className="font-medium text-gray-900">{transaction.description}</p>
-                          {transaction.reference && (
-                            <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
-                              {transaction.reference}
-                            </span>
+              {filteredTransactions.map((transaction) => {
+                const displayInfo = getTransactionDisplayInfo(transaction);
+                return (
+                  <div key={transaction.id} className="p-6 hover:bg-gray-50">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className={`p-2 rounded-lg ${
+                          displayInfo.isOutgoing ? 'bg-red-100' : 'bg-green-100'
+                        }`}>
+                          {displayInfo.isOutgoing ? (
+                            <ArrowUpRight className="h-5 w-5 text-red-600" />
+                          ) : (
+                            <ArrowDownRight className="h-5 w-5 text-green-600" />
                           )}
                         </div>
-                        <div className="flex items-center space-x-4 mt-1">
-                          <p className="text-sm text-gray-500">
-                            <span className="font-medium">{transaction.channel_name}</span>
-                          </p>
-                          <p className="text-sm text-gray-500">{formatDate(transaction.date)} • {transaction.time}</p>
-                          {transaction.customer_name && (
-                            <p className="text-sm text-gray-500">Customer: {transaction.customer_name}</p>
-                          )}
+                        <div className="ml-4">
+                          <div className="flex items-center space-x-2">
+                            <p className="font-medium text-gray-900">{displayInfo.description}</p>
+                            {displayInfo.reference && (
+                              <span className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded font-medium">
+                                {displayInfo.reference}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-4 mt-1">
+                            <p className="text-sm text-gray-500">
+                              <span className="font-medium">{transaction.channel_name}</span>
+                              {transaction.channel_id ? (
+                                <span className="ml-1 px-1.5 py-0.5 text-xs bg-green-100 text-green-700 rounded">
+                                  Channel #{transaction.channel_id}
+                                </span>
+                              ) : (
+                                <span className="ml-1 px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
+                                  General
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-sm text-gray-500">{formatDate(transaction.date)} • {transaction.time}</p>
+                            {displayInfo.customer && (
+                              <p className="text-sm text-gray-600 font-medium">{displayInfo.customer}</p>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-lg font-semibold ${
-                        transaction.type === 'incoming' ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {transaction.type === 'incoming' ? '+' : '-'}{formatCurrency(transaction.amount)}
-                      </p>
-                      <p className="text-xs text-gray-500">ID: {transaction.id}</p>
+                      <div className="text-right">
+                        <p className={`text-lg font-semibold ${
+                          displayInfo.isOutgoing ? 'text-red-600' : 'text-green-600'
+                        }`}>
+                          {displayInfo.isOutgoing ? '-' : '+'}{formatCurrency(transaction.amount)}
+                        </p>
+                        <p className="text-xs text-gray-500">ID: {transaction.id}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {filteredTransactions.length === 0 && recentTransactions.length > 0 && (
                 <div className="p-12 text-center">
                   <Activity className="mx-auto h-12 w-12 text-gray-400" />

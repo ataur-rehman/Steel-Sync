@@ -1443,7 +1443,23 @@ export class DatabaseService {
         });
       }
 
-            return 1;
+      // CRITICAL FIX: Update payment channel daily ledger for all transactions with payment channel info
+      if (entry.payment_channel_id) {
+        try {
+          console.log('🔄 Updating payment channel daily ledger for daily ledger entry...');
+          await this.updatePaymentChannelDailyLedger(
+            entry.payment_channel_id, 
+            entry.date, 
+            entry.amount
+          );
+          console.log('✅ Payment channel daily ledger updated successfully');
+        } catch (ledgerError) {
+          console.error('❌ Failed to update payment channel daily ledger:', ledgerError);
+          // Don't fail the whole entry - this is for analytics only
+        }
+      }
+
+      return 1;
     } catch (error) {
       console.error('Error creating daily ledger entry:', error);
       throw error;
@@ -1554,6 +1570,9 @@ export class DatabaseService {
         'STOCK_RECEIVING',
         'STOCK_RECEIVING_ITEMS',
         
+        // CRITICAL: Vendor payments table (this was missing!)
+        'VENDOR_PAYMENTS',
+        
         // Additional tables
         'AUDIT_LOGS'
       ];
@@ -1628,6 +1647,20 @@ export class DatabaseService {
         ]
       },
       {
+        table: 'vendor_payments',
+        columns: [
+          { name: 'payment_channel_id', type: 'INTEGER NOT NULL DEFAULT 1' },
+          { name: 'payment_channel_name', type: 'TEXT NOT NULL DEFAULT "cash"' },
+          { name: 'vendor_name', type: 'TEXT NOT NULL' },
+          { name: 'reference_number', type: 'TEXT' },
+          { name: 'cheque_number', type: 'TEXT' },
+          { name: 'cheque_date', type: 'TEXT' },
+          { name: 'date', type: 'TEXT NOT NULL' },
+          { name: 'time', type: 'TEXT NOT NULL' },
+          { name: 'payment_method', type: 'TEXT DEFAULT "cash"' }
+        ]
+      },
+      {
         table: 'vendors',
         columns: [
           { name: 'name', type: 'TEXT NOT NULL' },
@@ -1636,7 +1669,7 @@ export class DatabaseService {
       }
     ];
 
-    for (const tableConfig of criticalColumns) {
+    for (const tableConfig of criticalColumns) {  
       for (const column of tableConfig.columns) {
         try {
           await this.safeAddColumn(tableConfig.table, column.name, column.type);
@@ -1668,9 +1701,19 @@ export class DatabaseService {
           schema: 'STOCK_RECEIVING'
         },
         {
+          name: 'vendor_payments',
+          requiredColumns: ['payment_channel_id', 'payment_channel_name', 'vendor_name', 'reference_number', 'cheque_number', 'cheque_date', 'date', 'time', 'payment_method'],
+          schema: 'VENDOR_PAYMENTS'
+        },
+        {
           name: 'vendors',
           requiredColumns: ['name', 'is_active'],
           schema: 'VENDORS'
+        },
+        {
+          name: 'ledger_entries',
+          requiredColumns: ['payment_method', 'payment_channel_id', 'payment_channel_name', 'time', 'reference_type', 'reference_id'],
+          schema: 'LEDGER_ENTRIES'
         }
       ];
 
@@ -2867,53 +2910,48 @@ export class DatabaseService {
       }
 
       if (paymentCodeNeedsFix) {
-        // Rebuild table to make payment_code nullable/default
+        // Rebuild table using centralized schema to ensure consistency
         try {
-          console.log('🔧 Rebuilding vendor_payments table to fix payment_code NOT NULL constraint...');
+          console.log('🔧 Rebuilding vendor_payments table using centralized schema...');
+          
+          // Import centralized schema
+          const { DATABASE_SCHEMAS } = await import('./database-schemas');
+          
           await this.dbConnection.execute(`
             ALTER TABLE vendor_payments RENAME TO vendor_payments_old;
           `);
-          await this.dbConnection.execute(`
-            CREATE TABLE vendor_payments (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              vendor_id INTEGER,
-              receiving_id INTEGER,
-              payment_channel_id INTEGER,
-              payment_channel_name TEXT,
-              payment_method TEXT,
-              notes TEXT,
-              reference_number TEXT,
-              created_by TEXT DEFAULT 'system',
-              updated_at TEXT,
-              is_active INTEGER DEFAULT 1,
-              cheque_number TEXT,
-              cheque_date TEXT,
-              bank_name TEXT,
-              transaction_id TEXT,
-              transaction_date TEXT,
-              payment_status TEXT DEFAULT 'pending',
-              amount REAL,
-              currency TEXT,
-              exchange_rate REAL,
-              approved_by TEXT,
-              approved_at TEXT,
-              rejected_by TEXT,
-              rejected_at TEXT,
-              remarks TEXT,
-              payment_code TEXT DEFAULT ''
-            );
-          `);
+          
+          // Use centralized schema for consistency
+          await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
+          
+          // Migrate data with safe column mapping
           await this.dbConnection.execute(`
             INSERT INTO vendor_payments (
-              id, vendor_id, receiving_id, payment_channel_id, payment_channel_name, payment_method, notes, reference_number, created_by, updated_at, is_active, cheque_number, cheque_date, bank_name, transaction_id, transaction_date, payment_status, amount, currency, exchange_rate, approved_by, approved_at, rejected_by, rejected_at, remarks, payment_code
+              id, vendor_id, vendor_name, receiving_id, amount, payment_channel_id, payment_channel_name, 
+              payment_method, reference_number, cheque_number, cheque_date, notes, date, time, created_by, created_at, updated_at
             )
             SELECT 
-              id, vendor_id, receiving_id, payment_channel_id, payment_channel_name, payment_method, notes, reference_number, created_by, updated_at, is_active, cheque_number, cheque_date, bank_name, transaction_id, transaction_date, payment_status, amount, currency, exchange_rate, approved_by, approved_at, rejected_by, rejected_at, remarks,
-              COALESCE(payment_code, '')
+              id, 
+              vendor_id, 
+              COALESCE(vendor_name, 'Unknown Vendor') as vendor_name,
+              receiving_id, 
+              amount, 
+              COALESCE(payment_channel_id, 1) as payment_channel_id,
+              COALESCE(payment_channel_name, 'Cash') as payment_channel_name,
+              COALESCE(payment_method, 'cash') as payment_method,
+              reference_number,
+              cheque_number,
+              cheque_date,
+              notes,
+              COALESCE(date, date('now')) as date,
+              COALESCE(time, '00:00') as time,
+              COALESCE(created_by, 'system') as created_by,
+              COALESCE(created_at, CURRENT_TIMESTAMP) as created_at,
+              COALESCE(updated_at, CURRENT_TIMESTAMP) as updated_at
             FROM vendor_payments_old;
           `);
           await this.dbConnection.execute(`DROP TABLE vendor_payments_old;`);
-          console.log('✅ Rebuilt vendor_payments table with payment_code nullable/default');
+          console.log('✅ Rebuilt vendor_payments table with centralized schema (includes cheque_number)');
         } catch (error) {
           console.error('❌ Failed to rebuild vendor_payments table:', error);
         }
@@ -3936,6 +3974,11 @@ export class DatabaseService {
         const newTotal = newCount?.[0]?.count || 0;
         console.log(`✅ Created ${newTotal} payment channels`);
       }
+      
+      // CRITICAL FIX: Create payment channel daily ledgers table
+      console.log('🔄 [DB] Ensuring payment channel daily ledgers table...');
+      await this.ensurePaymentChannelDailyLedgersTable();
+      console.log('✅ [DB] Payment channel daily ledgers table ready');
       
       // CRITICAL FIX: Migrate existing vendor payments to payment channels tracking
       console.log('🔄 [DB] Migrating vendor payments to payment channels tracking...');
@@ -5375,48 +5418,11 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       // Use centralized vendors schema
       await this.dbConnection.execute(DATABASE_SCHEMAS.VENDORS);
 
-      // Vendor payments table
-      await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS vendor_payments (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          vendor_id INTEGER NOT NULL,
-          vendor_name TEXT NOT NULL,
-          payment_code TEXT NOT NULL UNIQUE,
-          amount REAL NOT NULL CHECK (amount > 0),
-          payment_method TEXT NOT NULL,
-          payment_type TEXT NOT NULL CHECK (payment_type IN ('stock_payment', 'advance_payment', 'expense_payment')),
-          reference_id INTEGER,
-          reference_type TEXT,
-          description TEXT,
-          date TEXT NOT NULL,
-          time TEXT NOT NULL,
-          notes TEXT,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE ON UPDATE CASCADE
-        )
-      `);
+      // Use centralized vendor_payments schema (includes cheque_number column)
+      await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
 
-      // Business expenses table
-      await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS business_expenses (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          expense_code TEXT NOT NULL UNIQUE,
-          category TEXT NOT NULL,
-          description TEXT NOT NULL,
-          amount REAL NOT NULL CHECK (amount > 0),
-          payment_method TEXT NOT NULL,
-          vendor_id INTEGER,
-          vendor_name TEXT,
-          receipt_number TEXT,
-          date TEXT NOT NULL,
-          notes TEXT,
-          created_by TEXT NOT NULL DEFAULT 'system',
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL ON UPDATE CASCADE
-        )
-      `);
+      // Use centralized business_expenses schema  
+      await this.dbConnection.execute(DATABASE_SCHEMAS.BUSINESS_EXPENSES);
 
       console.log('✅ [BATCH-4] Vendor tables created with centralized schema');
     } catch (error) {
@@ -5855,6 +5861,9 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
   }
 
   private async createSpecificTable(tableName: string): Promise<void> {
+    // Import DATABASE_SCHEMAS when needed
+    const { DATABASE_SCHEMAS } = await import('./database-schemas');
+    
     // Create specific tables when needed
     switch (tableName) {
       case 'vendors':
@@ -5892,29 +5901,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
         break;
 
       case 'vendor_payments':
-        await this.dbConnection.execute(`
-          CREATE TABLE IF NOT EXISTS vendor_payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            vendor_id INTEGER NOT NULL,
-            vendor_name TEXT NOT NULL,
-            receiving_id INTEGER,
-            amount REAL NOT NULL CHECK (amount > 0),
-            payment_channel_id INTEGER NOT NULL,
-            payment_channel_name TEXT NOT NULL,
-            reference_number TEXT,
-            cheque_number TEXT,
-            cheque_date TEXT,
-            notes TEXT,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            created_by TEXT NOT NULL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-            FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE SET NULL ON UPDATE CASCADE,
-            FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE RESTRICT ON UPDATE CASCADE
-          )
-        `);
+        // Use centralized schema for consistency
+        await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
         break;
 
       case 'customer_ledger_entries':
@@ -6180,30 +6168,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       // Use centralized schema for stock receiving items
       await this.dbConnection.execute(DATABASE_SCHEMAS.STOCK_RECEIVING_ITEMS);
 
-      // Vendor payments table
-      await this.dbConnection.execute(`
-        CREATE TABLE IF NOT EXISTS vendor_payments (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          vendor_id INTEGER NOT NULL,
-          vendor_name TEXT NOT NULL,
-          receiving_id INTEGER,
-          amount REAL NOT NULL CHECK (amount > 0),
-          payment_channel_id INTEGER NOT NULL,
-          payment_channel_name TEXT NOT NULL,
-          reference_number TEXT,
-          cheque_number TEXT,
-          cheque_date TEXT,
-          notes TEXT,
-          date TEXT NOT NULL,
-          time TEXT NOT NULL,
-          created_by TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT ON UPDATE CASCADE,
-          FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE SET NULL ON UPDATE CASCADE,
-          FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE RESTRICT ON UPDATE CASCADE
-        )
-      `);
+      // Use centralized schema for vendor payments
+      await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
 
       // Staff table
       await this.dbConnection.execute(`
@@ -7341,6 +7307,68 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           payment.reference_invoice_id, payment.reference, payment.notes, today, time,
           payment.created_by || 'system'
         ]);
+
+        // CRITICAL FIX: Update payment channel daily ledger for customer payments
+        if (payment.payment_channel_id) {
+          try {
+            console.log('🔄 Updating payment channel daily ledger for customer payment...');
+            await this.updatePaymentChannelDailyLedger(
+              payment.payment_channel_id, 
+              payment.date, 
+              payment.amount
+            );
+            console.log('✅ Payment channel daily ledger updated successfully');
+          } catch (ledgerError) {
+            console.error('❌ Failed to update payment channel daily ledger:', ledgerError);
+            // Don't fail the whole payment - this is for analytics only
+          }
+        }
+
+        // CRITICAL FIX: Create ledger entry for Daily Ledger component to display transactions
+        try {
+          console.log('🔄 Creating ledger entry for payment...');
+          const paymentTime = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+          
+          // Determine payment type description
+          const paymentTypeDescription = payment.payment_type === 'bill_payment' ? 'Invoice Payment'
+            : payment.payment_type === 'advance_payment' ? 'Advance Payment'
+            : payment.payment_type === 'return_refund' ? 'Return Refund'
+            : 'Payment';
+          
+          // Create appropriate description based on payment type
+          let description = '';
+          if (payment.payment_type === 'bill_payment' && payment.reference_invoice_id) {
+            description = `${paymentTypeDescription} - ${payment.reference || 'Invoice Payment'} from ${customerName}`;
+          } else if (payment.payment_type === 'return_refund') {
+            description = `${paymentTypeDescription} to ${customerName}`;
+          } else {
+            description = `${paymentTypeDescription} from ${customerName}`;
+          }
+
+          await this.createLedgerEntry({
+            date: payment.date,
+            time: paymentTime,
+            type: payment.payment_type === 'return_refund' ? 'outgoing' : 'incoming',
+            category: paymentTypeDescription,
+            description: description,
+            amount: payment.amount,
+            customer_id: payment.customer_id,
+            customer_name: customerName,
+            reference_id: paymentId,
+            reference_type: 'payment',
+            bill_number: payment.reference || undefined,
+            notes: payment.notes || `Payment via ${payment.payment_method}`,
+            created_by: payment.created_by || 'system',
+            payment_method: payment.payment_method,
+            payment_channel_id: payment.payment_channel_id,
+            payment_channel_name: payment.payment_channel_name
+          });
+          
+          console.log('✅ Ledger entry created for payment');
+        } catch (ledgerEntryError) {
+          console.error('❌ Failed to create ledger entry for payment:', ledgerEntryError);
+          // Don't fail the whole payment - this is for Daily Ledger display only
+        }
 
         // Only commit if we started the transaction
         if (shouldCommit) {
@@ -9447,6 +9475,49 @@ async createVendorPayment(payment: {
       // Don't fail the whole transaction - vendor payment was still recorded
     }
 
+    // CRITICAL FIX: Update payment channel daily ledger for vendor payments
+    try {
+      console.log('🔄 Updating payment channel daily ledger for vendor payment...');
+      await this.updatePaymentChannelDailyLedger(
+        sanitizedPayment.payment_channel_id, 
+        sanitizedPayment.date, 
+        sanitizedPayment.amount
+      );
+      console.log('✅ Payment channel daily ledger updated successfully');
+    } catch (ledgerError) {
+      console.error('❌ Failed to update payment channel daily ledger:', ledgerError);
+      // Don't fail the whole payment - this is for analytics only
+    }
+
+    // CRITICAL FIX: Create ledger entry for vendor payment so it appears in Daily Ledger
+    try {
+      console.log('🔄 Creating ledger entry for vendor payment...');
+      
+      await this.createLedgerEntry({
+        date: sanitizedPayment.date,
+        time: sanitizedPayment.time,
+        type: 'outgoing',
+        category: 'Vendor Payment',
+        description: `Payment to ${sanitizedPayment.vendor_name}${sanitizedPayment.receiving_id ? ` - Stock Receiving #${sanitizedPayment.receiving_id}` : ''}`,
+        amount: sanitizedPayment.amount,
+        customer_id: undefined, // Vendor payments don't have customer_id
+        customer_name: `Vendor: ${sanitizedPayment.vendor_name}`,
+        reference_id: paymentId,
+        reference_type: 'vendor_payment',
+        bill_number: sanitizedPayment.reference_number || undefined,
+        notes: sanitizedPayment.notes || `Vendor payment via ${sanitizedPayment.payment_channel_name}`,
+        created_by: sanitizedPayment.created_by || 'system',
+        payment_method: sanitizedPayment.payment_channel_name,
+        payment_channel_id: sanitizedPayment.payment_channel_id,
+        payment_channel_name: sanitizedPayment.payment_channel_name
+      });
+      
+      console.log('✅ Ledger entry created for vendor payment');
+    } catch (ledgerEntryError) {
+      console.error('❌ Failed to create ledger entry for vendor payment:', ledgerEntryError);
+      // Don't fail the whole payment - this is for Daily Ledger display only
+    }
+
     // REAL-TIME UPDATE: Emit vendor payment events for UI updates
     try {
       const { eventBus, BUSINESS_EVENTS } = await import('../utils/eventBus');
@@ -11305,19 +11376,22 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     bill_number?: string;
     notes?: string;
     created_by?: string;
+    payment_method?: string;
+    payment_channel_id?: number;
+    payment_channel_name?: string;
   }): Promise<void> {
 
-    // Real database implementation
+    // Real database implementation - include payment channel information for filtering
     await this.dbConnection.execute(
       `INSERT INTO ledger_entries 
       (date, time, type, category, description, amount, running_balance, customer_id, customer_name, 
-       reference_id, reference_type, bill_number, notes, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       reference_id, reference_type, bill_number, notes, created_by, payment_method, payment_channel_id, payment_channel_name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         entry.date, entry.time, entry.type, entry.category, entry.description, entry.amount,
         0, // running_balance calculated separately in real DB
         entry.customer_id, entry.customer_name, entry.reference_id, entry.reference_type,
-        entry.bill_number, entry.notes, entry.created_by
+        entry.bill_number, entry.notes, entry.created_by, entry.payment_method, entry.payment_channel_id, entry.payment_channel_name
       ]
     );
   }
@@ -13107,6 +13181,197 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   }
 
   /**
+   * Fix payment channel daily ledgers by updating missing data from existing payments
+   */
+  async fixPaymentChannelDailyLedgers(): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      console.log('🔧 [DB] Starting payment channel daily ledgers fix...');
+      
+      // Ensure the table exists first
+      await this.ensurePaymentChannelDailyLedgersTable();
+      
+      // Fix vendor payments that weren't tracked
+      console.log('🔄 [DB] Processing vendor payments...');
+      const vendorPayments = await this.dbConnection.select(`
+        SELECT payment_channel_id, date, SUM(amount) as total_amount, COUNT(*) as transaction_count
+        FROM vendor_payments 
+        WHERE payment_channel_id IS NOT NULL
+        GROUP BY payment_channel_id, date
+        ORDER BY date DESC
+      `);
+      
+      for (const payment of vendorPayments || []) {
+        try {
+          await this.dbConnection.execute(`
+            INSERT OR REPLACE INTO payment_channel_daily_ledgers (
+              payment_channel_id, date, total_amount, transaction_count, 
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [
+            payment.payment_channel_id,
+            payment.date,
+            payment.total_amount,
+            payment.transaction_count
+          ]);
+        } catch (error) {
+          console.warn(`⚠️ [DB] Failed to fix vendor payment entry for channel ${payment.payment_channel_id} on ${payment.date}:`, error);
+        }
+      }
+      
+      // Fix customer payments that weren't tracked
+      console.log('🔄 [DB] Processing customer payments...');
+      const customerPayments = await this.dbConnection.select(`
+        SELECT payment_channel_id, date, SUM(amount) as total_amount, COUNT(*) as transaction_count
+        FROM payments 
+        WHERE payment_channel_id IS NOT NULL
+        GROUP BY payment_channel_id, date
+        ORDER BY date DESC
+      `);
+      
+      for (const payment of customerPayments || []) {
+        try {
+          await this.dbConnection.execute(`
+            INSERT OR IGNORE INTO payment_channel_daily_ledgers (
+              payment_channel_id, date, total_amount, transaction_count, 
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (payment_channel_id, date) DO UPDATE SET
+              total_amount = total_amount + ?,
+              transaction_count = transaction_count + ?,
+              updated_at = CURRENT_TIMESTAMP
+          `, [
+            payment.payment_channel_id,
+            payment.date,
+            payment.total_amount,
+            payment.transaction_count,
+            payment.total_amount,
+            payment.transaction_count
+          ]);
+        } catch (error) {
+          console.warn(`⚠️ [DB] Failed to fix customer payment entry for channel ${payment.payment_channel_id} on ${payment.date}:`, error);
+        }
+      }
+      
+      // Fix enhanced payments that weren't tracked
+      console.log('🔄 [DB] Processing enhanced payments...');
+      const enhancedPayments = await this.dbConnection.select(`
+        SELECT payment_channel_id, date, SUM(amount) as total_amount, COUNT(*) as transaction_count
+        FROM enhanced_payments 
+        WHERE payment_channel_id IS NOT NULL
+        GROUP BY payment_channel_id, date
+        ORDER BY date DESC
+      `);
+      
+      for (const payment of enhancedPayments || []) {
+        try {
+          await this.dbConnection.execute(`
+            INSERT OR IGNORE INTO payment_channel_daily_ledgers (
+              payment_channel_id, date, total_amount, transaction_count, 
+              created_at, updated_at
+            ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ON CONFLICT (payment_channel_id, date) DO UPDATE SET
+              total_amount = total_amount + ?,
+              transaction_count = transaction_count + ?,
+              updated_at = CURRENT_TIMESTAMP
+          `, [
+            payment.payment_channel_id,
+            payment.date,
+            payment.total_amount,
+            payment.transaction_count,
+            payment.total_amount,
+            payment.transaction_count
+          ]);
+        } catch (error) {
+          console.warn(`⚠️ [DB] Failed to fix enhanced payment entry for channel ${payment.payment_channel_id} on ${payment.date}:`, error);
+        }
+      }
+      
+      console.log('✅ [DB] Payment channel daily ledgers fix completed successfully');
+      
+      // Verify the fix worked
+      const totalEntries = await this.dbConnection.select(`
+        SELECT COUNT(*) as count FROM payment_channel_daily_ledgers
+      `);
+      
+      console.log(`📊 [DB] Payment channel daily ledgers now contains ${totalEntries?.[0]?.count || 0} entries`);
+      
+    } catch (error) {
+      console.error('❌ [DB] Failed to fix payment channel daily ledgers:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update payment channel daily ledger
+   */
+  async updatePaymentChannelDailyLedger(channelId: number, date: string, amount: number): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      console.log(`🔄 [DB] Updating payment channel daily ledger: channel=${channelId}, date=${date}, amount=${amount}`);
+      
+      // Ensure the table exists first
+      await this.ensurePaymentChannelDailyLedgersTable();
+      
+      // Insert or update the daily ledger entry
+      await this.dbConnection.execute(`
+        INSERT INTO payment_channel_daily_ledgers (
+          payment_channel_id, date, total_amount, transaction_count, created_at, updated_at
+        ) VALUES (?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT (payment_channel_id, date) DO UPDATE SET
+          total_amount = total_amount + ?,
+          transaction_count = transaction_count + 1,
+          updated_at = CURRENT_TIMESTAMP
+      `, [channelId, date, amount, amount]);
+      
+      console.log(`✅ [DB] Payment channel daily ledger updated successfully`);
+    } catch (error) {
+      console.error('❌ [DB] Failed to update payment channel daily ledger:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Ensure payment channel daily ledgers table exists
+   */
+  private async ensurePaymentChannelDailyLedgersTable(): Promise<void> {
+    try {
+      console.log('🔄 [DB] Ensuring payment_channel_daily_ledgers table...');
+      
+      // Create the table if it doesn't exist
+      await this.dbConnection.execute(`
+        CREATE TABLE IF NOT EXISTS payment_channel_daily_ledgers (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          payment_channel_id INTEGER NOT NULL,
+          date TEXT NOT NULL,
+          total_amount REAL NOT NULL DEFAULT 0,
+          transaction_count INTEGER NOT NULL DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id),
+          UNIQUE(payment_channel_id, date)
+        )
+      `);
+      
+      // Create indexes for performance
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_daily_ledgers_channel_id ON payment_channel_daily_ledgers(payment_channel_id)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_daily_ledgers_date ON payment_channel_daily_ledgers(date)`);
+      await this.dbConnection.execute(`CREATE INDEX IF NOT EXISTS idx_daily_ledgers_channel_date ON payment_channel_daily_ledgers(payment_channel_id, date)`);
+      
+      console.log('✅ [DB] Payment channel daily ledgers table ready');
+    } catch (error) {
+      console.error('❌ [DB] Failed to ensure payment channel daily ledgers table:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Create payment channels table with complete schema from scratch
    */
   private async createPaymentChannelsTableFromScratch(): Promise<void> {
@@ -13952,7 +14217,69 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   }
 
   /**
+   * Generate meaningful transaction descriptions based on payment type and context
+   */
+  private generateTransactionDescription(transaction: any): string {
+    const { payment_type, customer_name, vendor_name, notes, description, payment_method, reference } = transaction;
+    
+    // Handle vendor payments
+    if (payment_type === 'vendor_payment') {
+      const vendorName = vendor_name || customer_name || 'Unknown Vendor';
+      if (reference && reference.includes('Stock Receiving')) {
+        return `Stock Receiving Payment to ${vendorName}`;
+      }
+      return `Vendor Payment to ${vendorName}`;
+    }
+    
+    // Handle customer payments
+    if (payment_type === 'payment' || payment_type === 'customer_payment') {
+      const customerName = customer_name || 'Customer';
+      if (reference && reference.includes('Invoice')) {
+        return `Invoice Payment from ${customerName}`;
+      }
+      return `Payment from ${customerName}`;
+    }
+    
+    // Handle sale transactions
+    if (payment_type === 'sale' || payment_type === 'invoice_payment') {
+      const customerName = customer_name || 'Customer';
+      return `Sale Payment from ${customerName}`;
+    }
+    
+    // Handle advance payments
+    if (payment_type === 'advance_payment') {
+      const customerName = customer_name || 'Customer';
+      return `Advance Payment from ${customerName}`;
+    }
+    
+    // Handle expense payments
+    if (payment_type === 'expense_payment') {
+      return `Business Expense Payment`;
+    }
+    
+    // Handle daily summary transactions
+    if (payment_type === 'daily_summary') {
+      return description || `Daily Summary Transaction`;
+    }
+    
+    // Default fallback with better formatting
+    if (description && description.trim()) {
+      return description;
+    }
+    
+    if (notes && notes.trim()) {
+      return notes;
+    }
+    
+    // Last resort - use payment method with context
+    const method = payment_method || 'Payment Channel';
+    const customerInfo = customer_name ? ` from ${customer_name}` : '';
+    return `${method} Transaction${customerInfo}`;
+  }
+
+  /**
    * Get recent transactions for a payment channel
+   * PERMANENT FIX: Multi-strategy approach for robust transaction retrieval
    */
   async getPaymentChannelTransactions(channelId: number, limit: number = 50): Promise<any[]> {
     try {
@@ -13960,94 +14287,281 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         await this.initialize();
       }
 
-      console.log(`🔄 [DB] Getting transactions for payment channel ${channelId}`);
+      console.log(`🔄 [DB] Getting transactions for payment channel ${channelId} (PERMANENT VERSION)`);
 
-      // Try enhanced_payments first, then fallback to payments table
-      let transactions = [];
+      let transactions: any[] = [];
       
+      // STRATEGY 1: Try payments table with robust error handling
       try {
-        // Check if enhanced_payments table exists and has data for this channel
-        const enhancedCheck = await this.safeSelect(`
-          SELECT COUNT(*) as count FROM enhanced_payments WHERE payment_channel_id = ? LIMIT 1
-        `, [channelId]);
+        const paymentsQuery = `
+          SELECT 
+            p.id,
+            p.customer_id,
+            p.customer_name,
+            p.amount,
+            p.payment_method,
+            p.payment_type,
+            COALESCE(p.reference, '') as reference,
+            COALESCE(p.notes, '') as description,
+            p.date,
+            COALESCE(p.time, '00:00') as time,
+            p.created_at,
+            'incoming' as type,
+            COALESCE(c.name, p.customer_name) as actual_customer_name,
+            COALESCE(i.bill_number, p.reference, CAST(p.id as TEXT)) as reference_number,
+            i.bill_number as invoice_number,
+            p.reference_invoice_id
+          FROM payments p
+          LEFT JOIN customers c ON p.customer_id = c.id
+          LEFT JOIN invoices i ON p.reference_invoice_id = i.id
+          WHERE p.payment_channel_id = ?
+          ORDER BY p.date DESC, p.time DESC
+          LIMIT ?
+        `;
         
-        if (enhancedCheck[0] && enhancedCheck[0].count > 0) {
-          console.log(`🔄 [DB] Found ${enhancedCheck[0].count} records in enhanced_payments, using enhanced table`);
-          transactions = await this.safeSelect(`
-            SELECT 
-              ep.id,
-              ep.customer_id,
-              ep.customer_name,
-              ep.amount,
-              ep.payment_type,
-              ep.reference_invoice_id,
-              ep.reference_number,
-              ep.notes,
-              ep.date,
-              ep.time,
-              ep.created_at,
-              c.name as customer_name,
-              i.bill_number as invoice_number
-            FROM enhanced_payments ep
-            LEFT JOIN customers c ON ep.customer_id = c.id
-            LEFT JOIN invoices i ON ep.reference_invoice_id = i.id
-            WHERE ep.payment_channel_id = ?
-            ORDER BY ep.date DESC, ep.time DESC
-            LIMIT ?
-          `, [channelId, limit]);
-        }
-      } catch (enhancedError) {
-        console.warn(`⚠️ [DB] Enhanced_payments query failed:`, enhancedError);
-      }
-      
-      // If no data from enhanced_payments, try regular payments table
-      if (!transactions || transactions.length === 0) {
-        console.log(`🔄 [DB] Falling back to payments table for channel ${channelId}`);
+        transactions = await this.safeSelect(paymentsQuery, [channelId, limit]);
+        console.log(`� [DB] Found ${transactions.length} transactions in payments table for channel ${channelId}`);
+        
+      } catch (paymentsError) {
+        console.warn(`⚠️ [DB] Payments table query failed: ${paymentsError}`);
+        
+        // Fallback: try simpler payments query
         try {
-          transactions = await this.safeSelect(`
+          const simplePaymentsQuery = `
             SELECT 
-              p.id,
-              p.customer_id,
-              p.customer_name,
-              p.amount,
-              p.payment_type,
-              p.payment_method,
-              p.reference_invoice_id,
-              p.reference,
-              p.notes,
-              p.date,
-              p.time,
-              p.created_at,
-              c.name as actual_customer_name,
-              i.bill_number as invoice_number
-            FROM payments p
-            LEFT JOIN customers c ON p.customer_id = c.id
-            LEFT JOIN invoices i ON p.reference_invoice_id = i.id
-            WHERE p.payment_channel_id = ?
-            ORDER BY p.date DESC, p.time DESC
+              id,
+              customer_id,
+              customer_name,
+              amount,
+              payment_method,
+              date,
+              created_at
+            FROM payments
+            WHERE payment_channel_id = ?
+            ORDER BY date DESC
             LIMIT ?
-          `, [channelId, limit]);
+          `;
           
-          // Normalize field names for consistency
-          transactions = transactions.map((t: any) => ({
-            ...t,
-            customer_name: t.actual_customer_name || t.customer_name,
-            reference_number: t.reference || t.reference_number
+          const simpleTransactions = await this.safeSelect(simplePaymentsQuery, [channelId, limit]);
+          
+          // Normalize the simple data
+          transactions = simpleTransactions.map((p: any) => ({
+            ...p,
+            payment_type: 'payment',
+            reference: `PAY-${p.id}`,
+            description: `Payment via ${p.payment_method || 'Unknown'}`,
+            time: '00:00',
+            type: 'incoming',
+            actual_customer_name: p.customer_name,
+            reference_number: `PAY-${p.id}`
           }));
           
-          console.log(`✅ [DB] Found ${transactions.length} transactions in payments table`);
-        } catch (paymentsError) {
-          console.error(`❌ [DB] Payments table query also failed:`, paymentsError);
+          console.log(`📊 [DB] Fallback payments query found ${transactions.length} transactions`);
+          
+        } catch (fallbackPaymentsError) {
+          console.error(`❌ [DB] Even fallback payments query failed: ${fallbackPaymentsError}`);
           transactions = [];
         }
-      } else {
-        console.log(`✅ [DB] Found ${transactions.length} transactions in enhanced_payments table`);
       }
-
-      return transactions || [];
+      
+      // STRATEGY 2: Add vendor payments if available
+      if (transactions.length === 0) {
+        console.log('🔄 [DB] Checking vendor payments table...');
+        
+        try {
+          const vendorPaymentsQuery = `
+            SELECT 
+              vp.id,
+              vp.vendor_id as customer_id,
+              vp.vendor_name as customer_name,
+              vp.vendor_name,
+              vp.receiving_id,
+              vp.amount,
+              COALESCE(vp.payment_channel_name, 'Unknown') as payment_method,
+              'vendor_payment' as payment_type,
+              COALESCE(vp.notes, vp.reference_number, '') as notes,
+              COALESCE(vp.notes, '') as description,
+              vp.date,
+              COALESCE(vp.time, '00:00') as time,
+              vp.created_at,
+              'outgoing' as type,
+              vp.vendor_name as actual_customer_name,
+              COALESCE(vp.reference_number, CAST(vp.id as TEXT)) as reference_number,
+              COALESCE(vp.reference_number, 'Stock Receiving Payment') as reference,
+              vp.cheque_number,
+              vp.cheque_date
+            FROM vendor_payments vp
+            WHERE vp.payment_channel_id = ?
+            ORDER BY vp.date DESC, vp.time DESC
+            LIMIT ?
+          `;
+          
+          const vendorPayments = await this.safeSelect(vendorPaymentsQuery, [channelId, limit]);
+          transactions = [...transactions, ...vendorPayments];
+          console.log(`📊 [DB] Added ${vendorPayments.length} vendor payments, total: ${transactions.length}`);
+          
+        } catch (vendorError) {
+          console.warn(`⚠️ [DB] Vendor payments query failed: ${vendorError}`);
+          
+          // Fallback: try even simpler vendor query
+          try {
+            const simpleVendorQuery = `
+              SELECT 
+                id,
+                vendor_id as customer_id,
+                vendor_name as customer_name,
+                vendor_name,
+                receiving_id,
+                amount,
+                payment_channel_name,
+                reference_number,
+                notes,
+                date,
+                created_at
+              FROM vendor_payments
+              WHERE payment_channel_id = ?
+              ORDER BY date DESC
+              LIMIT ?
+            `;
+            
+            const simpleVendorPayments = await this.safeSelect(simpleVendorQuery, [channelId, limit]);
+            
+            // Normalize the simple vendor data
+            const normalizedVendorPayments = simpleVendorPayments.map((vp: any) => ({
+              ...vp,
+              payment_method: vp.payment_channel_name || 'Vendor Payment',
+              payment_type: 'vendor_payment',
+              description: vp.notes || `Vendor payment to ${vp.customer_name}`,
+              reference: vp.reference_number || 'Stock Receiving Payment',
+              receiving_id: vp.receiving_id,
+              time: '00:00',
+              type: 'outgoing',
+              actual_customer_name: vp.customer_name,
+              reference_number: vp.reference_number || `VP-${vp.id}`
+            }));
+            
+            transactions = [...transactions, ...normalizedVendorPayments];
+            console.log(`📊 [DB] Fallback vendor query found ${normalizedVendorPayments.length} vendor payments`);
+            
+          } catch (fallbackVendorError) {
+            console.error(`❌ [DB] Even fallback vendor payments query failed: ${fallbackVendorError}`);
+          }
+        }
+      }
+      
+      // STRATEGY 3: Create synthetic transactions from daily ledgers if still empty
+      if (transactions.length === 0) {
+        console.log('🔄 [DB] No individual transactions found, creating synthetic entries from daily ledgers...');
+        
+        try {
+          const dailyLedgersQuery = `
+            SELECT 
+              pcl.id,
+              pcl.payment_channel_id,
+              pcl.date,
+              pcl.total_amount,
+              pcl.transaction_count,
+              pc.name as channel_name
+            FROM payment_channel_daily_ledgers pcl
+            JOIN payment_channels pc ON pcl.payment_channel_id = pc.id
+            WHERE pcl.payment_channel_id = ?
+            AND pcl.total_amount > 0
+            ORDER BY pcl.date DESC
+            LIMIT ?
+          `;
+          
+          const dailyLedgers = await this.safeSelect(dailyLedgersQuery, [channelId, Math.min(limit, 20)]);
+          
+          // Create synthetic transaction entries
+          transactions = dailyLedgers.map((ledger: any, index: number) => ({
+            id: `synthetic_${ledger.id}_${index}`,
+            customer_id: null,
+            customer_name: 'Multiple Transactions',
+            amount: ledger.total_amount,
+            payment_method: ledger.channel_name,
+            payment_type: 'daily_summary',
+            reference: `Daily Total - ${ledger.transaction_count} transactions`,
+            description: `${ledger.transaction_count} transactions totaling ₹${ledger.total_amount}`,
+            date: ledger.date,
+            time: '23:59',
+            created_at: ledger.date,
+            type: 'incoming',
+            actual_customer_name: 'Daily Summary',
+            reference_number: `DT-${ledger.date}`
+          }));
+          
+          console.log(`📊 [DB] Created ${transactions.length} synthetic transaction entries from daily ledgers`);
+          
+        } catch (dailyLedgerError) {
+          console.error(`❌ [DB] Daily ledger query failed: ${dailyLedgerError}`);
+        }
+      }
+      
+      // FINAL NORMALIZATION: Ensure consistent data format with enhanced descriptions
+      const normalizedTransactions = transactions.map((t: any) => ({
+        id: t.id,
+        amount: parseFloat(t.amount) || 0,
+        date: t.date,
+        time: t.time || '00:00',
+        type: t.type || (t.payment_type === 'vendor_payment' ? 'outgoing' : 'incoming'),
+        description: this.generateTransactionDescription(t),
+        channel_name: t.payment_method || '',
+        reference: t.reference_number || t.reference || '',
+        customer_name: t.actual_customer_name || t.customer_name || null,
+        payment_type: t.payment_type || 'payment'
+      }));
+      
+      console.log(`✅ [DB] Returning ${normalizedTransactions.length} normalized transactions for channel ${channelId}`);
+      return normalizedTransactions;
+      
     } catch (error) {
       console.error('Error getting payment channel transactions:', error);
       return []; // Return empty array instead of throwing error
+    }
+  }
+
+  /**
+   * Get payment count for a specific channel (for debugging)
+   */
+  async getPaymentCountForChannel(channelId: number): Promise<number> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      
+      const result = await this.safeSelect(
+        'SELECT COUNT(*) as count FROM payments WHERE payment_channel_id = ?',
+        [channelId]
+      );
+      
+      return result?.[0]?.count || 0;
+    } catch (error) {
+      console.error('Error getting payment count for channel:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get recent payments for debugging
+   */
+  async getRecentPaymentsDebug(limit: number = 10): Promise<any[]> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      
+      const payments = await this.safeSelect(`
+        SELECT 
+          id, customer_name, amount, payment_method, payment_channel_id, payment_channel_name, date 
+        FROM payments 
+        ORDER BY date DESC, created_at DESC 
+        LIMIT ?
+      `, [limit]);
+      
+      return payments || [];
+    } catch (error) {
+      console.error('Error getting recent payments for debug:', error);
+      return [];
     }
   }
 

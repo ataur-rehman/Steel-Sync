@@ -369,6 +369,32 @@ export const DATABASE_SCHEMAS = {
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
+  `,
+
+  // VENDOR PAYMENTS
+  VENDOR_PAYMENTS: `
+    CREATE TABLE IF NOT EXISTS vendor_payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vendor_id INTEGER NOT NULL,
+      vendor_name TEXT NOT NULL,
+      receiving_id INTEGER,
+      amount REAL NOT NULL CHECK (amount > 0),
+      payment_channel_id INTEGER NOT NULL,
+      payment_channel_name TEXT NOT NULL,
+      payment_method TEXT DEFAULT 'cash',
+      reference_number TEXT,
+      cheque_number TEXT,
+      cheque_date TEXT,
+      notes TEXT,
+      date TEXT NOT NULL,
+      time TEXT NOT NULL,
+      created_by TEXT DEFAULT 'system',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE ON UPDATE CASCADE,
+      FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE SET NULL ON UPDATE CASCADE,
+      FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE RESTRICT ON UPDATE CASCADE
+    )
   `
 };
 
@@ -492,6 +518,14 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id)',
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)',
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)'
+  ],
+
+  VENDOR_PAYMENTS: [
+    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_vendor_id ON vendor_payments(vendor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_receiving_id ON vendor_payments(receiving_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_channel_id ON vendor_payments(payment_channel_id)',
+    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_date ON vendor_payments(date)',
+    'CREATE INDEX IF NOT EXISTS idx_vendor_payments_amount ON vendor_payments(amount)'
   ]
 };
 

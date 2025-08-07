@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Channel Transactions Fix</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #007bff;
+        }
+        .header h1 {
+            color: #007bff;
+            margin: 0;
+            font-size: 2rem;
+        }
+        .header p {
+            color: #666;
+            margin: 10px 0 0 0;
+            font-size: 1.1rem;
+        }
+        .section {
+            margin: 30px 0;
+            padding: 20px;
+            border-left: 4px solid #007bff;
+            background-color: #f8f9fa;
+            border-radius: 0 8px 8px 0;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #007bff;
+        }
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        button {
+            background: linear-gradient(135deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,123,255,0.3);
+        }
+        button:hover {
+            background: linear-gradient(135deg, #0056b3, #004085);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,123,255,0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .output {
+            background: #000;
+            color: #00ff00;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            height: 400px;
+            overflow-y: auto;
+            margin: 20px 0;
+            border: 2px solid #333;
+        }
+        .output:empty::before {
+            content: "Console output will appear here...";
+            color: #666;
+            font-style: italic;
+        }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .warning { color: #ffc107; }
+        .info { color: #17a2b8; }
+        .status-box {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 4px solid;
+        }
+        .status-box.success {
+            background-color: #d4edda;
+            color: #155724;
+            border-left-color: #28a745;
+        }
+        .status-box.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border-left-color: #ffc107;
+        }
+        .status-box.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .stat-card h3 {
+            margin: 0 0 10px 0;
+            color: #007bff;
+            font-size: 2rem;
+        }
+        .stat-card p {
+            margin: 0;
+            color: #666;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Payment Channel Transactions Fix</h1>
+            <p>Fix missing payment channel transaction tracking</p>
+        </div>
+
+        <div class="status-box warning">
+            <strong>Issue:</strong> Your payment channel transactions are not being recorded in the payment channel tracking system. This affects analytics and reporting.
+        </div>
+
+        <div class="section">
+            <h2>🔍 Diagnostic Tools</h2>
+            <div class="button-grid">
+                <button onclick="checkDatabaseStatus()">Check Database Status</button>
+                <button onclick="checkPaymentChannels()">Check Payment Channels</button>
+                <button onclick="checkExistingPayments()">Check Existing Payments</button>
+                <button onclick="checkPaymentChannelLedgers()">Check Channel Ledgers</button>
+            </div>
+            
+            <div id="statusOutput" class="output"></div>
+        </div>
+
+        <div class="section">
+            <h2>🚀 Quick Fix</h2>
+            <p>Run this comprehensive fix to update all payment channel tracking:</p>
+            <div class="button-grid">
+                <button onclick="runComprehensiveFix()" style="background: linear-gradient(135deg, #28a745, #1e7e34);">
+                    🔧 Run Complete Fix
+                </button>
+                <button onclick="testPaymentChannelTracking()">Test Payment Tracking</button>
+            </div>
+            
+            <div id="fixOutput" class="output"></div>
+        </div>
+
+        <div class="section">
+            <h2>📊 Payment Channel Statistics</h2>
+            <button onclick="showPaymentChannelStats()">Load Statistics</button>
+            <div id="statsContainer"></div>
+        </div>
+
+        <div class="section">
+            <h2>🧪 Manual Testing</h2>
+            <div class="button-grid">
+                <button onclick="createTestVendorPayment()">Test Vendor Payment</button>
+                <button onclick="createTestCustomerPayment()">Test Customer Payment</button>
+                <button onclick="createTestDailyLedgerEntry()">Test Daily Ledger Entry</button>
+                <button onclick="verifyPaymentChannelUpdates()">Verify Channel Updates</button>
+            </div>
+            
+            <div id="testOutput" class="output"></div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize database reference
+        let db = null;
+
+        // Initialize the database connection
+        async function initDB() {
+            try {
+                if (typeof window !== 'undefined' && window.db) {
+                    db = window.db;
+                    return db;
+                }
+                
+                throw new Error('Database not available - make sure your application is running');
+            } catch (error) {
+                throw new Error(`Failed to initialize database: ${error.message}`);
+            }
+        }
+
+        function logOutput(elementId, message, type = 'info') {
+            const output = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+            output.innerHTML += `<div class="${className}">[${timestamp}] ${message}</div>`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearOutput(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        async function checkDatabaseStatus() {
+            clearOutput('statusOutput');
+            try {
+                await initDB();
+                logOutput('statusOutput', '✅ Database connection successful', 'success');
+                
+                // Check if payment_channel_daily_ledgers table exists
+                const tables = await db.dbConnection.select(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='payment_channel_daily_ledgers'"
+                );
+                
+                if (tables && tables.length > 0) {
+                    logOutput('statusOutput', '✅ payment_channel_daily_ledgers table exists', 'success');
+                } else {
+                    logOutput('statusOutput', '❌ payment_channel_daily_ledgers table missing', 'error');
+                    logOutput('statusOutput', '💡 This table is required for payment channel tracking', 'info');
+                }
+                
+            } catch (error) {
+                logOutput('statusOutput', `❌ Database check failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkPaymentChannels() {
+            clearOutput('statusOutput');
+            try {
+                await initDB();
+                
+                logOutput('statusOutput', '💳 Checking payment channels...', 'info');
+                
+                const channels = await db.getPaymentChannels(true);
+                
+                if (channels && channels.length > 0) {
+                    logOutput('statusOutput', `💳 Found ${channels.length} payment channels:`, 'info');
+                    channels.forEach(channel => {
+                        const status = channel.is_active ? '✅ Active' : '❌ Inactive';
+                        logOutput('statusOutput', `  - ${channel.name} (${channel.type}) ${status}`, channel.is_active ? 'success' : 'warning');
+                    });
+                } else {
+                    logOutput('statusOutput', '⚠️ No payment channels found', 'warning');
+                    logOutput('statusOutput', '💡 Payment channels are required for tracking', 'info');
+                }
+                
+            } catch (error) {
+                logOutput('statusOutput', `❌ Error checking payment channels: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkExistingPayments() {
+            clearOutput('statusOutput');
+            try {
+                await initDB();
+                
+                logOutput('statusOutput', '📋 Checking existing payments...', 'info');
+                
+                // Check vendor payments
+                const vendorPayments = await db.dbConnection.select(`
+                    SELECT COUNT(*) as count, 
+                           COUNT(CASE WHEN payment_channel_id IS NOT NULL THEN 1 END) as with_channel,
+                           SUM(amount) as total_amount
+                    FROM vendor_payments
+                `);
+                
+                const vpStats = vendorPayments[0];
+                logOutput('statusOutput', `📦 Vendor Payments: ${vpStats.count} total, ${vpStats.with_channel} with payment channel, Amount: ₹${vpStats.total_amount || 0}`, 'info');
+                
+                // Check customer payments
+                const customerPayments = await db.dbConnection.select(`
+                    SELECT COUNT(*) as count, 
+                           COUNT(CASE WHEN payment_channel_id IS NOT NULL THEN 1 END) as with_channel,
+                           SUM(amount) as total_amount
+                    FROM payments
+                `);
+                
+                const cpStats = customerPayments[0];
+                logOutput('statusOutput', `👤 Customer Payments: ${cpStats.count} total, ${cpStats.with_channel} with payment channel, Amount: ₹${cpStats.total_amount || 0}`, 'info');
+                
+                // Check enhanced payments
+                const enhancedPayments = await db.dbConnection.select(`
+                    SELECT COUNT(*) as count, 
+                           COUNT(CASE WHEN payment_channel_id IS NOT NULL THEN 1 END) as with_channel,
+                           SUM(amount) as total_amount
+                    FROM enhanced_payments
+                `);
+                
+                const epStats = enhancedPayments[0];
+                logOutput('statusOutput', `🔥 Enhanced Payments: ${epStats.count} total, ${epStats.with_channel} with payment channel, Amount: ₹${epStats.total_amount || 0}`, 'info');
+                
+            } catch (error) {
+                logOutput('statusOutput', `❌ Error checking payments: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkPaymentChannelLedgers() {
+            clearOutput('statusOutput');
+            try {
+                await initDB();
+                
+                logOutput('statusOutput', '📊 Checking payment channel ledgers...', 'info');
+                
+                // Check if table exists and has data
+                const ledgerStats = await db.dbConnection.select(`
+                    SELECT COUNT(*) as total_entries,
+                           COUNT(DISTINCT payment_channel_id) as channels_tracked,
+                           SUM(total_amount) as total_tracked_amount,
+                           SUM(transaction_count) as total_transactions
+                    FROM payment_channel_daily_ledgers
+                `);
+                
+                const stats = ledgerStats[0];
+                logOutput('statusOutput', `📈 Ledger Entries: ${stats.total_entries}`, 'info');
+                logOutput('statusOutput', `💳 Channels Tracked: ${stats.channels_tracked}`, 'info');
+                logOutput('statusOutput', `💰 Total Tracked Amount: ₹${stats.total_tracked_amount || 0}`, 'info');
+                logOutput('statusOutput', `🔢 Total Transactions: ${stats.total_transactions || 0}`, 'info');
+                
+                if (stats.total_entries === 0) {
+                    logOutput('statusOutput', '⚠️ No payment channel tracking data found!', 'warning');
+                    logOutput('statusOutput', '💡 This is why payment channels don\'t show transaction data', 'info');
+                }
+                
+            } catch (error) {
+                logOutput('statusOutput', `❌ Error checking ledgers: ${error.message}`, 'error');
+            }
+        }
+
+        async function runComprehensiveFix() {
+            clearOutput('fixOutput');
+            try {
+                await initDB();
+                
+                logOutput('fixOutput', '🚀 Starting comprehensive payment channel fix...', 'info');
+                
+                // Run the database fix method
+                logOutput('fixOutput', '🔧 Running fixPaymentChannelDailyLedgers()...', 'info');
+                await db.fixPaymentChannelDailyLedgers();
+                
+                logOutput('fixOutput', '✅ Payment channel daily ledgers fix completed!', 'success');
+                
+                // Verify the fix
+                logOutput('fixOutput', '🔍 Verifying fix results...', 'info');
+                
+                const verifyStats = await db.dbConnection.select(`
+                    SELECT COUNT(*) as total_entries,
+                           COUNT(DISTINCT payment_channel_id) as channels_tracked,
+                           SUM(total_amount) as total_tracked_amount,
+                           SUM(transaction_count) as total_transactions
+                    FROM payment_channel_daily_ledgers
+                `);
+                
+                const stats = verifyStats[0];
+                logOutput('fixOutput', `📊 Fix Results:`, 'success');
+                logOutput('fixOutput', `  ✅ Ledger Entries: ${stats.total_entries}`, 'success');
+                logOutput('fixOutput', `  ✅ Channels Tracked: ${stats.channels_tracked}`, 'success');
+                logOutput('fixOutput', `  ✅ Total Amount: ₹${stats.total_tracked_amount || 0}`, 'success');
+                logOutput('fixOutput', `  ✅ Total Transactions: ${stats.total_transactions || 0}`, 'success');
+                
+                logOutput('fixOutput', '🎉 Payment channel transaction tracking is now fixed!', 'success');
+                logOutput('fixOutput', '💡 All future payments will be automatically tracked', 'info');
+                
+            } catch (error) {
+                logOutput('fixOutput', `❌ Fix failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testPaymentChannelTracking() {
+            clearOutput('fixOutput');
+            try {
+                await initDB();
+                
+                logOutput('fixOutput', '🧪 Testing payment channel tracking...', 'info');
+                
+                // Get a payment channel for testing
+                const channels = await db.getPaymentChannels(true);
+                if (!channels || channels.length === 0) {
+                    logOutput('fixOutput', '⚠️ No payment channels found for testing', 'warning');
+                    return;
+                }
+                
+                const testChannel = channels[0];
+                const testDate = new Date().toISOString().split('T')[0];
+                const testAmount = 123.45;
+                
+                logOutput('fixOutput', `Testing with channel: ${testChannel.name} (ID: ${testChannel.id})`, 'info');
+                
+                // Test the updatePaymentChannelDailyLedger function
+                await db.updatePaymentChannelDailyLedger(testChannel.id, testDate, testAmount);
+                
+                logOutput('fixOutput', '✅ Payment channel daily ledger update successful!', 'success');
+                
+                // Verify the update
+                const result = await db.dbConnection.select(`
+                    SELECT * FROM payment_channel_daily_ledgers 
+                    WHERE payment_channel_id = ? AND date = ?
+                `, [testChannel.id, testDate]);
+                
+                if (result && result.length > 0) {
+                    const ledger = result[0];
+                    logOutput('fixOutput', `📊 Ledger updated: Amount=${ledger.total_amount}, Count=${ledger.transaction_count}`, 'success');
+                } else {
+                    logOutput('fixOutput', '❌ Could not verify ledger update', 'error');
+                }
+                
+            } catch (error) {
+                logOutput('fixOutput', `❌ Test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function showPaymentChannelStats() {
+            try {
+                await initDB();
+                
+                const channels = await db.getPaymentChannels(true);
+                const statsContainer = document.getElementById('statsContainer');
+                
+                if (!channels || channels.length === 0) {
+                    statsContainer.innerHTML = '<div class="status-box warning">No payment channels found</div>';
+                    return;
+                }
+                
+                let statsHTML = '<div class="stats-grid">';
+                
+                for (const channel of channels) {
+                    try {
+                        const stats = await db.dbConnection.select(`
+                            SELECT SUM(total_amount) as total_amount,
+                                   SUM(transaction_count) as transaction_count,
+                                   COUNT(*) as days_active
+                            FROM payment_channel_daily_ledgers
+                            WHERE payment_channel_id = ?
+                        `, [channel.id]);
+                        
+                        const channelStats = stats[0] || { total_amount: 0, transaction_count: 0, days_active: 0 };
+                        
+                        statsHTML += `
+                            <div class="stat-card">
+                                <h3>₹${channelStats.total_amount || 0}</h3>
+                                <p><strong>${channel.name}</strong></p>
+                                <p>${channelStats.transaction_count || 0} transactions</p>
+                                <p>${channelStats.days_active || 0} active days</p>
+                                <p><small>${channel.type} • ${channel.is_active ? 'Active' : 'Inactive'}</small></p>
+                            </div>
+                        `;
+                    } catch (error) {
+                        statsHTML += `
+                            <div class="stat-card">
+                                <h3>Error</h3>
+                                <p><strong>${channel.name}</strong></p>
+                                <p>Could not load stats</p>
+                            </div>
+                        `;
+                    }
+                }
+                
+                statsHTML += '</div>';
+                statsContainer.innerHTML = statsHTML;
+                
+            } catch (error) {
+                document.getElementById('statsContainer').innerHTML = 
+                    `<div class="status-box error">Error loading statistics: ${error.message}</div>`;
+            }
+        }
+
+        async function createTestVendorPayment() {
+            clearOutput('testOutput');
+            try {
+                await initDB();
+                
+                logOutput('testOutput', '🧪 Creating test vendor payment...', 'info');
+                
+                // Get test data
+                const vendors = await db.getVendors();
+                const channels = await db.getPaymentChannels(true);
+                
+                if (!vendors || vendors.length === 0) {
+                    logOutput('testOutput', '⚠️ No vendors found for testing', 'warning');
+                    return;
+                }
+                
+                if (!channels || channels.length === 0) {
+                    logOutput('testOutput', '⚠️ No payment channels found for testing', 'warning');
+                    return;
+                }
+                
+                const testVendor = vendors[0];
+                const testChannel = channels[0];
+                const testAmount = 500.75;
+                
+                logOutput('testOutput', `Testing vendor payment: ${testVendor.vendor_name} via ${testChannel.name}`, 'info');
+                
+                const paymentId = await db.createVendorPayment({
+                    vendor_id: testVendor.id,
+                    vendor_name: testVendor.vendor_name,
+                    amount: testAmount,
+                    payment_channel_id: testChannel.id,
+                    payment_channel_name: testChannel.name,
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toLocaleTimeString(),
+                    created_by: 'test',
+                    notes: 'Test payment for channel tracking verification'
+                });
+                
+                logOutput('testOutput', `✅ Vendor payment created with ID: ${paymentId}`, 'success');
+                
+                // Check if payment channel was updated
+                await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+                
+                const ledgerCheck = await db.dbConnection.select(`
+                    SELECT * FROM payment_channel_daily_ledgers 
+                    WHERE payment_channel_id = ? AND date = ?
+                `, [testChannel.id, new Date().toISOString().split('T')[0]]);
+                
+                if (ledgerCheck && ledgerCheck.length > 0) {
+                    logOutput('testOutput', '✅ Payment channel daily ledger was updated!', 'success');
+                    logOutput('testOutput', `📊 Channel stats: Amount=${ledgerCheck[0].total_amount}, Count=${ledgerCheck[0].transaction_count}`, 'info');
+                } else {
+                    logOutput('testOutput', '❌ Payment channel daily ledger was NOT updated', 'error');
+                }
+                
+            } catch (error) {
+                logOutput('testOutput', `❌ Test vendor payment failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function createTestCustomerPayment() {
+            clearOutput('testOutput');
+            try {
+                await initDB();
+                
+                logOutput('testOutput', '🧪 Creating test customer payment...', 'info');
+                
+                // Get test data
+                const customers = await db.getAllCustomers();
+                const channels = await db.getPaymentChannels(true);
+                
+                if (!customers || customers.length === 0) {
+                    logOutput('testOutput', '⚠️ No customers found for testing', 'warning');
+                    return;
+                }
+                
+                if (!channels || channels.length === 0) {
+                    logOutput('testOutput', '⚠️ No payment channels found for testing', 'warning');
+                    return;
+                }
+                
+                const testCustomer = customers[0];
+                const testChannel = channels[0];
+                const testAmount = 250.50;
+                
+                logOutput('testOutput', `Testing customer payment: ${testCustomer.name} via ${testChannel.name}`, 'info');
+                
+                const paymentId = await db.recordPayment({
+                    customer_id: testCustomer.id,
+                    amount: testAmount,
+                    payment_method: testChannel.name,
+                    payment_channel_id: testChannel.id,
+                    payment_channel_name: testChannel.name,
+                    payment_type: 'advance_payment',
+                    reference: 'Test payment',
+                    notes: 'Test payment for channel tracking verification',
+                    date: new Date().toISOString().split('T')[0]
+                });
+                
+                logOutput('testOutput', `✅ Customer payment recorded with ID: ${paymentId}`, 'success');
+                
+                // Check if payment channel was updated
+                await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+                
+                const ledgerCheck = await db.dbConnection.select(`
+                    SELECT * FROM payment_channel_daily_ledgers 
+                    WHERE payment_channel_id = ? AND date = ?
+                `, [testChannel.id, new Date().toISOString().split('T')[0]]);
+                
+                if (ledgerCheck && ledgerCheck.length > 0) {
+                    logOutput('testOutput', '✅ Payment channel daily ledger was updated!', 'success');
+                    logOutput('testOutput', `📊 Channel stats: Amount=${ledgerCheck[0].total_amount}, Count=${ledgerCheck[0].transaction_count}`, 'info');
+                } else {
+                    logOutput('testOutput', '❌ Payment channel daily ledger was NOT updated', 'error');
+                }
+                
+            } catch (error) {
+                logOutput('testOutput', `❌ Test customer payment failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function createTestDailyLedgerEntry() {
+            clearOutput('testOutput');
+            try {
+                await initDB();
+                
+                logOutput('testOutput', '🧪 Creating test daily ledger entry...', 'info');
+                
+                const channels = await db.getPaymentChannels(true);
+                
+                if (!channels || channels.length === 0) {
+                    logOutput('testOutput', '⚠️ No payment channels found for testing', 'warning');
+                    return;
+                }
+                
+                const testChannel = channels[0];
+                const testAmount = 150.25;
+                
+                logOutput('testOutput', `Testing daily ledger entry via ${testChannel.name}`, 'info');
+                
+                const entryId = await db.createDailyLedgerEntry({
+                    date: new Date().toISOString().split('T')[0],
+                    type: 'outgoing',
+                    category: 'Office Expense',
+                    description: 'Test expense for channel tracking',
+                    amount: testAmount,
+                    customer_id: null,
+                    customer_name: null,
+                    payment_method: testChannel.name,
+                    payment_channel_id: testChannel.id,
+                    payment_channel_name: testChannel.name,
+                    notes: 'Test entry for channel tracking verification',
+                    is_manual: true
+                });
+                
+                logOutput('testOutput', `✅ Daily ledger entry created with ID: ${entryId}`, 'success');
+                
+                // Check if payment channel was updated
+                await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+                
+                const ledgerCheck = await db.dbConnection.select(`
+                    SELECT * FROM payment_channel_daily_ledgers 
+                    WHERE payment_channel_id = ? AND date = ?
+                `, [testChannel.id, new Date().toISOString().split('T')[0]]);
+                
+                if (ledgerCheck && ledgerCheck.length > 0) {
+                    logOutput('testOutput', '✅ Payment channel daily ledger was updated!', 'success');
+                    logOutput('testOutput', `📊 Channel stats: Amount=${ledgerCheck[0].total_amount}, Count=${ledgerCheck[0].transaction_count}`, 'info');
+                } else {
+                    logOutput('testOutput', '❌ Payment channel daily ledger was NOT updated', 'error');
+                }
+                
+            } catch (error) {
+                logOutput('testOutput', `❌ Test daily ledger entry failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function verifyPaymentChannelUpdates() {
+            clearOutput('testOutput');
+            try {
+                await initDB();
+                
+                logOutput('testOutput', '🔍 Verifying payment channel updates...', 'info');
+                
+                const channels = await db.getPaymentChannels(true);
+                
+                if (!channels || channels.length === 0) {
+                    logOutput('testOutput', '⚠️ No payment channels found', 'warning');
+                    return;
+                }
+                
+                const today = new Date().toISOString().split('T')[0];
+                
+                for (const channel of channels) {
+                    try {
+                        const stats = await db.dbConnection.select(`
+                            SELECT total_amount, transaction_count, created_at, updated_at
+                            FROM payment_channel_daily_ledgers
+                            WHERE payment_channel_id = ? AND date = ?
+                        `, [channel.id, today]);
+                        
+                        if (stats && stats.length > 0) {
+                            const channelStats = stats[0];
+                            logOutput('testOutput', `✅ ${channel.name}: ₹${channelStats.total_amount} (${channelStats.transaction_count} transactions)`, 'success');
+                        } else {
+                            logOutput('testOutput', `❌ ${channel.name}: No transactions tracked today`, 'warning');
+                        }
+                    } catch (error) {
+                        logOutput('testOutput', `❌ ${channel.name}: Error checking stats - ${error.message}`, 'error');
+                    }
+                }
+                
+                logOutput('testOutput', '📊 Verification complete', 'info');
+                
+            } catch (error) {
+                logOutput('testOutput', `❌ Verification failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-run initial status check when page loads
+        window.addEventListener('load', async () => {
+            await checkDatabaseStatus();
+        });
+    </script>
+</body>
+</html>

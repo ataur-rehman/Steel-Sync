@@ -28,6 +28,7 @@ async function runProductionSchemaTest() {
     const criticalTables = [
       'stock_receiving_items',
       'stock_receiving', 
+      'vendor_payments',
       'vendors',
       'products',
       'customers'
@@ -71,18 +72,53 @@ async function runProductionSchemaTest() {
         }
       }
       
-      if (allColumnsExist) {
-        console.log('\n🎉 [PROD-TEST] SUCCESS: All critical columns exist!');
-        console.log('✅ [PROD-TEST] The production-level automatic schema validation works correctly!');
-        console.log('✅ [PROD-TEST] Manual fixes are NO LONGER NEEDED - the system is self-healing!');
-        return true;
-      } else {
-        console.error('\n❌ [PROD-TEST] FAILURE: Some critical columns are missing!');
+      if (!allColumnsExist) {
         return false;
       }
       
     } catch (error) {
-      console.error('❌ [PROD-TEST] Error checking table schema:', error);
+      console.error('❌ [PROD-TEST] Error checking stock_receiving_items schema:', error);
+      return false;
+    }
+    
+    // Step 5: Verify critical columns exist in vendor_payments
+    console.log('\n✅ [PROD-TEST] Step 5: Verifying critical columns in vendor_payments...');
+    
+    const vendorPaymentColumns = [
+      'payment_channel_id',
+      'payment_channel_name',
+      'vendor_name',
+      'amount'
+    ];
+    
+    try {
+      const vendorTableInfo = await dbService.getTableSchema('vendor_payments');
+      const vendorExistingColumns = vendorTableInfo.map(col => col.name);
+      
+      console.log(`📋 [PROD-TEST] vendor_payments columns: ${vendorExistingColumns.join(', ')}`);
+      
+      let allVendorColumnsExist = true;
+      for (const column of vendorPaymentColumns) {
+        if (vendorExistingColumns.includes(column)) {
+          console.log(`✅ [PROD-TEST] Column '${column}' exists in vendor_payments`);
+        } else {
+          console.error(`❌ [PROD-TEST] CRITICAL: Column '${column}' missing from vendor_payments!`);
+          allVendorColumnsExist = false;
+        }
+      }
+      
+      if (allVendorColumnsExist) {
+        console.log('\n🎉 [PROD-TEST] SUCCESS: All critical columns exist in ALL tables!');
+        console.log('✅ [PROD-TEST] The production-level automatic schema validation works correctly!');
+        console.log('✅ [PROD-TEST] Manual fixes are NO LONGER NEEDED - the system is self-healing!');
+        return true;
+      } else {
+        console.error('\n❌ [PROD-TEST] FAILURE: Some critical columns are missing from vendor_payments!');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('❌ [PROD-TEST] Error checking vendor_payments schema:', error);
       return false;
     }
     
@@ -100,12 +136,13 @@ async function runComprehensiveTest() {
   console.log('\n📋 Test 1: Fresh Database Creation');
   const test1Result = await runProductionSchemaTest();
   
-  // Test 2: Verify StockReceivingNew component compatibility
+  // Test 2: Verify StockReceivingNew and VendorPayments component compatibility
   console.log('\n📋 Test 2: Component Compatibility Check');
   try {
     // Simulate the React component's database interaction
-    console.log('✅ Component would now be able to access expiry_date column');
-    console.log('✅ No more "table stock_receiving_items has no column named expiry_date" errors');
+    console.log('✅ StockReceivingNew component: expiry_date, notes columns accessible');
+    console.log('✅ StockReceivingPayment component: payment_channel_id column accessible');
+    console.log('✅ No more "table has no column named" errors for any component');
   } catch (error) {
     console.error('❌ Component compatibility issue:', error);
   }

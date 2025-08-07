@@ -39,6 +39,8 @@ interface LedgerEntry {
   customer_id?: number;
   customer_name?: string;
   payment_method?: string;
+  payment_channel_id?: number;
+  payment_channel_name?: string;
   notes?: string;
   bill_number?: string; // Added for searchability
   is_manual?: boolean; // To distinguish manual entries from system entries
@@ -112,6 +114,10 @@ const DailyLedger: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [showCustomerFilter, setShowCustomerFilter] = useState(false);
+  
+  // Payment channel filtering state
+  const [selectedPaymentChannels, setSelectedPaymentChannels] = useState<number[]>([]);
+  const [showPaymentChannelFilter, setShowPaymentChannelFilter] = useState(false);
   
   // Form state
   const [newTransaction, setNewTransaction] = useState<TransactionForm>({
@@ -201,7 +207,7 @@ const DailyLedger: React.FC = () => {
 
   useEffect(() => {
     loadDayData(selectedDate);
-  }, [selectedDate, selectedCustomerId]); // FIXED: Reload when customer filter changes
+  }, [selectedDate, selectedCustomerId, selectedPaymentChannels]); // FIXED: Reload when customer or payment channel filter changes
 
   // Load customer invoices when customer is selected in transaction form
   useEffect(() => {
@@ -274,12 +280,31 @@ const DailyLedger: React.FC = () => {
         index === self.findIndex(e => e.id === entry.id)
       );
       
-      // FIXED: Apply customer filter if selected
+      // FIXED: Apply customer and payment channel filters if selected
       let filteredEntries = uniqueEntries;
       if (selectedCustomerId) {
-        filteredEntries = uniqueEntries.filter(entry => 
+        filteredEntries = filteredEntries.filter(entry => 
           entry.customer_id === selectedCustomerId
         );
+      }
+      
+      // Apply payment channel filter if channels are selected
+      if (selectedPaymentChannels.length > 0) {
+        filteredEntries = filteredEntries.filter(entry => {
+          // If entry has payment_channel_id, check if it's in selected channels
+          if (entry.payment_channel_id) {
+            return selectedPaymentChannels.includes(entry.payment_channel_id);
+          }
+          // If entry only has payment_method, match by channel name
+          if (entry.payment_method) {
+            const matchedChannel = paymentChannels.find(channel => 
+              channel.name.toLowerCase() === (entry.payment_method || '').toLowerCase() ||
+              channel.type.toLowerCase() === (entry.payment_method || '').toLowerCase()
+            );
+            return matchedChannel ? selectedPaymentChannels.includes(matchedChannel.id) : false;
+          }
+          return false;
+        });
       }
       
       // Sort by time
@@ -828,8 +853,17 @@ const DailyLedger: React.FC = () => {
           }`}>
             {entry.type === 'incoming' ? '+' : '-'}{formatCurrency(entry.amount)}
           </p>
-          {entry.payment_method && (
-            <p className="text-xs text-gray-500">{entry.payment_method}</p>
+          {(entry.payment_method || entry.payment_channel_name) && (
+            <div className="flex items-center space-x-1 text-xs text-gray-500">
+              {entry.payment_channel_name && (
+                <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
+                  {entry.payment_channel_name}
+                </span>
+              )}
+              {entry.payment_method && !entry.payment_channel_name && (
+                <span>{entry.payment_method}</span>
+              )}
+            </div>
           )}
           
           <div className="flex items-center space-x-1 mt-1">
@@ -879,6 +913,13 @@ const DailyLedger: React.FC = () => {
               Filtered by: {customers.find(c => c.id === selectedCustomerId)?.name}
             </p>
           )}
+          {selectedPaymentChannels.length > 0 && (
+            <p className="text-sm text-green-600">
+              Payment Channels: {selectedPaymentChannels.map(id => 
+                paymentChannels.find(c => c.id === id)?.name
+              ).filter(Boolean).join(', ')}
+            </p>
+          )}
         </div>
         
         <div className="flex items-center space-x-3">
@@ -913,6 +954,15 @@ const DailyLedger: React.FC = () => {
             title="Filter by Customer"
           >
             <User className="h-4 w-4" />
+          </button>
+          
+          {/* Payment Channel Filter Button */}
+          <button
+            onClick={() => setShowPaymentChannelFilter(!showPaymentChannelFilter)}
+            className={`p-2 border rounded-lg hover:bg-gray-100 ${selectedPaymentChannels.length > 0 ? 'bg-green-50 border-green-300' : ''}`}
+            title="Filter by Payment Channel"
+          >
+            <TrendingUp className="h-4 w-4" />
           </button>
           
           <button
@@ -972,6 +1022,79 @@ const DailyLedger: React.FC = () => {
                 {customer.name}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Payment Channel Filter Dropdown */}
+      {showPaymentChannelFilter && (
+        <div className="bg-white p-4 rounded-lg border shadow-sm">
+          <h3 className="text-sm font-medium text-gray-900 mb-3">Filter by Payment Channels</h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">
+                {selectedPaymentChannels.length > 0 
+                  ? `${selectedPaymentChannels.length} channel(s) selected` 
+                  : 'No channels selected (showing all)'
+                }
+              </span>
+              <div className="space-x-2">
+                <button
+                  onClick={() => setSelectedPaymentChannels(paymentChannels.map(c => c.id))}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  Select All
+                </button>
+                <button
+                  onClick={() => setSelectedPaymentChannels([])}
+                  className="text-xs text-gray-600 hover:text-gray-700"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+              {paymentChannels.map(channel => (
+                <label
+                  key={channel.id}
+                  className={`flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${
+                    selectedPaymentChannels.includes(channel.id) ? 'bg-green-50 border-green-300' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedPaymentChannels.includes(channel.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedPaymentChannels([...selectedPaymentChannels, channel.id]);
+                      } else {
+                        setSelectedPaymentChannels(selectedPaymentChannels.filter(id => id !== channel.id));
+                      }
+                    }}
+                    className="mr-3 text-green-600 focus:ring-green-500"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center">
+                      <span className="font-medium text-gray-900">{channel.name}</span>
+                      <span className="ml-2 text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">
+                        {channel.type}
+                      </span>
+                    </div>
+                    {channel.description && (
+                      <p className="text-xs text-gray-500 mt-1">{channel.description}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+            
+            {paymentChannels.length === 0 && (
+              <div className="text-center py-4 text-gray-500">
+                <p>No payment channels found.</p>
+                <p className="text-xs mt-1">Set up payment channels to filter transactions.</p>
+              </div>
+            )}
           </div>
         </div>
       )}
