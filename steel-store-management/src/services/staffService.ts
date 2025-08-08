@@ -26,6 +26,7 @@ export interface Staff {
   created_at: string;
   updated_at: string;
   employee_id: string; // Auto-generated, required
+  staff_code?: string; // Unique code
   address?: string;
   cnic?: string;
   emergency_contact?: string;

@@ -5,7 +5,6 @@
  */
 
 import { DatabaseService } from './database';
-import { staffIntegrityManager } from './staff-data-integrity-manager';
 import { auditLogService } from './auditLogService';
 
 // Get database instance
@@ -489,16 +488,17 @@ class SalaryHistoryService {
       
       console.log('Recording payment for staff_id:', data.staff_id, 'amount:', data.payment_amount);
       
-      // PRODUCTION FIX: Ensure staff data integrity before proceeding
-      await staffIntegrityManager.ensureStaffDataIntegrity();
+      // PRODUCTION FIX: Ensure staff data integrity using centralized system
+      await db.ensureCentralizedStaffExist();
       
-      // Get staff information using integrity manager (checks both tables)
-      const staff = await staffIntegrityManager.findStaffById(data.staff_id);
+      // Get staff information using centralized system
+      const allStaff = await db.getCentralizedStaff();
+      const staff = allStaff.find((s: any) => s.id === data.staff_id);
       
       if (!staff) {
-        // Try to get all staff to help with debugging
-        const allStaff = await staffIntegrityManager.getAllActiveStaff();
-        console.warn(`⚠️ [SALARY] Staff member with ID ${data.staff_id} not found. Available staff:`, allStaff.map(s => ({ id: s.id, name: s.full_name, employee_id: s.employee_id })));
+        // Log available staff for debugging
+        console.warn(`⚠️ [SALARY] Staff member with ID ${data.staff_id} not found. Available staff:`, 
+          allStaff.map((s: any) => ({ id: s.id, name: s.full_name, employee_id: s.employee_id })));
         throw new Error(`Staff member not found with ID: ${data.staff_id}. Available staff count: ${allStaff.length}`);
       }
       const baseSalary = staff.salary || 0;

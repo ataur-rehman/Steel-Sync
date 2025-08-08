@@ -118,6 +118,11 @@ class AuditLogService {
       const oldValuesJson = data.old_values ? JSON.stringify(data.old_values) : null;
       const newValuesJson = data.new_values ? JSON.stringify(data.new_values) : null;
 
+      // Generate current date and time for NOT NULL constraints
+      const now = new Date();
+      const currentDate = now.toISOString().split('T')[0]; // YYYY-MM-DD format
+      const currentTime = now.toTimeString().split(' ')[0]; // HH:MM:SS format
+
       // Defensive: Ensure required fields for NOT NULL constraints
       const action = data.action || 'CREATE';
       const entity_type = data.entity_type || 'SYSTEM';
@@ -130,9 +135,9 @@ class AuditLogService {
       await db.executeCommand(
         `INSERT INTO audit_logs (
           user_id, user_name, action, entity_type, entity_id,
-          old_values, new_values, table_name, description, ip_address, user_agent,
-          timestamp, session_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)`,
+          old_values, new_values, entity_name, changes_summary, ip_address, user_agent,
+          timestamp, session_id, date, time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)`,
         [
           user_id,
           user_name,
@@ -141,11 +146,13 @@ class AuditLogService {
           entity_id,
           oldValuesJson,
           newValuesJson,
-          table_name,
-          description,
+          table_name, // Use entity_name field instead of table_name
+          description, // Use changes_summary field instead of description
           data.ip_address || null,
           data.user_agent || null,
-          data.session_id || null
+          data.session_id || null,
+          currentDate, // Provide required date field
+          currentTime  // Provide required time field
         ]
       );
 

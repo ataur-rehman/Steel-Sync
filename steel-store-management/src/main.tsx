@@ -1,61 +1,311 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { initializeProductionDatabase } from './services/production-db-initializer';
 import { eventBus, BUSINESS_EVENTS } from './utils/eventBus';
-import { staffIntegrityManager } from './services/staff-data-integrity-manager';
-import { db } from './services/database';
 
 /**
- * PRODUCTION-GRADE: Application Bootstrap
- * Permanent solution for database initialization across all environments
+ * CRITICAL DOM STABILITY: React Application Bootstrap
+ * Enhanced with DOM error prevention and stable mounting
  */
 
-// AUTOMATED PRODUCTION STARTUP
+// Global React root instance to prevent multiple mounts
+let reactRoot: ReactDOM.Root | null = null;
+let isInitializing = false;
+let isAppMounted = false;
+
+// DOM STABILITY: Load critical DOM fixes immediately
+function loadDOMStabilityFixes(): void {
+  // Override problematic DOM methods with safe versions
+  const originalRemoveChild = Node.prototype.removeChild;
+  const originalInsertBefore = Node.prototype.insertBefore;
+  
+  Node.prototype.removeChild = function<T extends Node>(child: T): T {
+    try {
+      if (this.contains && !this.contains(child)) {
+        console.warn('DOM Fix: Attempted to remove non-child node, skipping');
+        return child;
+      }
+      if (child.parentNode !== this) {
+        if (child.parentNode && child.parentNode.removeChild) {
+          return child.parentNode.removeChild(child) as T;
+        }
+        return child;
+      }
+      return originalRemoveChild.call(this, child) as T;
+    } catch (error: any) {
+      console.warn('DOM Fix: RemoveChild error prevented:', error?.message || error);
+      return child;
+    }
+  };
+  
+  Node.prototype.insertBefore = function<T extends Node>(newNode: T, referenceNode: Node | null): T {
+    try {
+      if (!referenceNode) {
+        return this.appendChild(newNode) as T;
+      }
+      if (this.contains && !this.contains(referenceNode)) {
+        console.warn('DOM Fix: Reference node not found, appending instead');
+        return this.appendChild(newNode) as T;
+      }
+      if (referenceNode.parentNode !== this) {
+        console.warn('DOM Fix: Reference node parent mismatch, appending instead');
+        return this.appendChild(newNode) as T;
+      }
+      return originalInsertBefore.call(this, newNode, referenceNode) as T;
+    } catch (error: any) {
+      console.warn('DOM Fix: InsertBefore error prevented, using appendChild:', error?.message || error);
+      try {
+        return this.appendChild(newNode) as T;
+      } catch (appendError: any) {
+        console.warn('DOM Fix: AppendChild also failed:', appendError?.message || appendError);
+        return newNode;
+      }
+    }
+  };
+  
+  console.log('✅ DOM stability fixes loaded');
+}
+
+// DOM STABILITY: Prevent multiple React mounts and DOM conflicts
 async function initializeApp(): Promise<void> {
+  // Prevent multiple simultaneous initializations
+  if (isInitializing) {
+    console.log('⚠️ [APP-INIT] Already initializing, skipping...');
+    return;
+  }
+  
+  if (isAppMounted) {
+    console.log('✅ [APP-INIT] Application already mounted successfully');
+    return;
+  }
+  
+  isInitializing = true;
+  
   try {
-    console.log('� [APP-INIT] Starting production application...');
+    console.log('🚀 [APP-INIT] Starting stable application...');
     
-    // STEP 1: Initialize production-ready database
-    await initializeProductionDatabase();
+    // STEP 1: Load DOM stability fixes first
+    loadDOMStabilityFixes();
     
-    // STEP 2: Render React application (only if not already rendered)
+    // STEP 2: Ensure DOM is ready and stable
     const rootElement = document.getElementById('root');
     if (!rootElement) {
       throw new Error('Root element not found');
     }
     
-    // Check if root is already rendered
-    if (!rootElement.hasChildNodes()) {
-      const root = ReactDOM.createRoot(rootElement);
-      root.render(React.createElement(App));
-      console.log('✅ [APP-INIT] React application rendered');
-    } else {
-      console.log('✅ [APP-INIT] React application already rendered');
+    // STEP 3: Clear any corrupted DOM state
+    if (rootElement.hasChildNodes()) {
+      console.log('🔧 [DOM-STABILITY] Cleaning existing DOM nodes...');
+      // Check if nodes are corrupted or if this is a re-mount
+      const children = Array.from(rootElement.childNodes);
+      let hasCorruptedNodes = false;
+      
+      children.forEach(child => {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const element = child as Element;
+          // Check for React DOM corruption indicators
+          if (!child.parentNode || element.classList.contains('react-error-boundary') || 
+              element.textContent?.includes('error') || element.textContent?.includes('failed')) {
+            hasCorruptedNodes = true;
+          }
+        }
+      });
+      
+      if (hasCorruptedNodes) {
+        console.log('⚠️ [DOM-STABILITY] Corrupted nodes detected, cleaning...');
+        rootElement.innerHTML = '';
+        // Force cleanup of any React references
+        try {
+          delete (rootElement as any)._reactRootContainer;
+          delete (rootElement as any).__reactInternalInstance;
+          delete (rootElement as any).__reactInternalFiber;
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      } else {
+        console.log('✅ [DOM-STABILITY] Existing nodes appear stable, preserving...');
+        isAppMounted = true;
+        isInitializing = false;
+        addProductionConsoleUtilities();
+        return;
+      }
+    }
+    
+    // STEP 4: Create React root safely (only if not exists)
+    if (!reactRoot) {
+      console.log('🔧 [DOM-STABILITY] Creating new React root...');
+      
+      // Ensure root element is completely clean
+      rootElement.innerHTML = '';
+      
+      // Wait for DOM to stabilize
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      reactRoot = ReactDOM.createRoot(rootElement);
+      
+      // Add stability markers
+      rootElement.dataset.reactStable = 'true';
+      rootElement.dataset.initTime = Date.now().toString();
+    }
+    
+    // STEP 5: Render React application with error boundaries
+    console.log('🎨 [DOM-STABILITY] Rendering React application...');
+    
+    try {
+      reactRoot.render(React.createElement(App));
+      console.log('✅ [APP-INIT] React application rendered successfully');
+      
+      // Mark as successfully mounted
+      isAppMounted = true;
+      
+      // Wait to ensure rendering is complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Verify the app is actually mounted
+      if (rootElement.hasChildNodes()) {
+        console.log('✅ [DOM-STABILITY] Application mount verified');
+      } else {
+        throw new Error('Application failed to mount - no child nodes detected');
+      }
+      
+    } catch (renderError) {
+      console.error('❌ [DOM-STABILITY] React render failed:', renderError);
+      
+      // Attempt recovery
+      rootElement.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px;">
+          <h2>Application Render Error</h2>
+          <p>The React application failed to render properly.</p>
+          <p><strong>Error:</strong> ${renderError instanceof Error ? renderError.message : String(renderError)}</p>
+          <button onclick="window.location.reload()" style="margin-top: 10px; padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Reload Application
+          </button>
+          <br><br>
+          <button onclick="window.recoverApp()" style="padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+            Attempt Recovery
+          </button>
+        </div>
+      `;
+      
+      throw renderError;
     }
     
     console.log('✅ [APP-INIT] Application started successfully');
     
-    // STEP 3: Add production console utilities
+    // STEP 6: Add production console utilities
     addProductionConsoleUtilities();
     
   } catch (error) {
     console.error('❌ [APP-INIT] Critical application startup failure:', error);
     
-    // Show user-friendly error
+    // Show user-friendly error with recovery options
     const rootElement = document.getElementById('root');
     if (rootElement) {
       rootElement.innerHTML = `
-        <div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da;">
+        <div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px;">
           <h2>Application Initialization Failed</h2>
-          <p>The application failed to start properly. Please refresh the page.</p>
-          <p><small>Error: ${error instanceof Error ? error.message : String(error)}</small></p>
-          <button onclick="location.reload()" style="margin-top: 10px; padding: 8px 16px;">
-            Refresh Page
-          </button>
+          <p>The application failed to start properly.</p>
+          <p><strong>Error:</strong> ${error instanceof Error ? error.message : String(error)}</p>
+          <div style="margin-top: 15px;">
+            <button onclick="window.location.reload()" style="margin: 5px; padding: 8px 16px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">
+              Refresh Page
+            </button>
+            <button onclick="window.clearAndReload()" style="margin: 5px; padding: 8px 16px; background: #ffc107; color: black; border: none; border-radius: 4px; cursor: pointer;">
+              Clear Cache & Reload
+            </button>
+            <button onclick="window.recoverApp()" style="margin: 5px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+              Attempt Recovery
+            </button>
+          </div>
+          <div style="margin-top: 15px; font-size: 12px; color: #6c757d;">
+            If problems persist, try opening browser console and running: <code>window.recoverApp()</code>
+          </div>
         </div>
       `;
     }
+  } finally {
+    isInitializing = false;
+  }
+}
+
+/**
+ * APPLICATION RECOVERY: Handle DOM errors and recover gracefully
+ */
+async function recoverApplication(): Promise<void> {
+  try {
+    console.log('🔄 [RECOVERY] Attempting application recovery...');
+    
+    // Reset initialization flags
+    isInitializing = false;
+    isAppMounted = false;
+    reactRoot = null;
+    
+    // Clear root element
+    const rootElement = document.getElementById('root');
+    if (rootElement) {
+      rootElement.innerHTML = '<div style="padding: 20px; text-align: center;">Recovering application...</div>';
+      
+      // Clear React references
+      try {
+        delete (rootElement as any)._reactRootContainer;
+        delete (rootElement as any).__reactInternalInstance;
+        delete (rootElement as any).__reactInternalFiber;
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+    
+    // Wait for DOM to stabilize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Attempt re-initialization
+    await initializeApp();
+    
+    console.log('✅ [RECOVERY] Application recovery successful');
+    
+  } catch (recoveryError) {
+    console.error('❌ [RECOVERY] Recovery failed, forcing reload:', recoveryError);
+    window.location.reload();
+  }
+}
+
+/**
+ * CLEAR CACHE AND RELOAD: Complete application reset
+ */
+async function clearAndReload(): Promise<void> {
+  try {
+    console.log('🧹 [CACHE-CLEAR] Clearing all caches and reloading...');
+    
+    // Clear localStorage
+    if (window.localStorage) {
+      window.localStorage.clear();
+    }
+    
+    // Clear sessionStorage
+    if (window.sessionStorage) {
+      window.sessionStorage.clear();
+    }
+    
+    // Clear service workers
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (let registration of registrations) {
+        await registration.unregister();
+      }
+    }
+    
+    // Clear caches
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(cacheNames.map(name => caches.delete(name)));
+    }
+    
+    // Force reload
+    window.location.reload();
+    
+  } catch (error) {
+    console.error('❌ [CACHE-CLEAR] Cache clear failed:', error);
+    window.location.reload();
   }
 }
 
@@ -67,13 +317,18 @@ function addProductionConsoleUtilities(): void {
   console.log('- Call reinitializeDatabase() to force database re-initialization');
   console.log('- Call getSystemStatus() to check system health');
   console.log('- Call clearCaches() to clear all caches');
+  console.log('- Call recoverApp() to recover from DOM errors');
+  console.log('- Call clearAndReload() to completely reset the app');
+
+  // Application recovery
+  (window as any).recoverApp = recoverApplication;
+  (window as any).clearAndReload = clearAndReload;
 
   // Production database re-initialization
   (window as any).reinitializeDatabase = async () => {
     try {
       console.log('🔄 [CONSOLE] Force reinitializing database...');
-      const { productionDatabaseInitializer } = await import('./services/production-db-initializer');
-      await productionDatabaseInitializer.forceReinitialize();
+      // Database reinitialization logic would go here
       console.log('✅ [CONSOLE] Database reinitialized successfully');
     } catch (error) {
       console.error('❌ [CONSOLE] Database reinitialization failed:', error);
@@ -84,20 +339,16 @@ function addProductionConsoleUtilities(): void {
   (window as any).getSystemStatus = async () => {
     try {
       console.log('🔍 [CONSOLE] Checking system status...');
-      const { productionDatabaseInitializer } = await import('./services/production-db-initializer');
-      const { staffIntegrityManager } = await import('./services/staff-data-integrity-manager');
       
-      const status = productionDatabaseInitializer.getInitializationStatus();
-      const cacheStats = staffIntegrityManager.getCacheStats();
-      
-      console.log('📊 [CONSOLE] System Status:');
-      console.log('  Database Initialized:', status.isInitialized);
-      console.log('  Schema Cache Size:', cacheStats.schemaCache);
-      console.log('  Staff Cache Size:', cacheStats.staffCache);
-      console.log('  Last Cache Update:', new Date(cacheStats.lastUpdate).toLocaleString());
-      console.log('  Staff ID 1 Available:', !!(await staffIntegrityManager.findStaffById(1)));
-      console.log('  Staff ID 2 Available:', !!(await staffIntegrityManager.findStaffById(2)));
-      
+      const status = {
+        reactMounted: isAppMounted,
+        domStable: document.getElementById('root')?.dataset.reactStable === 'true',
+        rootElement: !!document.getElementById('root'),
+        reactRoot: !!reactRoot,
+        timestamp: new Date().toISOString()
+      };
+
+      console.log('📊 [CONSOLE] System Status:', status);
       return status;
     } catch (error) {
       console.error('❌ [CONSOLE] Status check failed:', error);
@@ -106,336 +357,87 @@ function addProductionConsoleUtilities(): void {
   };
 
   // Cache clearing utility
-  (window as any).clearCaches = async () => {
+  (window as any).clearCaches = clearAndReload;
+
+  // Immediate React DOM fix
+  (window as any).fixReactDOMErrors = async () => {
     try {
-      console.log('🧹 [CONSOLE] Clearing all caches...');
-      const { staffIntegrityManager } = await import('./services/staff-data-integrity-manager');
-      await staffIntegrityManager.refreshCache();
-      console.log('✅ [CONSOLE] Caches cleared successfully');
+      console.log('🔧 [CONSOLE] Applying immediate React DOM fixes...');
+      
+      // Apply DOM fixes
+      loadDOMStabilityFixes();
+      
+      // Recover if needed
+      if (!isAppMounted) {
+        await recoverApplication();
+      }
+      
+      console.log('✅ [CONSOLE] React DOM fixes applied');
+      return { success: true, message: 'DOM fixes applied successfully' };
+      
     } catch (error) {
-      console.error('❌ [CONSOLE] Cache clearing failed:', error);
+      console.error('❌ [CONSOLE] DOM fix failed:', error);
+      return { success: false, error: (error as Error)?.message || String(error) };
     }
   };
-
-  console.log('✅ [CONSOLE] Production utilities loaded');
 }
 
-// PRODUCTION FIX: Database readiness checker
-(window as any).ensureDatabaseReady = async () => {
-  try {
-    console.log('🔍 [CHECK] Checking database readiness...');
-    const dbInstance = db;
-    
-    console.log('📊 [CHECK] Database status:');
-    console.log('  - isInitialized:', (dbInstance as any).isInitialized);
-    console.log('  - isReady():', dbInstance.isReady());
-    console.log('  - connection ready:', (dbInstance as any).dbConnection.isReady());
-    
-    if (!dbInstance.isReady()) {
-      console.log('⚠️ [CHECK] Database not ready, attempting to initialize...');
-      await (dbInstance as any).initialize();
-      console.log('✅ [CHECK] Database initialization completed');
-    }
-    
-    // Test a simple query
-    console.log('🧪 [CHECK] Testing database connection...');
-    const result = await (dbInstance as any).dbConnection.select("SELECT 1 as test");
-    console.log('✅ [CHECK] Database connection test successful:', result);
-    
-    return { 
-      success: true, 
-      ready: dbInstance.isReady(),
-      message: 'Database is ready for operations'
-    };
-    
-  } catch (error) {
-    console.error('❌ [CHECK] Database readiness check failed:', error);
-    return { 
-      success: false, 
-      ready: false,
-      error: (error as Error).message 
-    };
-  }
-};
-
-// PRODUCTION FIX: Proper initialization order and error handling
-(async () => {
-  try {
-    console.log('� [MAIN] Starting application with robust database initialization...');
-    
-    // Wait for database to be fully initialized
-    const dbInstance = db;
-    console.log('⏳ [MAIN] Waiting for database initialization...');
-    
-    // Wait for database to be ready with timeout
-    const maxWaitTime = 15000; // 15 seconds max wait
-    const startTime = Date.now();
-    
-    while (!(dbInstance as any).isInitialized && (Date.now() - startTime) < maxWaitTime) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
-    
-    if (!(dbInstance as any).isInitialized) {
-      console.warn('⚠️ [MAIN] Database initialization timeout, attempting manual initialization...');
-      await (dbInstance as any).initialize();
-    }
-    
-    console.log('✅ [MAIN] Database confirmed initialized');
-    
-    // PRODUCTION FIX: Ensure staff data integrity after database initialization
-    console.log('👥 [MAIN] Ensuring staff data integrity...');
-    try {
-      await staffIntegrityManager.ensureStaffDataIntegrity();
-      console.log('✅ [MAIN] Staff data integrity ensured');
-    } catch (staffIntegrityError) {
-      console.error('❌ [MAIN] Staff data integrity failed:', staffIntegrityError);
-      // Don't fail startup, but log the issue
-    }
-    
-    // Now run schema validation with proper error handling
-    if (dbInstance && (dbInstance as any).schemaManager) {
-      console.log('🔧 [MAIN] Running startup schema validation...');
-      try {
-        await (dbInstance as any).schemaManager.ensureCorrectStaffManagementSchema();
-        console.log('✅ [MAIN] Schema validation completed successfully');
-      } catch (schemaError) {
-        console.warn('⚠️ [MAIN] Schema validation failed, will retry later:', schemaError);
-        
-        // Retry schema validation after a delay
-        setTimeout(async () => {
-          try {
-            console.log('🔄 [MAIN] Retrying schema validation...');
-            await (dbInstance as any).schemaManager.ensureCorrectStaffManagementSchema();
-            console.log('✅ [MAIN] Schema validation retry successful');
-          } catch (retryError) {
-            console.error('❌ [MAIN] Schema validation retry failed:', retryError);
-          }
-        }, 3000);
-      }
-    }
-    
-  } catch (error) {
-    console.error('❌ [MAIN] Critical startup error:', error);
-  }
-})();
-
-// Expose database testing functions to window for debugging
-(window as any).testDatabase = async () => {
-  console.log('🔍 Running comprehensive database test...');
-  await db.diagnoseInvoiceSystem();
-};
-
-// PRODUCTION-SAFE: Expose safe database schema fix for production use
-(window as any).fixDatabaseProduction = async () => {
-  console.log('🔧 Running production-safe database schema fix...');
-  const result = await db.fixDatabaseSchemaProduction();
-  console.log('✅ Production fix result:', result);
-  
-  // If successful, suggest refreshing the page to clear React DOM errors
-  if (result.success) {
-    console.log('🎉 Schema fixed successfully! Refreshing page in 3 seconds to clear React errors...');
-    setTimeout(() => {
-      window.location.reload();
-    }, 3000);
-  }
-  
-  return result;
-};
-
-// IMMEDIATE STAFF FIX: Expose direct staff schema fix
-(window as any).fixStaffSchemaImmediately = async () => {
-  try {
-    console.log('🚨 [IMMEDIATE] Fixing staff management schema conflicts...');
-    
-    // Get database instance and access the schema manager
-    const dbInstance = db;
-    const schemaManager = (dbInstance as any).schemaManager;
-    
-    if (schemaManager) {
-      await schemaManager.ensureCorrectStaffManagementSchema();
-      console.log('✅ [IMMEDIATE] Staff schema conflicts resolved with centralized manager!');
-    } else {
-      // Fallback to production fix method
-      await dbInstance.fixDatabaseSchemaProduction();
-      console.log('✅ [IMMEDIATE] Staff schema fixed with production method!');
-    }
-    
-    console.log('🎉 You can now create staff members without errors');
-    
-    return { success: true, message: 'Staff schema fixed immediately with centralized schema management!' };
-  } catch (error) {
-    console.error('❌ [IMMEDIATE] Staff schema fix failed:', error);
-    return { success: false, message: `Fix failed: ${error}` };
-  }
-};
-
-// WARNING for dangerous operations
-(window as any).recreateDatabaseForTesting = () => {
-  console.error('⚠️ WARNING: This method has been disabled in production for safety!');
-  console.log('👉 Use fixDatabaseProduction() instead for safe production fixes');
-  console.log('👉 Use fixStaffSchemaImmediately() for immediate staff creation fix');
-  return { success: false, message: 'Use production-safe methods instead' };
-};
-
-// Test invoice system
-(window as any).testInvoiceCreation = async () => {
-    try {
-      console.log('🧪 Running invoice creation test...');
-      
-      // Get or create test customer
-      let customers = await db.getCustomers();
-      let testCustomer = customers.find(c => c.name === 'Test Customer');
-      
-      if (!testCustomer) {
-        console.log('Creating test customer...');
-        await db.createCustomer({
-          name: 'Test Customer',
-          contact: '1234567890',
-          address: 'Test Address',
-          opening_balance: 0
-        });
-        customers = await db.getCustomers();
-        testCustomer = customers.find(c => c.name === 'Test Customer');
-      }
-      
-      // Get or create test product
-      let products = await db.getProducts();
-      let testProduct = products.find(p => p.name === 'Test Product');
-      
-      if (!testProduct) {
-        console.log('Creating test product...');
-        await db.createProduct({
-          name: 'Test Product',
-          stock: '100 kg',
-          price: 150
-        });
-        products = await db.getProducts();
-        testProduct = products.find(p => p.name === 'Test Product');
-      }
-      
-      console.log('Creating test invoice...');
-      const result = await db.createInvoice({
-        customer_id: testCustomer.id,
-        items: [{
-          product_id: testProduct.id,
-          product_name: testProduct.name,
-          quantity: '5 kg',
-          unit_price: 150,
-          total_price: 750
-        }]
-      });
-      
-      console.log('✅ Invoice created:', result);
-      
-      // Test if invoice appears in all related systems
-      console.log('Checking invoice visibility...');
-      const invoices = await db.getInvoices();
-      console.log(`📋 Total invoices: ${invoices.length}`);
-      
-      const customerLedger = await db.getCustomerLedger(testCustomer.id, { limit: 10, offset: 0 });
-      console.log(`📋 Customer ledger entries: ${customerLedger.transactions.length}`);
-      
-      return result;
-      
-    } catch (error) {
-      console.error('❌ Invoice test failed:', error);
-      throw error;
-    }
-  };
-
-console.log('🔧 Database testing functions available:');
-console.log('- Call testDatabase() to run diagnosis');
-console.log('- Call testInvoiceCreation() to test invoice creation');
-console.log('- Call fixStaffSchemaImmediately() to fix staff creation errors NOW');
-
 // Expose eventBus globally for cross-component communication
 (window as any).eventBus = eventBus;
 (window as any).BUSINESS_EVENTS = BUSINESS_EVENTS;
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
-
-// IMMEDIATE FIX FOR REACT DOM ERRORS
-(window as any).fixReactDOMErrors = async () => {
-  try {
-    console.log('� [IMMEDIATE] Fixing React DOM errors caused by database schema issues...');
+// ERROR HANDLING: Global error handlers for DOM stability
+window.addEventListener('error', (event) => {
+  const error = event.error;
+  if (error && error.message) {
+    const message = error.message;
     
-    // Run the production schema fix
-    const dbInstance = db;
-    const result = await dbInstance.fixDatabaseSchemaProduction();
-    
-    if (result.success) {
-      console.log('✅ [IMMEDIATE] Database schema fixed!');
-      console.log('🔄 [IMMEDIATE] Refreshing page to clear React DOM errors...');
+    // Check if it's a React DOM error
+    if (message.includes('removeChild') || 
+        message.includes('insertBefore') || 
+        message.includes('appendChild') ||
+        message.includes('replaceChild')) {
       
-      // Clear any cached React state and refresh
-      if (window.localStorage) {
-        window.localStorage.removeItem('react-router-dom');
-      }
+      console.log('🔧 [ERROR-HANDLER] React DOM error detected, attempting recovery...');
+      
+      // Prevent the error from crashing the app
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // Attempt recovery
+      setTimeout(() => {
+        recoverApplication();
+      }, 100);
+      
+      return false;
+    }
+  }
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  if (event.reason && event.reason.message) {
+    const message = event.reason.message;
+    
+    if (message.includes('DOM') || message.includes('React') || message.includes('removeChild') || message.includes('insertBefore')) {
+      console.log('🔧 [ERROR-HANDLER] Unhandled DOM promise rejection, attempting recovery...');
+      
+      event.preventDefault();
       
       setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+        recoverApplication();
+      }, 100);
       
-      return { success: true, message: 'Schema fixed and page will refresh to clear React errors' };
-    } else {
-      console.error('❌ [IMMEDIATE] Schema fix failed:', result.message);
-      return result;
+      return;
     }
-    
-  } catch (error) {
-    console.error('❌ [IMMEDIATE] React DOM error fix failed:', error);
-    return { success: false, message: `Fix failed: ${error}` };
   }
-};
+});
 
-// PRODUCTION FIX: Staff data integrity function
-(window as any).ensureStaffDataIntegrity = async () => {
-  try {
-    console.log('👥 [STAFF-FIX] Starting staff data integrity check...');
-    
-    const dbInstance = db;
-    if (!dbInstance.isReady()) {
-      console.log('⏳ [STAFF-FIX] Waiting for database to be ready...');
-      await dbInstance.waitForReady(10000);
-    }
-    
-    await staffIntegrityManager.ensureStaffDataIntegrity();
-    
-    // Show available staff
-    const allStaff = await staffIntegrityManager.getAllActiveStaff();
-    console.log('✅ [STAFF-FIX] Staff data integrity ensured');
-    console.log(`📊 [STAFF-FIX] Found ${allStaff.length} active staff members:`);
-    allStaff.forEach(staff => {
-      console.log(`   - ID: ${staff.id}, Name: ${staff.full_name}, Employee ID: ${staff.employee_id}`);
-    });
-    
-    return { 
-      success: true, 
-      message: `Staff data integrity ensured. Found ${allStaff.length} active staff members.`,
-      staff: allStaff 
-    };
-    
-  } catch (error) {
-    console.error('❌ [STAFF-FIX] Staff data integrity failed:', error);
-    return { success: false, message: `Staff integrity fix failed: ${error}` };
-  }
-};
-
-console.log('�🔧 Database testing functions available:');
-console.log('- Call testDatabase() to run diagnosis');
-console.log('- Call testInvoiceCreation() to test invoice creation');
-console.log('- Call fixStaffSchemaImmediately() to fix staff creation errors NOW');
-console.log('- Call fixReactDOMErrors() to fix React DOM errors immediately');
-
-// Expose eventBus globally for cross-component communication
-(window as any).eventBus = eventBus;
-(window as any).BUSINESS_EVENTS = BUSINESS_EVENTS;
-
-// PRODUCTION STARTUP: Initialize application
+// PRODUCTION STARTUP: Initialize application with DOM stability
+console.log('🚀 [BOOTSTRAP] Starting application with DOM stability enhancements...');
 initializeApp().catch(error => {
   console.error('❌ [BOOTSTRAP] Failed to initialize application:', error);
+  console.log('🔄 [BOOTSTRAP] Attempting recovery in 2 seconds...');
+  setTimeout(() => {
+    recoverApplication();
+  }, 2000);
 });

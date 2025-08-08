@@ -189,7 +189,7 @@ function AppContent() {
 
   return (
     <>
-      <Router>
+      <Router key={user?.id || 'no-user'}>
         <NavigationProvider>
           <AppLayout>
             {/* Development tool: Event Monitor Button (only in development) */}
