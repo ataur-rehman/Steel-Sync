@@ -122,7 +122,6 @@ export const DATABASE_SCHEMAS = {
   CUSTOMERS: `
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      customer_code TEXT UNIQUE,
       name TEXT NOT NULL CHECK (length(name) > 0),
       phone TEXT,
       address TEXT,
@@ -168,7 +167,9 @@ export const DATABASE_SCHEMAS = {
       product_name TEXT NOT NULL,
       quantity TEXT NOT NULL,
       unit_price REAL NOT NULL CHECK (unit_price >= 0),
+      rate REAL NOT NULL CHECK (rate > 0),
       total_price REAL NOT NULL CHECK (total_price >= 0),
+      amount REAL NOT NULL CHECK (amount >= 0),
       unit TEXT DEFAULT 'piece',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -357,7 +358,7 @@ export const DATABASE_SCHEMAS = {
       user_id INTEGER,
       user_name TEXT NOT NULL,
       action TEXT NOT NULL CHECK (action IN ('CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'STATUS_CHANGE')),
-      entity_type TEXT NOT NULL CHECK (entity_type IN ('STAFF', 'CUSTOMER', 'PRODUCT', 'INVOICE', 'PAYMENT', 'SYSTEM')),
+      entity_type TEXT NOT NULL CHECK (entity_type IN ('STAFF', 'CUSTOMER', 'PRODUCT', 'INVOICE', 'PAYMENT', 'SYSTEM', 'VENDOR')),
       entity_id TEXT,
       table_name TEXT,
       old_values TEXT,

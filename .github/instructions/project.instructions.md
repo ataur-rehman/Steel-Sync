@@ -3,7 +3,7 @@ You are working on a production-level application that is currently in the testi
 Optimizing performance and data loading across all pages and components
 
 Ensuring no errors occur even if the database is reset or a new database is created
-
+Solve the issues carefully, in future this issue should not come again.
 Maintaining data integration and consistency
 
 Give permanent fixes that will not require manual intervention in the future

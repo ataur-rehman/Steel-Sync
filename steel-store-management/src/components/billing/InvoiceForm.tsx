@@ -598,6 +598,7 @@ const handleSubmit = async () => {
       payment_channel_id: selectedPaymentChannel?.id || null,
       payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
       notes: formData.notes
+      
     };
     
     console.log('Creating invoice:', invoiceData);

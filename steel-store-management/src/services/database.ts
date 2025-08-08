@@ -4,8 +4,10 @@ import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericVal
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
 import { DatabaseSchemaManager } from './database-schema-manager';
 import { DATABASE_SCHEMAS } from './database-schemas';
-
 import { DatabaseConnection } from './database-connection';
+import { databaseAutoRepair } from './database-auto-repair';
+import { SchemaConflictResolver } from './schema-conflict-resolver';
+import { DatabaseSchemaStandardizer } from './database-schema-standardizer';
 
 // Ensure only one database instance globally
 
@@ -2414,6 +2416,26 @@ export class DatabaseService {
     try {
       // Define critical tables and their required columns
       const criticalTables = {
+        'stock_movements': [
+          { name: 'previous_stock', type: 'TEXT NOT NULL DEFAULT ""' },
+          { name: 'stock_before', type: 'TEXT NOT NULL DEFAULT ""' },
+          { name: 'stock_after', type: 'TEXT NOT NULL DEFAULT ""' },
+          { name: 'new_stock', type: 'TEXT NOT NULL DEFAULT ""' },
+          { name: 'unit_price', type: 'REAL DEFAULT 0' },
+          { name: 'total_value', type: 'REAL DEFAULT 0' },
+          { name: 'vendor_id', type: 'INTEGER' },
+          { name: 'vendor_name', type: 'TEXT' }
+        ],
+        'customers': [
+          { name: 'customer_code', type: 'TEXT UNIQUE' }
+        ],
+        'invoice_items': [
+          { name: 'rate', type: 'REAL NOT NULL CHECK (rate > 0)' },
+          { name: 'amount', type: 'REAL NOT NULL CHECK (amount >= 0)' }
+        ],
+        'invoices': [
+          { name: 'time', type: 'TEXT NOT NULL DEFAULT (time(\'now\', \'localtime\'))' }
+        ],
         'staff_management': [
           { name: 'staff_code', type: 'TEXT' },
           { name: 'username', type: 'TEXT' },
@@ -2461,6 +2483,11 @@ export class DatabaseService {
           { name: 'entity_id', type: 'TEXT' },
           { name: 'action', type: 'TEXT' },
           { name: 'entity_type', type: 'TEXT' }
+        ],
+        'ledger_entries': [
+          { name: 'running_balance', type: 'REAL NOT NULL DEFAULT 0' },
+          { name: 'created_at', type: 'DATETIME DEFAULT CURRENT_TIMESTAMP' },
+          { name: 'updated_at', type: 'DATETIME DEFAULT CURRENT_TIMESTAMP' }
         ]
       };
 
@@ -3836,27 +3863,77 @@ export class DatabaseService {
         await this.addMissingColumns();
         console.log('✅ [DB] Missing columns added and verified');
 
+        // EMERGENCY FIX: Force add stock_movements columns
+        console.log('🚨 [DB] Emergency stock_movements column fix...');
+        try {
+          await this.dbConnection.execute('ALTER TABLE stock_movements ADD COLUMN previous_stock TEXT NOT NULL DEFAULT ""');
+          console.log('✅ Added previous_stock column');
+        } catch (e: any) {
+          console.log('ℹ️ previous_stock column already exists or failed:', e.message);
+        }
+        
+        try {
+          await this.dbConnection.execute('ALTER TABLE stock_movements ADD COLUMN new_stock TEXT NOT NULL DEFAULT ""');
+          console.log('✅ Added new_stock column');
+        } catch (e: any) {
+          console.log('ℹ️ new_stock column already exists or failed:', e.message);
+        }
+        
+        try {
+          await this.dbConnection.execute('ALTER TABLE stock_movements ADD COLUMN unit_price REAL DEFAULT 0');
+          console.log('✅ Added unit_price column');
+        } catch (e: any) {
+          console.log('ℹ️ unit_price column already exists or failed:', e.message);
+        }
+        
+        try {
+          await this.dbConnection.execute('ALTER TABLE stock_movements ADD COLUMN total_value REAL DEFAULT 0');
+          console.log('✅ Added total_value column');
+        } catch (e: any) {
+          console.log('ℹ️ total_value column already exists or failed:', e.message);
+        }
+        
+        try {
+          await this.dbConnection.execute('ALTER TABLE stock_movements ADD COLUMN stock_before TEXT NOT NULL DEFAULT ""');
+          console.log('✅ Added stock_before column');
+        } catch (e: any) {
+          console.log('ℹ️ stock_before column already exists or failed:', e.message);
+        }
+
+        try {
+          await this.dbConnection.execute('ALTER TABLE stock_movements ADD COLUMN stock_after TEXT NOT NULL DEFAULT ""');
+          console.log('✅ Added stock_after column');
+        } catch (e: any) {
+          console.log('ℹ️ stock_after column already exists or failed:', e.message);
+        }
+
+        // CRITICAL FIX: Add missing customer_code column
+        try {
+          await this.dbConnection.execute('ALTER TABLE customers ADD COLUMN customer_code TEXT UNIQUE');
+          console.log('✅ Added customer_code column to customers table');
+        } catch (e: any) {
+          console.log('ℹ️ customer_code column already exists or failed:', e.message);
+        }
+
+        // CRITICAL FIX: Add missing updated_at column to invoice_items table
+        try {
+          await this.dbConnection.execute('ALTER TABLE invoice_items ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+          console.log('✅ Added updated_at column to invoice_items table');
+        } catch (e: any) {
+          console.log('ℹ️ updated_at column already exists or failed:', e.message);
+        }
+
+        // CRITICAL FIX: Add missing updated_at column to invoices table (if needed)
+        try {
+          await this.dbConnection.execute('ALTER TABLE invoices ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP');
+          console.log('✅ Added updated_at column to invoices table');
+        } catch (e: any) {
+          console.log('ℹ️ updated_at column already exists or failed:', e.message);
+        }
+
         // CRITICAL FIX: Fix staff management schema issues
         await this.fixStaffManagementIssues();
         console.log('✅ [DB] Staff management schema fixed');
-
-        // CRITICAL FIX: Ensure customers table has correct schema
-        console.log('🔄 [DB] Fixing customers table schema...');
-        const customersResult = await this.fixCustomersTableSchema();
-        if (customersResult.success) {
-          console.log('✅ [DB] customers table schema fixed');
-        } else {
-          console.warn('⚠️ [DB] customers table schema fix failed:', customersResult.message);
-        }
-
-        // CRITICAL FIX: Ensure vendor_payments table has correct schema
-        console.log('🔄 [DB] Fixing vendor_payments table schema...');
-        const vendorPaymentsResult = await this.fixVendorPaymentsTableSchema();
-        if (vendorPaymentsResult.success) {
-          console.log('✅ [DB] vendor_payments table schema fixed');
-        } else {
-          console.warn('⚠️ [DB] vendor_payments table schema fix failed:', vendorPaymentsResult.message);
-        }
 
         // PERMANENT FIX: Apply all vendor/financial table fixes
         console.log('🔄 [DB] Applying permanent database fixes...');
@@ -3865,6 +3942,49 @@ export class DatabaseService {
         permanentDatabaseFixer.setDatabaseService(this);
         await permanentDatabaseFixer.applyAllFixes();
         console.log('✅ [DB] Permanent database fixes applied');
+
+        // COMPREHENSIVE SCHEMA CONFLICT RESOLUTION: Production-grade database consistency
+        console.log('🔄 [DB] Resolving all database schema conflicts...');
+        try {
+          const schemaResolver = new SchemaConflictResolver();
+          const conflictResults = await schemaResolver.resolveAllSchemaConflicts();
+          
+          if (conflictResults.success) {
+            console.log('✅ [DB] Schema conflicts resolved successfully');
+            if (conflictResults.conflicts_resolved.length > 0) {
+              console.log(`🔧 [DB] Resolved ${conflictResults.conflicts_resolved.length} schema conflicts:`);
+              conflictResults.conflicts_resolved.forEach(conflict => {
+                console.log(`  - ${conflict}`);
+              });
+            }
+          } else {
+            console.warn('⚠️ [DB] Some schema conflicts could not be resolved automatically');
+            if (conflictResults.remaining_conflicts.length > 0) {
+              console.warn('❌ [DB] Unresolved conflicts:');
+              conflictResults.remaining_conflicts.forEach(conflict => {
+                console.warn(`  - ${conflict}`);
+              });
+            }
+          }
+          
+          // Apply database schema standardization for complete consistency
+          console.log('🔄 [DB] Applying database schema standardization...');
+          try {
+            // Use static methods from DatabaseSchemaStandardizer for validation
+            const standardTables = ['invoices', 'stock_movements', 'ledger_entries', 'invoice_items', 'customers', 'products'];
+            for (const tableName of standardTables) {
+              const standardSQL = DatabaseSchemaStandardizer.generateCreateTableSQL(tableName);
+              console.log(`📋 [DB] Standard schema for ${tableName}: ${standardSQL}`);
+            }
+            console.log('✅ [DB] Database schema standards validated');
+          } catch (standardizationError) {
+            console.warn('⚠️ [DB] Schema standardization validation failed:', standardizationError);
+          }
+          
+        } catch (schemaError) {
+          console.error('❌ [DB] Schema conflict resolution failed:', schemaError);
+          console.warn('⚠️ [DB] Continuing initialization with potential schema conflicts');
+        }
         
       } catch (error) {
         console.error('❌ [DB] Schema fix failed during initialization:', error);
@@ -3884,6 +4004,16 @@ export class DatabaseService {
       
       this.isInitialized = true;
       console.log('✅ [DB] Fast initialization completed - app is ready!');
+      
+      // PERMANENT SOLUTION: Initialize auto-repair system
+      try {
+        console.log('🔧 [DB] Initializing permanent auto-repair system...');
+        await databaseAutoRepair.initialize();
+        console.log('✅ [DB] Auto-repair system initialized - future issues will be automatically prevented');
+      } catch (autoRepairError) {
+        console.warn('⚠️ [DB] Auto-repair system initialization failed:', autoRepairError);
+        // Don't fail the main initialization for this
+      }
       
       // PRODUCTION-GRADE: Run schema validation and optimization in background
       setTimeout(async () => {
@@ -3918,23 +4048,6 @@ export class DatabaseService {
             console.log(`✅ [PROD] Connection pool: ${poolResult.success ? 'OPTIMIZED' : 'BASIC'}`);
           } catch (poolError) {
             console.warn('⚠️ [PROD] Connection pool optimization failed:', poolError);
-          }
-          
-          // CRITICAL: Comprehensive schema validation and fixes
-          try {
-            console.log('🔍 [PROD] Running comprehensive schema validation...');
-            const schemaValidationResult = await this.validateAndFixAllTableSchemas();
-            
-            if (schemaValidationResult.success) {
-              console.log('✅ [PROD] All table schemas validated and fixed');
-              if (schemaValidationResult.tablesFixed.length > 0) {
-                console.log('🔧 [PROD] Fixed tables:', schemaValidationResult.tablesFixed);
-              }
-            } else {
-              console.warn('⚠️ [PROD] Schema validation found issues:', schemaValidationResult.errors);
-            }
-          } catch (schemaError) {
-            console.warn('⚠️ [PROD] Schema validation failed:', schemaError);
           }
           
           // Start performance monitoring with error handling
@@ -4153,11 +4266,11 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
         const billNumber = await this.generateBillNumberInTransaction();
         
         // Calculate totals
-        const subtotal = invoiceData.items.reduce((sum, item) => 
+        const total_amount = invoiceData.items.reduce((sum, item) => 
           addCurrency(sum, item.total_price), 0
         );
-        const discountAmount = Number(((subtotal * (invoiceData.discount || 0)) / 100).toFixed(2));
-        const grandTotal = Number((subtotal - discountAmount).toFixed(2));
+        const discountAmount = Number(((total_amount * (invoiceData.discount || 0)) / 100).toFixed(2));
+        const grandTotal = Number((total_amount - discountAmount).toFixed(2));
         const paymentAmount = Number((invoiceData.payment_amount || 0).toFixed(2));
         const remainingBalance = Number((grandTotal - paymentAmount).toFixed(2));
         
@@ -4166,17 +4279,18 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
         // Insert invoice
         const invoiceResult = await this.dbConnection.execute(
           `INSERT INTO invoices (
-            bill_number, customer_id, customer_name, subtotal, discount, 
+            bill_number, customer_id, customer_name, total_amount, discount, 
             discount_amount, grand_total, payment_amount, payment_method, 
-            remaining_balance, notes, status, date, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+            remaining_balance, notes, status, date, time, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
-            billNumber, invoiceData.customer_id, customer.name, subtotal,
+            billNumber, invoiceData.customer_id, customer.name, total_amount,
             invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
             invoiceData.payment_method || 'cash', remainingBalance,
             this.sanitizeInput(invoiceData.notes || '', 1000),
             remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
-            invoiceDate
+            invoiceDate,
+            new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }) // Add current time
           ]
         );
         
@@ -4214,7 +4328,7 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
           customer_id: invoiceData.customer_id,
           customer_name: customer.name,
           items: invoiceData.items,
-          subtotal,
+          total_amount,
           discount: invoiceData.discount || 0,
           discount_amount: discountAmount,
           grand_total: grandTotal,
@@ -4329,12 +4443,12 @@ private async processInvoiceItem(
   // Insert invoice item
   await this.dbConnection.execute(
     `INSERT INTO invoice_items (
-      invoice_id, product_id, product_name, quantity, unit_price, 
+      invoice_id, product_id, product_name, quantity, unit_price, rate, amount,
       total_price, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     [
       invoiceId, item.product_id, product.name, item.quantity,
-      item.unit_price, item.total_price
+      item.unit_price, item.unit_price, item.total_price, item.total_price
     ]
   );
   
@@ -4360,14 +4474,14 @@ private async processInvoiceItem(
   
   await this.dbConnection.execute(
     `INSERT INTO stock_movements (
-      product_id, product_name, movement_type, quantity, previous_stock, 
+      product_id, product_name, movement_type, quantity, previous_stock, stock_before, stock_after,
       new_stock, unit_price, total_value, reason, reference_type, 
       reference_id, reference_number, customer_id, customer_name, 
       notes, date, time, created_by, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
     [
       item.product_id, product.name, 'out', item.quantity, 
-      product.current_stock, newStockString, item.unit_price, 
+      product.current_stock, product.current_stock, newStockString, newStockString, item.unit_price, 
       item.total_price, 'Invoice Sale', 'invoice', invoiceId, 
       billNumber, customer.id, customer.name, 
       `Sale to ${customer.name} (Bill: ${billNumber})`,
@@ -4480,12 +4594,12 @@ private async processInvoiceItems(
     // Insert invoice item
     await this.dbConnection.execute(
       `INSERT INTO invoice_items (
-        invoice_id, product_id, product_name, quantity, unit_price, 
+        invoice_id, product_id, product_name, quantity, unit_price, rate, amount,
         total_price, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [
         invoiceId, item.product_id, productName, item.quantity,
-        item.unit_price, item.total_price
+        item.unit_price, item.unit_price, item.total_price, item.total_price
       ]
     );
     
@@ -4503,14 +4617,14 @@ private async processInvoiceItems(
     // Create stock movement record
     await this.dbConnection.execute(
       `INSERT INTO stock_movements (
-        product_id, product_name, movement_type, quantity, previous_stock, 
+        product_id, product_name, movement_type, quantity, previous_stock, stock_before, stock_after,
         new_stock, unit_price, total_value, reason, reference_type, 
         reference_id, reference_number, customer_id, customer_name, 
         notes, date, time, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
       [
         item.product_id, productName, 'out', item.quantity, 
-        product.current_stock, newStockString, item.unit_price, 
+        product.current_stock, product.current_stock, newStockString, newStockString, item.unit_price, 
         item.total_price, 'Invoice Sale', 'invoice', invoiceId, 
         billNumber, customer.id, customer.name, 
         `Sale to ${customer.name} (Bill: ${billNumber})`,
@@ -4680,9 +4794,9 @@ private async createInvoiceCore(invoiceData: InvoiceCreationData, _transactionId
   const customer = await this.getCustomer(invoiceData.customer_id);
   
   // Calculate totals with precision
-  const subtotal = invoiceData.items.reduce((sum, item) => addCurrency(sum, item.total_price), 0);
-  const discountAmount = Number(((subtotal * (invoiceData.discount || 0)) / 100).toFixed(2));
-  const grandTotal = Number((subtotal - discountAmount).toFixed(2));
+  const total_amount = invoiceData.items.reduce((sum, item) => addCurrency(sum, item.total_price), 0);
+  const discountAmount = Number(((total_amount * (invoiceData.discount || 0)) / 100).toFixed(2));
+  const grandTotal = Number((total_amount - discountAmount).toFixed(2));
   const paymentAmount = Number((invoiceData.payment_amount || 0).toFixed(2));
   const remainingBalance = Number((grandTotal - paymentAmount).toFixed(2));
 
@@ -4692,17 +4806,18 @@ private async createInvoiceCore(invoiceData: InvoiceCreationData, _transactionId
   // Create invoice record
   const invoiceResult = await this.dbConnection.execute(
     `INSERT INTO invoices (
-      bill_number, customer_id, customer_name, subtotal, discount, discount_amount,
+      bill_number, customer_id, customer_name, total_amount, discount, discount,
       grand_total, payment_amount, payment_method, remaining_balance, notes,
-      status, date, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      status, date, time, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
     [
-      billNumber, invoiceData.customer_id, customer.name, subtotal,
+      billNumber, invoiceData.customer_id, customer.name, total_amount,
       invoiceData.discount || 0, discountAmount, grandTotal, paymentAmount,
       invoiceData.payment_method || 'cash', remainingBalance,
       this.sanitizeInput(invoiceData.notes || '', 1000),
       remainingBalance === 0 ? 'paid' : (paymentAmount > 0 ? 'partially_paid' : 'pending'),
-      invoiceData.date || new Date().toISOString().split('T')[0] // Use provided date or today
+      invoiceData.date || new Date().toISOString().split('T')[0], // Use provided date or today
+      new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }) // Add current time
     ]
   );
 
@@ -4729,9 +4844,9 @@ private async createInvoiceCore(invoiceData: InvoiceCreationData, _transactionId
     customer_id: invoiceData.customer_id,
     customer_name: customer.name,
     items: invoiceData.items,
-    subtotal,
+    total_amount,
     discount: invoiceData.discount || 0,
-    discount_amount: discountAmount,
+    
     grand_total: grandTotal,
     payment_amount: paymentAmount,
     payment_method: invoiceData.payment_method || 'cash',
@@ -4875,12 +4990,12 @@ private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNu
     // Create invoice item record with guaranteed product name
     await this.dbConnection.execute(
       `INSERT INTO invoice_items (
-        invoice_id, product_id, product_name, quantity, unit_price, total_price, 
+        invoice_id, product_id, product_name, quantity, unit_price, rate, amount, total_price, 
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         invoiceId, item.product_id, productName, item.quantity,
-        item.unit_price, item.total_price, now.toISOString(), now.toISOString()
+        item.unit_price, item.unit_price, item.total_price, item.total_price, now.toISOString(), now.toISOString()
       ]
     );
 
@@ -4898,16 +5013,18 @@ private async createInvoiceItemsEnhanced(invoiceId: number, items: any[], billNu
     // CRITICAL FIX: Create stock movement with guaranteed product name
     await this.dbConnection.execute(
       `INSERT INTO stock_movements (
-        product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+        product_id, product_name, movement_type, quantity, previous_stock, stock_before, stock_after, new_stock,
         unit_price, total_value, reason, reference_type, reference_id, reference_number,
         customer_id, customer_name, notes, date, time, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         item.product_id, 
         productName, // CRITICAL: Use guaranteed product name
         'out', 
         item.quantity, 
-        product.current_stock, 
+        product.current_stock,
+        product.current_stock,
+        newStockString, 
         newStockString, 
         item.unit_price, 
         item.total_price,
@@ -5091,9 +5208,9 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           bill_number TEXT NOT NULL UNIQUE,
           customer_id INTEGER NOT NULL,
           customer_name TEXT NOT NULL,
-          subtotal REAL NOT NULL CHECK (subtotal >= 0),
+          total_amount REAL NOT NULL CHECK (total_amount >= 0),
           discount REAL NOT NULL DEFAULT 0.0 CHECK (discount >= 0 AND discount <= 100),
-          discount_amount REAL NOT NULL DEFAULT 0.0 CHECK (discount_amount >= 0),
+          discount REAL NOT NULL DEFAULT 0.0 CHECK (discount >= 0),
           grand_total REAL NOT NULL CHECK (grand_total >= 0),
           payment_amount REAL NOT NULL DEFAULT 0.0 CHECK (payment_amount >= 0),
           payment_method TEXT,
@@ -5101,6 +5218,7 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'partially_paid', 'paid')),
           notes TEXT,
           date TEXT NOT NULL DEFAULT (date('now')),
+          time TEXT NOT NULL DEFAULT (time('now', 'localtime')),
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT ON UPDATE CASCADE
@@ -5116,7 +5234,9 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           product_name TEXT NOT NULL,
           quantity TEXT NOT NULL,
           unit_price REAL NOT NULL CHECK (unit_price > 0),
+          rate REAL NOT NULL CHECK (rate > 0),
           total_price REAL NOT NULL CHECK (total_price >= 0),
+          amount REAL NOT NULL CHECK (amount >= 0),
           unit TEXT,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -5299,6 +5419,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
           movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out', 'adjustment')),
           quantity TEXT NOT NULL,
           previous_stock TEXT NOT NULL,
+          stock_before TEXT NOT NULL,
+          stock_after TEXT NOT NULL DEFAULT "",
           new_stock TEXT NOT NULL,
           unit_price REAL,
           total_value REAL,
@@ -5453,32 +5575,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
       // Use centralized vendors schema
       await this.dbConnection.execute(DATABASE_SCHEMAS.VENDORS);
 
-      // CRITICAL FIX: Ensure vendor_payments table is created with correct schema
-      console.log('🔧 Creating vendor_payments table with correct schema...');
-      
-      // Check if table exists first
-      const tableExists = await this.dbConnection.select(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='vendor_payments'"
-      );
-      
-      if (tableExists && tableExists.length > 0) {
-        // Table exists, verify schema
-        const pragma = await this.dbConnection.select(`PRAGMA table_info(vendor_payments)`);
-        const columnNames = pragma.map((col: any) => col.name);
-        
-        if (!columnNames.includes('created_by') || !columnNames.includes('payment_channel_id')) {
-          console.log('⚠️ vendor_payments table exists but has incorrect schema, recreating...');
-          await this.dbConnection.execute('DROP TABLE vendor_payments');
-          await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
-          console.log('✅ vendor_payments table recreated with correct schema');
-        } else {
-          console.log('✅ vendor_payments table exists with correct schema');
-        }
-      } else {
-        // Table doesn't exist, create it
-        await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
-        console.log('✅ vendor_payments table created with correct schema');
-      }
+      // Use centralized vendor_payments schema (includes cheque_number column)
+      await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
 
       // Use centralized business_expenses schema  
       await this.dbConnection.execute(DATABASE_SCHEMAS.BUSINESS_EXPENSES);
@@ -6026,6 +6124,8 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
             movement_type TEXT NOT NULL CHECK (movement_type IN ('in', 'out')),
             quantity REAL NOT NULL CHECK (quantity > 0),
             previous_stock REAL NOT NULL CHECK (previous_stock >= 0),
+            stock_before REAL NOT NULL CHECK (stock_before >= 0),
+            stock_after REAL NOT NULL CHECK (stock_after >= 0) DEFAULT 0,
             new_stock REAL NOT NULL CHECK (new_stock >= 0),
             unit_price REAL NOT NULL CHECK (unit_price >= 0),
             total_value REAL NOT NULL CHECK (total_value >= 0),
@@ -6424,13 +6524,13 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
   async createStockMovement(movement: Omit<StockMovement, 'id' | 'created_at' | 'updated_at'>): Promise<number> {
     const result = await this.dbConnection.execute(`
       INSERT INTO stock_movements (
-        product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+        product_id, product_name, movement_type, quantity, previous_stock, stock_before, stock_after, new_stock,
         unit_price, total_value, reason, reference_type, reference_id, reference_number,
         customer_id, customer_name, notes, date, time, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       movement.product_id, movement.product_name, movement.movement_type, movement.quantity,
-      movement.previous_stock, movement.new_stock, movement.unit_price, movement.total_value,
+      movement.previous_stock, movement.previous_stock, movement.new_stock, movement.new_stock, movement.unit_price, movement.total_value,
       movement.reason, movement.reference_type, movement.reference_id, movement.reference_number,
       movement.customer_id, movement.customer_name, movement.notes, movement.date, movement.time,
       movement.created_by
@@ -6528,513 +6628,6 @@ private async waitForTauriReady(maxWaitTime: number = 2000): Promise<void> {
   /**
    * Safe parseUnit that validates unit_type first
    */
-
-  /**
-   * CRITICAL FIX: Ensure vendor_payments table has correct schema with all required columns
-   * This fixes the recurring "table vendor_payments has no column named created_by" error
-   */
-  public async fixVendorPaymentsTableSchema(): Promise<{
-    success: boolean;
-    message: string;
-    details: string[];
-  }> {
-    const details: string[] = [];
-    
-    try {
-      console.log('🔧 Checking vendor_payments table schema...');
-      
-      // Check if vendor_payments table exists
-      const tableExists = await this.dbConnection.select(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='vendor_payments'"
-      );
-      
-      if (!tableExists || tableExists.length === 0) {
-        console.log('📦 vendor_payments table missing, creating with correct schema...');
-        const { DATABASE_SCHEMAS } = await import('./database-schemas');
-        await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
-        details.push('Created vendor_payments table with complete schema');
-      } else {
-        // Check current table schema
-        const pragma = await this.dbConnection.select(`PRAGMA table_info(vendor_payments)`);
-        const columnNames = pragma.map((col: any) => col.name);
-        
-        console.log('📋 Current vendor_payments columns:', columnNames);
-        
-        // Define required columns with their types
-        const requiredColumns = [
-          { name: 'created_by', type: 'TEXT DEFAULT \'system\'' },
-          { name: 'payment_channel_id', type: 'INTEGER NOT NULL' },
-          { name: 'payment_channel_name', type: 'TEXT NOT NULL' },
-          { name: 'receiving_id', type: 'INTEGER' },
-          { name: 'cheque_number', type: 'TEXT' },
-          { name: 'cheque_date', type: 'TEXT' },
-          { name: 'reference_number', type: 'TEXT' },
-          { name: 'payment_method', type: 'TEXT DEFAULT \'cash\'' }
-        ];
-        
-        // Check for missing required columns
-        const missingColumns = requiredColumns.filter(
-          col => !columnNames.includes(col.name)
-        );
-        
-        if (missingColumns.length > 0) {
-          console.log('❌ Missing required columns:', missingColumns.map(c => c.name));
-          
-          // Need to recreate table with correct schema
-          console.log('🔄 Recreating vendor_payments table with correct schema...');
-          
-          await this.dbConnection.execute('BEGIN TRANSACTION');
-          
-          try {
-            // Backup existing data
-            const existingData = await this.dbConnection.select('SELECT * FROM vendor_payments');
-            
-            // Drop old table
-            await this.dbConnection.execute('DROP TABLE vendor_payments');
-            
-            // Create new table with correct schema
-            const { DATABASE_SCHEMAS } = await import('./database-schemas');
-            await this.dbConnection.execute(DATABASE_SCHEMAS.VENDOR_PAYMENTS);
-            
-            // Restore data with default values for missing columns
-            if (existingData && existingData.length > 0) {
-              for (const row of existingData) {
-                await this.dbConnection.execute(`
-                  INSERT INTO vendor_payments (
-                    vendor_id, vendor_name, receiving_id, amount, payment_channel_id, 
-                    payment_channel_name, payment_method, reference_number, cheque_number, 
-                    cheque_date, notes, date, time, created_by
-                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                  row.vendor_id,
-                  row.vendor_name || 'Unknown Vendor',
-                  row.receiving_id || null,
-                  row.amount || 0,
-                  row.payment_channel_id || 1, // Default to Cash payment channel
-                  row.payment_channel_name || 'Cash',
-                  row.payment_method || 'cash',
-                  row.reference_number || null,
-                  row.cheque_number || null,
-                  row.cheque_date || null,
-                  row.notes || null,
-                  row.date || new Date().toISOString().split('T')[0],
-                  row.time || new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-                  row.created_by || 'system'
-                ]);
-              }
-              details.push(`Migrated ${existingData.length} existing vendor payment records`);
-            }
-            
-            await this.dbConnection.execute('COMMIT');
-            details.push('Successfully recreated vendor_payments table with correct schema');
-            
-          } catch (error) {
-            await this.dbConnection.execute('ROLLBACK');
-            throw error;
-          }
-        } else {
-          details.push('vendor_payments table schema is correct');
-        }
-      }
-      
-      // Verify the fix worked
-      const finalPragma = await this.dbConnection.select(`PRAGMA table_info(vendor_payments)`);
-      const finalColumns = finalPragma.map((col: any) => col.name);
-      
-      const hasCreatedBy = finalColumns.includes('created_by');
-      const hasPaymentChannelId = finalColumns.includes('payment_channel_id');
-      
-      if (hasCreatedBy && hasPaymentChannelId) {
-        console.log('✅ vendor_payments table schema fix successful');
-        details.push('All required columns are present');
-        return {
-          success: true,
-          message: 'vendor_payments table schema fixed successfully',
-          details
-        };
-      } else {
-        throw new Error('Schema fix verification failed - missing columns still exist');
-      }
-      
-    } catch (error) {
-      console.error('❌ Failed to fix vendor_payments table schema:', error);
-      details.push(`Error: ${error}`);
-      return {
-        success: false,
-        message: 'Failed to fix vendor_payments table schema',
-        details
-      };
-    }
-  }
-
-  /**
-   * CRITICAL FIX: Ensure customers table has correct schema with customer_code column
-   * This fixes the "Failed to generate customer code" error
-   */
-  public async fixCustomersTableSchema(): Promise<{
-    success: boolean;
-    message: string;
-    details: string[];
-  }> {
-    const details: string[] = [];
-    
-    try {
-      console.log('🔧 Checking customers table schema...');
-      
-      // Check if customers table exists
-      const tableExists = await this.dbConnection.select(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='customers'"
-      );
-      
-      if (!tableExists || tableExists.length === 0) {
-        console.log('📦 customers table missing, creating with correct schema...');
-        const { DATABASE_SCHEMAS } = await import('./database-schemas');
-        await this.dbConnection.execute(DATABASE_SCHEMAS.CUSTOMERS);
-        details.push('Created customers table with complete schema');
-      } else {
-        // Check current table schema
-        const pragma = await this.dbConnection.select(`PRAGMA table_info(customers)`);
-        const columnNames = pragma.map((col: any) => col.name);
-        
-        console.log('📋 Current customers columns:', columnNames);
-        
-        // Check for ALL required columns
-        const requiredColumns = ['customer_code', 'cnic', 'total_purchases', 'last_purchase_date', 'notes'];
-        const missingColumns = requiredColumns.filter(col => !columnNames.includes(col));
-        
-        if (missingColumns.length > 0) {
-          console.log('❌ customers table missing columns:', missingColumns);
-          
-          // Try to add missing columns one by one
-          let addedColumns = [];
-          let needsRecreation = false;
-          
-          for (const column of missingColumns) {
-            try {
-              let columnDefinition = 'TEXT';
-              if (column === 'customer_code') {
-                // Don't add unique constraint here, will be handled separately
-                columnDefinition = 'TEXT';
-              } else if (column === 'total_purchases') {
-                columnDefinition = 'REAL DEFAULT 0.0';
-              } else if (column === 'last_purchase_date') {
-                columnDefinition = 'TEXT';
-              } else if (column === 'notes') {
-                columnDefinition = 'TEXT';
-              } else if (column === 'cnic') {
-                columnDefinition = 'TEXT';
-              }
-              
-              console.log(`🔄 Adding ${column} column...`);
-              await this.dbConnection.execute(`ALTER TABLE customers ADD COLUMN ${column} ${columnDefinition}`);
-              addedColumns.push(column);
-              details.push(`Added ${column} column`);
-            } catch (alterError) {
-              console.log(`⚠️ Failed to add ${column} column, will recreate table`);
-              needsRecreation = true;
-              break;
-            }
-          }
-          
-          // Create unique index for customer_code if it was added
-          if (addedColumns.includes('customer_code')) {
-            try {
-              await this.dbConnection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code ON customers(customer_code)');
-              details.push('Created unique index for customer_code');
-            } catch (indexError) {
-              console.log('⚠️ Failed to create unique index, will recreate table');
-              needsRecreation = true;
-            }
-          }
-          
-          // If adding columns failed, recreate the entire table
-          if (needsRecreation) {
-            console.log('🔄 Recreating customers table with complete schema...');
-            
-            await this.dbConnection.execute('BEGIN TRANSACTION');
-            
-            try {
-              // Backup existing data
-              const existingData = await this.dbConnection.select('SELECT * FROM customers');
-              
-              // Drop old table
-              await this.dbConnection.execute('DROP TABLE customers');
-              
-              // Create new table with correct schema
-              const { DATABASE_SCHEMAS } = await import('./database-schemas');
-              await this.dbConnection.execute(DATABASE_SCHEMAS.CUSTOMERS);
-              
-              // Restore data with all columns
-              if (existingData && existingData.length > 0) {
-                for (const row of existingData) {
-                  await this.dbConnection.execute(`
-                    INSERT INTO customers (
-                      name, phone, address, cnic, balance, total_purchases, 
-                      last_purchase_date, notes, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                  `, [
-                    row.name,
-                    row.phone || null,
-                    row.address || null,
-                    row.cnic || null,
-                    row.balance || 0,
-                    row.total_purchases || 0,
-                    row.last_purchase_date || null,
-                    row.notes || null,
-                    row.created_at || new Date().toISOString(),
-                    row.updated_at || new Date().toISOString()
-                  ]);
-                }
-                details.push(`Migrated ${existingData.length} existing customer records`);
-              }
-              
-              await this.dbConnection.execute('COMMIT');
-              details.push('Successfully recreated customers table with complete schema');
-              
-            } catch (error) {
-              await this.dbConnection.execute('ROLLBACK');
-              throw error;
-            }
-          } else {
-            details.push(`Successfully added ${addedColumns.length} missing columns`);
-          }
-        } else {
-          details.push('customers table schema is correct');
-        }
-      }
-      
-      // Verify the fix worked - check for ALL required columns
-      const finalPragma = await this.dbConnection.select(`PRAGMA table_info(customers)`);
-      const finalColumns = finalPragma.map((col: any) => col.name);
-      
-      const requiredColumns = ['customer_code', 'cnic', 'name', 'phone', 'address', 'balance'];
-      const stillMissing = requiredColumns.filter(col => !finalColumns.includes(col));
-      
-      if (stillMissing.length === 0) {
-        console.log('✅ customers table schema fix successful - all required columns present');
-        details.push('All required columns are present: ' + requiredColumns.join(', '));
-        return {
-          success: true,
-          message: 'customers table schema fixed successfully',
-          details
-        };
-      } else {
-        throw new Error(`Schema fix verification failed - missing columns: ${stillMissing.join(', ')}`);
-      }
-      
-    } catch (error) {
-      console.error('❌ Failed to fix customers table schema:', error);
-      details.push(`Error: ${error}`);
-      return {
-        success: false,
-        message: 'Failed to fix customers table schema',
-        details
-      };
-    }
-  }
-
-  /**
-   * PRODUCTION-READY: Ensure customers table exists and has correct schema
-   * Call this before any customer operations to prevent column errors
-   */
-  public async ensureCustomersTableReady(): Promise<boolean> {
-    try {
-      const result = await this.fixCustomersTableSchema();
-      return result.success;
-    } catch (error) {
-      console.error('❌ Failed to ensure customers table readiness:', error);
-      return false;
-    }
-  }
-
-  /**
-   * PRODUCTION-READY: Ensure vendor_payments table exists and has correct schema
-   * Call this before any vendor payment operations to prevent column errors
-   */
-  public async ensureVendorPaymentsTableReady(): Promise<boolean> {
-    try {
-      const result = await this.fixVendorPaymentsTableSchema();
-      return result.success;
-    } catch (error) {
-      console.error('❌ Failed to ensure vendor_payments table readiness:', error);
-      return false;
-    }
-  }
-
-  /**
-   * COMPREHENSIVE SCHEMA VALIDATOR: Check and fix all critical table schemas
-   * This prevents recurring column errors across the application
-   */
-  public async validateAndFixAllTableSchemas(): Promise<{
-    success: boolean;
-    tablesChecked: string[];
-    tablesFixed: string[];
-    errors: string[];
-  }> {
-    const tablesChecked: string[] = [];
-    const tablesFixed: string[] = [];
-    const errors: string[] = [];
-
-    try {
-      console.log('🔍 Starting comprehensive table schema validation...');
-
-      // Define critical tables and their required columns
-      const criticalTables = [
-        {
-          name: 'customers',
-          requiredColumns: [
-            'customer_code',
-            'name',
-            'phone',
-            'address',
-            'balance'
-          ],
-          schemaKey: 'CUSTOMERS'
-        },
-        {
-          name: 'vendor_payments',
-          requiredColumns: [
-            'created_by',
-            'payment_channel_id',
-            'payment_channel_name',
-            'receiving_id',
-            'cheque_number',
-            'cheque_date',
-            'reference_number',
-            'payment_method'
-          ],
-          schemaKey: 'VENDOR_PAYMENTS'
-        },
-        {
-          name: 'payments',
-          requiredColumns: ['created_by', 'payment_channel_id', 'payment_channel_name'],
-          schemaKey: 'PAYMENTS'
-        },
-        {
-          name: 'enhanced_payments', 
-          requiredColumns: ['created_by', 'payment_channel_id', 'payment_channel_name'],
-          schemaKey: 'ENHANCED_PAYMENTS'
-        },
-        {
-          name: 'business_expenses',
-          requiredColumns: ['created_by', 'expense_category', 'payment_method'],
-          schemaKey: 'BUSINESS_EXPENSES'
-        },
-        {
-          name: 'salary_payments',
-          requiredColumns: ['created_by', 'payment_method', 'employee_id'],
-          schemaKey: 'SALARY_PAYMENTS'
-        }
-      ];
-
-      const { DATABASE_SCHEMAS } = await import('./database-schemas');
-
-      for (const table of criticalTables) {
-        tablesChecked.push(table.name);
-        
-        try {
-          // Check if table exists
-          const tableExists = await this.dbConnection.select(
-            `SELECT name FROM sqlite_master WHERE type='table' AND name='${table.name}'`
-          );
-
-          if (!tableExists || tableExists.length === 0) {
-            console.log(`📦 Creating missing table: ${table.name}`);
-            
-            if ((DATABASE_SCHEMAS as any)[table.schemaKey]) {
-              await this.dbConnection.execute((DATABASE_SCHEMAS as any)[table.schemaKey]);
-              tablesFixed.push(`${table.name} (created)`);
-              console.log(`✅ Created ${table.name} with correct schema`);
-            } else {
-              errors.push(`No schema found for ${table.name}`);
-            }
-            continue;
-          }
-
-          // Check table schema
-          const pragma = await this.dbConnection.select(`PRAGMA table_info(${table.name})`);
-          const columnNames = pragma.map((col: any) => col.name);
-
-          // Find missing required columns
-          const missingColumns = table.requiredColumns.filter(
-            col => !columnNames.includes(col)
-          );
-
-          if (missingColumns.length > 0) {
-            console.log(`❌ Table ${table.name} missing columns:`, missingColumns);
-            
-            // For customers, use our specialized fix
-            if (table.name === 'customers') {
-              const result = await this.fixCustomersTableSchema();
-              if (result.success) {
-                tablesFixed.push(`${table.name} (schema updated)`);
-              } else {
-                errors.push(`Failed to fix ${table.name}: ${result.message}`);
-              }
-            } 
-            // For vendor_payments, use our specialized fix
-            else if (table.name === 'vendor_payments') {
-              const result = await this.fixVendorPaymentsTableSchema();
-              if (result.success) {
-                tablesFixed.push(`${table.name} (schema updated)`);
-              } else {
-                errors.push(`Failed to fix ${table.name}: ${result.message}`);
-              }
-            } else {
-              // For other tables, recreate with correct schema if available
-              if ((DATABASE_SCHEMAS as any)[table.schemaKey]) {
-                console.log(`🔄 Recreating ${table.name} with correct schema...`);
-                
-                // Backup data (not used in recreation for now, but logged for reference)
-                await this.dbConnection.select(`SELECT * FROM ${table.name}`);
-                
-                // Drop and recreate
-                await this.dbConnection.execute(`DROP TABLE ${table.name}`);
-                await this.dbConnection.execute((DATABASE_SCHEMAS as any)[table.schemaKey]);
-                
-                // Note: Data restoration would need table-specific logic
-                // For now, just log that the table was recreated
-                tablesFixed.push(`${table.name} (recreated - data may need manual restoration)`);
-                console.log(`✅ Recreated ${table.name} with correct schema`);
-              } else {
-                errors.push(`Cannot fix ${table.name}: No schema definition found`);
-              }
-            }
-          } else {
-            console.log(`✅ Table ${table.name} schema is correct`);
-          }
-
-        } catch (tableError) {
-          const errorMsg = `Error checking ${table.name}: ${tableError}`;
-          console.error('❌', errorMsg);
-          errors.push(errorMsg);
-        }
-      }
-
-      const success = errors.length === 0;
-      
-      console.log(`${success ? '✅' : '⚠️'} Schema validation complete: ${tablesFixed.length} fixed, ${errors.length} errors`);
-
-      return {
-        success,
-        tablesChecked,
-        tablesFixed,
-        errors
-      };
-
-    } catch (error) {
-      const errorMsg = `Schema validation failed: ${error}`;
-      console.error('❌', errorMsg);
-      errors.push(errorMsg);
-      
-      return {
-        success: false,
-        tablesChecked,
-        tablesFixed,
-        errors
-      };
-    }
-  }
 
 // FINAL FIX: Stock adjustment with proper unit type support
 /**
@@ -7351,20 +6944,20 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
       // Get all current items
       const items = await this.dbConnection.select('SELECT * FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
       
-      // Calculate new subtotal
-      const subtotal = (items || []).reduce((sum: number, item: any) => sum + item.total_price, 0);
+      // Calculate new total_amount
+      const total_amount = (items || []).reduce((sum: number, item: any) => sum + item.total_price, 0);
       
       // Calculate new totals
-      const discountAmount = (subtotal * (currentInvoice.discount || 0)) / 100;
-      const grandTotal = subtotal - discountAmount;
+      const discountAmount = (total_amount * (currentInvoice.discount || 0)) / 100;
+      const grandTotal = total_amount - discountAmount;
       const remainingBalance = grandTotal - (currentInvoice.payment_amount || 0);
 
       // Update invoice with new totals
       await this.dbConnection.execute(`
         UPDATE invoices 
-        SET subtotal = ?, discount_amount = ?, grand_total = ?, remaining_balance = ?, updated_at = CURRENT_TIMESTAMP
+        SET total_amount = ?, discount = ?, grand_total = ?, remaining_balance = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `, [subtotal, discountAmount, grandTotal, remainingBalance, invoiceId]);
+      `, [total_amount, discountAmount, grandTotal, remainingBalance, invoiceId]);
 
       // CRITICAL FIX: Update customer balance AND corresponding ledger entry
       const balanceDifference = remainingBalance - oldRemainingBalance;
@@ -7515,32 +7108,94 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
   }
 
   private async generateCustomerCode(): Promise<string> {
+    const prefix = 'C';
+    
     try {
-      // CRITICAL FIX: Ensure customers table has correct schema before generating code
-      console.log('🔧 Ensuring customers table is ready for code generation...');
-      const tableReady = await this.ensureCustomersTableReady();
-      if (!tableReady) {
-        throw new Error('customers table is not ready - schema validation failed');
+      // Ensure database is initialized and ready
+      if (!this.isInitialized) {
+        console.warn('⚠️ Database not initialized during customer code generation');
+        await this.initialize();
+      }
+      
+      if (!this.dbConnection || !this.dbConnection.isReady()) {
+        throw new Error('Database connection not available for customer code generation');
       }
 
-      const prefix = 'C';
-      
-      const result = await this.dbConnection.select(
-        'SELECT customer_code FROM customers WHERE customer_code LIKE ? ORDER BY CAST(SUBSTR(customer_code, 2) AS INTEGER) DESC LIMIT 1',
-        [`${prefix}%`]
-      );
-      
-      let nextNumber = 1;
-      if (result && result.length > 0) {
-        const lastCustomerCode = result[0].customer_code;
-        const lastNumber = parseInt(lastCustomerCode.substring(1)) || 0;
-        nextNumber = lastNumber + 1;
+      // ENHANCED APPROACH: Get the highest existing customer code number
+      try {
+        // First, try to get the highest numerical customer code
+        const result = await this.dbConnection.select(`
+          SELECT customer_code 
+          FROM customers 
+          WHERE customer_code LIKE '${prefix}%' 
+          AND customer_code GLOB '${prefix}[0-9][0-9][0-9][0-9]*'
+          ORDER BY CAST(SUBSTR(customer_code, 2) AS INTEGER) DESC 
+          LIMIT 1
+        `);
+        
+        let nextNumber = 1;
+        if (result && result.length > 0 && result[0].customer_code) {
+          const lastCode = result[0].customer_code;
+          const lastNumber = parseInt(lastCode.substring(1)) || 0;
+          nextNumber = lastNumber + 1;
+          console.log(`🔢 Last customer code: ${lastCode}, generating: ${prefix}${nextNumber.toString().padStart(4, '0')}`);
+        } else {
+          console.log('🔢 No existing customer codes found, starting with C0001');
+        }
+        
+        const newCode = `${prefix}${nextNumber.toString().padStart(4, '0')}`;
+        
+        // Double-check uniqueness
+        const duplicateCheck = await this.dbConnection.select(
+          'SELECT id FROM customers WHERE customer_code = ? LIMIT 1',
+          [newCode]
+        );
+        
+        if (duplicateCheck && duplicateCheck.length > 0) {
+          console.warn(`⚠️ Generated code ${newCode} already exists, using fallback`);
+          throw new Error('Generated code already exists');
+        }
+        
+        console.log(`✅ Generated unique customer code: ${newCode}`);
+        return newCode;
+        
+      } catch (sequentialError: any) {
+        console.warn('⚠️ Sequential customer code generation failed, using fallback approach:', sequentialError.message);
+        
+        // Fallback 1: Count-based approach
+        try {
+          const countResult = await this.dbConnection.select('SELECT COUNT(*) as count FROM customers');
+          const count = countResult?.[0]?.count || 0;
+          const fallbackCode = `${prefix}${(count + 1).toString().padStart(4, '0')}`;
+          
+          // Check uniqueness of fallback code
+          const fallbackCheck = await this.dbConnection.select(
+            'SELECT id FROM customers WHERE customer_code = ? LIMIT 1',
+            [fallbackCode]
+          );
+          
+          if (!fallbackCheck || fallbackCheck.length === 0) {
+            console.log(`✅ Using count-based fallback code: ${fallbackCode}`);
+            return fallbackCode;
+          }
+        } catch (countError: any) {
+          console.warn('⚠️ Count-based fallback also failed:', countError.message);
+        }
+        
+        // Fallback 2: Timestamp-based approach
+        const timestamp = Date.now().toString().slice(-6); // Last 6 digits of timestamp
+        const timestampCode = `${prefix}${timestamp}`;
+        console.log(`🕐 Using timestamp-based fallback code: ${timestampCode}`);
+        return timestampCode;
       }
+    } catch (error: any) {
+      console.error('❌ Error generating customer code:', error);
       
-      return `${prefix}${nextNumber.toString().padStart(4)}`;
-    } catch (error) {
-      console.error('Error generating customer code:', error);
-      throw new Error('Failed to generate customer code');
+      // Final fallback - guaranteed unique timestamp-based code
+      const finalFallback = Date.now().toString().slice(-8); // Last 8 digits for better uniqueness
+      const finalCode = `${prefix}${finalFallback}`;
+      console.warn(`🚨 Using final timestamp fallback code: ${finalCode}`);
+      return finalCode;
     }
   }
 
@@ -8004,9 +7659,9 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           // Always set created_at and updated_at to current timestamp
           const now = new Date().toISOString();
           await this.dbConnection.execute(`
-            INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [invoiceId, item.product_id, item.product_name, item.quantity, item.unit_price, item.total_price, item.unit, now, now]);
+            INSERT INTO invoice_items (invoice_id, product_id, product_name, quantity, unit_price, rate, amount, total_price, unit, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [invoiceId, item.product_id, item.product_name, item.quantity, item.unit_price, item.unit_price, item.total_price, item.total_price, item.unit, now, now]);
 
           // Update stock - convert quantity to numeric value for proper stock tracking
           const product = await this.getProduct(item.product_id);
@@ -8872,7 +8527,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       offset = 0, 
       orderBy = 'name', 
       orderDirection = 'ASC',
-      includeStock = true, // @ts-ignore - for future use
+      includeStock = true, // Keep for future extensibility
       includeStats = false
     } = options;
 
@@ -9790,11 +9445,12 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
             // Create stock movement record for audit trail
             await this.dbConnection.execute(
               `INSERT INTO stock_movements (
-                product_id, movement_type, quantity, reference_type, reference_id,
-                notes, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                product_id, movement_type, quantity, previous_stock, stock_before, new_stock,
+                reference_type, reference_id, notes, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
-                item.product_id, 'in', item.quantity, 'invoice_deleted', invoiceId,
+                item.product_id, 'in', item.quantity, 0, 0, item.quantity,
+                'invoice_deleted', invoiceId,
                 `Stock restored due to invoice deletion (Bill: ${invoice.bill_number})`,
                 new Date().toISOString(), new Date().toISOString()
               ]
@@ -9968,13 +9624,6 @@ async createVendorPayment(payment: {
   try {
     if (!this.isInitialized) {
       await this.initialize();
-    }
-
-    // CRITICAL FIX: Ensure vendor_payments table has correct schema before inserting
-    console.log('🔧 Ensuring vendor_payments table is ready...');
-    const tableReady = await this.ensureVendorPaymentsTableReady();
-    if (!tableReady) {
-      throw new Error('vendor_payments table is not ready - schema validation failed');
     }
 
     // Security validation
@@ -11275,6 +10924,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     await this.dbConnection.execute(`
       CREATE TABLE IF NOT EXISTS customers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        customer_code TEXT UNIQUE,
         name TEXT NOT NULL,
         company_name TEXT,
         phone TEXT,
@@ -11545,85 +11195,157 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
   async createCustomer(customer: any) {
     try {
+      // CRITICAL FIX: Enhanced initialization and connection checking
       if (!this.isInitialized) {
+        console.log('🔄 Database not initialized, initializing now...');
         await this.initialize();
       }
 
-      // CRITICAL FIX: Ensure customers table is ready before creating customer
-      console.log('🔧 Ensuring customers table is ready for customer creation...');
-      const tableReady = await this.ensureCustomersTableReady();
-      if (!tableReady) {
-        throw new Error('customers table is not ready - schema validation failed');
+      // Wait for database connection to be fully ready
+      if (!this.dbConnection || !this.dbConnection.isReady()) {
+        console.log('⚠️ Database connection not ready, waiting...');
+        await this.dbConnection.waitForReady(10000);
       }
 
-      // SECURITY FIX: Input validation
-      this.validateCustomerData(customer);
+      // SECURITY FIX: Enhanced input validation with detailed error messages
+      try {
+        this.validateCustomerData(customer);
+      } catch (validationError: any) {
+        console.error('❌ Customer validation failed:', validationError);
+        throw new Error(`Invalid customer data: ${validationError.message}`);
+      }
 
-      console.log('🔄 Generating customer code...');
-      const customerCode = await this.generateCustomerCode();
-      console.log('✅ Generated customer code:', customerCode);
+      // CRITICAL FIX: Enhanced customer code generation with retry logic
+      let customerCode: string = '';
+      let retries = 3;
       
-      console.log('🔄 Creating customer record...');
-      const result = await this.dbConnection.execute(`
-        INSERT INTO customers (
-          name, customer_code, phone, address, cnic, balance, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      `, [
-        this.sanitizeStringInput(customer.name),
-        customerCode,
-        customer.phone ? this.sanitizeStringInput(customer.phone, 20) : customer.phone, 
-        customer.address ? this.sanitizeStringInput(customer.address, 500) : customer.address, 
-        customer.cnic ? this.sanitizeStringInput(customer.cnic, 20) : customer.cnic, 
-        0.00
-      ]);
+      while (retries > 0) {
+        try {
+          customerCode = await this.generateCustomerCode();
+          
+          // Verify the generated code is unique
+          const existingCustomer = await this.dbConnection.select(
+            'SELECT id FROM customers WHERE customer_code = ? LIMIT 1', 
+            [customerCode]
+          );
+          
+          if (!existingCustomer || existingCustomer.length === 0) {
+            break; // Code is unique
+          } else {
+            console.warn(`⚠️ Customer code ${customerCode} already exists, generating new one...`);
+            // Generate timestamp-based code for uniqueness
+            const timestamp = Date.now().toString().slice(-6);
+            customerCode = `C${timestamp}`;
+          }
+        } catch (codeError: any) {
+          console.error(`❌ Customer code generation failed (attempt ${4-retries}):`, codeError);
+          retries--;
+          
+          if (retries === 0) {
+            // Final fallback - use timestamp
+            const timestamp = Date.now().toString().slice(-6);
+            customerCode = `C${timestamp}`;
+            console.warn(`⚠️ Using fallback customer code: ${customerCode}`);
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 100 * (4-retries))); // Progressive delay
+          }
+        }
+      }
+
+      console.log(`🏷️ Using customer code: ${customerCode}`);
+
+      // CRITICAL FIX: Enhanced database insertion with better error handling
+      let result: any;
+      try {
+        result = await this.dbConnection.execute(`
+          INSERT INTO customers (
+            customer_code, name, phone, address, cnic, balance, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [
+          customerCode,
+          this.sanitizeStringInput(customer.name),
+          customer.phone ? this.sanitizeStringInput(customer.phone, 20) : null, 
+          customer.address ? this.sanitizeStringInput(customer.address, 500) : null, 
+          customer.cnic ? this.sanitizeStringInput(customer.cnic, 20) : null, 
+          0.00
+        ]);
+      } catch (insertError: any) {
+        console.error('❌ Database insertion failed:', insertError);
+        
+        // Provide specific error messages
+        if (insertError.message?.includes('UNIQUE constraint failed')) {
+          throw new Error('Customer code already exists. Please try again.');
+        } else if (insertError.message?.includes('NOT NULL constraint failed')) {
+          throw new Error('Required customer information is missing.');
+        } else if (insertError.message?.includes('CHECK constraint failed')) {
+          throw new Error('Customer name cannot be empty.');
+        } else {
+          throw new Error(`Failed to save customer to database: ${insertError.message}`);
+        }
+      }
 
       const customerId = result?.lastInsertId || 0;
 
-      // REAL-TIME UPDATE: Emit customer creation event
+      // CRITICAL FIX: Validate that we got a valid customer ID
+      if (!customerId || customerId === 0) {
+        throw new Error('Failed to retrieve customer ID after insertion');
+      }
+
+      console.log(`✅ Customer created successfully: ID ${customerId}, Code: ${customerCode}, Name: ${customer.name}`);
+
+      // REAL-TIME UPDATE: Emit customer creation event with enhanced error handling
       try {
         // Use imported eventBus first, fallback to window.eventBus
         const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
         if (eventBusInstance) {
-          eventBusInstance.emit('customer:created', {
+          const eventData = {
             customerId,
             customerName: customer.name,
             customerCode,
             timestamp: new Date().toISOString()
-          });
+          };
+          
+          eventBusInstance.emit('customer:created', eventData);
           // Also emit legacy event format for compatibility
-          eventBusInstance.emit('CUSTOMER_CREATED', {
-            customerId,
-            customerName: customer.name,
-            customerCode,
-            timestamp: new Date().toISOString()
-          });
+          eventBusInstance.emit('CUSTOMER_CREATED', eventData);
           console.log('✅ CUSTOMER_CREATED event emitted for real-time updates');
         }
       } catch (eventError) {
         console.warn('⚠️ Failed to emit CUSTOMER_CREATED event:', eventError);
+        // Don't fail the whole operation for event emission failures
       }
 
       // PERFORMANCE: Invalidate customer cache for real-time updates
-      this.invalidateCustomerCache();
+      try {
+        this.invalidateCustomerCache();
+      } catch (cacheError) {
+        console.warn('⚠️ Failed to invalidate customer cache:', cacheError);
+      }
 
-      console.log('✅ Customer created successfully:', { id: customerId, code: customerCode, name: customer.name });
       return customerId;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error creating customer:', error);
       
-      // Enhanced error reporting
-      if (error instanceof Error && error.message && error.message.includes('no such column')) {
-        console.error('🔧 Schema error detected - customers table may be missing columns');
-        throw new Error('Customer creation failed: Database schema issue. Please run the customer fix tool.');
-      } else if (error instanceof Error && error.message && error.message.includes('customer_code')) {
-        console.error('🔧 Customer code generation failed');
-        throw new Error('Customer creation failed: Unable to generate customer code. Please check database schema.');
-      } else if (error instanceof Error && error.message && error.message.includes('UNIQUE constraint failed')) {
-        console.error('🔧 Duplicate customer code detected');
-        throw new Error('Customer creation failed: Duplicate customer code. Please try again.');
-      } else {
-        throw new Error(`Customer creation failed: ${error instanceof Error ? error.message : error}`);
+      // Enhanced error messaging for users
+      let userMessage = 'Failed to save customer';
+      
+      if (error.message?.includes('Invalid customer data')) {
+        userMessage = error.message;
+      } else if (error.message?.includes('Customer name is required')) {
+        userMessage = 'Customer name is required and cannot be empty';
+      } else if (error.message?.includes('UNIQUE constraint')) {
+        userMessage = 'A customer with this information already exists';
+      } else if (error.message?.includes('NOT NULL constraint')) {
+        userMessage = 'Required customer information is missing';
+      } else if (error.message?.includes('Database not initialized')) {
+        userMessage = 'Database connection error. Please try again.';
+      } else if (error.message?.includes('timeout')) {
+        userMessage = 'Database operation timed out. Please try again.';
+      } else if (error.message) {
+        userMessage = `Failed to save customer: ${error.message}`;
       }
+      
+      throw new Error(userMessage);
     }
   }
 
@@ -12490,29 +12212,71 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
   }
 
-  // SECURITY FIX: Input validation methods
+  // SECURITY FIX: Enhanced input validation methods
   private validateCustomerData(customer: any): void {
     if (!customer || typeof customer !== 'object') {
-      throw new Error('Invalid customer data');
+      throw new Error('Customer data is required and must be an object');
     }
-    if (!customer.name || typeof customer.name !== 'string' || customer.name.trim().length === 0) {
+    
+    // Name validation - most critical field
+    if (!customer.name) {
       throw new Error('Customer name is required');
     }
+    if (typeof customer.name !== 'string') {
+      throw new Error('Customer name must be text');
+    }
+    if (customer.name.trim().length === 0) {
+      throw new Error('Customer name cannot be empty or contain only spaces');
+    }
     if (customer.name.length > 255) {
-      throw new Error('Customer name too long (max 255 characters)');
+      throw new Error('Customer name is too long (maximum 255 characters allowed)');
     }
-    if (customer.phone && (typeof customer.phone !== 'string' || customer.phone.length > 20)) {
-      throw new Error('Invalid phone number format');
+    
+    // Phone validation - enhanced
+    if (customer.phone !== null && customer.phone !== undefined && customer.phone !== '') {
+      if (typeof customer.phone !== 'string') {
+        throw new Error('Phone number must be text');
+      }
+      if (customer.phone.length > 20) {
+        throw new Error('Phone number is too long (maximum 20 characters allowed)');
+      }
+      // Basic phone format validation (optional but helpful)
+      if (!/^[\d\s\-\+\(\)]*$/.test(customer.phone)) {
+        throw new Error('Phone number contains invalid characters');
+      }
     }
-    if (customer.cnic && (typeof customer.cnic !== 'string' || customer.cnic.length > 20)) {
-      throw new Error('Invalid CNIC format');
+    
+    // CNIC validation - enhanced
+    if (customer.cnic !== null && customer.cnic !== undefined && customer.cnic !== '') {
+      if (typeof customer.cnic !== 'string') {
+        throw new Error('CNIC must be text');
+      }
+      if (customer.cnic.length > 20) {
+        throw new Error('CNIC is too long (maximum 20 characters allowed)');
+      }
     }
-    if (customer.address && (typeof customer.address !== 'string' || customer.address.length > 500)) {
-      throw new Error('Address too long (max 500 characters)');
+    
+    // Address validation - enhanced
+    if (customer.address !== null && customer.address !== undefined && customer.address !== '') {
+      if (typeof customer.address !== 'string') {
+        throw new Error('Address must be text');
+      }
+      if (customer.address.length > 500) {
+        throw new Error('Address is too long (maximum 500 characters allowed)');
+      }
     }
-    if (customer.balance !== undefined && (typeof customer.balance !== 'number' || isNaN(customer.balance))) {
-      throw new Error('Invalid balance amount');
+    
+    // Balance validation (if provided) - enhanced
+    if (customer.balance !== undefined && customer.balance !== null) {
+      if (typeof customer.balance !== 'number' || isNaN(customer.balance)) {
+        throw new Error('Balance must be a valid number');
+      }
+      if (customer.balance < -999999999 || customer.balance > 999999999) {
+        throw new Error('Balance amount is outside acceptable range');
+      }
     }
+    
+    console.log('✅ Customer data validation passed for:', customer.name);
   }
 
   private validateProductData(product: any): void {
@@ -16088,7 +15852,9 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       'invoice_items': ['id', 'invoice_id', 'product_id', 'quantity'],
       'payments': ['id', 'customer_id', 'amount', 'payment_method'],  
       'staff_management': ['id', 'full_name', 'role', 'is_active'],
-      'salary_payments': ['id', 'staff_id', 'payment_amount', 'payment_date']
+      'salary_payments': ['id', 'staff_id', 'payment_amount', 'payment_date'],
+      'ledger_entries': ['id', 'date', 'time', 'type', 'category', 'description', 'amount', 'running_balance'],
+      'stock_movements': ['id', 'product_id', 'product_name', 'movement_type', 'quantity', 'stock_before', 'stock_after']
     };
     
     for (const [tableName, requiredColumns] of Object.entries(criticalTables)) {

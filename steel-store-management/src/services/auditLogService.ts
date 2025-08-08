@@ -69,7 +69,7 @@ class AuditLogService {
           user_id INTEGER NOT NULL,
           user_name TEXT NOT NULL,
           action TEXT NOT NULL CHECK (action IN ('CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'LOGOUT', 'STATUS_CHANGE')),
-          entity_type TEXT NOT NULL CHECK (entity_type IN ('STAFF', 'CUSTOMER', 'PRODUCT', 'INVOICE', 'PAYMENT', 'SYSTEM')),
+          entity_type TEXT NOT NULL CHECK (entity_type IN ('STAFF', 'CUSTOMER', 'PRODUCT', 'INVOICE', 'PAYMENT', 'SYSTEM', 'VENDOR')),
           entity_id TEXT NOT NULL,
           old_values TEXT,
           new_values TEXT,
