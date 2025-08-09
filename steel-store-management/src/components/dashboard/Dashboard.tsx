@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
@@ -6,6 +6,9 @@ import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+import { initializeDashboardRealTimeUpdates } from '../../services/dashboardRealTimeUpdater';
+import { enhanceDatabaseWithRealTimeEvents, setupPeriodicDashboardRefresh } from '../../services/databaseEventEnhancer';
+import { eventBus } from '../../utils/eventBus';
 
 interface DashboardStats {
   todaySales: number;
@@ -49,6 +52,80 @@ export default function Dashboard() {
   const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const dashboardInitialized = useRef(false);
+
+  useEffect(() => {
+    if (initialized && db && !dashboardInitialized.current) {
+      // Initialize dashboard real-time updates
+      initializeDashboardRealTimeUpdates(db).then(() => {
+        console.log('✅ Dashboard real-time updates initialized');
+      }).catch(console.error);
+
+      // Enhance database with real-time events
+      enhanceDatabaseWithRealTimeEvents(db);
+
+      // Setup periodic refresh
+      setupPeriodicDashboardRefresh();
+
+      // Setup additional event listeners for dashboard-specific updates
+      const periodicHandler = () => {
+        console.log('⏰ Periodic dashboard refresh triggered');
+        loadDashboardData();
+      };
+
+      const comprehensiveHandler = () => {
+        console.log('⏰ Comprehensive dashboard refresh triggered');
+        loadDashboardData();
+      };
+
+      const dailySalesHandler = () => {
+        console.log('💰 Daily sales updated, refreshing dashboard...');
+        loadDashboardData();
+      };
+
+      const lowStockHandler = () => {
+        console.log('📦 Low stock status updated, refreshing dashboard...');
+        loadDashboardData();
+      };
+
+      const lowStockCheckHandler = () => {
+        console.log('🔍 Low stock check requested, refreshing dashboard...');
+        loadDashboardData();
+      };
+
+      const recentInvoicesHandler = () => {
+        console.log('📄 Recent invoices updated, refreshing dashboard...');
+        loadDashboardData();
+      };
+
+      const totalCustomersHandler = () => {
+        console.log('👤 Total customers updated, refreshing dashboard...');
+        loadDashboardData();
+      };
+
+      // Register event listeners
+      eventBus.on('PERIODIC_DASHBOARD_REFRESH', periodicHandler);
+      eventBus.on('COMPREHENSIVE_DASHBOARD_REFRESH', comprehensiveHandler);
+      eventBus.on('DAILY_SALES_UPDATED', dailySalesHandler);
+      eventBus.on('LOW_STOCK_STATUS_UPDATED', lowStockHandler);
+      eventBus.on('LOW_STOCK_CHECK_REQUESTED', lowStockCheckHandler);
+      eventBus.on('RECENT_INVOICES_UPDATED', recentInvoicesHandler);
+      eventBus.on('TOTAL_CUSTOMERS_UPDATED', totalCustomersHandler);
+
+      dashboardInitialized.current = true;
+
+      // Cleanup function
+      return () => {
+        eventBus.off('PERIODIC_DASHBOARD_REFRESH', periodicHandler);
+        eventBus.off('COMPREHENSIVE_DASHBOARD_REFRESH', comprehensiveHandler);
+        eventBus.off('DAILY_SALES_UPDATED', dailySalesHandler);
+        eventBus.off('LOW_STOCK_STATUS_UPDATED', lowStockHandler);
+        eventBus.off('LOW_STOCK_CHECK_REQUESTED', lowStockCheckHandler);
+        eventBus.off('RECENT_INVOICES_UPDATED', recentInvoicesHandler);
+        eventBus.off('TOTAL_CUSTOMERS_UPDATED', totalCustomersHandler);
+      };
+    }
+  }, [initialized, db]);
 
   useEffect(() => {
     if (initialized) {

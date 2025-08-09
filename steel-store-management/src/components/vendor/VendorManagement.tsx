@@ -98,7 +98,7 @@ const VendorManagement: React.FC = () => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
       currency: 'PKR',
-      maximumFractionDigits: 2
+      maximumFractionDigits: 1
     }).format(amount);
   };
 

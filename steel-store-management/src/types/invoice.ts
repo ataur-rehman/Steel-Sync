@@ -149,7 +149,7 @@ export const formatCurrency = (amount: number | undefined | null): string => {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2
+    maximumFractionDigits: 1
   }).format(safeAmount);
 };
 

@@ -1102,7 +1102,7 @@ const getSubmitButtonText = () => {
                             <input
                               type="number"
                               min="0"
-                              step="0.01"
+                              step="0.1"
                               value={item.unit_price}
                               onChange={(e) => updateItemPrice(item.id, parseCurrency(e.target.value))}
                               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
@@ -1202,7 +1202,7 @@ const getSubmitButtonText = () => {
                   type="number"
                   min="0"
                   max={calculations.grandTotal}
-                  step="0.01"
+                  step="0.1"
                   value={formData.payment_amount}
                   onChange={(e) => setFormData(prev => ({ 
                     ...prev, 
@@ -1211,7 +1211,7 @@ const getSubmitButtonText = () => {
                   className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-green-500 ${
                     errors.payment_amount ? 'border-red-500' : 'border-gray-300'
                   }`}
-                  placeholder="0.00"
+                  placeholder="0.0"
                 />
                 {errors.payment_amount && (
                   <p className="text-xs text-red-600 mt-1">{errors.payment_amount}</p>

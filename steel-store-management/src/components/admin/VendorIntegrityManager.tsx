@@ -179,7 +179,8 @@ const VendorIntegrityManager: React.FC = () => {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-PK', {
       style: 'currency',
-      currency: 'PKR'
+      currency: 'PKR',
+      maximumFractionDigits: 1
     }).format(amount);
   };
 

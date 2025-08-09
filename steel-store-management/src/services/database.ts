@@ -1788,38 +1788,34 @@ export class DatabaseService {
       const now = new Date();
       const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-      // Real DB implementation
+      // Always round amount to two decimal places for ledger
+        const roundedAmount = Number(parseFloat(entry.amount.toString()).toFixed(1));      // Only add payment inflow/outflow to daily ledger (exclude sales/invoice)
+      // Allow only if category contains 'Payment', 'payment', 'Paid', 'paid', 'Receipt', 'receipt', 'Advance', 'advance', 'Refund', 'refund', 'Cash', 'cash', 'Bank', 'bank', 'Cheque', 'cheque', 'Card', 'card', 'UPI', 'upi', 'Online', 'online', 'Other', 'other'
+      const allowedCategories = [
+        'Payment', 'payment', 'Paid', 'paid', 'Receipt', 'receipt', 'Advance', 'advance', 'Refund', 'refund',
+        'Cash', 'cash', 'Bank', 'bank', 'Cheque', 'cheque', 'Card', 'card', 'UPI', 'upi', 'Online', 'online', 'Other', 'other'
+      ];
+      const isPaymentCategory = allowedCategories.some(cat => entry.category && entry.category.includes(cat));
+
+      if (!isPaymentCategory) {
+        // Do not add non-payment (e.g. sales/invoice) to daily ledger
+        return 0;
+      }
+
       if (entry.customer_id && entry.customer_name) {
         // For customer payments, use recordPayment method to ensure proper integration
-        if (entry.type === 'incoming' && (entry.category.includes('Payment') || entry.category.includes('payment'))) {
-          const paymentRecord: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'> = {
-            customer_id: entry.customer_id,
-            amount: entry.amount,
-            payment_method: entry.payment_method,
-            payment_channel_id: entry.payment_channel_id,
-            payment_channel_name: entry.payment_channel_name,
-            payment_type: 'advance_payment',
-            reference: `Manual-${entry.date}-${Date.now()}`,
-            notes: entry.notes,
-            date: entry.date
-          };
-          return await this.recordPayment(paymentRecord);
-        } else {
-          // For other customer transactions, create customer ledger entry
-          await this.createLedgerEntry({
-            date: entry.date,
-            time: time,
-            type: entry.type,
-            category: entry.category,
-            description: entry.description,
-            amount: entry.amount,
-            customer_id: entry.customer_id,
-            customer_name: entry.customer_name,
-            reference_type: 'manual_transaction',
-            notes: entry.notes,
-            created_by: 'manual'
-          });
-        }
+        const paymentRecord: Omit<PaymentRecord, 'id' | 'created_at' | 'updated_at'> = {
+          customer_id: entry.customer_id,
+          amount: roundedAmount,
+          payment_method: entry.payment_method,
+          payment_channel_id: entry.payment_channel_id,
+          payment_channel_name: entry.payment_channel_name,
+          payment_type: 'advance_payment',
+          reference: `Manual-${entry.date}-${Date.now()}`,
+          notes: entry.notes,
+          date: entry.date
+        };
+        return await this.recordPayment(paymentRecord);
       } else {
         // For non-customer transactions, create business daily ledger entry only
         await this.createLedgerEntry({
@@ -1828,7 +1824,7 @@ export class DatabaseService {
           type: entry.type,
           category: entry.category,
           description: entry.description,
-          amount: entry.amount,
+          amount: roundedAmount,
           reference_type: 'manual_transaction',
           notes: entry.notes,
           created_by: 'manual'
@@ -1842,7 +1838,7 @@ export class DatabaseService {
           await this.updatePaymentChannelDailyLedger(
             entry.payment_channel_id, 
             entry.date, 
-            entry.amount
+            roundedAmount
           );
           console.log('✅ Payment channel daily ledger updated successfully');
         } catch (ledgerError) {
@@ -3094,10 +3090,10 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
         const total_amount = invoiceData.items.reduce((sum, item) => 
           addCurrency(sum, item.total_price), 0
         );
-        const discountAmount = Number(((total_amount * (invoiceData.discount || 0)) / 100).toFixed(2));
-        const grandTotal = Number((total_amount - discountAmount).toFixed(2));
-        const paymentAmount = Number((invoiceData.payment_amount || 0).toFixed(2));
-        const remainingBalance = Number((grandTotal - paymentAmount).toFixed(2));
+        const discountAmount = Number(((total_amount * (invoiceData.discount || 0)) / 100).toFixed(1));
+        const grandTotal = Number((total_amount - discountAmount).toFixed(1));
+        const paymentAmount = Number((invoiceData.payment_amount || 0).toFixed(1));
+        const remainingBalance = Number((grandTotal - paymentAmount).toFixed(1));
         
         const invoiceDate = invoiceData.date || new Date().toISOString().split('T')[0];
         
@@ -3460,7 +3456,7 @@ private async createInvoiceLedgerEntries(
       `Invoice ${billNumber} - Products sold to ${customer.name}`,
       grandTotal, 0, customer.id, customer.name, invoiceId,
       'invoice', billNumber,
-      `Invoice amount: Rs. ${grandTotal.toFixed(2)}`,
+      `Invoice amount: Rs. ${grandTotal.toFixed(1)}`,
       'system'
     ]
   );
@@ -4286,10 +4282,10 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
       // Calculate new total_amount
       const total_amount = (items || []).reduce((sum: number, item: any) => sum + item.total_price, 0);
       
-      // Calculate new totals
-      const discountAmount = (total_amount * (currentInvoice.discount || 0)) / 100;
-      const grandTotal = total_amount - discountAmount;
-      const remainingBalance = grandTotal - (currentInvoice.payment_amount || 0);
+      // Calculate new totals with proper rounding to 1 decimal place
+      const discountAmount = Math.round(((total_amount * (currentInvoice.discount || 0)) / 100 + Number.EPSILON) * 10) / 10;
+      const grandTotal = Math.round((total_amount - discountAmount + Number.EPSILON) * 10) / 10;
+      const remainingBalance = Math.round((grandTotal - (currentInvoice.payment_amount || 0) + Number.EPSILON) * 10) / 10;
 
       // Update invoice with new totals
       await this.dbConnection.execute(`
@@ -5142,7 +5138,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           SET 
             total_amount = COALESCE(total_amount, 0) + ?, 
             grand_total = COALESCE(total_amount, 0) + ?,
-            remaining_balance = COALESCE(grand_total, 0) - COALESCE(payment_amount, 0),
+            remaining_balance = ROUND(COALESCE(grand_total, 0) - COALESCE(payment_amount, 0), 1),
             updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
         `, [totalAddition, totalAddition, invoiceId]);
@@ -5558,10 +5554,12 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         console.warn('⚠️ [Invoice Payment] Could not get customer name:', error);
       }
 
-      // Validate payment amount doesn't exceed remaining balance
-      if (paymentData.amount > invoice.remaining_balance) {
-        console.warn('⚠️ [Invoice Payment] Payment amount exceeds remaining balance');
-        // Don't throw error, just warn - allow overpayment
+      // Validate payment amount doesn't exceed remaining balance with proper precision handling
+      const roundedPaymentAmount = Math.round((paymentData.amount + Number.EPSILON) * 10) / 10;
+      const roundedRemainingBalance = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
+      
+      if (roundedPaymentAmount > roundedRemainingBalance + 0.01) {
+        throw new Error(`Payment amount (${roundedPaymentAmount.toFixed(1)}) cannot exceed remaining balance (${roundedRemainingBalance.toFixed(1)})`);
       }
 
       // Map payment method to centralized schema constraint values
@@ -5634,7 +5632,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
           UPDATE invoices 
           SET 
             payment_amount = COALESCE(payment_amount, 0) + ?,
-            remaining_balance = MAX(0, COALESCE(grand_total, 0) - (COALESCE(payment_amount, 0) + ?)),
+            remaining_balance = ROUND(MAX(0, COALESCE(grand_total, 0) - (COALESCE(payment_amount, 0) + ?)), 1),
             status = CASE 
               WHEN (COALESCE(grand_total, 0) - (COALESCE(payment_amount, 0) + ?)) <= 0 THEN 'paid'
               WHEN (COALESCE(payment_amount, 0) + ?) > 0 THEN 'partially_paid'
@@ -7642,7 +7640,7 @@ async createInvoicePayment(payment: {
         UPDATE invoices 
         SET 
           payment_amount = COALESCE(payment_amount, 0) + ?,
-          remaining_balance = MAX(0, grand_total - (COALESCE(payment_amount, 0) + ?)),
+          remaining_balance = ROUND(MAX(0, grand_total - (COALESCE(payment_amount, 0) + ?)), 1),
           status = CASE 
             WHEN (grand_total - (COALESCE(payment_amount, 0) + ?)) <= 0 THEN 'paid'
             WHEN (COALESCE(payment_amount, 0) + ?) > 0 THEN 'partial'
@@ -8814,7 +8812,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         [correctBalance, customerId]
       );
 
-      console.log(`✅ Customer balance recalculated: Rs. ${correctBalance.toFixed(2)}`);
+      console.log(`✅ Customer balance recalculated: Rs. ${correctBalance.toFixed(1)}`);
 
     } catch (error) {
       console.error('Error recalculating customer balance:', error);
@@ -8889,7 +8887,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       currentBalance = customer ? (customer.balance || 0) : 0;
     }
 
-    console.log(`🔍 Customer ${customerName} current balance before invoice: Rs. ${currentBalance.toFixed(2)}`);
+    console.log(`🔍 Customer ${customerName} current balance before invoice: Rs. ${currentBalance.toFixed(1)}`);
 
     // FIXED: Create DEBIT entry for invoice amount in customer_ledger_entries table
     const balanceAfterInvoice = currentBalance + grandTotal;
@@ -8903,11 +8901,11 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         `Sale Invoice ${billNumber}`,
         invoiceId, billNumber, currentBalance, balanceAfterInvoice,
         date, time, 'system',
-        `Invoice amount: Rs. ${grandTotal.toFixed(2)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
+        `Invoice amount: Rs. ${grandTotal.toFixed(1)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
       ]
     );
 
-    console.log(`✅ Debit entry created: Rs. ${grandTotal.toFixed(2)}, Balance: ${currentBalance.toFixed(2)} → ${balanceAfterInvoice.toFixed(2)}`);
+    console.log(`✅ Debit entry created: Rs. ${grandTotal.toFixed(1)}, Balance: ${currentBalance.toFixed(1)} → ${balanceAfterInvoice.toFixed(1)}`);
 
     // Update balance tracker
     currentBalance = balanceAfterInvoice;
@@ -8927,11 +8925,11 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           `Payment - Invoice ${billNumber}`,
           invoiceId, billNumber, currentBalance, balanceAfterPayment,
           date, time, 'system',
-          `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
+          `Payment: Rs. ${paymentAmount.toFixed(1)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
         ]
       );
 
-      console.log(`✅ Credit entry created: Rs. ${paymentAmount.toFixed(2)}, Balance: ${currentBalance.toFixed(2)} → ${balanceAfterPayment.toFixed(2)}`);
+      console.log(`✅ Credit entry created: Rs. ${paymentAmount.toFixed(1)}, Balance: ${currentBalance.toFixed(1)} → ${balanceAfterPayment.toFixed(1)}`);
 
       // Update balance tracker
       currentBalance = balanceAfterPayment;
@@ -9044,11 +9042,11 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         // Don't fail the whole transaction for this
       }
       
-      console.log(`✅ Invoice payment recorded directly: Rs. ${paymentAmount.toFixed(2)}`);
+      console.log(`✅ Invoice payment recorded directly: Rs. ${paymentAmount.toFixed(1)}`);
     }
 
     // CRITICAL FIX: Update customer balance in customers table to match ledger
-    console.log(`🔧 Updating customer balance: ${customerId} → Rs. ${currentBalance.toFixed(2)}`);
+    console.log(`🔧 Updating customer balance: ${customerId} → Rs. ${currentBalance.toFixed(1)}`);
     await this.dbConnection.execute(
       'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [currentBalance, customerId]
@@ -9056,7 +9054,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
     // Verify the update worked
     const updatedCustomer = await this.getCustomer(customerId);
-    console.log(`✅ Customer ${customerName} balance updated in customers table: Rs. ${currentBalance.toFixed(2)} (Verified: Rs. ${updatedCustomer.balance})`);
+    console.log(`✅ Customer ${customerName} balance updated in customers table: Rs. ${currentBalance.toFixed(1)} (Verified: Rs. ${updatedCustomer.balance})`);
 
     // Also create general ledger entries for accounting
     await this.createLedgerEntry({
@@ -9071,7 +9069,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       reference_id: invoiceId,
       reference_type: 'invoice',
       bill_number: billNumber,
-      notes: `Invoice amount: Rs. ${grandTotal.toFixed(2)} - Products sold on ${paymentAmount > 0 ? 'partial credit' : 'full credit'}`,
+      notes: `Invoice amount: Rs. ${grandTotal.toFixed(1)} - Products sold on ${paymentAmount > 0 ? 'partial credit' : 'full credit'}`,
       created_by: 'system'
     });
 
@@ -9087,7 +9085,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         customer_id: customerId,
         customer_name: customerName,
         payment_method: paymentMethod,
-        notes: `Invoice total: Rs.${grandTotal.toFixed(2)}${paymentAmount > 0 ? ` | Payment received: Rs.${paymentAmount.toFixed(2)}` : ' | Full credit'}`,
+        notes: `Invoice total: Rs.${grandTotal.toFixed(1)}${paymentAmount > 0 ? ` | Payment received: Rs.${paymentAmount.toFixed(1)}` : ' | Full credit'}`,
         is_manual: false
       });
 
@@ -9127,18 +9125,18 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         reference_id: invoiceId,
         reference_type: 'payment',
         bill_number: billNumber,
-        notes: `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod} for Invoice ${billNumber}`,
+        notes: `Payment: Rs. ${paymentAmount.toFixed(1)} via ${paymentMethod} for Invoice ${billNumber}`,
         created_by: 'system'
       });
     }
 
     console.log(`✅ Customer ledger entries created for Invoice ${billNumber}:`);
-    console.log(`   - Debit: Rs. ${grandTotal.toFixed(2)} (Sale)`);
+    console.log(`   - Debit: Rs. ${grandTotal.toFixed(1)} (Sale)`);
     if (paymentAmount > 0) {
-      console.log(`   - Credit: Rs. ${paymentAmount.toFixed(2)} (Payment via ${paymentMethod})`);
-      console.log(`   - Final Balance: Rs. ${(grandTotal - paymentAmount).toFixed(2)}`);
+      console.log(`   - Credit: Rs. ${paymentAmount.toFixed(1)} (Payment via ${paymentMethod})`);
+      console.log(`   - Final Balance: Rs. ${(grandTotal - paymentAmount).toFixed(1)}`);
     } else {
-      console.log(`   - Final Balance: Rs. ${grandTotal.toFixed(2)} (Full Credit Sale)`);
+      console.log(`   - Final Balance: Rs. ${grandTotal.toFixed(1)} (Full Credit Sale)`);
     }
   }
 

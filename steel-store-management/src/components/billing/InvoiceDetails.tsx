@@ -271,8 +271,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     }
 
     const paymentAmount = parseCurrency(newPayment.amount);
-    if (paymentAmount > invoice.remaining_balance) {
-      toast.error('Payment amount cannot exceed remaining balance');
+    const remainingBalance = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
+    
+    // Use epsilon for floating point comparison to avoid precision issues
+    if (paymentAmount > remainingBalance + 0.01) {
+      toast.error(`Payment amount (${paymentAmount.toFixed(1)}) cannot exceed remaining balance (${remainingBalance.toFixed(1)})`);
       return;
     }
 
@@ -926,7 +929,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         value={newItemPrice}
                         onChange={(e) => setNewItemPrice(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        step="0.01"
+                        step="0.1"
                       />
                     </div>
                   </>
@@ -987,21 +990,29 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     value={newPayment.amount}
                     onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    step="0.01"
+                    step="0.1"
                     max={invoice.remaining_balance}
-                    placeholder="0.00"
+                    placeholder="0.0"
                   />
                   <div className="flex justify-between mt-2 space-x-2">
                     <button
                       type="button"
-                      onClick={() => setNewPayment({ ...newPayment, amount: (invoice.remaining_balance / 2).toString() })}
+                      onClick={() => {
+                        // Always round to one decimal place to avoid floating point artifacts
+                        const half = Math.round((invoice.remaining_balance / 2 + Number.EPSILON) * 10) / 10;
+                        setNewPayment({ ...newPayment, amount: half.toFixed(1) });
+                      }}
                       className="flex-1 text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                     >
                       Half
                     </button>
                     <button
                       type="button"
-                      onClick={() => setNewPayment({ ...newPayment, amount: invoice.remaining_balance.toString() })}
+                      onClick={() => {
+                        // Always round to one decimal place to avoid floating point artifacts
+                        const full = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
+                        setNewPayment({ ...newPayment, amount: full.toFixed(1) });
+                      }}
                       className="flex-1 text-xs px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
                     >
                       Full Amount

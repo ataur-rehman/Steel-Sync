@@ -443,8 +443,10 @@ const InvoiceList: React.FC = () => {
   const currentInvoices = filteredInvoices.slice(startIndex, endIndex);
 
   // Format currency - YOUR ORIGINAL FUNCTION
+  // Format currency and always round to two decimal places
   const formatCurrency = (amount: number): string => {
-    return `Rs. ${amount.toFixed(2)}`;
+    const rounded = Number(parseFloat(amount.toString()).toFixed(2));
+    return `Rs. ${rounded.toFixed(2)}`;
   };
 
   // Format date - YOUR ORIGINAL FUNCTION
@@ -460,10 +462,9 @@ const InvoiceList: React.FC = () => {
   // Calculate stats for header
   const stats = React.useMemo(() => {
     const totalInvoices = filteredInvoices.length;
-    const totalRevenue = filteredInvoices.reduce((sum, inv) => sum + inv.grand_total, 0);
+    const totalRevenue = Number(filteredInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || 0), 0).toFixed(2));
     const paidInvoices = filteredInvoices.filter(inv => getInvoiceStatus(inv) === 'paid').length;
-    const pendingAmount = filteredInvoices.reduce((sum, inv) => sum + inv.remaining_balance, 0);
-    
+    const pendingAmount = Number(filteredInvoices.reduce((sum, inv) => sum + Number(inv.remaining_balance || 0), 0).toFixed(2));
     return { totalInvoices, totalRevenue, paidInvoices, pendingAmount };
   }, [filteredInvoices]);
 

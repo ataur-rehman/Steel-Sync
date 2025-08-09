@@ -1158,7 +1158,7 @@ const CustomerLedger: React.FC = () => {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="0.1"
                   value={newPayment.amount}
                   onChange={(e) => setNewPayment(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
                   placeholder="0.00"

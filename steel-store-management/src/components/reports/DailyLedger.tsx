@@ -1299,7 +1299,7 @@ const DailyLedger: React.FC = () => {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="0.1"
                   value={newTransaction.amount}
                   onChange={(e) => setNewTransaction(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

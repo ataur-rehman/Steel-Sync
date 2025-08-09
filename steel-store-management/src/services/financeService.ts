@@ -315,14 +315,14 @@ class FinanceService {
 
       // Get outstanding receivables
       const receivablesResult = await db.executeRawQuery(`
-        SELECT COALESCE(SUM(remaining_balance), 0) as outstanding_receivables
+        SELECT COALESCE(ROUND(SUM(remaining_balance), 2), 0) as outstanding_receivables
         FROM invoices 
         WHERE remaining_balance > 0
       `);
 
       // Get outstanding payables - FIXED: Using correct column name
       const payablesResult = await db.executeRawQuery(`
-        SELECT COALESCE(SUM(sr.grand_total - COALESCE(vp.total_paid, 0)), 0) as outstanding_payables
+        SELECT COALESCE(ROUND(SUM(sr.grand_total - COALESCE(vp.total_paid, 0)), 2), 0) as outstanding_payables
         FROM stock_receiving sr
         LEFT JOIN (
           SELECT vendor_id, SUM(amount) as total_paid
@@ -333,7 +333,7 @@ class FinanceService {
 
       // Get cash in hand from latest cash transaction
       const cashResult = await db.executeRawQuery(`
-        SELECT COALESCE(balance_after, 0) as cash_in_hand
+        SELECT COALESCE(ROUND(balance_after, 2), 0) as cash_in_hand
         FROM cash_transactions 
         ORDER BY created_at DESC 
         LIMIT 1
@@ -347,20 +347,20 @@ class FinanceService {
         WHERE strftime('%Y', date) = ?
       `, [currentYear.toString()]);
 
-      const totalSales = (salesResult[0] as any)?.total_sales || 0;
-      const totalPurchases = (purchasesResult[0] as any)?.total_purchases || 0;
-      const totalExpenses = salaryExpenses.total_paid_this_year + ((businessExpensesResult[0] as any)?.business_expenses || 0);
+      const totalSales = Number(((salesResult[0] as any)?.total_sales || 0).toFixed(2));
+      const totalPurchases = Number(((purchasesResult[0] as any)?.total_purchases || 0).toFixed(2));
+      const totalExpenses = Number((salaryExpenses.total_paid_this_year + ((businessExpensesResult[0] as any)?.business_expenses || 0)).toFixed(2));
       
-      const grossProfit = totalSales - totalPurchases;
-      const netProfit = grossProfit - totalExpenses;
-      const profitMargin = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
+      const grossProfit = Number((totalSales - totalPurchases).toFixed(2));
+      const netProfit = Number((grossProfit - totalExpenses).toFixed(2));
+      const profitMargin = totalSales > 0 ? Number(((netProfit / totalSales) * 100).toFixed(2)) : 0;
 
       return {
         totalSales,
         totalPurchases,
-        outstandingReceivables: (receivablesResult[0] as any)?.outstanding_receivables || 0,
-        outstandingPayables: (payablesResult[0] as any)?.outstanding_payables || 0,
-        cashInHand: (cashResult[0] as any)?.cash_in_hand || 0,
+        outstandingReceivables: Number(((receivablesResult[0] as any)?.outstanding_receivables || 0).toFixed(2)),
+        outstandingPayables: Number(((payablesResult[0] as any)?.outstanding_payables || 0).toFixed(2)),
+        cashInHand: Number(((cashResult[0] as any)?.cash_in_hand || 0).toFixed(2)),
         grossProfit,
         netProfit,
         profitMargin
@@ -434,12 +434,13 @@ class FinanceService {
           }
         }
 
-        const revenue = (revenueResult[0] as any)?.revenue || 0;
-        const steelPurchases = (steelPurchasesResult[0] as any)?.steel_purchases || 0;
-        const totalExpenses = salaryExpenses + businessExpenses;        const profit = revenue - steelPurchases - totalExpenses;
+        const revenue = Number(((revenueResult[0] as any)?.revenue || 0).toFixed(2));
+        const steelPurchases = Number(((steelPurchasesResult[0] as any)?.steel_purchases || 0).toFixed(2));
+        const totalExpenses = Number((salaryExpenses + businessExpenses).toFixed(2));
+        const profit = Number((revenue - steelPurchases - totalExpenses).toFixed(2));
 
         // Cash flow calculation (simplified)
-        const cashFlow = revenue - totalExpenses;
+        const cashFlow = Number((revenue - totalExpenses).toFixed(2));
 
         data.push({
           month: monthName,
@@ -512,9 +513,9 @@ class FinanceService {
 
       // Calculate total expenses
       const businessExpensesByCategory = businessExpensesResult as any[];
-      const totalBusinessExpenses = businessExpensesByCategory.reduce((sum, exp) => sum + exp.amount, 0);
-      const totalSalaryExpenses = salaryExpenses.total_paid_this_month;
-      const totalExpenses = totalBusinessExpenses + totalSalaryExpenses;
+  const totalBusinessExpenses = Number(businessExpensesByCategory.reduce((sum, exp) => sum + exp.amount, 0).toFixed(2));
+  const totalSalaryExpenses = Number(salaryExpenses.total_paid_this_month.toFixed(2));
+  const totalExpenses = Number((totalBusinessExpenses + totalSalaryExpenses).toFixed(2));
 
       const breakdown: ExpenseBreakdown[] = [];
 
@@ -524,19 +525,19 @@ class FinanceService {
       breakdown.push({
         category: 'Staff Salaries',
         amount: totalSalaryExpenses,
-        percentage: totalExpenses > 0 ? (totalSalaryExpenses / totalExpenses) * 100 : 0,
-        monthlyTrend: salaryTrend
+        percentage: totalExpenses > 0 ? Number(((totalSalaryExpenses / totalExpenses) * 100).toFixed(2)) : 0,
+        monthlyTrend: Number(salaryTrend.toFixed(2))
       });
 
       // Add business expense categories
       for (const expense of businessExpensesByCategory) {
         const lastMonthAmount = lastMonthExpensesResult.find(exp => exp.category === expense.category)?.amount || 0;
-        const trend = lastMonthAmount > 0 ? ((expense.amount - lastMonthAmount) / lastMonthAmount) * 100 : 0;
+        const trend = lastMonthAmount > 0 ? Number((((expense.amount - lastMonthAmount) / lastMonthAmount) * 100).toFixed(2)) : 0;
 
         breakdown.push({
           category: this.formatCategoryName(expense.category),
-          amount: expense.amount,
-          percentage: totalExpenses > 0 ? (expense.amount / totalExpenses) * 100 : 0,
+          amount: Number(expense.amount.toFixed(2)),
+          percentage: totalExpenses > 0 ? Number(((expense.amount / totalExpenses) * 100).toFixed(2)) : 0,
           monthlyTrend: trend
         });
       }
@@ -579,14 +580,14 @@ class FinanceService {
       // Get salary payments (outflow)
       const salaryStats = await salaryHistoryService.getSalaryStatistics();
 
-      const customerPayments = (customerPaymentsResult[0] as any)?.customer_payments || 0;
-      const vendorPayments = (vendorPaymentsResult[0] as any)?.vendor_payments || 0;
-      const businessExpenses = (businessExpensesResult[0] as any)?.business_expenses || 0;
-      const salaryPayments = salaryStats.total_paid_this_month;
+      const customerPayments = Number(((customerPaymentsResult[0] as any)?.customer_payments || 0).toFixed(2));
+      const vendorPayments = Number(((vendorPaymentsResult[0] as any)?.vendor_payments || 0).toFixed(2));
+      const businessExpenses = Number(((businessExpensesResult[0] as any)?.business_expenses || 0).toFixed(2));
+      const salaryPayments = Number(salaryStats.total_paid_this_month.toFixed(2));
 
       const inflow = customerPayments;
-      const outflow = vendorPayments + businessExpenses + salaryPayments;
-      const net = inflow - outflow;
+      const outflow = Number((vendorPayments + businessExpenses + salaryPayments).toFixed(2));
+      const net = Number((inflow - outflow).toFixed(2));
 
       return {
         inflow,

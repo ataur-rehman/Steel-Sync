@@ -422,7 +422,8 @@ const StockReport: React.FC = () => {
           const minAlertData = parseUnit(product.min_stock_alert);
           
           // Calculate stock value using total grams for accuracy
-          const stockValue = (currentStockData.numericValue / 1000) * product.rate_per_unit;
+          // Always round to two decimals for all currency calculations
+          const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
           
           let status: 'in_stock' | 'low_stock' | 'out_of_stock';
           
@@ -480,7 +481,7 @@ const StockReport: React.FC = () => {
           // Fallback to basic calculation
           const currentStockData = parseUnit(product.current_stock);
           const minAlertData = parseUnit(product.min_stock_alert);
-          const stockValue = (currentStockData.numericValue / 1000) * product.rate_per_unit;
+          const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
           
           let status: 'in_stock' | 'low_stock' | 'out_of_stock';
           if (currentStockData.numericValue === 0) {
@@ -523,7 +524,7 @@ const StockReport: React.FC = () => {
         const minAlertData = parseUnit(product.min_stock_alert);
         
         // Calculate stock value using total grams for accuracy
-        const stockValue = (currentStockData.numericValue / 1000) * product.rate_per_unit;
+  const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
         
         let status: 'in_stock' | 'low_stock' | 'out_of_stock';
         
@@ -564,7 +565,7 @@ const StockReport: React.FC = () => {
   };
 
   const calculateStockSummary = async (items: StockItem[]): Promise<StockSummary> => {
-    const totalStockValue = items.reduce((sum, item) => sum + item.stock_value, 0);
+  const totalStockValue = Number(items.reduce((sum, item) => sum + item.stock_value, 0).toFixed(2));
     const inStockCount = items.filter(item => item.status === 'in_stock').length;
     const lowStockCount = items.filter(item => item.status === 'low_stock').length;
     const outOfStockCount = items.filter(item => item.status === 'out_of_stock').length;
@@ -903,8 +904,9 @@ const StockReport: React.FC = () => {
   };
 
   const formatCurrency = (amount: number | undefined | null): string => {
-    const safeAmount = amount ?? 0;
-    return `Rs. ${safeAmount.toFixed(2)}`;
+  const safeAmount = amount ?? 0;
+  // Always round to two decimals for all currency
+  return `Rs. ${Number(safeAmount).toFixed(2)}`;
   };
 
   const formatDate = (dateString: string): string => {

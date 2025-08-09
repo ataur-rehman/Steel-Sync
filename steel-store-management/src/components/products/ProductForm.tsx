@@ -336,10 +336,10 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
             name="rate_per_unit"
             value={formData.rate_per_unit}
             onChange={handleChange}
-            step="0.01"
+            step="0.1"
             min="0"
             className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.rate_per_unit ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-            placeholder="0.00"
+            placeholder="0.0"
             required
             disabled={loading}
             aria-invalid={!!errors.rate_per_unit}

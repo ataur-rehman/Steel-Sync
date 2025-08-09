@@ -5,6 +5,8 @@ import { formatCurrency } from '../../utils/formatters';
 import { formatReceivingNumber } from '../../utils/numberFormatting';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import { ActivityType, ModuleType } from '../../services/activityLogger';
+import { emitPaymentEvents } from '../../services/dashboardRealTimeUpdater';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import toast from 'react-hot-toast';
 
 interface PaymentForm {
@@ -86,10 +88,10 @@ const StockReceivingPayment: React.FC = () => {
       console.log('Receiving record:', receivingRecord);
       console.log('Remaining balance:', receivingRecord.remaining_balance, typeof receivingRecord.remaining_balance);
       
-      // Set default payment amount to remaining balance
+      // Set default payment amount to remaining balance with proper 1 decimal precision
       const remainingBalance = receivingRecord.remaining_balance;
       const safeRemainingBalance = (typeof remainingBalance === 'number' && !isNaN(remainingBalance) && remainingBalance > 0) 
-        ? remainingBalance 
+        ? Math.round((remainingBalance + Number.EPSILON) * 10) / 10
         : 0;
       
       console.log('Safe remaining balance:', safeRemainingBalance);
@@ -280,10 +282,58 @@ const StockReceivingPayment: React.FC = () => {
       // Update stock receiving payment status
       await db.updateStockReceivingPayment(receiving.id, form.amount);
       
+      // Emit real-time events for dashboard updates
+      console.log('🚀 Emitting real-time events for payment...');
+      
+      // Emit vendor payment events
+      emitPaymentEvents({
+        paymentId: paymentId || 0,
+        amount: form.amount,
+        paymentMethod: form.payment_method,
+        customerId: undefined, // This is a vendor payment
+        customerName: undefined,
+        invoiceId: undefined,
+        billNumber: receiving.receiving_number
+      });
+      
+      // Emit vendor payment created event
+      eventBus.emit(BUSINESS_EVENTS.VENDOR_PAYMENT_CREATED, {
+        vendorPaymentId: paymentId,
+        vendorId: receiving.vendor_id,
+        vendorName: receiving.vendor_name,
+        receivingId: receiving.id,
+        receivingNumber: receiving.receiving_number,
+        amount: form.amount,
+        paymentMethod: form.payment_method,
+        paymentChannel: form.payment_channel_name,
+        date: form.date
+      });
+      
+      // Emit vendor balance updated event
+      eventBus.emit(BUSINESS_EVENTS.VENDOR_BALANCE_UPDATED, {
+        vendorId: receiving.vendor_id,
+        vendorName: receiving.vendor_name,
+        paymentAmount: form.amount
+      });
+      
+      // Emit general payment recorded event for dashboard
+      eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, {
+        paymentId: paymentId || 0,
+        amount: form.amount,
+        type: 'vendor_payment',
+        vendorId: receiving.vendor_id,
+        vendorName: receiving.vendor_name,
+        receivingId: receiving.id,
+        date: form.date,
+        method: form.payment_method
+      });
+      
+      console.log('✅ Real-time events emitted successfully');
+      
       // Log the payment recording activity
       const paymentDescription = (paymentId && paymentId > 0)
-        ? `Recorded payment of ₹${form.amount.toLocaleString()} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
-        : `Recorded payment of ₹${form.amount.toLocaleString()} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''} - Vendor not found, recorded in daily ledger`;
+        ? `Recorded payment of ₹${form.amount.toFixed(1)} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
+        : `Recorded payment of ₹${form.amount.toFixed(1)} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''} - Vendor not found, recorded in daily ledger`;
       
       activityLogger.logCustomActivity(
         ActivityType.PAYMENT,
@@ -405,8 +455,8 @@ const StockReceivingPayment: React.FC = () => {
                 type="number"
                 value={form.amount || 0}
                 onChange={(e) => setForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
-                step="0.01"
-                min="0.01"
+                step="0.1"
+                min="0.1"
                 max={receiving?.remaining_balance || 0}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
@@ -414,14 +464,20 @@ const StockReceivingPayment: React.FC = () => {
               <div className="mt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setForm(prev => ({ ...prev, amount: receiving?.remaining_balance || 0 }))}
+                  onClick={() => {
+                    const full = Math.round(((receiving?.remaining_balance || 0) + Number.EPSILON) * 10) / 10;
+                    setForm(prev => ({ ...prev, amount: full }));
+                  }}
                   className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
                 >
                   Pay Full Amount
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm(prev => ({ ...prev, amount: (receiving?.remaining_balance || 0) / 2 }))}
+                  onClick={() => {
+                    const half = Math.round((((receiving?.remaining_balance || 0) / 2) + Number.EPSILON) * 10) / 10;
+                    setForm(prev => ({ ...prev, amount: half }));
+                  }}
                   className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200"
                 >
                   Pay Half
