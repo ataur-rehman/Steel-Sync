@@ -252,11 +252,13 @@ const StockReceivingNew: React.FC = () => {
     try {
       setSubmitting(true);
       
+      // Enhanced stock receiving creation with proper payment integration
       const result = await db.createStockReceiving({
         vendor_id: form.vendor_id,
         vendor_name: form.vendor_name,
         total_amount: form.total_amount,
         payment_amount: form.payment_amount,
+        payment_method: form.payment_amount > 0 ? 'cash' : undefined,
         notes: form.notes,
         truck_number: form.truck_number,
         reference_number: form.reference_number,
@@ -264,8 +266,101 @@ const StockReceivingNew: React.FC = () => {
         items: form.items
       });
 
-      // Log activity
-      await activityLogger.logStockReceivingCreated(result, form.vendor_name, form.total_amount);
+      console.log('📦 Stock receiving created with ID:', result);
+
+      // CRITICAL FIX 1: Log activity for activity logger
+      try {
+        await activityLogger.logStockReceivingCreated(result, form.vendor_name, form.total_amount);
+        console.log('✅ Activity logged successfully');
+      } catch (activityError) {
+        console.error('⚠️ Activity logging failed:', activityError);
+        // Don't fail the whole operation for activity logging
+      }
+
+      // CRITICAL FIX 2: Create payment if payment_amount > 0
+      if (form.payment_amount > 0) {
+        try {
+          console.log('💰 Creating vendor payment for amount:', form.payment_amount);
+          
+          // Get default payment channel (Cash)
+          const paymentChannels = await db.getPaymentChannels();
+          const defaultChannel = paymentChannels.find(c => c.name.toLowerCase() === 'cash') || paymentChannels[0];
+          
+          if (defaultChannel) {
+            await db.createVendorPayment({
+              vendor_id: form.vendor_id,
+              vendor_name: form.vendor_name,
+              receiving_id: result,
+              amount: form.payment_amount,
+              payment_channel_id: defaultChannel.id,
+              payment_channel_name: defaultChannel.name,
+              reference_number: form.reference_number || `Stock Receiving #${result}`,
+              notes: `Payment for stock receiving from ${form.vendor_name}`,
+              date: new Date().toISOString().split('T')[0],
+              time: new Date().toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                hour12: true,
+                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+              }),
+              created_by: 'admin'
+            });
+            console.log('✅ Vendor payment created successfully');
+          } else {
+            console.warn('⚠️ No payment channels found - payment not recorded');
+          }
+        } catch (paymentError) {
+          console.error('❌ Failed to create vendor payment:', paymentError);
+          toast.error('Stock receiving created but payment recording failed');
+        }
+      }
+
+      // CRITICAL FIX 3: Force real-time updates for Business Finance and dashboard
+      try {
+        // Import and clear finance service cache
+        const { financeService } = await import('../../services/financeService');
+        financeService.clearCache();
+        
+        // Emit events for real-time updates using proper event system
+        try {
+          const { eventBus } = await import('../../utils/eventBus');
+          
+          eventBus.emit('STOCK_RECEIVING_COMPLETED', {
+            receivingId: result,
+            vendorId: form.vendor_id,
+            vendorName: form.vendor_name,
+            totalAmount: form.total_amount,
+            paymentAmount: form.payment_amount
+          });
+          
+          if (form.payment_amount > 0) {
+            eventBus.emit('VENDOR_PAYMENT_RECORDED', {
+              vendorId: form.vendor_id,
+              amount: form.payment_amount,
+              receivingId: result
+            });
+          }
+          
+          eventBus.emit('BUSINESS_FINANCE_UPDATE', {
+            reason: 'stock_receiving',
+            vendorPurchase: form.total_amount,
+            vendorPayment: form.payment_amount
+          });
+        } catch (eventBusError) {
+          console.warn('⚠️ EventBus import failed, using fallback:', eventBusError);
+          // Fallback to window.eventBus if available
+          if (typeof window !== 'undefined' && (window as any).eventBus) {
+            (window as any).eventBus.emit('BUSINESS_FINANCE_UPDATE', {
+              reason: 'stock_receiving',
+              vendorPurchase: form.total_amount
+            });
+          }
+        }
+        
+        console.log('✅ Real-time events emitted for dashboard update');
+      } catch (eventError) {
+        console.error('⚠️ Event emission failed:', eventError);
+      }
 
       toast.success('Stock receiving created successfully!');
       navigate('/stock/receiving');

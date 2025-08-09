@@ -7368,8 +7368,8 @@ async createVendorPayment(payment: {
       cheque_number: payment.cheque_number?.substring(0, 50) || null,
       notes: payment.notes?.substring(0, 1000) || null,
       created_by: (payment.created_by || 'system').substring(0, 100),
-      date: payment.date || new Date().toISOString().split('T')[0],
-      time: payment.time || new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true })
+      date: payment.date || this.formatUniversalDate(),
+      time: payment.time || this.formatUniversalTime()
     };
 
     console.log('Creating vendor payment:', sanitizedPayment);
@@ -7402,38 +7402,21 @@ async createVendorPayment(payment: {
     const paymentId = result?.lastInsertId || 0;
     console.log('Vendor payment created with ID:', paymentId);
 
-    // CRITICAL FIX: Also record this vendor payment in the payments table to update payment channel statistics
+    // CRITICAL FIX: Update payment channel statistics DIRECTLY without creating duplicate payment entries
     try {
-      console.log('🔄 Recording vendor payment in payments table for channel statistics...');
+      console.log('🔄 Updating payment channel statistics directly for vendor payment...');
       
-      // Create a payment record that will be tracked by payment channels
+      // Update payment channel totals directly instead of creating payment entries
       await this.dbConnection.execute(`
-        INSERT INTO payments (
-          customer_id, customer_name, payment_code, amount, payment_amount, net_amount,
-          payment_method, payment_type, payment_channel_id, payment_channel_name, 
-          reference, notes, date, time, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-      `, [
-        null, // Use NULL instead of negative vendor ID to avoid foreign key constraint
-        `Vendor: ${sanitizedPayment.vendor_name}`,
-        `VP${paymentId.toString().padStart(5, '0')}`, // Vendor Payment code
-        sanitizedPayment.amount,
-        sanitizedPayment.amount, // payment_amount (required)
-        sanitizedPayment.amount, // net_amount (required)
-        this.mapPaymentMethodForConstraint(sanitizedPayment.payment_channel_name), // Use mapped payment method
-        'outgoing', // Use 'outgoing' for vendor payments to match CHECK constraint
-        sanitizedPayment.payment_channel_id || 0, // Provide 0 instead of null for payments table
-        sanitizedPayment.payment_channel_name,
-        sanitizedPayment.reference_number || `Stock Receiving #${sanitizedPayment.receiving_id}`,
-        `Vendor payment: ${sanitizedPayment.notes || 'Stock receiving payment'}`,
-        sanitizedPayment.date,
-        sanitizedPayment.time
-      ]);
-
-      console.log('✅ Vendor payment recorded in payments table for channel tracking');
-    } catch (paymentsError) {
-      console.warn('⚠️ Failed to record vendor payment in payments table:', paymentsError);
-      // Don't fail the whole transaction - vendor payment was still recorded
+        UPDATE payment_channels 
+        SET total_outgoing = COALESCE(total_outgoing, 0) + ?, 
+            updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `, [sanitizedPayment.amount, sanitizedPayment.payment_channel_id]);
+      
+      console.log('✅ Payment channel statistics updated directly (no duplicate entries)');
+    } catch (channelError) {
+      console.warn('⚠️ Failed to update payment channel statistics:', channelError);
     }
 
     // CRITICAL FIX: Update payment channel daily ledger for vendor payments
@@ -12543,6 +12526,10 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           sr.grand_total,                    -- Keep centralized name
           sr.payment_status, sr.payment_method,
           sr.truck_number, sr.reference_number, sr.notes, sr.created_by, sr.created_at,
+          -- Calculate payment_amount dynamically from vendor payments
+          COALESCE(
+            (SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0
+          ) as payment_amount,
           -- Calculate remaining_balance dynamically from vendor payments
           (sr.total_cost - COALESCE(
             (SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0
@@ -12630,11 +12617,15 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             THEN 'partial'
             ELSE 'pending'
           END as payment_status,
+          -- Calculate payment_amount dynamically from vendor payments
+          COALESCE(
+            (SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0
+          ) as payment_amount,
           -- Calculate remaining_balance dynamically from vendor payments
           (sr.total_cost - COALESCE(
             (SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0
           )) as remaining_balance,
-          -- Also calculate paid_amount for completeness
+          -- Also calculate paid_amount for completeness (alias for payment_amount)
           COALESCE(
             (SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0
           ) as paid_amount
@@ -12652,12 +12643,14 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       
       // Ensure numeric values are properly handled
       record.total_amount = typeof record.total_amount === 'number' ? record.total_amount : 0;
+      record.payment_amount = typeof record.payment_amount === 'number' ? record.payment_amount : 0;
       record.remaining_balance = typeof record.remaining_balance === 'number' ? record.remaining_balance : record.total_amount;
       record.paid_amount = typeof record.paid_amount === 'number' ? record.paid_amount : 0;
 
       console.log('📋 [DEBUG] Stock receiving record loaded:', {
         id: record.id,
         total_amount: record.total_amount,
+        payment_amount: record.payment_amount,
         paid_amount: record.paid_amount,
         remaining_balance: record.remaining_balance
       });
@@ -13734,6 +13727,40 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         totalTime: Date.now() - startTime
       };
     }
+  }
+
+  /**
+   * CRITICAL FIX: Universal Date/Time formatting methods for cross-platform consistency
+   */
+  private formatUniversalTime(date: Date = new Date()): string {
+    // FIXED: Always use 12-hour format regardless of platform (Mac vs Windows)
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      hour12: true,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+    });
+  }
+  
+  private formatUniversalDate(date: Date = new Date()): string {
+    // FIXED: Consistent date format YYYY-MM-DD across all platforms
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  
+  private validateSystemTime(): boolean {
+    const systemTime = new Date();
+    const expectedTime = Date.now();
+    const timeDiff = Math.abs(systemTime.getTime() - expectedTime);
+    
+    if (timeDiff > 60000) { // More than 1 minute difference
+      console.warn('⚠️ WARNING: System time may be incorrect! Difference:', timeDiff, 'ms');
+      return false;
+    }
+    
+    return true;
   }
 }
 

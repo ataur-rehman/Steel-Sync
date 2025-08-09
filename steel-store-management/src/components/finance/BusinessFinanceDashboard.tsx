@@ -215,11 +215,21 @@ const BusinessFinanceDashboard: React.FC = () => {
   const loadFinancialData = useCallback(async () => {
     try {
       setLoading(true);
-      const months = parseInt(selectedPeriod);
+      console.log('💼 Loading Business Finance data with cache refresh...');
       
-      // Fetch only real data from database
+      // CRITICAL FIX: Force fresh data calculation for vendor purchases
+      const months = parseInt(selectedPeriod);
+      financeService.clearCache(); // Clear cache to ensure fresh data
+      
+      // Fetch fresh data from database including vendor purchases
       const data = await financeService.getFinancialSummary(months);
       setFinancialData(data);
+      
+      console.log('✅ Business Finance data refreshed:', {
+        totalSales: data.businessMetrics.totalSales,
+        totalPurchases: data.businessMetrics.totalPurchases,
+        outstandingPayables: data.businessMetrics.outstandingPayables
+      });
       
     } catch (error) {
       console.error('Error loading financial data:', error);
@@ -231,12 +241,51 @@ const BusinessFinanceDashboard: React.FC = () => {
     }
   }, [selectedPeriod]);
 
-  // AUTO-REFRESH: Enable automatic data updates every 30 seconds
+  // AUTO-REFRESH: Enhanced with vendor payment events for real-time updates
   useAutoRefresh(
     loadFinancialData,
     'business-finance-dashboard',
     [selectedPeriod]
   );
+
+  // CRITICAL FIX: Listen for vendor payment and stock receiving events for real-time updates
+  useEffect(() => {
+    const handleVendorEvents = () => {
+      console.log('🔄 Vendor payment/receiving event detected - refreshing finance data');
+      loadFinancialData();
+    };
+
+    // Set up event listeners for vendor-related updates
+    const eventListeners = [
+      'VENDOR_PAYMENT_CREATED',
+      'STOCK_RECEIVING_COMPLETED', 
+      'VENDOR_PAYMENT_RECORDED',
+      'BUSINESS_FINANCE_UPDATE',
+      'VENDOR_FINANCIAL_UPDATED'
+    ];
+
+    // Use dynamic import to avoid TypeScript issues
+    const setupEventListeners = async () => {
+      try {
+        const { eventBus } = await import('../../utils/eventBus');
+        
+        eventListeners.forEach(eventName => {
+          eventBus.on(eventName, handleVendorEvents);
+        });
+
+        return () => {
+          eventListeners.forEach(eventName => {
+            eventBus.off(eventName, handleVendorEvents);
+          });
+        };
+      } catch (error) {
+        console.warn('⚠️ Could not setup event listeners:', error);
+        return () => {}; // Return empty cleanup function
+      }
+    };
+
+    setupEventListeners();
+  }, [loadFinancialData]);
 
   useEffect(() => {
     // Optimized initial load with minimal delay
