@@ -138,9 +138,9 @@ const VendorDetail: React.FC = () => {
     const fetchVendor = async () => {
       setLoading(true);
       try {
-        const vendors = await db.getVendors();
-        const v = vendors.find((ven: any) => String(ven.id) === String(id));
-        setVendor(v || null);
+        // FIXED: Use getVendorById with financial calculations instead of searching all vendors
+        const v = await db.getVendorById(Number(id));
+        setVendor(v);
       } catch (err) {
         toast.error('Failed to load vendor');
         setVendor(null);
@@ -149,6 +149,27 @@ const VendorDetail: React.FC = () => {
       }
     };
     fetchVendor();
+
+    // REAL-TIME UPDATE: Listen for vendor financial updates
+    const handleVendorUpdate = (data: any) => {
+      if (data.vendorId === Number(id)) {
+        console.log('🔄 Refreshing vendor financial data due to update event');
+        fetchVendor();
+      }
+    };
+
+    // Listen for vendor payment and financial update events
+    window.addEventListener('VENDOR_FINANCIAL_UPDATED', handleVendorUpdate);
+    window.addEventListener('VENDOR_PAYMENT_CREATED', handleVendorUpdate);
+    window.addEventListener('VENDOR_BALANCE_UPDATED', handleVendorUpdate);
+    window.addEventListener('VENDOR_DATA_REFRESH', handleVendorUpdate);
+
+    return () => {
+      window.removeEventListener('VENDOR_FINANCIAL_UPDATED', handleVendorUpdate);
+      window.removeEventListener('VENDOR_PAYMENT_CREATED', handleVendorUpdate);
+      window.removeEventListener('VENDOR_BALANCE_UPDATED', handleVendorUpdate);
+      window.removeEventListener('VENDOR_DATA_REFRESH', handleVendorUpdate);
+    };
   }, [id]);
 
   useEffect(() => {

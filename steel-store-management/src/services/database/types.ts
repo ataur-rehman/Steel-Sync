@@ -9,6 +9,7 @@ export interface DatabaseConfig {
   enableForeignKeys: boolean;
   busyTimeout: number;
   cacheSize: number;
+  synchronous: string; // Add synchronous property
   enableQueryCache: boolean;
   queryCache: {
     maxSize: number;
@@ -46,24 +47,40 @@ export interface StockMovement {
   id?: number;
   product_id: number;
   product_name: string;
-  movement_type: 'in' | 'out' | 'adjustment';
-  quantity: number;
-  previous_stock: number;
-  new_stock: number;
-  unit_price: number;
-  total_value: number;
+  movement_type: 'in' | 'out' | 'adjustment' | 'transfer' | 'return' | 'waste' | 'damage';
+  transaction_type?: 'sale' | 'purchase' | 'adjustment' | 'transfer' | 'return';
+  quantity: number | string;
+  unit?: string;
+  previous_stock: number | string;
+  stock_before?: number | string;
+  stock_after?: number | string;
+  new_stock: number | string;
+  unit_cost?: number;
+  unit_price?: number;
+  total_cost?: number;
+  total_value?: number;
   reason: string;
-  reference_type?: 'invoice' | 'adjustment' | 'initial' | 'purchase' | 'return';
+  reference_type?: 'invoice' | 'purchase' | 'adjustment' | 'initial' | 'receiving' | 'return' | 'transfer' | 'waste';
   reference_id?: number;
   reference_number?: string;
+  batch_number?: string;
+  expiry_date?: string;
+  location_from?: string;
+  location_to?: string;
   customer_id?: number;
   customer_name?: string;
+  supplier_id?: number;
+  supplier_name?: string;
+  vendor_id?: number;
+  vendor_name?: string;
   notes?: string;
   date: string;
   time: string;
+  movement_date?: string;
   created_by?: string;
-  created_at: string;
-  updated_at: string;
+  approved_by?: string;
+  created_at?: string;
+  updated_at?: string;
   unit_type?: string;
 }
 

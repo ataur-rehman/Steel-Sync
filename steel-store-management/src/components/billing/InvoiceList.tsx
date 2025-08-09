@@ -310,12 +310,31 @@ const InvoiceList: React.FC = () => {
         }
         
         const convertQuantity = (rawQuantity: number | string): string => {
+          // Check if it's already a formatted string with sign (new format)
+          if (typeof rawQuantity === 'string' && (rawQuantity.includes('kg') || rawQuantity.includes('pcs') || rawQuantity.includes('bags'))) {
+            // Already formatted, return as is
+            return rawQuantity;
+          }
+          
+          // Legacy numeric conversion for backward compatibility
           const numericValue = typeof rawQuantity === 'string' ? parseFloat(rawQuantity) : rawQuantity;
           
           if (productUnitType === 'kg-grams') {
-            const kg = Math.floor(numericValue / 1000);
-            const grams = numericValue % 1000;
-            return grams > 0 ? `${kg}-${grams}` : `${kg}`;
+            const kg = Math.floor(Math.abs(numericValue) / 1000);
+            const grams = Math.abs(numericValue) % 1000;
+            const sign = numericValue < 0 ? '-' : '';
+            return grams > 0 ? `${sign}${kg}kg ${grams}g` : `${sign}${kg}kg`;
+          } else if (productUnitType === 'kg') {
+            const kg = Math.floor(Math.abs(numericValue) / 1000);
+            const grams = Math.abs(numericValue) % 1000;
+            const sign = numericValue < 0 ? '-' : '';
+            return grams > 0 ? `${sign}${kg}.${String(grams).padStart(3, '0')}kg` : `${sign}${kg}kg`;
+          } else if (productUnitType === 'piece') {
+            const sign = numericValue < 0 ? '-' : '';
+            return `${sign}${Math.abs(numericValue)} pcs`;
+          } else if (productUnitType === 'bag') {
+            const sign = numericValue < 0 ? '-' : '';
+            return `${sign}${Math.abs(numericValue)} bags`;
           } else {
             return numericValue.toString();
           }

@@ -51,15 +51,15 @@ interface StockMovement {
   id?: number;
   product_id: number;
   product_name: string;
-  movement_type: 'in' | 'out' | 'adjustment';
+  movement_type: 'in' | 'out' | 'adjustment' | 'transfer' | 'return' | 'waste' | 'damage';
   quantity: string; // Now in unit format
   previous_stock: string; // Now in unit format
   new_stock: string; // Now in unit format
   unit_type?: UnitType; // Unit type for proper formatting
-  unit_price: number;
-  total_value: number;
+  unit_price?: number;
+  total_value?: number;
   reason: string;
-  reference_type?: 'invoice' | 'adjustment' | 'initial' | 'purchase' | 'return';
+  reference_type?: 'invoice' | 'adjustment' | 'initial' | 'purchase' | 'return' | 'receiving' | 'transfer' | 'waste';
   reference_id?: number;
   reference_number?: string;
   customer_id?: number;
@@ -68,8 +68,8 @@ interface StockMovement {
   date: string;
   time: string;
   created_by?: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface StockSummary {
@@ -349,17 +349,35 @@ const StockReport: React.FC = () => {
           console.warn(`Could not get unit type for product ${movement.product_id}, using default kg-grams`);
         }
         
-        // Convert quantities from base units back to proper display format
+        // CRITICAL FIX: Handle new formatted quantity strings with signs
         const convertQuantity = (rawQuantity: number | string): string => {
+          // Check if it's already a formatted string with sign (new format)
+          if (typeof rawQuantity === 'string' && (rawQuantity.includes('kg') || rawQuantity.includes('pcs') || rawQuantity.includes('bags'))) {
+            // Already formatted, return as is
+            return rawQuantity;
+          }
+          
+          // Legacy numeric conversion for backward compatibility
           const numericValue = typeof rawQuantity === 'string' ? parseFloat(rawQuantity) : rawQuantity;
           
           if (productUnitType === 'kg-grams') {
             // Convert from grams back to kg-grams format
-            const kg = Math.floor(numericValue / 1000);
-            const grams = numericValue % 1000;
-            return grams > 0 ? `${kg}-${grams}` : `${kg}`;
+            const kg = Math.floor(Math.abs(numericValue) / 1000);
+            const grams = Math.abs(numericValue) % 1000;
+            const sign = numericValue < 0 ? '-' : '';
+            return grams > 0 ? `${sign}${kg}kg ${grams}g` : `${sign}${kg}kg`;
+          } else if (productUnitType === 'kg') {
+            const kg = Math.floor(Math.abs(numericValue) / 1000);
+            const grams = Math.abs(numericValue) % 1000;
+            const sign = numericValue < 0 ? '-' : '';
+            return grams > 0 ? `${sign}${kg}.${String(grams).padStart(3, '0')}kg` : `${sign}${kg}kg`;
+          } else if (productUnitType === 'piece') {
+            const sign = numericValue < 0 ? '-' : '';
+            return `${sign}${Math.abs(numericValue)} pcs`;
+          } else if (productUnitType === 'bag') {
+            const sign = numericValue < 0 ? '-' : '';
+            return `${sign}${Math.abs(numericValue)} bags`;
           } else {
-            // For simple units (piece, bag, etc.), just return the numeric value
             return numericValue.toString();
           }
         };
@@ -1398,12 +1416,12 @@ const StockReport: React.FC = () => {
                                 category: '',
                                 unit: '',
                                 unit_type: 'kg-grams', // Default fallback
-                                rate_per_unit: movement.unit_price,
+                                rate_per_unit: movement.unit_price || 0,
                                 current_stock: movement.new_stock,
                                 min_stock_alert: '0',
                                 stock_value: 0,
                                 status: 'in_stock',
-                                last_updated: movement.created_at,
+                                last_updated: movement.created_at || new Date().toISOString(),
                                 reorder_suggestion: '0'
                               })}
                               className="text-purple-600 hover:text-purple-800 flex items-center"

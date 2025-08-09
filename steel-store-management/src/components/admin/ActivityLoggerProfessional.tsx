@@ -22,7 +22,6 @@ import {
   Clock,
   AlertTriangle,
   Eye,
-  Calendar,
   FileText,
   Package,
   Users,
@@ -30,11 +29,11 @@ import {
   Shield,
   Settings,
   TrendingUp,
-  Database,
+
   Globe,
   CheckCircle,
   XCircle,
-  AlertCircle,
+
   Trash2,
   Edit3,
   Plus,
@@ -42,7 +41,7 @@ import {
   LogOut,
   Archive,
   Filter,
-  User,
+
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';

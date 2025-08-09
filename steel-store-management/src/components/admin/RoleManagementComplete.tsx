@@ -14,7 +14,6 @@ import {
   X,
   Save,
   Trash2,
-  RefreshCw
 } from 'lucide-react';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
 import { useActivityLogger } from '../../hooks/useActivityLogger';

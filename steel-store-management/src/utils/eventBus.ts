@@ -113,6 +113,7 @@ export const BUSINESS_EVENTS = {
   VENDOR_DELETED: 'vendor:deleted',
   VENDOR_PAYMENT_CREATED: 'vendor:payment_created',
   VENDOR_BALANCE_UPDATED: 'vendor:balance_updated',
+  VENDOR_FINANCIAL_UPDATED: 'vendor:financial_updated',
   
   // Staff events
   STAFF_CREATED: 'staff:created',

@@ -119,8 +119,35 @@ class FinanceService {
     this.cache.set(key, { data, timestamp: Date.now() });
   }
 
-  private clearCache(): void {
+  /**
+   * Clear cache to ensure fresh data calculation - CENTRALIZED SYSTEM ENHANCEMENT
+   */
+  public clearCache(): void {
     this.cache.clear();
+    console.log('🧹 Finance service cache cleared - fresh data will be calculated');
+  }
+
+  /**
+   * Force refresh business metrics without cache - CENTRALIZED SYSTEM ENHANCEMENT
+   */
+  public async getBusinessMetricsForced(): Promise<BusinessMetrics> {
+    // Clear cache first
+    this.clearCache();
+    
+    // Get fresh data
+    const metrics = await this.getBusinessMetrics();
+    
+    // Log for debugging vendor purchase data display
+    console.log('📊 FORCED Business Metrics Calculation:');
+    console.log(`   Customer Sales: Rs ${metrics.totalSales.toLocaleString()}`);
+    console.log(`   Vendor Purchases: Rs ${metrics.totalPurchases.toLocaleString()}`);
+    console.log(`   Outstanding Payables: Rs ${metrics.outstandingPayables.toLocaleString()}`);
+    
+    if (metrics.totalPurchases > 0) {
+      console.log('✅ Vendor purchase data successfully calculated from centralized system');
+    }
+    
+    return metrics;
   }
 
   public static getInstance(): FinanceService {
@@ -279,9 +306,9 @@ class FinanceService {
         WHERE strftime('%Y', date) = ?
       `, [currentYear.toString()]);
 
-      // Get total purchases from stock receiving
+      // Get total purchases from stock receiving - FIXED: Using correct column name
       const purchasesResult = await db.executeRawQuery(`
-        SELECT COALESCE(SUM(total_amount), 0) as total_purchases
+        SELECT COALESCE(SUM(grand_total), 0) as total_purchases
         FROM stock_receiving 
         WHERE strftime('%Y', date) = ?
       `, [currentYear.toString()]);
@@ -293,9 +320,9 @@ class FinanceService {
         WHERE remaining_balance > 0
       `);
 
-      // Get outstanding payables
+      // Get outstanding payables - FIXED: Using correct column name
       const payablesResult = await db.executeRawQuery(`
-        SELECT COALESCE(SUM(sr.total_amount - COALESCE(vp.total_paid, 0)), 0) as outstanding_payables
+        SELECT COALESCE(SUM(sr.grand_total - COALESCE(vp.total_paid, 0)), 0) as outstanding_payables
         FROM stock_receiving sr
         LEFT JOIN (
           SELECT vendor_id, SUM(amount) as total_paid
@@ -367,7 +394,7 @@ class FinanceService {
 
         // Get steel purchases for the month
         const steelPurchasesResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(total_amount), 0) as steel_purchases
+          SELECT COALESCE(SUM(grand_total), 0) as steel_purchases
           FROM stock_receiving 
           WHERE strftime('%Y-%m', date) = ?
         `, [monthStr]);
@@ -618,7 +645,7 @@ class FinanceService {
         SELECT 
           v.id as vendor_id,
           v.name as vendor_name,
-          COALESCE(SUM(sr.total_amount) - COALESCE(SUM(vp.amount), 0), 0) as outstanding_amount,
+          COALESCE(SUM(sr.grand_total) - COALESCE(SUM(vp.amount), 0), 0) as outstanding_amount,
           MAX(vp.date) as last_payment_date,
           COUNT(sr.id) as total_purchases,
           CASE 
@@ -628,7 +655,7 @@ class FinanceService {
         FROM vendors v
         LEFT JOIN stock_receiving sr ON v.id = sr.vendor_id
         LEFT JOIN vendor_payments vp ON v.id = vp.vendor_id
-        WHERE sr.total_amount > 0
+        WHERE sr.grand_total > 0
         GROUP BY v.id, v.name
         HAVING outstanding_amount > 0
         ORDER BY outstanding_amount DESC
@@ -735,7 +762,7 @@ class FinanceService {
 
         // Get COGS (steel purchases)
         const cogsResult = await db.executeRawQuery(`
-          SELECT COALESCE(SUM(total_amount), 0) as cogs
+          SELECT COALESCE(SUM(grand_total), 0) as cogs
           FROM stock_receiving 
           WHERE strftime('%Y-%m', date) = ?
         `, [monthStr]);

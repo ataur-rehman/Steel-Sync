@@ -20,13 +20,14 @@ export class DatabaseConfigManager {
 
   private getDefaultConfig(): DatabaseConfig {
     return {
-      dbPath: 'sqlite:store.db',
+      dbPath: 'SINGLE_DATABASE_ENFORCER', // This will be replaced by single database enforcer
       maxRetries: 3,
       retryDelay: 1000,
       enableWAL: true,
       enableForeignKeys: true,
       busyTimeout: 15000,
       cacheSize: 5000,
+      synchronous: 'NORMAL', // Add synchronous property
       enableQueryCache: true,
       queryCache: {
         maxSize: 1000,

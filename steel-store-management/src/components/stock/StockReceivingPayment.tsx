@@ -53,8 +53,8 @@ const StockReceivingPayment: React.FC = () => {
   const loadData = async (receivingId: number) => {
     try {
       setLoading(true);
-      const [receivingList, vendors] = await Promise.all([
-        db.getStockReceivingList(),
+      const [receivingRecord, vendors] = await Promise.all([
+        db.getStockReceivingById(receivingId), // Use specific method instead of filtering list
         db.getVendors()
       ]);
       
@@ -70,7 +70,6 @@ const StockReceivingPayment: React.FC = () => {
         return;
       }
       
-      const receivingRecord = receivingList.find((r: any) => r.id === receivingId);
       if (!receivingRecord) {
         toast.error('Stock receiving record not found');
         navigate('/stock/receiving');
@@ -83,10 +82,21 @@ const StockReceivingPayment: React.FC = () => {
       setVendor(vendorRecord);
       setPaymentChannels(channels);
       
+      // Debug logging for NaN issue
+      console.log('Receiving record:', receivingRecord);
+      console.log('Remaining balance:', receivingRecord.remaining_balance, typeof receivingRecord.remaining_balance);
+      
       // Set default payment amount to remaining balance
+      const remainingBalance = receivingRecord.remaining_balance;
+      const safeRemainingBalance = (typeof remainingBalance === 'number' && !isNaN(remainingBalance) && remainingBalance > 0) 
+        ? remainingBalance 
+        : 0;
+      
+      console.log('Safe remaining balance:', safeRemainingBalance);
+      
       setForm(prev => ({
         ...prev,
-        amount: receivingRecord.remaining_balance || 0,
+        amount: safeRemainingBalance,
         payment_channel_id: channels[0]?.id || 1,
         payment_channel_name: channels[0]?.name || 'Cash'
       }));
@@ -120,12 +130,12 @@ const StockReceivingPayment: React.FC = () => {
       return;
     }
     
-    if (form.amount <= 0) {
+    if (!form.amount || form.amount <= 0 || isNaN(form.amount)) {
       toast.error('Payment amount must be greater than 0');
       return;
     }
     
-    if (form.amount > receiving.remaining_balance) {
+    if (form.amount > (receiving?.remaining_balance || 0)) {
       toast.error('Payment amount cannot exceed remaining balance');
       return;
     }
@@ -331,7 +341,7 @@ const StockReceivingPayment: React.FC = () => {
     );
   }
 
-  const remainingAfterPayment = receiving.remaining_balance - form.amount;
+  const remainingAfterPayment = (receiving?.remaining_balance || 0) - (form.amount || 0);
 
 
   return (
@@ -368,7 +378,7 @@ const StockReceivingPayment: React.FC = () => {
           </div>
           <div>
             <label className="block text-sm text-gray-500 mb-1">Outstanding</label>
-            <p className="text-sm font-semibold text-red-600">{formatCurrency(receiving.remaining_balance)}</p>
+            <p className="text-sm font-semibold text-red-600">{formatCurrency(receiving?.remaining_balance || 0)}</p>
           </div>
         </div>
         
@@ -393,32 +403,32 @@ const StockReceivingPayment: React.FC = () => {
               </label>
               <input
                 type="number"
-                value={form.amount}
+                value={form.amount || 0}
                 onChange={(e) => setForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
                 step="0.01"
                 min="0.01"
-                max={receiving.remaining_balance}
+                max={receiving?.remaining_balance || 0}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               />
               <div className="mt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setForm(prev => ({ ...prev, amount: receiving.remaining_balance }))}
+                  onClick={() => setForm(prev => ({ ...prev, amount: receiving?.remaining_balance || 0 }))}
                   className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200"
                 >
                   Pay Full Amount
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm(prev => ({ ...prev, amount: receiving.remaining_balance / 2 }))}
+                  onClick={() => setForm(prev => ({ ...prev, amount: (receiving?.remaining_balance || 0) / 2 }))}
                   className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200"
                 >
                   Pay Half
                 </button>
               </div>
               <p className="mt-1 text-sm text-gray-500">
-                Maximum: {formatCurrency(receiving.remaining_balance)}
+                Maximum: {formatCurrency(receiving?.remaining_balance || 0)}
               </p>
             </div>
             
@@ -429,8 +439,8 @@ const StockReceivingPayment: React.FC = () => {
               </label>
               <input
                 type="date"
-                value={form.date}
-                onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value }))}
+                value={form.date || new Date().toISOString().split('T')[0]}
+                onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value || new Date().toISOString().split('T')[0] }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               />
@@ -464,8 +474,8 @@ const StockReceivingPayment: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={form.cheque_number}
-                    onChange={(e) => setForm(prev => ({ ...prev, cheque_number: e.target.value }))}
+                    value={form.cheque_number || ''}
+                    onChange={(e) => setForm(prev => ({ ...prev, cheque_number: e.target.value || '' }))}
                     placeholder="Cheque number"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                     required
@@ -478,8 +488,8 @@ const StockReceivingPayment: React.FC = () => {
                   </label>
                   <input
                     type="date"
-                    value={form.cheque_date}
-                    onChange={(e) => setForm(prev => ({ ...prev, cheque_date: e.target.value }))}
+                    value={form.cheque_date || ''}
+                    onChange={(e) => setForm(prev => ({ ...prev, cheque_date: e.target.value || '' }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
                 </div>  
@@ -519,8 +529,8 @@ const StockReceivingPayment: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={form.reference_number}
-                onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value }))}
+                value={form.reference_number || ''}
+                onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value || '' }))}
                 placeholder="Transaction reference (optional)"
                 className="w-6/12 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
@@ -529,8 +539,8 @@ const StockReceivingPayment: React.FC = () => {
           <div className="mt-6">
             <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
             <textarea
-              value={form.notes}
-              onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value }))}
+              value={form.notes || ''}
+              onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value || '' }))}
               rows={3}
               placeholder="Additional notes about this payment..."
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
@@ -572,7 +582,7 @@ const StockReceivingPayment: React.FC = () => {
           </button>
           <button
             type="submit"
-            disabled={submitting || form.amount <= 0 || form.amount > receiving.remaining_balance}
+            disabled={submitting || !form.amount || form.amount <= 0 || isNaN(form.amount) || form.amount > (receiving?.remaining_balance || 0)}
             className="btn btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? 'Recording Payment...' : 'Record Payment'}

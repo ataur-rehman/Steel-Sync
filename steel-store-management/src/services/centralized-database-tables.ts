@@ -540,13 +540,14 @@ export const CENTRALIZED_DATABASE_TABLES = {
       payment_number TEXT UNIQUE NOT NULL,
       vendor_id INTEGER NOT NULL,
       vendor_name TEXT NOT NULL,
+      receiving_id INTEGER,
       purchase_order_id INTEGER,
       invoice_number TEXT,
       amount REAL NOT NULL,
       discount_amount REAL DEFAULT 0,
       tax_amount REAL DEFAULT 0,
       net_amount REAL NOT NULL,
-      payment_method TEXT NOT NULL DEFAULT 'cash',
+      payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'bank', 'cheque', 'card', 'upi', 'online', 'other')),
       payment_channel_id INTEGER,
       payment_channel_name TEXT,
       reference_number TEXT,
@@ -562,7 +563,8 @@ export const CENTRALIZED_DATABASE_TABLES = {
       created_by TEXT NOT NULL DEFAULT 'system',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT
+      FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT,
+      FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE SET NULL
     )`,
   
   vendor_ledger_entries: `
@@ -1269,6 +1271,38 @@ export class CentralizedTableManager {
     
     console.log('✅ All indexes created successfully');
   }
+
+  /**
+   * CENTRALIZED SCHEMA ENFORCEMENT: NO ALTER TABLE - Only log schema mismatches
+   * Following user instructions: No migrations, no ALTER TABLE, no table creation in database.ts
+   */
+  async enforceSchemaConsistency(): Promise<void> {
+    console.log('🔧 [CENTRALIZED] Schema consistency check (NO ALTER TABLE per user instructions)...');
+    
+    try {
+      // ONLY log schema information - NO modifications
+      const stockReceivingSchema = await this.dbConnection.select(`PRAGMA table_info(stock_receiving)`);
+      const stockReceivingColumns = stockReceivingSchema.map((col: any) => col.name);
+      console.log('📋 [CENTRALIZED] stock_receiving columns:', stockReceivingColumns);
+      
+      const invoiceItemsSchema = await this.dbConnection.select(`PRAGMA table_info(invoice_items)`);  
+      const invoiceItemsColumns = invoiceItemsSchema.map((col: any) => col.name);
+      console.log('📋 [CENTRALIZED] invoice_items columns:', invoiceItemsColumns);
+      
+      const paymentsSchema = await this.dbConnection.select(`PRAGMA table_info(payments)`);
+      const paymentsColumns = paymentsSchema.map((col: any) => col.name);
+      console.log('📋 [CENTRALIZED] payments columns:', paymentsColumns);
+      
+      const stockReceivingItemsSchema = await this.dbConnection.select(`PRAGMA table_info(stock_receiving_items)`);
+      const stockItemsColumns = stockReceivingItemsSchema.map((col: any) => col.name);
+      console.log('📋 [CENTRALIZED] stock_receiving_items columns:', stockItemsColumns);
+      
+    } catch (schemaError) {
+      console.error('❌ [CENTRALIZED] Schema check failed:', schemaError);
+    }
+    
+    console.log('✅ [CENTRALIZED] Schema consistency check completed (NO MODIFICATIONS per user instructions)');
+  }
   
   /**
    * Drop all tables (use with extreme caution!)
@@ -1378,5 +1412,98 @@ export class CentralizedTableManager {
     return columns;
   }
 }
+
+// ===================================================================
+// PERMANENT TRIGGERS FOR VENDOR PAYMENT AUTOMATION
+// These triggers ensure payment status is always correct automatically
+// ===================================================================
+
+export const PERMANENT_DATABASE_TRIGGERS = {
+  
+  // Trigger to auto-update stock_receiving payment_status when vendor_payments change
+  update_stock_receiving_payment_status_on_payment_insert: `
+    CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_insert
+    AFTER INSERT ON vendor_payments
+    WHEN NEW.receiving_id IS NOT NULL
+    BEGIN
+      UPDATE stock_receiving
+      SET payment_status = CASE
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = NEW.receiving_id
+        ) >= total_cost THEN 'paid'
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = NEW.receiving_id
+        ) > 0 THEN 'partial'
+        ELSE 'pending'
+      END,
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = NEW.receiving_id;
+    END;
+  `,
+  
+  update_stock_receiving_payment_status_on_payment_update: `
+    CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_update
+    AFTER UPDATE ON vendor_payments
+    WHEN NEW.receiving_id IS NOT NULL OR OLD.receiving_id IS NOT NULL
+    BEGIN
+      -- Update old receiving if it changed
+      UPDATE stock_receiving
+      SET payment_status = CASE
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = OLD.receiving_id
+        ) >= total_cost THEN 'paid'
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = OLD.receiving_id
+        ) > 0 THEN 'partial'
+        ELSE 'pending'
+      END,
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = OLD.receiving_id AND OLD.receiving_id IS NOT NULL;
+      
+      -- Update new receiving if it's different
+      UPDATE stock_receiving
+      SET payment_status = CASE
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = NEW.receiving_id
+        ) >= total_cost THEN 'paid'
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = NEW.receiving_id
+        ) > 0 THEN 'partial'
+        ELSE 'pending'
+      END,
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = NEW.receiving_id AND NEW.receiving_id IS NOT NULL AND NEW.receiving_id != OLD.receiving_id;
+    END;
+  `,
+  
+  update_stock_receiving_payment_status_on_payment_delete: `
+    CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_delete
+    AFTER DELETE ON vendor_payments
+    WHEN OLD.receiving_id IS NOT NULL
+    BEGIN
+      UPDATE stock_receiving
+      SET payment_status = CASE
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = OLD.receiving_id
+        ) >= total_cost THEN 'paid'
+        WHEN (
+          SELECT COALESCE(SUM(amount), 0) FROM vendor_payments 
+          WHERE receiving_id = OLD.receiving_id
+        ) > 0 THEN 'partial'
+        ELSE 'pending'
+      END,
+      updated_at = CURRENT_TIMESTAMP
+      WHERE id = OLD.receiving_id;
+    END;
+  `
+  
+};
 
 export default CENTRALIZED_DATABASE_TABLES;

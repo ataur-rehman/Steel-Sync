@@ -475,9 +475,13 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 <span><strong>Balance Due:</strong></span>
                 <span><strong>${formatCurrency(invoice.remaining_balance)}</strong></span>
               </div>
+              <div class="total-row">
+                <span><strong>Payment Status:</strong></span>
+                <span><strong>${(invoice.payment_amount || 0) > 0 ? 'PARTIALLY PAID' : 'PENDING'}</strong></span>
+              </div>
             ` : `
               <div class="total-row">
-                <span><strong>Status:</strong></span>
+                <span><strong>Payment Status:</strong></span>
                 <span><strong>FULLY PAID</strong></span>
               </div>
             `}
