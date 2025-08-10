@@ -207,12 +207,12 @@ export const useRealTimeUpdates = (
  * This is perfect for lists, profiles, and detail views
  * 
  * @param refreshCallback - Function to call when data needs to be refreshed
- * @param eventTypes - Array of event types to listen for
+ * @param eventTypes - Array of event types to listen for (can be keys of BUSINESS_EVENTS or actual event names)
  * @param dependencies - Dependencies that affect the refresh behavior
  */
 export const useAutoRefresh = (
   refreshCallback: () => void | Promise<void>,
-  eventTypes: (keyof typeof BUSINESS_EVENTS)[],
+  eventTypes: string[],
   dependencies: any[] = []
 ) => {
   const callbackRef = useRef(refreshCallback);
@@ -223,7 +223,7 @@ export const useAutoRefresh = (
   }, [refreshCallback]);
 
   useEffect(() => {
-    console.log(`🔄 useAutoRefresh: Setting up auto-refresh for ${eventTypes.length} event types`);
+    console.log(`🔄 useAutoRefresh: Setting up auto-refresh for ${eventTypes.length} event types:`, eventTypes);
     
     const handleRefresh = async (data: any) => {
       try {
@@ -239,14 +239,15 @@ export const useAutoRefresh = (
     const subscriptions: Array<{event: string, handler: Function}> = [];
     
     eventTypes.forEach(eventType => {
-      const eventName = BUSINESS_EVENTS[eventType];
-      if (eventName) {
-        eventBus.on(eventName, handleRefresh);
-        subscriptions.push({event: eventName, handler: handleRefresh});
-      }
+      // Check if eventType is a key in BUSINESS_EVENTS
+      const eventName = (BUSINESS_EVENTS as any)[eventType] || eventType;
+      console.log(`🔄 useAutoRefresh: Mapping ${eventType} -> ${eventName}`);
+      
+      eventBus.on(eventName, handleRefresh);
+      subscriptions.push({event: eventName, handler: handleRefresh});
     });
 
-    console.log(`✅ useAutoRefresh: Subscribed to ${subscriptions.length} events`);
+    console.log(`✅ useAutoRefresh: Subscribed to ${subscriptions.length} events:`, subscriptions.map(s => s.event));
 
     return () => {
       console.log(`🧹 useAutoRefresh: Cleaning up ${subscriptions.length} subscriptions`);

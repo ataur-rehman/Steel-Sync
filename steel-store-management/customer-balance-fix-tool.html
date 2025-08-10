@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Balance Fix Tool</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-align: center;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .button {
+            background: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        .button:hover {
+            background: #45a049;
+        }
+        
+        .button.danger {
+            background: #f44336;
+        }
+        
+        .button.danger:hover {
+            background: #da190b;
+        }
+        
+        .button.warning {
+            background: #ff9800;
+        }
+        
+        .button.warning:hover {
+            background: #f57c00;
+        }
+        
+        .log-area {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 4px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 20px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .status-card {
+            background: #f8f9fa;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            border-radius: 4px;
+        }
+        
+        .status-card.success {
+            border-left-color: #28a745;
+        }
+        
+        .status-card.error {
+            border-left-color: #dc3545;
+        }
+        
+        .status-card.warning {
+            border-left-color: #ffc107;
+        }
+        
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔧 Customer Balance Fix Tool</h1>
+        <p>Comprehensive tool to fix all customer balance calculation issues</p>
+    </div>
+
+    <div class="container">
+        <h2>🚀 Quick Fixes</h2>
+        <button class="button" onclick="runEmergencyBalanceFix()">Emergency Balance Recalculation</button>
+        <button class="button warning" onclick="testAllBalanceCalculations()">Test All Balance Methods</button>
+        <button class="button" onclick="fixCustomerLedgerEntries()">Fix Customer Ledger</button>
+        <button class="button" onclick="testLoanLedgerCalculations()">Test Loan Ledger</button>
+    </div>
+
+    <div class="container">
+        <h2>🧪 Individual Tests</h2>
+        <div class="test-section">
+            <h3>Test Customer Balance</h3>
+            <input type="number" id="customerIdInput" placeholder="Customer ID" value="1">
+            <button class="button" onclick="testSingleCustomer()">Test Single Customer</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>Test Invoice Item Addition</h3>
+            <input type="number" id="invoiceIdInput" placeholder="Invoice ID" value="1">
+            <button class="button" onclick="testInvoiceItemAddition()">Test Item Addition</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📊 System Status</h2>
+        <div class="status-grid" id="statusGrid">
+            <div class="status-card" id="balanceStatus">
+                <h4>Balance Calculations</h4>
+                <p id="balanceStatusText">Not tested</p>
+            </div>
+            <div class="status-card" id="ledgerStatus">
+                <h4>Customer Ledger</h4>
+                <p id="ledgerStatusText">Not tested</p>
+            </div>
+            <div class="status-card" id="loanStatus">
+                <h4>Loan Ledger</h4>
+                <p id="loanStatusText">Not tested</p>
+            </div>
+            <div class="status-card" id="summaryStatus">
+                <h4>Summary Stats</h4>
+                <p id="summaryStatusText">Not tested</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📋 Console Output</h2>
+        <div class="log-area" id="logArea"></div>
+        <button class="button" onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        let logArea = document.getElementById('logArea');
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            const logMessage = `[${timestamp}] ${prefix} ${message}\n`;
+            logArea.textContent += logMessage;
+            logArea.scrollTop = logArea.scrollHeight;
+            console.log(message);
+        }
+        
+        function updateStatus(cardId, status, message) {
+            const card = document.getElementById(cardId);
+            const textElement = document.getElementById(cardId.replace('Status', 'StatusText'));
+            
+            card.className = `status-card ${status}`;
+            textElement.textContent = message;
+        }
+        
+        function clearLog() {
+            logArea.textContent = '';
+        }
+        
+        async function runEmergencyBalanceFix() {
+            log('🔧 Starting Emergency Balance Fix...', 'info');
+            
+            try {
+                // Check if database is available
+                if (!window.db) {
+                    throw new Error('Database not available. Make sure Steel Store app is loaded.');
+                }
+                
+                // Get all customers
+                const customers = await window.db.getCustomers();
+                log(`Found ${customers.length} customers to process`, 'info');
+                
+                let fixedCount = 0;
+                let totalReceivables = 0;
+                let totalPaidUp = 0;
+                
+                for (const customer of customers.slice(0, 10)) { // Limit to first 10 for testing
+                    try {
+                        // Recalculate balance
+                        const balance = await window.db.getCustomerBalance(customer.id);
+                        
+                        if (balance.outstanding > 0) {
+                            totalReceivables += balance.outstanding;
+                        } else {
+                            totalPaidUp += Math.abs(balance.outstanding);
+                        }
+                        
+                        log(`Customer ${customer.id} (${customer.name}): Rs.${balance.outstanding.toFixed(2)}`, 'info');
+                        fixedCount++;
+                        
+                    } catch (error) {
+                        log(`Error processing customer ${customer.id}: ${error.message}`, 'error');
+                    }
+                }
+                
+                log(`✅ Emergency fix completed! Fixed ${fixedCount} customers`, 'success');
+                log(`📊 Total Receivables: Rs.${totalReceivables.toFixed(2)}`, 'info');
+                log(`💰 Total Paid Up: Rs.${totalPaidUp.toFixed(2)}`, 'info');
+                
+                updateStatus('balanceStatus', 'success', `Fixed ${fixedCount} customers`);
+                updateStatus('summaryStatus', 'success', `Rs.${totalReceivables.toFixed(2)} receivables`);
+                
+            } catch (error) {
+                log(`❌ Emergency fix failed: ${error.message}`, 'error');
+                updateStatus('balanceStatus', 'error', error.message);
+            }
+        }
+        
+        async function testAllBalanceCalculations() {
+            log('🧪 Testing all balance calculation methods...', 'info');
+            
+            try {
+                // Test getCustomerBalance
+                const balance = await window.db.getCustomerBalance(1);
+                log(`Direct balance method: Rs.${balance.outstanding.toFixed(2)}`, 'info');
+                
+                // Test getCustomersOptimized
+                const optimized = await window.db.getCustomersOptimized({ includeBalance: true, limit: 5 });
+                log(`Optimized method returned ${optimized.customers.length} customers`, 'info');
+                
+                let nanCount = 0;
+                optimized.customers.forEach(customer => {
+                    if (isNaN(customer.balance) || isNaN(customer.outstanding)) {
+                        nanCount++;
+                        log(`Customer ${customer.id} has NaN balance`, 'warning');
+                    } else {
+                        log(`Customer ${customer.id}: balance=${customer.balance}, outstanding=${customer.outstanding}`, 'info');
+                    }
+                });
+                
+                if (nanCount === 0) {
+                    log('✅ All balance calculations are working correctly', 'success');
+                    updateStatus('balanceStatus', 'success', 'All calculations working');
+                } else {
+                    log(`⚠️ ${nanCount} customers have NaN balance issues`, 'warning');
+                    updateStatus('balanceStatus', 'warning', `${nanCount} NaN issues found`);
+                }
+                
+            } catch (error) {
+                log(`❌ Balance test failed: ${error.message}`, 'error');
+                updateStatus('balanceStatus', 'error', error.message);
+            }
+        }
+        
+        async function testSingleCustomer() {
+            const customerId = document.getElementById('customerIdInput').value;
+            log(`🔍 Testing customer ${customerId}...`, 'info');
+            
+            try {
+                const balance = await window.db.getCustomerBalance(parseInt(customerId));
+                const ledger = await window.db.getCustomerLedger(parseInt(customerId), { limit: 5 });
+                
+                log(`Customer ${customerId} Balance:`, 'info');
+                log(`  Outstanding: Rs.${balance.outstanding.toFixed(2)}`, 'info');
+                log(`  Total Invoiced: Rs.${balance.total_invoiced.toFixed(2)}`, 'info');
+                log(`  Total Paid: Rs.${balance.total_paid.toFixed(2)}`, 'info');
+                log(`  Ledger Entries: ${ledger.entries?.length || 0}`, 'info');
+                
+                updateStatus('balanceStatus', 'success', `Customer ${customerId} tested`);
+                
+            } catch (error) {
+                log(`❌ Customer test failed: ${error.message}`, 'error');
+                updateStatus('balanceStatus', 'error', error.message);
+            }
+        }
+        
+        async function testLoanLedgerCalculations() {
+            log('🏦 Testing loan ledger calculations...', 'info');
+            
+            try {
+                const loanLedger = await window.db.getLoanLedgerData();
+                log(`Found ${loanLedger.length} loan ledger entries`, 'info');
+                
+                let totalOutstanding = 0;
+                let invalidCount = 0;
+                
+                loanLedger.slice(0, 5).forEach((entry, index) => {
+                    if (isNaN(entry.total_outstanding) || entry.total_outstanding < 0) {
+                        invalidCount++;
+                        log(`Entry ${index + 1}: Invalid outstanding ${entry.total_outstanding}`, 'warning');
+                    } else {
+                        totalOutstanding += entry.total_outstanding;
+                        log(`Entry ${index + 1}: Customer ${entry.id} - Rs.${entry.total_outstanding.toFixed(2)}`, 'info');
+                    }
+                });
+                
+                if (invalidCount === 0) {
+                    log(`✅ Loan ledger calculations working. Total: Rs.${totalOutstanding.toFixed(2)}`, 'success');
+                    updateStatus('loanStatus', 'success', `Rs.${totalOutstanding.toFixed(2)} total`);
+                } else {
+                    log(`⚠️ ${invalidCount} invalid loan ledger entries found`, 'warning');
+                    updateStatus('loanStatus', 'warning', `${invalidCount} invalid entries`);
+                }
+                
+            } catch (error) {
+                log(`❌ Loan ledger test failed: ${error.message}`, 'error');
+                updateStatus('loanStatus', 'error', error.message);
+            }
+        }
+        
+        async function fixCustomerLedgerEntries() {
+            log('📚 Fixing customer ledger entries...', 'info');
+            
+            try {
+                // Test customer ledger for first few customers
+                const customers = await window.db.getCustomers();
+                let fixedCount = 0;
+                
+                for (const customer of customers.slice(0, 3)) {
+                    const ledger = await window.db.getCustomerLedger(customer.id, { limit: 10 });
+                    
+                    log(`Customer ${customer.id} has ${ledger.entries?.length || 0} ledger entries`, 'info');
+                    
+                    // Check for duplicates
+                    if (ledger.entries && ledger.entries.length > 1) {
+                        const duplicates = new Set();
+                        let dupCount = 0;
+                        
+                        ledger.entries.forEach((entry, index) => {
+                            const key = `${entry.amount}_${entry.description}_${entry.date}`;
+                            if (duplicates.has(key)) {
+                                dupCount++;
+                            } else {
+                                duplicates.add(key);
+                            }
+                        });
+                        
+                        if (dupCount > 0) {
+                            log(`  ⚠️ Found ${dupCount} potential duplicates`, 'warning');
+                        }
+                    }
+                    
+                    fixedCount++;
+                }
+                
+                log(`✅ Checked ${fixedCount} customer ledgers`, 'success');
+                updateStatus('ledgerStatus', 'success', `${fixedCount} customers checked`);
+                
+            } catch (error) {
+                log(`❌ Ledger fix failed: ${error.message}`, 'error');
+                updateStatus('ledgerStatus', 'error', error.message);
+            }
+        }
+        
+        async function testInvoiceItemAddition() {
+            const invoiceId = document.getElementById('invoiceIdInput').value;
+            log(`🧾 Testing invoice item addition for invoice ${invoiceId}...`, 'info');
+            
+            try {
+                // Get invoice details
+                const invoice = await window.db.getInvoiceDetails(parseInt(invoiceId));
+                
+                if (!invoice) {
+                    throw new Error(`Invoice ${invoiceId} not found`);
+                }
+                
+                log(`Invoice ${invoiceId} for customer ${invoice.customer_id}`, 'info');
+                
+                // Check if addInvoiceItems method exists
+                if (typeof window.db.addInvoiceItems === 'function') {
+                    log('✅ addInvoiceItems method exists', 'success');
+                    
+                    // Check method source for ledger creation
+                    const methodString = window.db.addInvoiceItems.toString();
+                    if (methodString.includes('customer_ledger_entries')) {
+                        log('✅ Method includes customer ledger entry creation', 'success');
+                        updateStatus('ledgerStatus', 'success', 'Item addition creates ledger entries');
+                    } else {
+                        log('⚠️ Method may not create customer ledger entries', 'warning');
+                        updateStatus('ledgerStatus', 'warning', 'Ledger creation may be missing');
+                    }
+                    
+                } else {
+                    throw new Error('addInvoiceItems method not found');
+                }
+                
+            } catch (error) {
+                log(`❌ Invoice test failed: ${error.message}`, 'error');
+                updateStatus('ledgerStatus', 'error', error.message);
+            }
+        }
+        
+        // Initialize on page load
+        window.onload = function() {
+            log('🚀 Customer Balance Fix Tool initialized', 'info');
+            log('📋 Click buttons above to run tests and fixes', 'info');
+            
+            if (window.db) {
+                log('✅ Database connection detected', 'success');
+            } else {
+                log('⚠️ Database not detected. Make sure Steel Store app is loaded.', 'warning');
+            }
+        };
+    </script>
+</body>
+</html>

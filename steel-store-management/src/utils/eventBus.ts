@@ -4,8 +4,8 @@ class EventBus {
   private debug: boolean = false; // Set to true for debugging
 
   constructor() {
-    // Disable debugging to reduce console noise
-    this.debug = false; // Set to true only when debugging events
+    // Enable debugging to track event flow
+    this.debug = true; // Set to true to debug stock receiving events
   }
 
   on(event: string, callback: Function) {

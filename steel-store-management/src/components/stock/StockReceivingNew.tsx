@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Search } from 'lucide-react';
 import { db } from '../../services/database';
+import { eventBus } from '../../utils/eventBus';
 import { formatCurrency } from '../../utils/formatters';
 import { parseUnit, formatUnitString } from '../../utils/unitUtils';
 import toast from 'react-hot-toast';
@@ -64,14 +65,23 @@ const StockReceivingNew: React.FC = () => {
   const [showOptional, setShowOptional] = useState(false);
 
   useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
+    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
+      // Handle Ctrl+S - some users might be pressing this thinking it will save/update
+      if (e.ctrlKey && e.key === 's') {
+        e.preventDefault(); // Prevent browser save dialog
+        console.log('⚠️ Ctrl+S pressed - Stock should auto-update when you create the receiving!');
+        toast.success('Stock automatically updates when you create the receiving - no need to press Ctrl+S!');
+        return;
+      }
+      
+      // Handle Escape key
       if (e.key === 'Escape') {
         setShowProductSearch(false);
       }
     };
 
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => document.removeEventListener('keydown', handleKeyboardShortcuts);
   }, []);
 
   useEffect(() => {
@@ -321,43 +331,92 @@ const StockReceivingNew: React.FC = () => {
         const { financeService } = await import('../../services/financeService');
         financeService.clearCache();
         
-        // Emit events for real-time updates using proper event system
-        try {
-          const { eventBus } = await import('../../utils/eventBus');
-          
-          eventBus.emit('STOCK_RECEIVING_COMPLETED', {
-            receivingId: result,
-            vendorId: form.vendor_id,
-            vendorName: form.vendor_name,
-            totalAmount: form.total_amount,
-            paymentAmount: form.payment_amount
-          });
-          
-          if (form.payment_amount > 0) {
-            eventBus.emit('VENDOR_PAYMENT_RECORDED', {
-              vendorId: form.vendor_id,
-              amount: form.payment_amount,
-              receivingId: result
-            });
-          }
-          
-          eventBus.emit('BUSINESS_FINANCE_UPDATE', {
-            reason: 'stock_receiving',
-            vendorPurchase: form.total_amount,
-            vendorPayment: form.payment_amount
-          });
-        } catch (eventBusError) {
-          console.warn('⚠️ EventBus import failed, using fallback:', eventBusError);
-          // Fallback to window.eventBus if available
-          if (typeof window !== 'undefined' && (window as any).eventBus) {
-            (window as any).eventBus.emit('BUSINESS_FINANCE_UPDATE', {
-              reason: 'stock_receiving',
-              vendorPurchase: form.total_amount
-            });
-          }
-        }
+        // Import BUSINESS_EVENTS for consistent event naming
+        const { BUSINESS_EVENTS } = await import('../../utils/eventBus');
         
-        console.log('✅ Real-time events emitted for dashboard update');
+        // Emit events for real-time updates using proper event system
+        // Use statically imported eventBus for all emits
+        eventBus.emit('STOCK_RECEIVING_COMPLETED', {
+          receivingId: result,
+          vendorId: form.vendor_id,
+          vendorName: form.vendor_name,
+          totalAmount: form.total_amount,
+          paymentAmount: form.payment_amount
+        });
+
+        // Emit stock updated events for each product to trigger UI refresh
+        form.items.forEach(item => {
+          eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+            productId: item.product_id,
+            productName: item.product_name,
+            type: 'receiving',
+            receivingId: result,
+            quantityAdded: item.quantity
+          });
+        });
+
+        // Emit stock movement event
+        eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, {
+          type: 'receiving',
+          receivingId: result,
+          products: form.items.map(item => ({
+            productId: item.product_id,
+            productName: item.product_name,
+            quantity: item.quantity
+          }))
+        });
+
+        if (form.payment_amount > 0) {
+          eventBus.emit('VENDOR_PAYMENT_RECORDED', {
+            vendorId: form.vendor_id,
+            amount: form.payment_amount,
+            receivingId: result
+          });
+        }
+
+        eventBus.emit('BUSINESS_FINANCE_UPDATE', {
+          reason: 'stock_receiving',
+          vendorPurchase: form.total_amount,
+          vendorPayment: form.payment_amount
+        });
+        
+        console.log('✅ Real-time events emitted for dashboard update (with correct BUSINESS_EVENTS)');
+        
+        // CRITICAL FIX 4: Force immediate UI refresh for all stock-related components
+        setTimeout(() => {
+          console.log('🔄 Forcing immediate UI refresh after stock receiving');
+          
+          // Emit additional refresh events for any components that might be missed
+          eventBus.emit('UI_REFRESH_REQUESTED', { type: 'stock_update' });
+          eventBus.emit('PRODUCTS_UPDATED', { reason: 'stock_receiving' });
+          
+          // Force reload of product data in all components
+          eventBus.emit('FORCE_PRODUCT_RELOAD', { 
+            reason: 'stock_receiving_completed',
+            affectedProducts: form.items.map(item => item.product_id)
+          });
+          
+          // Clear any local storage or session storage that might cache product data
+          try {
+            localStorage.removeItem('product_cache');
+            localStorage.removeItem('stock_data_cache');
+            sessionStorage.removeItem('product_list_cache');
+            console.log('🧹 Local/session storage caches cleared');
+          } catch (storageError) {
+            console.log('ℹ️ Storage cache clearing skipped');
+          }
+          
+        }, 100);
+        
+        // CRITICAL FIX 5: Force page refresh for components that might not respond to events
+        setTimeout(() => {
+          console.log('🔄 Emitting comprehensive refresh events');
+          eventBus.emit('COMPREHENSIVE_DATA_REFRESH', { 
+            type: 'stock_receiving',
+            timestamp: new Date().toISOString()
+          });
+        }, 500);
+        
       } catch (eventError) {
         console.error('⚠️ Event emission failed:', eventError);
       }

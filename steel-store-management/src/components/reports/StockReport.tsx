@@ -155,7 +155,10 @@ const StockReport: React.FC = () => {
     // FIXED: Proper event bus integration with correct event names
     const handleStockUpdate = (data: any) => {
       console.log('📦 Stock report refreshing due to stock update:', data);
-      loadStockData(); // Silent refresh
+      // CRITICAL FIX: Add small delay to ensure database transaction is complete
+      setTimeout(() => {
+        loadStockData(); // Silent refresh with delay
+      }, 500);
     };
 
     const handleInvoiceCreated = (data: any) => {
@@ -168,11 +171,36 @@ const StockReport: React.FC = () => {
       loadStockData(); // Silent refresh
     };
     
+    const handleUIRefreshRequested = (data: any) => {
+      console.log('📦 Stock report refreshing due to UI refresh request:', data);
+      // CRITICAL FIX: Multiple refresh attempts to ensure data is updated
+      setTimeout(() => loadStockData(), 100);
+      setTimeout(() => loadStockData(), 1000);
+      setTimeout(() => loadStockData(), 2000);
+    };
+    
+    const handleProductsUpdated = (data: any) => {
+      console.log('📦 Stock report refreshing due to products updated:', data);
+      loadStockData(); // Silent refresh
+    };
+    
+    const handleForceProductReload = (data: any) => {
+      console.log('📦 Stock report refreshing due to force product reload:', data);
+      loadStockData(); // Silent refresh
+    };
+    
     // Register event listeners with correct event names
     eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleStockUpdate);
     eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
     eventBus.on(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
     eventBus.on(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
+    
+    // Listen for additional events emitted by stock receiving
+    eventBus.on('UI_REFRESH_REQUESTED', handleUIRefreshRequested);
+    eventBus.on('PRODUCTS_UPDATED', handleProductsUpdated);
+    eventBus.on('FORCE_PRODUCT_RELOAD', handleForceProductReload);
+    eventBus.on('PRODUCTS_CACHE_INVALIDATED', handleProductsUpdated);
+    eventBus.on('COMPREHENSIVE_DATA_REFRESH', handleForceProductReload);
     
     // Set up auto-refresh every 30 seconds as backup
     const intervalId = setInterval(() => {
@@ -187,6 +215,13 @@ const StockReport: React.FC = () => {
       eventBus.off(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
       eventBus.off(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
       eventBus.off(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
+      
+      // Clean up additional event listeners
+      eventBus.off('UI_REFRESH_REQUESTED', handleUIRefreshRequested);
+      eventBus.off('PRODUCTS_UPDATED', handleProductsUpdated);
+      eventBus.off('FORCE_PRODUCT_RELOAD', handleForceProductReload);
+      eventBus.off('PRODUCTS_CACHE_INVALIDATED', handleProductsUpdated);
+      eventBus.off('COMPREHENSIVE_DATA_REFRESH', handleForceProductReload);
       
       // Clean up interval
       clearInterval(intervalId);
@@ -215,22 +250,60 @@ const StockReport: React.FC = () => {
     try {
       setRefreshing(true);
       
-      // Get fresh product data from database
-      const products = await db.getAllProducts();
+      // CRITICAL FIX: Force cache bypass and multiple refresh attempts
+      console.log('🔄 Manual refresh: Forcing comprehensive data reload...');
       
-      // Process with latest movement data
-      const stockData = await processStockData(products);
+      // Try clearing any potential browser/local storage caches
+      try {
+        localStorage.removeItem('product_cache');
+        sessionStorage.removeItem('stock_data');
+      } catch (e) {
+        console.log('Storage cache clearing skipped');
+      }
       
-      // Update summary with fresh calculations
-      const summary = await calculateStockSummary(stockData);
-      
-      setStockItems(stockData);
-      setStockSummary(summary);
+      // Multiple refresh attempts with small delays
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          console.log(`🔄 Refresh attempt ${attempt}/3...`);
+          
+          // Get fresh product data from database (bypass cache)
+          const products = await db.getAllProducts();
+          console.log(`✅ Retrieved ${products.length} products in attempt ${attempt}`);
+          
+          // Process with latest movement data
+          const stockData = await processStockData(products);
+          console.log(`✅ Processed ${stockData.length} stock items in attempt ${attempt}`);
+          
+          // Update summary with fresh calculations
+          const summary = await calculateStockSummary(stockData);
+          
+          setStockItems(stockData);
+          setStockSummary(summary);
+          
+          // Update selectedProduct if it exists
+          if (selectedProduct) {
+            const updatedSelectedProduct = stockData.find(item => item.id === selectedProduct.id);
+            if (updatedSelectedProduct) {
+              console.log(`🔄 [MANUAL] Updated selected product ${updatedSelectedProduct.name}`);
+              console.log(`   Stock: ${selectedProduct.current_stock} → ${updatedSelectedProduct.current_stock}`);
+              setSelectedProduct(updatedSelectedProduct);
+            }
+          }
+          
+          break; // Success, exit loop
+          
+        } catch (error) {
+          console.error(`❌ Refresh attempt ${attempt} failed:`, error);
+          if (attempt === 3) throw error; // Re-throw on final attempt
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+        }
+      }
       
       // Also refresh recent movements
       await loadStockMovements();
       
-      console.log('Stock data refreshed - real-time synchronization complete');
+      console.log('✅ Manual stock data refresh completed successfully');
+      toast.success('Stock data refreshed successfully!');
       
     } catch (error) {
       console.error('Failed to refresh stock data:', error);
@@ -291,6 +364,18 @@ const StockReport: React.FC = () => {
       setStockItems(stockData);
       setCategories(categoryList);
       setStockSummary(summary);
+      
+      // CRITICAL FIX: Update selectedProduct if it exists and stock has changed
+      if (selectedProduct) {
+        const updatedSelectedProduct = stockData.find(item => item.id === selectedProduct.id);
+        if (updatedSelectedProduct) {
+          console.log(`🔄 Updating selected product ${updatedSelectedProduct.name} with fresh stock data`);
+          console.log(`   Old stock: ${selectedProduct.current_stock} → New stock: ${updatedSelectedProduct.current_stock}`);
+          setSelectedProduct(updatedSelectedProduct);
+        } else {
+          console.log(`⚠️ Selected product ${selectedProduct.id} not found in updated stock data`);
+        }
+      }
       
       // Load recent stock movements
       console.log('📈 Loading stock movements...');

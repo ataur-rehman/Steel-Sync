@@ -328,11 +328,56 @@ export class CentralizedRealtimeSolution {
           WHERE id = ?
         `, [newTotal, newTotal, newRemaining, invoiceId]);
 
-        // Update customer balance (increase by the remaining balance change)
-        const balanceChange = newRemaining - (invoiceBefore.remaining_balance || 0);
+        // CRITICAL FIX: Create customer ledger entry for added items
+        console.log('🔍 [CENTRALIZED] Creating customer ledger entry for added items...');
+        const now = new Date();
+        const date = now.toISOString().split('T')[0];
+        const time = now.toLocaleTimeString('en-PK', { 
+          hour: '2-digit', 
+          minute: '2-digit', 
+          hour12: true 
+        });
+
+        // Get current customer balance from customer_ledger_entries
+        const currentBalanceResult = await this.db.dbConnection.select(
+          'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
+          [invoiceBefore.customer_id]
+        );
+        
+        const balanceBefore = currentBalanceResult?.[0]?.balance_after || 0;
+        const balanceAfter = balanceBefore + totalAddition;
+
+        await this.db.dbConnection.execute(`
+          INSERT INTO customer_ledger_entries (
+            customer_id, customer_name, entry_type, transaction_type, amount, description,
+            reference_id, reference_number, balance_before, balance_after, 
+            date, time, created_by, notes, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `, [
+          invoiceBefore.customer_id,
+          customerBefore.name,
+          'debit', // entry_type for invoice items (increases customer balance)
+          'invoice', // transaction_type
+          totalAddition,
+          `Items added to Invoice ${invoiceBefore.bill_number}`,
+          invoiceId,
+          invoiceBefore.bill_number,
+          balanceBefore,
+          balanceAfter,
+          date,
+          time,
+          'system',
+          `Added ${items.length} items totaling Rs.${totalAddition.toFixed(1)}`
+        ]);
+
+        console.log('✅ [CENTRALIZED] Customer ledger entry created for added items');
+        console.log(`   - Amount: Rs.${totalAddition.toFixed(1)} (Debit)`);
+        console.log(`   - Balance: Rs.${balanceBefore.toFixed(1)} → Rs.${balanceAfter.toFixed(1)}`);
+
+        // Update customer balance in customers table to match ledger
         await this.db.dbConnection.execute(
-          'UPDATE customers SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [balanceChange, invoiceBefore.customer_id]
+          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [balanceAfter, invoiceBefore.customer_id]
         );
 
         // CRITICAL: Update customer ledger entry for the invoice
@@ -341,7 +386,7 @@ export class CentralizedRealtimeSolution {
         await this.db.dbConnection.execute('COMMIT');
 
         // Emit comprehensive events
-        this.emitInvoiceItemsEvents(invoiceId, invoiceBefore.customer_id, items, balanceChange);
+        this.emitInvoiceItemsEvents(invoiceId, invoiceBefore.customer_id, items, totalAddition);
 
         console.log('✅ [PERMANENT FIX] Invoice items added with proper balance updates');
 

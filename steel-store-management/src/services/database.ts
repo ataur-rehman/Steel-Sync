@@ -3,9 +3,7 @@ import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericValue } from '../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
 import { DatabaseSchemaManager } from './database-schema-manager';
-
 import { DatabaseConnection } from './database-connection';
-
 import { PermanentSchemaAbstractionLayer } from './permanent-schema-abstraction';
 import { PermanentDatabaseAbstractionLayer } from './permanent-database-abstraction';
 import { CENTRALIZED_DATABASE_TABLES } from './centralized-database-tables';
@@ -130,6 +128,11 @@ export class DatabaseService {
   private readonly DEFAULT_CACHE_TTL = 300000; // Increased to 5 minutes for better performance
   private cacheHits = 0;
   private cacheMisses = 0;
+  
+  // STOCK OPERATION FLAGS: Force cache bypass after stock operations
+  private stockOperationInProgress = false;
+  private lastStockOperationTime = 0;
+  private readonly STOCK_CACHE_BYPASS_DURATION = 10000; // 10 seconds bypass after stock operations
   
   // SECURITY: Enhanced rate limiting with adaptive thresholds
   // PRODUCTION-READY: Configuration management with enhanced timeouts for invoice operations
@@ -916,14 +919,21 @@ export class DatabaseService {
     const cached = this.queryCache.get(key);
     const now = Date.now();
 
-    if (cached && (now - cached.timestamp) < cached.ttl) {
+    // CRITICAL FIX: Bypass cache for product queries after stock operations
+    const isProductQuery = key.includes('products_');
+    const shouldBypassCache = isProductQuery && 
+      (now - this.lastStockOperationTime) < this.STOCK_CACHE_BYPASS_DURATION;
+
+    if (shouldBypassCache) {
+      console.log(`🔄 Bypassing cache for ${key} - recent stock operation detected`);
+    } else if (cached && (now - cached.timestamp) < cached.ttl) {
       // Update access metrics
       this.cacheHits++;
       this.updateCacheHitRate();
       return cached.data;
     }
 
-    // Cache miss - execute query
+    // Cache miss or bypass - execute query
     this.cacheMisses++;
     this.updateCacheHitRate();
     
@@ -2975,6 +2985,15 @@ export class DatabaseService {
           }
           
           console.log('🚀 [PERMANENT-PROD] Performance optimization completed - ZERO schema modifications!');
+          
+          // PERMANENT FIX: Clean up duplicate invoice ledger entries on startup
+          try {
+            console.log('🧹 [PERMANENT-PROD] Cleaning up duplicate invoice ledger entries...');
+            await this.cleanupDuplicateInvoiceLedgerEntries();
+            console.log('✅ [PERMANENT-PROD] Duplicate invoice ledger entries cleanup completed');
+          } catch (cleanupError) {
+            console.warn('⚠️ [PERMANENT-PROD] Duplicate cleanup failed (non-critical):', cleanupError);
+          }
         } catch (error) {
           console.warn('⚠️ [PERMANENT-PROD] Background optimization failed:', error);
           // Continue operation - optimization failures should not break the app
@@ -3439,29 +3458,35 @@ private async createInvoiceLedgerEntries(
   
   console.log(`🔄 Creating ledger entries for Invoice ${billNumber} - Customer: ${customer.name}, Amount: Rs.${grandTotal}, Payment: Rs.${paymentAmount}`);
   
-  // CRITICAL FIX: Call the proper customer ledger entries creation
+  // PERMANENT FIX: Only create customer ledger entries to prevent duplicates
+  // The customer ledger entries table is the single source of truth for customer transactions
   await this.createCustomerLedgerEntries(
     invoiceId, customer.id, customer.name, grandTotal, paymentAmount, billNumber, paymentMethod
   );
   
-  // Create general ledger entry for daily ledger
-  await this.dbConnection.execute(
-    `INSERT INTO ledger_entries (
-      date, time, type, category, description, amount, running_balance,
-      customer_id, customer_name, reference_id, reference_type, bill_number,
-      notes, created_by, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-    [
-      date, time, 'incoming', 'Sale Invoice',
-      `Invoice ${billNumber} - Products sold to ${customer.name}`,
-      grandTotal, 0, customer.id, customer.name, invoiceId,
-      'invoice', billNumber,
-      `Invoice amount: Rs. ${grandTotal.toFixed(1)}`,
-      'system'
-    ]
-  );
+  // PERMANENT FIX: Create general ledger entry ONLY for daily cash flow tracking
+  // This entry is for business daily ledger, NOT customer ledger (no customer_id to prevent showing in customer ledger)
+  if (paymentAmount > 0) {
+    await this.dbConnection.execute(
+      `INSERT INTO ledger_entries (
+        date, time, type, category, description, amount, running_balance,
+        customer_id, customer_name, reference_id, reference_type, bill_number,
+        notes, created_by, payment_method, payment_channel_id, payment_channel_name, 
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      [
+        date, time, 'incoming', 'Payment Received',
+        `Payment - Invoice ${billNumber} - ${customer.name}`,
+        paymentAmount, 0, null, null, // customer_id = null to prevent showing in customer ledger
+        invoiceId, 'payment', billNumber,
+        `Invoice payment: Rs. ${paymentAmount.toFixed(1)} via ${paymentMethod}`,
+        'system', paymentMethod, null, paymentMethod
+      ]
+    );
+    console.log(`✅ Daily ledger payment entry created for Rs.${paymentAmount.toFixed(1)}`);
+  }
   
-  console.log(`✅ Ledger entries creation completed for Invoice ${billNumber}`);
+  console.log(`✅ Ledger entries creation completed for Invoice ${billNumber} - No duplicates created`);
 }
 
 
@@ -4584,9 +4609,9 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
       const limit = filters.limit || 50;
       const offset = filters.offset || 0;
 
-      // Fetch customer ledger entries
+      // Fetch customer ledger entries with duplicate prevention
       const ledgerResult = await this.dbConnection.select(
-        `SELECT 
+        `SELECT DISTINCT
           id, customer_id, customer_name, entry_type, transaction_type, amount, description,
           reference_id, reference_number, balance_before, balance_after, date, time,
           created_by, notes, created_at, updated_at,
@@ -4682,7 +4707,10 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
       const totalCount = totalCountResult?.[0]?.total || 0;
       const hasMore = offset + limit < totalCount;
 
-      // Calculate current balance from all ledger entries
+      // FIXED: Calculate current balance from all ledger entries with proper sorting
+      let calculatedBalance = 0;
+      
+      // First try to get the most recent balance from ledger entries
       const currentBalanceResult = await this.dbConnection.select(
         `SELECT balance_after FROM customer_ledger_entries 
          WHERE customer_id = ? 
@@ -4691,16 +4719,21 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
         [customerId]
       );
       
-      let calculatedBalance = 0;
       if (currentBalanceResult && currentBalanceResult.length > 0) {
         calculatedBalance = currentBalanceResult[0].balance_after || 0;
       } else {
-        // If no ledger entries, calculate from summary
-        const summaryBalance = (summary.totalInvoiceAmount || 0) - (summary.totalPaymentAmount || 0);
-        calculatedBalance = summaryBalance;
+        // If no ledger entries, calculate from invoices and payments directly
+        const directCalculationResult = await this.dbConnection.select(
+          `SELECT 
+            COALESCE((SELECT SUM(grand_total) FROM invoices WHERE customer_id = ?), 0) -
+            COALESCE((SELECT SUM(CASE WHEN payment_type = 'return_refund' THEN -amount ELSE amount END) FROM payments WHERE customer_id = ?), 0) 
+            as calculated_balance`,
+          [customerId, customerId]
+        );
+        calculatedBalance = directCalculationResult?.[0]?.calculated_balance || 0;
       }
 
-      // Update customer balance in customers table to match ledger if different
+      // CRITICAL FIX: Update customer balance in customers table to match ledger if different
       if (Math.abs(customer.balance - calculatedBalance) > 0.01) {
         await this.dbConnection.execute(
           'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -5153,7 +5186,7 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
 
         console.log('✅ [PERMANENT] Customer balance updated by:', totalAddition);
 
-        // PERMANENT SOLUTION: Create customer ledger entry
+        // PERMANENT SOLUTION: Create customer ledger entry for items added
         const currentTime = new Date().toLocaleTimeString('en-PK', { 
           hour: '2-digit', 
           minute: '2-digit', 
@@ -5168,6 +5201,62 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           customerName = customer?.name || 'Unknown Customer';
         } catch (error) {
           console.warn('[PERMANENT] Could not get customer name:', error);
+        }
+
+        // CRITICAL FIX: Create customer ledger entry for the added items
+        try {
+          console.log('🔍 [PERMANENT] Creating customer ledger entry for added items...');
+          console.log(`   - Customer ID: ${invoice.customer_id}, Name: ${customerName}`);
+          console.log(`   - Total addition: Rs.${totalAddition.toFixed(1)}`);
+          
+          // Get current customer balance from customer_ledger_entries to maintain running balance
+          const currentBalanceResult = await this.dbConnection.select(
+            'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
+            [invoice.customer_id]
+          );
+          
+          const balanceBefore = currentBalanceResult?.[0]?.balance_after || 0;
+          const balanceAfter = balanceBefore + totalAddition;
+          
+          console.log(`   - Balance before: Rs.${balanceBefore.toFixed(1)}, after: Rs.${balanceAfter.toFixed(1)}`);
+
+          await this.dbConnection.execute(`
+            INSERT INTO customer_ledger_entries (
+              customer_id, customer_name, entry_type, transaction_type, amount, description,
+              reference_id, reference_number, balance_before, balance_after, 
+              date, time, created_by, notes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [
+            invoice.customer_id,
+            customerName,
+            'debit', // entry_type for invoice items (increases customer balance)
+            'invoice', // transaction_type
+            totalAddition,
+            `Items added to Invoice ${invoice.bill_number || invoice.invoice_number}`,
+            invoiceId,
+            invoice.bill_number || invoice.invoice_number,
+            balanceBefore,
+            balanceAfter,
+            currentDate,
+            currentTime,
+            'system',
+            `Added ${items.length} items totaling Rs.${totalAddition.toFixed(1)}`
+          ]);
+          
+          // Update customer balance in customers table
+          await this.dbConnection.execute(
+            'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [balanceAfter, invoice.customer_id]
+          );
+          
+          console.log('✅ [PERMANENT] Customer ledger entry created for added items - SUCCESS!');
+          console.log(`   - Entry: Rs.${totalAddition.toFixed(1)} debit for items added`);
+          console.log(`   - Customer balance updated to Rs.${balanceAfter.toFixed(1)}`);
+          
+        } catch (ledgerError) {
+          console.error('⚠️ [PERMANENT] Failed to create customer ledger entry:', ledgerError);
+          console.error('⚠️ [PERMANENT] Error details:', ledgerError);
+          // Don't fail the whole operation for ledger issues
         }
 
         await this.dbConnection.execute(`
@@ -5196,6 +5285,9 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
 
         await this.dbConnection.execute('COMMIT');
         console.log('✅ [PERMANENT] Transaction committed successfully');
+        
+        // CRITICAL: Update customer ledger for the modified invoice
+        await this.updateCustomerLedgerForInvoice(invoiceId);
         
         // ENHANCED: Emit events for real-time component updates
         try {
@@ -5656,24 +5748,37 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         try {
           console.log('🔄 [Invoice Payment] Creating customer ledger entry for payment...');
           
-          await this.createLedgerEntry({
-            date: paymentData.date || new Date().toISOString().split('T')[0],
-            time: currentTime,
-            type: 'outgoing',
-            category: 'Payment Received',
-            description: `Payment received for Invoice ${invoice.bill_number || invoice.invoice_number} from ${customerName}`,
-            amount: paymentData.amount,
-            customer_id: invoice.customer_id,
-            customer_name: customerName,
-            reference_id: invoiceId,
-            reference_type: 'payment',
-            bill_number: invoice.bill_number || invoice.invoice_number,
-            payment_method: mappedPaymentMethod,
-            payment_channel_id: paymentData.payment_channel_id || undefined,
-            payment_channel_name: paymentData.payment_channel_name || mappedPaymentMethod,
-            notes: paymentData.notes || `Payment: Rs.${paymentData.amount}`,
-            created_by: 'system'
-          });
+          // Get current customer balance from customer_ledger_entries to maintain running balance
+          const currentBalanceResult = await this.dbConnection.select(
+            'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
+            [invoice.customer_id]
+          );
+          
+          const currentBalance = currentBalanceResult?.[0]?.balance_after || 0;
+          const balanceAfter = currentBalance - paymentData.amount;
+
+          await this.dbConnection.execute(`
+            INSERT INTO customer_ledger_entries (
+              customer_id, customer_name, entry_type, transaction_type, amount, description,
+              reference_id, reference_number, balance_before, balance_after, 
+              date, time, created_by, notes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          `, [
+            invoice.customer_id,
+            customerName,
+            'credit', // entry_type for payment (reduces customer balance)
+            'payment', // transaction_type
+            paymentData.amount,
+            `Payment received for Invoice ${invoice.bill_number || invoice.invoice_number}`,
+            paymentId,
+            `PAY#${paymentId}`,
+            currentBalance,
+            balanceAfter,
+            paymentData.date || new Date().toISOString().split('T')[0],
+            currentTime,
+            'system',
+            paymentData.notes || `Invoice payment via ${mappedPaymentMethod}`
+          ]);
           
           console.log('✅ [Invoice Payment] Customer ledger entry created successfully');
           
@@ -6122,7 +6227,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       // Build optimized query
       let baseQuery = `
         SELECT DISTINCT c.*
-        ${includeBalance ? `, COALESCE(cb.balance, 0) as calculated_balance` : ''}
+        ${includeBalance ? `, COALESCE(cb.balance, 0) as balance, COALESCE(cb.balance, 0) as outstanding, COALESCE(cb.total_invoiced, 0) as total_invoiced, COALESCE(cb.total_paid, 0) as total_paid` : ''}
         ${includeStats ? `, cs.invoice_count, cs.total_purchased, cs.last_purchase_date` : ''}
         FROM customers c
       `;
@@ -6135,18 +6240,33 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       if (includeBalance) {
         baseQuery += `
           LEFT JOIN (
-            SELECT customer_id, SUM(remaining_balance) as balance 
-            FROM invoices 
-            WHERE status != 'paid' 
-            GROUP BY customer_id
+            SELECT 
+              c_inner.id as customer_id,
+              COALESCE(SUM(CASE WHEN i.grand_total IS NOT NULL THEN CAST(i.grand_total AS REAL) ELSE 0 END), 0) as total_invoiced,
+              COALESCE(SUM(CASE 
+                WHEN p.payment_type = 'return_refund' OR p.payment_type = 'outgoing' 
+                THEN -COALESCE(CAST(p.amount AS REAL), 0)
+                ELSE COALESCE(CAST(p.amount AS REAL), 0)
+              END), 0) as total_paid,
+              (COALESCE(SUM(CASE WHEN i.grand_total IS NOT NULL THEN CAST(i.grand_total AS REAL) ELSE 0 END), 0) - 
+               COALESCE(SUM(CASE 
+                 WHEN p.payment_type = 'return_refund' OR p.payment_type = 'outgoing' 
+                 THEN -COALESCE(CAST(p.amount AS REAL), 0)
+                 ELSE COALESCE(CAST(p.amount AS REAL), 0)
+               END), 0)) as balance
+            FROM customers c_inner
+            LEFT JOIN invoices i ON c_inner.id = i.customer_id
+            LEFT JOIN payments p ON c_inner.id = p.customer_id
+            GROUP BY c_inner.id
           ) cb ON c.id = cb.customer_id
         `;
         countQuery += `
           LEFT JOIN (
-            SELECT customer_id, SUM(remaining_balance) as balance 
-            FROM invoices 
-            WHERE status != 'paid' 
-            GROUP BY customer_id
+            SELECT c_inner.id as customer_id
+            FROM customers c_inner
+            LEFT JOIN invoices i ON c_inner.id = i.customer_id
+            LEFT JOIN payments p ON c_inner.id = p.customer_id
+            GROUP BY c_inner.id
           ) cb ON c.id = cb.customer_id
         `;
       }
@@ -6198,8 +6318,28 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       const total = (totalResult[0] as any)?.total || 0;
       const hasMore = offset + limit < total;
 
+      // Process customers to ensure balance and outstanding fields are properly set
+      const processedCustomers = customers.map((customer: any) => {
+        // If includeBalance was requested, the balance fields should already be in the result
+        if (includeBalance) {
+          const balance = parseFloat(customer.balance) || 0;
+          const outstanding = parseFloat(customer.outstanding) || 0;
+          const total_invoiced = parseFloat(customer.total_invoiced) || 0;
+          const total_paid = parseFloat(customer.total_paid) || 0;
+          
+          return {
+            ...customer,
+            balance: balance,
+            outstanding: outstanding,
+            total_invoiced: total_invoiced,
+            total_paid: total_paid
+          };
+        }
+        return customer;
+      });
+
       return {
-        customers,
+        customers: processedCustomers,
         total,
         hasMore,
         performance: {
@@ -8872,60 +9012,100 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
     console.log(`🔍 Customer ${customerName} current balance before invoice: Rs. ${currentBalance.toFixed(1)}`);
 
-    // FIXED: Create DEBIT entry for invoice amount in customer_ledger_entries table
-    const balanceAfterInvoice = currentBalance + grandTotal;
-    await this.dbConnection.execute(
-      `INSERT INTO customer_ledger_entries 
-      (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-       reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        customerId, customerName, 'debit', 'invoice', grandTotal,
-        `Sale Invoice ${billNumber}`,
-        invoiceId, billNumber, currentBalance, balanceAfterInvoice,
-        date, time, 'system',
-        `Invoice amount: Rs. ${grandTotal.toFixed(1)} - Products sold${paymentAmount > 0 ? ' (with partial payment)' : ' (full credit)'}`
-      ]
-    );
-
-    console.log(`✅ Debit entry created: Rs. ${grandTotal.toFixed(1)}, Balance: ${currentBalance.toFixed(1)} → ${balanceAfterInvoice.toFixed(1)}`);
-
-    // Update balance tracker
-    currentBalance = balanceAfterInvoice;
-
-    // CRITICAL FIX: Create proper payment entry in customer_ledger_entries if payment made
-    if (paymentAmount > 0) {
-      const balanceAfterPayment = currentBalance - paymentAmount;
+    // SMART SOLUTION: Create entries based on net effect for clean ledger display
+    const remainingBalance = grandTotal - paymentAmount;
+    
+    if (paymentAmount >= grandTotal) {
+      // FULL PAYMENT: Create single entry showing ZERO net effect with comprehensive notes
+      console.log(`💰 Full payment detected: Rs.${paymentAmount} >= Rs.${grandTotal}`);
       
-      // Create CREDIT entry for payment in customer_ledger_entries table
       await this.dbConnection.execute(
         `INSERT INTO customer_ledger_entries 
         (customer_id, customer_name, entry_type, transaction_type, amount, description, 
          reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          customerId, customerName, 'credit', 'payment', paymentAmount,
-          `Payment - Invoice ${billNumber}`,
-          invoiceId, billNumber, currentBalance, balanceAfterPayment,
+          customerId, customerName, 'credit', 'payment', 0, // Use 'credit' type with 0 amount for clean display
+          `Invoice ${billNumber} - Fully Paid`,
+          invoiceId, billNumber, currentBalance, currentBalance, // Balance unchanged (net zero effect)
           date, time, 'system',
-          `Payment: Rs. ${paymentAmount.toFixed(1)} via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`
+          `FULL PAYMENT TRANSACTION: Invoice Rs.${grandTotal.toFixed(1)} + Payment Rs.${paymentAmount.toFixed(1)} via ${paymentMethod} = Net Effect Rs.0 (PAID IN FULL)`
         ]
       );
+      
+      console.log(`✅ Single consolidated entry created: Full payment Rs.${paymentAmount.toFixed(1)}`);
+      
+      // Create payment record for tracking (separate table for reports)
+      await this.createPaymentRecord(customerId, customerName, paymentAmount, paymentMethod, invoiceId, billNumber, date, time);
+      
+    } else if (remainingBalance > 0) {
+      // PARTIAL PAYMENT OR NO PAYMENT: Create single entry for NET remaining balance
+      console.log(`💳 Outstanding balance: Rs.${remainingBalance.toFixed(1)} after Rs.${paymentAmount.toFixed(1)} payment`);
+      
+      const balanceAfterTransaction = currentBalance + remainingBalance;
+      await this.dbConnection.execute(
+        `INSERT INTO customer_ledger_entries 
+        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          customerId, customerName, 'debit', 'invoice', remainingBalance,
+          paymentAmount > 0 ? `Invoice ${billNumber} - Partial Payment` : `Invoice ${billNumber} - Credit Sale`,
+          invoiceId, billNumber, currentBalance, balanceAfterTransaction,
+          date, time, 'system',
+          paymentAmount > 0 
+            ? `PARTIAL PAYMENT: Invoice Rs.${grandTotal.toFixed(1)} - Payment Rs.${paymentAmount.toFixed(1)} via ${paymentMethod} = Outstanding Rs.${remainingBalance.toFixed(1)}`
+            : `CREDIT SALE: Invoice Rs.${grandTotal.toFixed(1)} - No payment - Full amount outstanding`
+        ]
+      );
+      
+      console.log(`✅ Single entry created for outstanding balance: Rs.${remainingBalance.toFixed(1)}`);
+      
+      // Update current balance tracker
+      currentBalance = balanceAfterTransaction;
+      
+      // Create payment record if payment was made
+      if (paymentAmount > 0) {
+        await this.createPaymentRecord(customerId, customerName, paymentAmount, paymentMethod, invoiceId, billNumber, date, time);
+      }
+    }
 
-      console.log(`✅ Credit entry created: Rs. ${paymentAmount.toFixed(1)}, Balance: ${currentBalance.toFixed(1)} → ${balanceAfterPayment.toFixed(1)}`);
+    // Update customer balance in customers table to match ledger
+    await this.dbConnection.execute(
+      'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [currentBalance, customerId]
+    );
 
-      // Update balance tracker
-      currentBalance = balanceAfterPayment;
+    console.log(`✅ Customer ledger entries completed for Invoice ${billNumber}`);
+    console.log(`   - Final Customer Balance: Rs.${currentBalance.toFixed(1)}`);
+    if (paymentAmount >= grandTotal) {
+      console.log(`   - Status: FULLY PAID (Single consolidated entry)`);
+    } else if (paymentAmount > 0) {
+      console.log(`   - Status: PARTIAL PAYMENT (Outstanding: Rs.${remainingBalance.toFixed(1)})`);
+    } else {
+      console.log(`   - Status: CREDIT SALE (Full amount outstanding)`);
+    }
+  }
 
-      // CRITICAL FIX: Create payment record with proper payment channel linkage
+  // Helper method to create payment records
+  private async createPaymentRecord(
+    customerId: number, 
+    customerName: string, 
+    paymentAmount: number, 
+    paymentMethod: string, 
+    invoiceId: number, 
+    billNumber: string, 
+    date: string, 
+    time: string
+  ): Promise<void> {
+    try {
       const paymentCode = await this.generatePaymentCode();
       
-      // Find or create appropriate payment channel for this payment method
+      // Find or create payment channel
       let paymentChannelId = null;
       let paymentChannelName = paymentMethod;
       
       try {
-        // Try to find existing payment channel by name or type
         const existingChannel = await this.dbConnection.select(`
           SELECT id, name FROM payment_channels 
           WHERE (LOWER(name) = LOWER(?) OR LOWER(type) = LOWER(?)) AND is_active = 1 
@@ -8935,191 +9115,32 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         if (existingChannel && existingChannel.length > 0) {
           paymentChannelId = existingChannel[0].id;
           paymentChannelName = existingChannel[0].name;
-          console.log(`✅ Found existing payment channel: ${paymentChannelName} (ID: ${paymentChannelId})`);
-        } else {
-          // Create new payment channel for this method
-          console.log(`🔄 Creating new payment channel for method: ${paymentMethod}`);
-          const channelResult = await this.dbConnection.execute(`
-            INSERT INTO payment_channels (name, type, description, is_active, created_at, updated_at)
-            VALUES (?, ?, ?, 1, datetime('now'), datetime('now'))
-          `, [
-            paymentMethod,
-            paymentMethod.toLowerCase(),
-            `Auto-created payment channel for ${paymentMethod} payments`
-          ]);
-          
-          if (channelResult && channelResult.lastInsertId) {
-            paymentChannelId = channelResult.lastInsertId;
-            paymentChannelName = paymentMethod;
-            console.log(`✅ Created new payment channel: ${paymentChannelName} (ID: ${paymentChannelId})`);
-          }
         }
       } catch (channelError) {
-        console.warn(`⚠️ Could not find/create payment channel for ${paymentMethod}:`, channelError);
-        // Continue with null channel ID
+        console.warn(`⚠️ Could not find payment channel for ${paymentMethod}:`, channelError);
       }
       
-      // Insert into payments table with proper channel linkage
+      // Create payment record
       await this.dbConnection.execute(`
         INSERT INTO payments (
           customer_id, customer_name, payment_code, amount, payment_amount, net_amount,
           payment_method, payment_channel_id, payment_channel_name, payment_type,
-          reference, notes, date, time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          reference, notes, date, time, status, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         customerId, customerName, paymentCode, 
-        paymentAmount, paymentAmount, paymentAmount, // amount, payment_amount, net_amount (all required)
-        this.mapPaymentMethodForConstraint(paymentMethod), paymentChannelId, paymentChannelName, 'incoming', // Use mapped payment method and 'incoming' for CHECK constraint
+        paymentAmount, paymentAmount, paymentAmount,
+        this.mapPaymentMethodForConstraint(paymentMethod), paymentChannelId, paymentChannelName, 'incoming',
         billNumber, 
-        `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
-        date, new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true })
+        `Invoice ${billNumber} payment via ${paymentMethod}`,
+        date, time, 'completed', 'system'
       ]);
       
-      console.log(`✅ Payment record created with channel linkage - Channel: ${paymentChannelName} (ID: ${paymentChannelId})`);
-
-      // CRITICAL FIX: Also create enhanced_payments entry using the same channel information
-      try {
-        // Check if enhanced_payments table exists and has the required columns
-        const enhancedTableExists = await this.dbConnection.select(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name='enhanced_payments'"
-        );
-        
-        if (enhancedTableExists && enhancedTableExists.length > 0) {
-          // Check table structure to ensure payment_method column exists
-          const tableInfo = await this.dbConnection.select("PRAGMA table_info(enhanced_payments)");
-          const hasPaymentMethod = tableInfo.some((col: any) => col.name === 'payment_method');
-          
-          if (hasPaymentMethod) {
-            await this.dbConnection.execute(`
-              INSERT INTO enhanced_payments (
-                customer_id, customer_name, amount, payment_method, payment_channel_id, payment_channel_name, 
-                payment_type, reference_invoice_id, reference_number, notes, date, time, created_by
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-              customerId, customerName, paymentAmount, paymentMethod, paymentChannelId, paymentChannelName, 'invoice_payment',
-              invoiceId, billNumber, 
-              `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
-              date, new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }), 'system'
-            ]);
-          } else {
-            // Insert without payment_method column
-            await this.dbConnection.execute(`
-              INSERT INTO enhanced_payments (
-                customer_id, customer_name, amount, payment_channel_id, payment_channel_name, 
-                payment_type, reference_invoice_id, reference_number, notes, date, time, created_by
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-              customerId, customerName, paymentAmount, paymentChannelId, paymentChannelName, 'invoice_payment',
-              invoiceId, billNumber, 
-              `Invoice ${billNumber} payment via ${paymentMethod}${grandTotal === paymentAmount ? ' (Fully Paid)' : ' (Partial Payment)'}`,
-              date, new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }), 'system'
-            ]);
-          }
-
-          console.log(`✅ Enhanced payment entry created with channel linkage - Channel: ${paymentChannelName} (ID: ${paymentChannelId})`);
-        } else {
-          console.log(`ℹ️ Enhanced payments table doesn't exist, skipping enhanced payment entry`);
-        }
-      } catch (enhancedError) {
-        console.warn(`⚠️ Could not create enhanced payment entry:`, enhancedError);
-        // Don't fail the whole transaction for this
-      }
+      console.log(`✅ Payment record created: Rs.${paymentAmount.toFixed(1)} via ${paymentMethod}`);
       
-      console.log(`✅ Invoice payment recorded directly: Rs. ${paymentAmount.toFixed(1)}`);
-    }
-
-    // CRITICAL FIX: Update customer balance in customers table to match ledger
-    console.log(`🔧 Updating customer balance: ${customerId} → Rs. ${currentBalance.toFixed(1)}`);
-    await this.dbConnection.execute(
-      'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [currentBalance, customerId]
-    );
-
-    // Verify the update worked
-    const updatedCustomer = await this.getCustomer(customerId);
-    console.log(`✅ Customer ${customerName} balance updated in customers table: Rs. ${currentBalance.toFixed(1)} (Verified: Rs. ${updatedCustomer.balance})`);
-
-    // Also create general ledger entries for accounting
-    await this.createLedgerEntry({
-      date,
-      time,
-      type: 'incoming', // Changed to incoming since this is revenue for the business
-      category: 'Sale Invoice',
-      description: `Invoice ${billNumber} - Products sold to ${customerName}`,
-      amount: grandTotal,
-      customer_id: customerId,
-      customer_name: customerName,
-      reference_id: invoiceId,
-      reference_type: 'invoice',
-      bill_number: billNumber,
-      notes: `Invoice amount: Rs. ${grandTotal.toFixed(1)} - Products sold on ${paymentAmount > 0 ? 'partial credit' : 'full credit'}`,
-      created_by: 'system'
-    });
-
-    // CRITICAL FIX: Create daily ledger entry for the invoice
-    try {
-      console.log(`🔄 Creating daily ledger entry for invoice ${billNumber}...`);
-      await this.createDailyLedgerEntry({
-        date,
-        type: 'incoming',
-        category: 'Sales',
-        description: `Invoice ${billNumber} - ${customerName}`,
-        amount: grandTotal,
-        customer_id: customerId,
-        customer_name: customerName,
-        payment_method: paymentMethod,
-        notes: `Invoice total: Rs.${grandTotal.toFixed(1)}${paymentAmount > 0 ? ` | Payment received: Rs.${paymentAmount.toFixed(1)}` : ' | Full credit'}`,
-        is_manual: false
-      });
-
-      // If payment was made, also create daily ledger entry for the payment
-      if (paymentAmount > 0) {
-        await this.createDailyLedgerEntry({
-          date,
-          type: 'incoming',
-          category: 'Payment Received',
-          description: `Payment - Invoice ${billNumber} - ${customerName}`,
-          amount: paymentAmount,
-          customer_id: customerId,
-          customer_name: customerName,
-          payment_method: paymentMethod,
-          notes: `Invoice payment via ${paymentMethod}`,
-          is_manual: false
-        });
-      }
-      
-      console.log(`✅ Daily ledger entries created for invoice ${billNumber}`);
-    } catch (dailyLedgerError) {
-      console.warn(`⚠️ Could not create daily ledger entries for invoice ${billNumber}:`, dailyLedgerError);
-      // Don't fail the transaction for daily ledger issues
-    }
-
-    // CRITICAL FIX: If payment was made, also create a daily ledger entry for the payment
-    if (paymentAmount > 0) {
-      await this.createLedgerEntry({
-        date,
-        time,
-        type: 'incoming',
-        category: 'Payment Received',
-        description: `Payment for Invoice ${billNumber} - ${customerName}`,
-        amount: paymentAmount,
-        customer_id: customerId,
-        customer_name: customerName,
-        reference_id: invoiceId,
-        reference_type: 'payment',
-        bill_number: billNumber,
-        notes: `Payment: Rs. ${paymentAmount.toFixed(1)} via ${paymentMethod} for Invoice ${billNumber}`,
-        created_by: 'system'
-      });
-    }
-
-    console.log(`✅ Customer ledger entries created for Invoice ${billNumber}:`);
-    console.log(`   - Debit: Rs. ${grandTotal.toFixed(1)} (Sale)`);
-    if (paymentAmount > 0) {
-      console.log(`   - Credit: Rs. ${paymentAmount.toFixed(1)} (Payment via ${paymentMethod})`);
-      console.log(`   - Final Balance: Rs. ${(grandTotal - paymentAmount).toFixed(1)}`);
-    } else {
-      console.log(`   - Final Balance: Rs. ${grandTotal.toFixed(1)} (Full Credit Sale)`);
+    } catch (error) {
+      console.error('⚠️ Failed to create payment record:', error);
+      // Don't fail the main transaction
     }
   }
 
@@ -9478,24 +9499,61 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
   async getCustomerBalance(customerId: number): Promise<{ outstanding: number; total_paid: number; total_invoiced: number }> {
     try {
       if (!this.isInitialized) await this.initialize();
-      // Get total invoiced
+      
+      console.log(`📊 [FIXED] Getting balance for customer ${customerId}`);
+      
+      // Get total invoiced from invoices table with proper null handling
       const invoiceResult = await this.dbConnection.select(
-        'SELECT COALESCE(SUM(grand_total),0) as total_invoiced FROM invoices WHERE customer_id = ?',
+        'SELECT COALESCE(SUM(CASE WHEN grand_total IS NOT NULL AND grand_total != "" THEN CAST(grand_total AS REAL) ELSE 0 END), 0) as total_invoiced, COUNT(*) as invoice_count FROM invoices WHERE customer_id = ?',
         [customerId]
       );
-      const total_invoiced = invoiceResult?.[0]?.total_invoiced || 0;
-      // Get total paid
-      const paymentResult = await this.dbConnection.select(
-        'SELECT COALESCE(SUM(amount),0) as total_paid FROM payments WHERE customer_id = ?',
-        [customerId]
-      );
-      const total_paid = paymentResult?.[0]?.total_paid || 0;
-      // Outstanding
-      const outstanding = total_invoiced - total_paid;
-      return { outstanding, total_paid, total_invoiced };
+      const total_invoiced = Math.max(0, parseFloat(invoiceResult?.[0]?.total_invoiced || 0)) || 0;
+      const invoice_count = parseInt(invoiceResult?.[0]?.invoice_count || 0) || 0;
+      
+      // Get total paid from payments table (considering payment types - refunds are negative) with proper null handling
+      const paymentResult = await this.dbConnection.select(`
+        SELECT 
+          COALESCE(SUM(CASE 
+            WHEN payment_type = 'return_refund' OR payment_type = 'outgoing' THEN -COALESCE(CAST(amount AS REAL), 0)
+            ELSE COALESCE(CAST(amount AS REAL), 0)
+          END), 0) as total_paid,
+          COUNT(*) as payment_count
+        FROM payments 
+        WHERE customer_id = ? AND amount IS NOT NULL AND amount != ""
+      `, [customerId]);
+      
+      const total_paid = parseFloat(paymentResult?.[0]?.total_paid || 0) || 0;
+      const payment_count = parseInt(paymentResult?.[0]?.payment_count || 0) || 0;
+      
+      // Calculate outstanding balance with NaN protection
+      let outstanding = total_invoiced - total_paid;
+      if (isNaN(outstanding) || !isFinite(outstanding)) {
+        outstanding = 0;
+      }
+      
+      console.log(`📈 [FIXED] Customer ${customerId} balance calculation:`);
+      console.log(`   - Invoices: ${invoice_count} totaling Rs. ${total_invoiced.toFixed(2)}`);
+      console.log(`   - Payments: ${payment_count} totaling Rs. ${total_paid.toFixed(2)}`);
+      console.log(`   - Outstanding: Rs. ${outstanding.toFixed(2)}`);
+      
+      // CRITICAL FIX: Sync customer balance in customers table if different
+      const customer = await this.getCustomer(customerId);
+      if (customer && Math.abs((customer.balance || 0) - outstanding) > 0.01) {
+        await this.dbConnection.execute(
+          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [outstanding, customerId]
+        );
+        console.log(`🔄 [FIXED] Synchronized customer balance: ${customer.balance || 0} → ${outstanding.toFixed(2)}`);
+      }
+      
+      return { 
+        outstanding: outstanding, 
+        total_paid: total_paid, 
+        total_invoiced: total_invoiced
+      };
     } catch (error) {
       console.error('❌ Error getting customer balance:', error);
-      throw error;
+      return { outstanding: 0, total_paid: 0, total_invoiced: 0 };
     }
   }
 
@@ -9521,7 +9579,8 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
             c.cnic,
             COALESCE(SUM(i.grand_total), 0) as total_invoiced,
             COALESCE(SUM(p.amount), 0) as total_paid,
-            COALESCE(SUM(i.grand_total), 0) - COALESCE(SUM(p.amount), 0) as outstanding,
+            -- Fixed calculation: use actual invoice-payment balance
+            (COALESCE(SUM(i.grand_total), 0) - COALESCE(SUM(p.amount), 0)) as outstanding,
             COUNT(DISTINCT i.id) as invoice_count,
             COUNT(DISTINCT p.id) as payment_count,
             MAX(i.created_at) as last_invoice_date,
@@ -9530,41 +9589,51 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
           LEFT JOIN invoices i ON c.id = i.customer_id
           LEFT JOIN payments p ON c.id = p.customer_id
           GROUP BY c.id, c.name, c.phone, c.address, c.cnic
-          HAVING outstanding > 0
+          -- Fixed filter: ensure outstanding is calculated properly
+          HAVING (COALESCE(SUM(i.grand_total), 0) - COALESCE(SUM(p.amount), 0)) > 0
         ),
         aging_analysis AS (
           SELECT 
             i.customer_id,
+            -- Fixed aging calculations using invoice-payment approach
             SUM(CASE 
               WHEN JULIANDAY('now') - JULIANDAY(i.created_at) <= 30 
-              THEN COALESCE(i.remaining_balance, i.grand_total)
+              THEN (i.grand_total - COALESCE(pi.total_payments, 0))
               ELSE 0 
             END) as aging_current,
             SUM(CASE 
               WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 30 
               AND JULIANDAY('now') - JULIANDAY(i.created_at) <= 60 
-              THEN COALESCE(i.remaining_balance, i.grand_total)
+              THEN (i.grand_total - COALESCE(pi.total_payments, 0))
               ELSE 0 
             END) as aging_30,
             SUM(CASE 
               WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 60 
               AND JULIANDAY('now') - JULIANDAY(i.created_at) <= 90 
-              THEN COALESCE(i.remaining_balance, i.grand_total)
+              THEN (i.grand_total - COALESCE(pi.total_payments, 0))
               ELSE 0 
             END) as aging_60,
             SUM(CASE 
               WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 90 
               AND JULIANDAY('now') - JULIANDAY(i.created_at) <= 120 
-              THEN COALESCE(i.remaining_balance, i.grand_total)
+              THEN (i.grand_total - COALESCE(pi.total_payments, 0))
               ELSE 0 
             END) as aging_90,
             SUM(CASE 
               WHEN JULIANDAY('now') - JULIANDAY(i.created_at) > 120 
-              THEN COALESCE(i.remaining_balance, i.grand_total)
+              THEN (i.grand_total - COALESCE(pi.total_payments, 0))
               ELSE 0 
             END) as aging_120
           FROM invoices i
-          WHERE COALESCE(i.remaining_balance, i.grand_total) > 0
+          LEFT JOIN (
+            SELECT 
+              invoice_id,
+              SUM(amount) as total_payments
+            FROM payments 
+            WHERE invoice_id IS NOT NULL
+            GROUP BY invoice_id
+          ) pi ON i.id = pi.invoice_id
+          WHERE (i.grand_total - COALESCE(pi.total_payments, 0)) > 0
           GROUP BY i.customer_id
         )
         SELECT 
@@ -12420,6 +12489,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
 
       const receivingId = result?.lastInsertId || 0;
 
+
       // Add items and update product stock & stock movement
       for (const item of receiving.items) {
         // CENTRALIZED SCHEMA: Complete stock_receiving_items insertion with all required fields
@@ -12484,9 +12554,91 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         });
       }
 
-      // Emit STOCK_UPDATED event for real-time UI refresh
+      // Invalidate product cache after stock update
+      this.invalidateProductCache();
+      
+      // CRITICAL FIX: Force clear ALL caches that might contain product data
       try {
-        eventBus.emit('STOCK_UPDATED', { type: 'receiving', receivingId });
+        // Set stock operation timestamp to bypass cache for next 10 seconds
+        this.lastStockOperationTime = Date.now();
+        console.log('⏰ Stock operation timestamp set - cache will be bypassed for product queries');
+        
+        // Clear any enhanced database service caches
+        this.invalidateCacheByPattern('product');
+        this.invalidateCacheByPattern('stock');
+        this.invalidateCacheByPattern('inventory');
+        
+        // Clear the entire query cache to ensure fresh data
+        this.queryCache.clear();
+        console.log('🧹 All database caches cleared after stock receiving');
+        
+        // Clear finance service cache as well
+        try {
+          const { financeService } = await import('./financeService');
+          financeService.clearCache();
+          console.log('🧹 Finance service cache also cleared');
+        } catch (financeError) {
+          console.log('ℹ️ Finance service cache clearing skipped (module not found)');
+        }
+        
+      } catch (error) {
+        console.warn('⚠️ Could not clear additional caches:', error);
+      }
+
+      // Emit STOCK_UPDATED event for real-time UI refresh using consistent BUSINESS_EVENTS
+      try {
+        const { BUSINESS_EVENTS } = await import('../utils/eventBus');
+        
+        // Emit stock updated event for each product with detailed info
+        for (const item of receiving.items) {
+          // Get the updated product data
+          const updatedProduct = await this.dbConnection.select(
+            'SELECT * FROM products WHERE id = ?', 
+            [item.product_id]
+          );
+          
+          if (updatedProduct && updatedProduct.length > 0) {
+            const productData = updatedProduct[0];
+            eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+              productId: item.product_id,
+              productName: item.product_name,
+              type: 'receiving',
+              receivingId,
+              quantityAdded: item.quantity,
+              newStock: productData.current_stock,
+              timestamp: new Date().toISOString()
+            });
+            
+            // Also emit product updated event to refresh product lists
+            eventBus.emit(BUSINESS_EVENTS.PRODUCT_UPDATED, {
+              productId: item.product_id,
+              product: productData,
+              reason: 'stock_receiving',
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+        
+        // Emit stock movement event
+        eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, {
+          type: 'receiving',
+          receivingId,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Force UI refresh events
+        setTimeout(() => {
+          eventBus.emit('UI_REFRESH_REQUESTED', { 
+            type: 'stock_receiving_completed',
+            affectedProducts: receiving.items.map(item => item.product_id)
+          });
+          eventBus.emit('PRODUCTS_CACHE_INVALIDATED', { 
+            reason: 'stock_receiving',
+            receivingId 
+          });
+        }, 100);
+        
+        console.log('✅ Database stock events emitted with correct BUSINESS_EVENTS and cache clearing');
       } catch (err) {
         console.warn('Could not emit STOCK_UPDATED event:', err);
       }
@@ -13762,6 +13914,77 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     
     return true;
   }
+
+  /**
+   * PERMANENT FIX: Clean up duplicate invoice ledger entries
+   * Removes duplicate entries from ledger_entries table that also exist in customer_ledger_entries
+   */
+  async cleanupDuplicateInvoiceLedgerEntries(): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+      
+      console.log('🧹 Cleaning up duplicate invoice ledger entries...');
+      
+      // Find duplicate entries: ledger_entries that have customer_id and reference_type='invoice'
+      // where the same invoice also exists in customer_ledger_entries
+      const duplicatesResult = await this.dbConnection.select(`
+        SELECT le.id, le.bill_number, le.customer_name, le.amount, le.reference_id
+        FROM ledger_entries le
+        INNER JOIN customer_ledger_entries cle ON (
+          le.reference_id = cle.reference_id 
+          AND le.customer_id = cle.customer_id 
+          AND cle.transaction_type = 'invoice'
+        )
+        WHERE le.reference_type = 'invoice' 
+        AND le.customer_id IS NOT NULL
+        AND le.type = 'incoming'
+        AND le.category IN ('Sale Invoice', 'Sale')
+      `);
+      
+      if (duplicatesResult && duplicatesResult.length > 0) {
+        console.log(`🗑️ Found ${duplicatesResult.length} duplicate invoice entries to remove`);
+        
+        // Remove the duplicate entries from ledger_entries table
+        for (const duplicate of duplicatesResult) {
+          await this.dbConnection.execute(
+            'DELETE FROM ledger_entries WHERE id = ?',
+            [duplicate.id]
+          );
+          console.log(`✅ Removed duplicate entry for Invoice ${duplicate.bill_number} - ${duplicate.customer_name} (Rs.${duplicate.amount})`);
+        }
+        
+        console.log(`✅ Cleaned up ${duplicatesResult.length} duplicate invoice ledger entries`);
+      } else {
+        console.log('✅ No duplicate invoice ledger entries found');
+      }
+      
+      // Also clean up orphaned ledger entries (entries with customer_id but no corresponding customer)
+      const orphanedResult = await this.dbConnection.select(`
+        SELECT le.id, le.bill_number, le.customer_name, le.customer_id
+        FROM ledger_entries le
+        LEFT JOIN customers c ON le.customer_id = c.id
+        WHERE le.customer_id IS NOT NULL 
+        AND c.id IS NULL
+      `);
+      
+      if (orphanedResult && orphanedResult.length > 0) {
+        console.log(`🗑️ Found ${orphanedResult.length} orphaned ledger entries to clean up`);
+        
+        for (const orphan of orphanedResult) {
+          await this.dbConnection.execute(
+            'DELETE FROM ledger_entries WHERE id = ?',
+            [orphan.id]
+          );
+          console.log(`✅ Removed orphaned entry for customer ID ${orphan.customer_id} - ${orphan.customer_name}`);
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Error cleaning up duplicate ledger entries:', error);
+    }
+  }
 }
 
 // Export the original database service directly to avoid proxy issues
@@ -13770,5 +13993,20 @@ export const db = DatabaseService.getInstance();
 // DEVELOPER: Expose both services to global window object for console access
 if (typeof window !== 'undefined') {
   (window as any).db = db;
+  
+  // PERMANENT FIX: Expose cleanup function for manual execution
+  (window as any).cleanupDuplicateInvoiceEntries = async () => {
+    try {
+      console.log('🧹 Manual cleanup of duplicate invoice ledger entries...');
+      await db.cleanupDuplicateInvoiceLedgerEntries();
+      console.log('✅ Manual cleanup completed successfully!');
+      return true;
+    } catch (error) {
+      console.error('❌ Manual cleanup failed:', error);
+      return false;
+    }
+  };
+  
   console.log('🔧 Database service exposed to window.db');
+  console.log('🧹 Manual cleanup function: cleanupDuplicateInvoiceEntries()');
 }

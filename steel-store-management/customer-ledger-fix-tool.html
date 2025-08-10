@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Ledger Fix Tool</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .fix-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        .fix-button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        .fix-button:hover {
+            background-color: #0056b3;
+        }
+        .fix-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .results.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .results.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .results.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #b8daff;
+        }
+        .progress {
+            width: 100%;
+            height: 20px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #007bff;
+            transition: width 0.3s ease;
+        }
+        .instructions {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #ffeeba;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Customer Ledger Fix Tool</h1>
+            <p>Comprehensive solution for customer balance and ledger inconsistencies</p>
+        </div>
+
+        <div class="instructions">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li><strong>Open your Steel Store Management app</strong> first</li>
+                <li><strong>Navigate to any customer-related page</strong> (Customer List, Customer Profile, etc.)</li>
+                <li><strong>Open browser console</strong> (F12 → Console tab)</li>
+                <li><strong>Click the fix buttons below</strong> in order</li>
+                <li><strong>Check results</strong> in the output sections</li>
+                <li><strong>Refresh your app</strong> to see the fixes applied</li>
+            </ol>
+            <p><em>⚠️ Make sure the Steel Store Management app is running and loaded before using these fixes.</em></p>
+        </div>
+
+        <div class="fix-section">
+            <h3>🎯 Quick Fix (Recommended)</h3>
+            <p>Run all fixes automatically in the correct order:</p>
+            <button class="fix-button" onclick="runCompleteFix()">🚀 Run Complete Fix</button>
+            <div class="progress">
+                <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+            </div>
+            <div id="complete-results" class="results info" style="display: none;"></div>
+        </div>
+
+        <div class="fix-section">
+            <h3>🔍 Individual Fixes</h3>
+            <p>Run specific fixes one by one:</p>
+            
+            <h4>Step 1: Fix Customer Balance Calculation</h4>
+            <button class="fix-button" onclick="fixCustomerBalances()">📊 Fix Customer Balances</button>
+            <div id="balance-results" class="results info" style="display: none;"></div>
+            
+            <h4>Step 2: Remove Duplicate Entries</h4>
+            <button class="fix-button" onclick="removeDuplicates()">🧹 Remove Duplicates</button>
+            <div id="duplicate-results" class="results info" style="display: none;"></div>
+            
+            <h4>Step 3: Apply Database Service Fixes</h4>
+            <button class="fix-button" onclick="applyDatabaseFixes()">⚙️ Apply Service Fixes</button>
+            <div id="service-results" class="results info" style="display: none;"></div>
+            
+            <h4>Step 4: Test Customer Data Consistency</h4>
+            <button class="fix-button" onclick="testConsistency()">🧪 Test Consistency</button>
+            <div id="test-results" class="results info" style="display: none;"></div>
+        </div>
+
+        <div class="fix-section">
+            <h3>📋 Manual Scripts</h3>
+            <p>Copy and paste these scripts directly into your browser console if needed:</p>
+            
+            <h4>Load Comprehensive Fix Script:</h4>
+            <div class="results info">
+// Copy and paste this into your browser console:
+fetch('CUSTOMER_LEDGER_FIX_COMPREHENSIVE.js')
+  .then(response => response.text())
+  .then(script => {
+    eval(script);
+    console.log('✅ Customer Ledger Fix loaded successfully!');
+    console.log('📚 Available methods:');
+    console.log('   window.CUSTOMER_LEDGER_FIX.runCompleteFix()');
+    console.log('   window.CUSTOMER_LEDGER_FIX.testCustomerDataConsistency()');
+  })
+  .catch(error => console.error('❌ Failed to load fix script:', error));
+            </div>
+
+            <h4>Load Database Service Fixes:</h4>
+            <div class="results info">
+// Copy and paste this into your browser console:
+fetch('DATABASE_SERVICE_FIXES_WORKING.js')
+  .then(response => response.text())
+  .then(script => {
+    eval(script);
+    console.log('✅ Database Service Fixes loaded successfully!');
+    window.DATABASE_SERVICE_FIXES.applyAllFixes();
+  })
+  .catch(error => console.error('❌ Failed to load service fixes:', error));
+            </div>
+        </div>
+
+        <div class="fix-section">
+            <h3>🔄 After Running Fixes</h3>
+            <p>Once fixes are complete:</p>
+            <ul>
+                <li><strong>Refresh all customer-related pages</strong> to see updated balances</li>
+                <li><strong>Check Customer Profile → Financial Summary</strong> for accurate data</li>
+                <li><strong>Verify Customer Ledger</strong> shows proper running balances</li>
+                <li><strong>Test Invoice Detail → Add Payment</strong> updates all components</li>
+                <li><strong>Check Loan Ledger</strong> for correct outstanding amounts</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let progressInterval;
+        
+        function updateProgress(percent, message) {
+            const progressBar = document.getElementById('progress-bar');
+            progressBar.style.width = percent + '%';
+            
+            if (message) {
+                const resultsDiv = document.getElementById('complete-results');
+                resultsDiv.style.display = 'block';
+                resultsDiv.className = 'results info';
+                resultsDiv.textContent += message + '\\n';
+            }
+        }
+
+        function showResult(elementId, result, success) {
+            const div = document.getElementById(elementId);
+            div.style.display = 'block';
+            div.className = success ? 'results success' : 'results error';
+            div.textContent = result;
+        }
+
+        async function runCompleteFix() {
+            const resultsDiv = document.getElementById('complete-results');
+            resultsDiv.style.display = 'block';
+            resultsDiv.className = 'results info';
+            resultsDiv.textContent = '🚀 Starting comprehensive customer ledger fix...\\n';
+            
+            updateProgress(10, '📋 Checking if Steel Store app is loaded...');
+            
+            // Check if app is loaded
+            if (typeof window.APP_STATE === 'undefined' && typeof window.db === 'undefined') {
+                showResult('complete-results', '❌ Steel Store Management app not detected!\\n\\nPlease:\\n1. Open your Steel Store app first\\n2. Navigate to any customer page\\n3. Then run this fix\\n\\nThe app must be running and loaded before fixes can be applied.', false);
+                updateProgress(0);
+                return;
+            }
+            
+            updateProgress(20, '✅ App detected, loading fix scripts...');
+            
+            try {
+                // Load the comprehensive fix script
+                const script1Response = await fetch('CUSTOMER_LEDGER_FIX_COMPREHENSIVE.js');
+                const script1 = await script1Response.text();
+                eval(script1);
+                updateProgress(40, '✅ Comprehensive fix script loaded');
+                
+                // Load the database service fixes
+                const script2Response = await fetch('DATABASE_SERVICE_FIXES_WORKING.js');
+                const script2 = await script2Response.text();
+                eval(script2);
+                updateProgress(60, '✅ Database service fixes loaded');
+                
+                updateProgress(70, '🔧 Applying database service fixes...');
+                await window.DATABASE_SERVICE_FIXES.applyAllFixes();
+                updateProgress(80, '✅ Database service fixes applied');
+                
+                updateProgress(90, '🔧 Running comprehensive fix...');
+                const success = await window.CUSTOMER_LEDGER_FIX.runCompleteFix();
+                
+                if (success) {
+                    updateProgress(100, '🎉 All fixes completed successfully!\\n\\n📋 Next Steps:\\n1. Refresh any open customer pages\\n2. Check customer balances are correct\\n3. Test payment recording from invoice detail\\n4. Verify all components show consistent data');
+                    resultsDiv.className = 'results success';
+                } else {
+                    updateProgress(100, '⚠️ Some fixes may have encountered issues. Check browser console for details.');
+                    resultsDiv.className = 'results error';
+                }
+                
+            } catch (error) {
+                showResult('complete-results', '❌ Error running fixes: ' + error.message + '\\n\\nPlease try running fixes manually from browser console.', false);
+                updateProgress(0);
+            }
+        }
+
+        async function fixCustomerBalances() {
+            try {
+                if (typeof window.CUSTOMER_LEDGER_FIX === 'undefined') {
+                    const response = await fetch('CUSTOMER_LEDGER_FIX_COMPREHENSIVE.js');
+                    const script = await response.text();
+                    eval(script);
+                }
+                
+                const success = await window.CUSTOMER_LEDGER_FIX.fixCustomerBalanceCalculation();
+                showResult('balance-results', success ? '✅ Customer balance calculation fixed successfully!' : '❌ Failed to fix customer balances', success);
+            } catch (error) {
+                showResult('balance-results', '❌ Error: ' + error.message, false);
+            }
+        }
+
+        async function removeDuplicates() {
+            try {
+                if (typeof window.CUSTOMER_LEDGER_FIX === 'undefined') {
+                    const response = await fetch('CUSTOMER_LEDGER_FIX_COMPREHENSIVE.js');
+                    const script = await response.text();
+                    eval(script);
+                }
+                
+                const success = await window.CUSTOMER_LEDGER_FIX.fixDuplicateEntries();
+                showResult('duplicate-results', success ? '✅ Duplicate entries removed successfully!' : '❌ Failed to remove duplicates', success);
+            } catch (error) {
+                showResult('duplicate-results', '❌ Error: ' + error.message, false);
+            }
+        }
+
+        async function applyDatabaseFixes() {
+            try {
+                if (typeof window.DATABASE_SERVICE_FIXES === 'undefined') {
+                    const response = await fetch('DATABASE_SERVICE_FIXES_WORKING.js');
+                    const script = await response.text();
+                    eval(script);
+                }
+                
+                const success = await window.DATABASE_SERVICE_FIXES.applyAllFixes();
+                showResult('service-results', success ? '✅ Database service fixes applied successfully!' : '❌ Failed to apply service fixes', success);
+            } catch (error) {
+                showResult('service-results', '❌ Error: ' + error.message, false);
+            }
+        }
+
+        async function testConsistency() {
+            try {
+                if (typeof window.CUSTOMER_LEDGER_FIX === 'undefined') {
+                    const response = await fetch('CUSTOMER_LEDGER_FIX_COMPREHENSIVE.js');
+                    const script = await response.text();
+                    eval(script);
+                }
+                
+                const result = await window.CUSTOMER_LEDGER_FIX.testCustomerDataConsistency();
+                const resultText = result.success 
+                    ? '✅ All customer data is consistent!\\n' + (result.inconsistencies.length ? 'Issues found: ' + result.inconsistencies.length : 'No issues found')
+                    : '❌ Test failed: ' + result.error;
+                showResult('test-results', resultText, result.success);
+            } catch (error) {
+                showResult('test-results', '❌ Error: ' + error.message, false);
+            }
+        }
+    </script>
+</body>
+</html>
