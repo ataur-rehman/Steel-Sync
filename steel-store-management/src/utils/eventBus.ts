@@ -148,6 +148,7 @@ const registerDefaultListeners = () => {
   eventBus.on(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, defaultHandler);
   eventBus.on(BUSINESS_EVENTS.VENDOR_PAYMENT_CREATED, defaultHandler);
   eventBus.on(BUSINESS_EVENTS.VENDOR_BALANCE_UPDATED, defaultHandler);
+  eventBus.on(BUSINESS_EVENTS.CUSTOMER_CREATED, defaultHandler);
 };
 
 // Initialize default listeners (called after BUSINESS_EVENTS is defined)

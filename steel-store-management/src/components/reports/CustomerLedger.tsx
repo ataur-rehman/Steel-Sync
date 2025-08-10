@@ -301,6 +301,7 @@ const CustomerLedger: React.FC = () => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransaction[]>([]);
+  const [customerAccountSummary, setCustomerAccountSummary] = useState<any>(null);
   
   // UI State
   const [loading, setLoading] = useState(false);
@@ -404,6 +405,7 @@ const CustomerLedger: React.FC = () => {
       const eventCustomerId = data.customerId || data.customer_id;
       if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
         await loadCustomerLedger();
+        await loadCustomerAccountSummary(selectedCustomer.id);
       }
     };
 
@@ -412,6 +414,7 @@ const CustomerLedger: React.FC = () => {
       const eventCustomerId = data.customerId || data.customer_id;
       if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
         await loadCustomerLedger();
+        await loadCustomerAccountSummary(selectedCustomer.id);
       }
     };
 
@@ -420,6 +423,7 @@ const CustomerLedger: React.FC = () => {
       const eventCustomerId = data.customerId || data.customer_id;
       if (selectedCustomer && eventCustomerId === selectedCustomer.id) {
         await loadCustomerLedger();
+        await loadCustomerAccountSummary(selectedCustomer.id);
       }
     };
 
@@ -433,6 +437,12 @@ const CustomerLedger: React.FC = () => {
     eventBus.on('invoice:created', handleInvoiceUpdated); // New event name
     eventBus.on(BUSINESS_EVENTS.PAYMENT_RECORDED, handleCustomerBalanceUpdate);
     eventBus.on(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handleCustomerBalanceUpdate);
+    
+    // Listen for overdue status updates
+    eventBus.on('CUSTOMER_OVERDUE_STATUS_UPDATED', handleCustomerBalanceUpdate);
+    eventBus.on('ALL_CUSTOMERS_OVERDUE_STATUS_UPDATED', () => {
+      loadCustomers(); // Refresh all customer data when global update occurs
+    });
 
     console.log('✅ [CustomerLedger] Enhanced event listeners set up');
 
@@ -447,6 +457,10 @@ const CustomerLedger: React.FC = () => {
       eventBus.off('invoice:created', handleInvoiceUpdated);
       eventBus.off(BUSINESS_EVENTS.PAYMENT_RECORDED, handleCustomerBalanceUpdate);
       eventBus.off(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handleCustomerBalanceUpdate);
+      eventBus.off('CUSTOMER_OVERDUE_STATUS_UPDATED', handleCustomerBalanceUpdate);
+      eventBus.off('ALL_CUSTOMERS_OVERDUE_STATUS_UPDATED', () => {
+        loadCustomers();
+      });
     };
   }, []);
 
@@ -454,6 +468,7 @@ const CustomerLedger: React.FC = () => {
   useEffect(() => {
     if (selectedCustomer && currentView === 'ledger') {
       loadCustomerLedger();
+      loadCustomerAccountSummary(selectedCustomer.id);
     }
   }, [selectedCustomer, currentView]); // Removed filters dependency to prevent infinite loop
 
@@ -588,11 +603,25 @@ const CustomerLedger: React.FC = () => {
     }
   };
 
+  const loadCustomerAccountSummary = async (customerId: number) => {
+    try {
+      console.log('Loading customer account summary for ID:', customerId);
+      const summary = await db.getCustomerAccountSummary(customerId);
+      setCustomerAccountSummary(summary);
+      console.log('Customer account summary loaded:', summary);
+    } catch (error) {
+      console.error('Failed to load customer account summary:', error);
+      toast.error('Failed to load customer account details');
+      setCustomerAccountSummary(null);
+    }
+  };
+
   const selectCustomer = useCallback((customer: Customer) => {
     setSelectedCustomer(customer);
     setCurrentView('ledger');
     setNewPayment(prev => ({ ...prev, customer_id: customer.id }));
     loadCustomerInvoices(customer.id);
+    loadCustomerAccountSummary(customer.id);
   }, []);
 
   const handleSelectCustomerForPayment = useCallback((customer: Customer) => {
@@ -659,6 +688,7 @@ const CustomerLedger: React.FC = () => {
       
       await loadCustomerLedger();
       await loadCustomers();
+      await loadCustomerAccountSummary(selectedCustomer.id);
       
     } catch (error) {
       console.error('Error adding payment:', error);
@@ -874,43 +904,118 @@ const CustomerLedger: React.FC = () => {
           </div>
         </div>
 
-        {/* Customer Info Card */}
+        {/* Customer Info Card - Enhanced */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Left Column - Account Information */}
             <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2">Account Information</h3>
-              <div className="space-y-1">
-                <p className="text-lg font-semibold text-gray-900">{selectedCustomer?.name}</p>
-                <p className="text-sm text-gray-600">Account No: {formatCustomerCode(selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0') || '')}</p>
-                {selectedCustomer?.phone && (
-                  <p className="text-sm text-gray-600">Phone: {selectedCustomer.phone}</p>
-                )}
+              <h3 className="text-sm font-medium text-gray-500 mb-4">Account Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-lg font-semibold text-gray-900">{selectedCustomer?.name}</p>
+                    <p className="text-sm text-gray-600">Account: {formatCustomerCode(selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0') || '')}</p>
+                  </div>
+                  
+                  {selectedCustomer?.phone && (
+                    <div>
+                      <p className="text-xs text-gray-500">Phone</p>
+                      <p className="text-sm text-gray-900">{selectedCustomer.phone}</p>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <p className="text-xs text-gray-500">Member Since</p>
+                    <p className="text-sm text-gray-900">{customerAccountSummary?.memberSince || 'N/A'}</p>
+                  </div>
+                  
+                  {/* NEW: Days Overdue */}
+                  <div>
+                    <p className="text-xs text-gray-500">Days Overdue</p>
+                    <p className={`text-sm font-semibold ${
+                      customerAccountSummary && customerAccountSummary.daysOverdue > 0 
+                        ? 'text-red-600' 
+                        : 'text-green-600'
+                    }`}>
+                      {customerAccountSummary && customerAccountSummary.daysOverdue > 0 
+                        ? `${customerAccountSummary.daysOverdue} days`
+                        : 'No overdue'
+                      }
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Total Invoices</p>
+                    <p className="text-lg font-semibold text-gray-900">{customerAccountSummary?.totalInvoicesCount || 0}</p>
+                  </div>
+                  
+                  {/* NEW: Invoices Overdue */}
+                  <div>
+                    <p className="text-xs text-gray-500">Invoices Overdue</p>
+                    <p className={`text-sm font-semibold ${
+                      customerAccountSummary && customerAccountSummary.invoicesOverdueCount > 0 
+                        ? 'text-red-600' 
+                        : 'text-green-600'
+                    }`}>
+                      {customerAccountSummary?.invoicesOverdueCount || 0}
+                      {customerAccountSummary && customerAccountSummary.invoicesOverdueCount > 0 ? ' overdue' : ''}
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-xs text-gray-500">Last Invoice</p>
+                    <p className="text-sm text-gray-900">{customerAccountSummary?.lastInvoiceDate || 'No invoices'}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-xs text-gray-500">Last Payment</p>
+                    <p className="text-sm text-gray-900">{customerAccountSummary?.lastPaymentDate || 'No payments'}</p>
+                  </div>
+                </div>
               </div>
             </div>
             
+            {/* Right Column - Financial Summary */}
             <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2">Current Balance</h3>
-              <div className={`text-2xl font-bold ${
-                selectedCustomer && selectedCustomer.total_balance > 0 
-                  ? 'text-red-600' 
-                  : selectedCustomer && selectedCustomer.total_balance < 0
-                  ? 'text-green-600'
-                  : 'text-gray-900'
-              }`}>
-                {selectedCustomer ? formatCurrency(selectedCustomer.total_balance) : 'Rs. 0.00'}
-                <span className="text-sm font-normal ml-2">
-                  {selectedCustomer && selectedCustomer.total_balance > 0 ? 'Dr' : selectedCustomer && selectedCustomer.total_balance < 0 ? 'Cr (Credit)' : ''}
-                </span>
-                {selectedCustomer && selectedCustomer.total_balance < 0 && (
-                  <div className="text-green-700 text-sm mt-1">Available Credit: {formatCurrency(Math.abs(selectedCustomer.total_balance))}</div>
-                )}
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2">Total Transactions</h3>
-              <div className="text-2xl font-bold text-gray-900">
-                {filteredTransactions.length}
+              <h3 className="text-sm font-medium text-gray-500 mb-4">Financial Summary</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Total Invoiced</p>
+                    <p className="text-lg font-semibold text-blue-600">{formatCurrency(customerAccountSummary?.totalInvoicedAmount || 0)}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-xs text-gray-500">Total Paid</p>
+                    <p className="text-lg font-semibold text-green-600">{formatCurrency(customerAccountSummary?.totalPaidAmount || 0)}</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Outstanding Balance</p>
+                    <div className={`text-xl font-bold ${
+                      customerAccountSummary && customerAccountSummary.outstandingAmount > 0 
+                        ? 'text-red-600' 
+                        : customerAccountSummary && customerAccountSummary.outstandingAmount < 0
+                        ? 'text-green-600'
+                        : 'text-gray-900'
+                    }`}>
+                      {formatCurrency(customerAccountSummary?.outstandingAmount || 0)}
+                      <span className="text-sm font-normal ml-2">
+                        {customerAccountSummary && customerAccountSummary.outstandingAmount > 0 ? 'Dr' : 
+                         customerAccountSummary && customerAccountSummary.outstandingAmount < 0 ? 'Cr' : ''}
+                      </span>
+                    </div>
+                    {customerAccountSummary && customerAccountSummary.outstandingAmount < 0 && (
+                      <div className="text-green-700 text-sm mt-1">
+                        Credit Available: {formatCurrency(Math.abs(customerAccountSummary.outstandingAmount))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

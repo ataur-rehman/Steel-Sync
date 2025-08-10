@@ -11,6 +11,8 @@ import CentralizedRealtimeSolution from './centralized-realtime-solution';
 import { CriticalUnitStockMovementFixes } from './critical-unit-stock-movement-fixes';
 
 
+
+
 interface StockMovement {
   id?: number;
   product_id: number;
@@ -3568,6 +3570,11 @@ private emitInvoiceEvents(invoice: any): void {
       customerName: invoice.customer_name
     });
 
+    // AUTO-UPDATE OVERDUE STATUS: Trigger overdue status update for the customer
+    this.updateCustomerOverdueStatus(invoice.customer_id).catch(error => {
+      console.warn(`Failed to auto-update overdue status for customer ${invoice.customer_id}:`, error);
+    });
+
     console.log(`🚀 Real-time events emitted for invoice ${invoice.bill_number}`);
   } catch (error) {
     console.warn('Could not emit invoice events:', error);
@@ -4952,6 +4959,66 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           // Don't fail the whole payment - this is for Daily Ledger display only
         }
 
+        // CRITICAL FIX: Create customer ledger entry for Balance Summary consistency
+        try {
+          console.log('🔄 Creating customer ledger entry for payment...');
+          
+          // Get current customer balance from ledger entries
+          const existingBalanceResult = await this.dbConnection.select(
+            `SELECT balance_after FROM customer_ledger_entries 
+             WHERE customer_id = ? 
+             ORDER BY date DESC, created_at DESC 
+             LIMIT 1`,
+            [payment.customer_id]
+          );
+          
+          let currentBalance = 0;
+          if (existingBalanceResult && existingBalanceResult.length > 0) {
+            currentBalance = existingBalanceResult[0].balance_after || 0;
+          } else {
+            // Fallback to customer's stored balance - CENTRALIZED SCHEMA: Use 'balance' column
+            const customer = await this.getCustomer(payment.customer_id);
+            currentBalance = customer ? (customer.balance || 0) : 0;
+          }
+          
+          // Create credit entry for payment (reduces customer balance)
+          const balanceAfterPayment = currentBalance - payment.amount;
+          const paymentTime = new Date().toLocaleTimeString('en-PK', { 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: true 
+          });
+          
+          await this.dbConnection.execute(`
+            INSERT INTO customer_ledger_entries (
+              customer_id, customer_name, entry_type, transaction_type,
+              amount, description, reference_id, reference_number,
+              balance_before, balance_after, date, time,
+              created_by, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            payment.customer_id, customerName, 'credit', 'payment',
+            payment.amount,
+            `Payment - ${payment.payment_method}`,
+            paymentId, `PAY-${paymentId}`,
+            currentBalance, balanceAfterPayment,
+            payment.date, paymentTime, 'system',
+            `Payment: Rs. ${payment.amount.toFixed(2)} via ${payment.payment_method}${payment.reference ? ' - ' + payment.reference : ''}`
+          ]);
+          
+          console.log(`✅ Created customer ledger entry: Payment Rs. ${payment.amount.toFixed(2)}`);
+          
+          // Update customer balance to match ledger - CENTRALIZED SCHEMA: Use 'balance' column
+          await this.dbConnection.execute(
+            'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [balanceAfterPayment, payment.customer_id]
+          );
+          
+        } catch (customerLedgerError) {
+          console.error('❌ Failed to create customer ledger entry for payment:', customerLedgerError);
+          // Don't fail the whole payment - log error and continue
+        }
+
         // Only commit if we started the transaction
         if (shouldCommit) {
           await this.dbConnection.execute('COMMIT');
@@ -4967,6 +5034,12 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
             paymentType: payment.payment_type,
             created_at: new Date().toISOString()
           });
+          
+          // AUTO-UPDATE OVERDUE STATUS: Trigger overdue status update after payment
+          this.updateCustomerOverdueStatus(payment.customer_id).catch(error => {
+            console.warn(`Failed to auto-update overdue status for customer ${payment.customer_id} after payment:`, error);
+          });
+          
         } catch (error) {
           console.warn('Could not emit payment recorded event:', error);
         }
@@ -5319,6 +5392,12 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
             customerId: invoice.customer_id,
             action: 'items_added'
           });
+          
+          // AUTO-UPDATE OVERDUE STATUS: Trigger overdue status update after items added
+          this.updateCustomerOverdueStatus(invoice.customer_id).catch(error => {
+            console.warn(`Failed to auto-update overdue status for customer ${invoice.customer_id} after items added:`, error);
+          });
+          
         } catch (error) {
           console.warn('[PERMANENT] Could not emit invoice update events:', error);
         }
@@ -5524,6 +5603,12 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
             customerId: invoice.customer_id,
             action: 'quantity_updated'
           });
+          
+          // AUTO-UPDATE OVERDUE STATUS: Trigger overdue status update after quantity changed
+          this.updateCustomerOverdueStatus(invoice.customer_id).catch(error => {
+            console.warn(`Failed to auto-update overdue status for customer ${invoice.customer_id} after quantity update:`, error);
+          });
+          
         } catch (error) {
           console.warn('Could not emit invoice quantity update events:', error);
         }
@@ -5834,6 +5919,11 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
             paymentId: paymentId,
             customerId: invoice.customer_id,
             amount: paymentData.amount
+          });
+
+          // AUTO-UPDATE OVERDUE STATUS: Trigger overdue status update after invoice payment
+          this.updateCustomerOverdueStatus(invoice.customer_id).catch(error => {
+            console.warn(`Failed to auto-update overdue status for customer ${invoice.customer_id} after invoice payment:`, error);
           });
 
           console.log('✅ [Invoice Payment] All events emitted successfully');
@@ -8973,7 +9063,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
   }
 
-  // CRITICAL: Create proper customer ledger entries for accounting
+  // CRITICAL FIX: Create proper customer ledger entries for accounting
   private async createCustomerLedgerEntries(
     invoiceId: number, 
     customerId: number, 
@@ -8991,7 +9081,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       hour12: true 
     });
 
-    // CRITICAL FIX: Calculate current balance from existing customer ledger entries
+    // Get current balance from customer ledger entries
     const existingBalanceResult = await this.dbConnection.select(
       `SELECT balance_after FROM customer_ledger_entries 
        WHERE customer_id = ? 
@@ -9000,91 +9090,69 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       [customerId]
     );
     
-    // Start with customer's base balance if no ledger entries exist
     let currentBalance = 0;
-    if (existingBalanceResult && existingBalanceResult.length > 0) {
-      currentBalance = existingBalanceResult[0].balance_after || 0;
-    } else {
-      // Get customer's current balance from customers table as fallback
-      const customer = await this.getCustomer(customerId);
-      currentBalance = customer ? (customer.balance || 0) : 0;
-    }
+        if (existingBalanceResult && existingBalanceResult.length > 0) {
+            currentBalance = existingBalanceResult[0].balance_after || 0;
+        } else {
+            // Get customer's current balance from customers table as fallback - CENTRALIZED SCHEMA: Use 'balance' column
+            const customer = await this.getCustomer(customerId);
+            currentBalance = customer ? (customer.balance || 0) : 0;
+        }    console.log(`🔍 Customer ${customerName} current balance before invoice: Rs. ${currentBalance.toFixed(2)}`);
 
-    console.log(`🔍 Customer ${customerName} current balance before invoice: Rs. ${currentBalance.toFixed(1)}`);
-
-    // SMART SOLUTION: Create entries based on net effect for clean ledger display
-    const remainingBalance = grandTotal - paymentAmount;
+    // FIXED LOGIC: Always create separate debit entry for invoice and credit entry for payment
+    // This ensures Balance Summary and Financial Summary use the same data
     
-    if (paymentAmount >= grandTotal) {
-      // FULL PAYMENT: Create single entry showing ZERO net effect with comprehensive notes
-      console.log(`💰 Full payment detected: Rs.${paymentAmount} >= Rs.${grandTotal}`);
-      
-      await this.dbConnection.execute(
-        `INSERT INTO customer_ledger_entries 
-        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          customerId, customerName, 'credit', 'payment', 0, // Use 'credit' type with 0 amount for clean display
-          `Invoice ${billNumber} - Fully Paid`,
-          invoiceId, billNumber, currentBalance, currentBalance, // Balance unchanged (net zero effect)
-          date, time, 'system',
-          `FULL PAYMENT TRANSACTION: Invoice Rs.${grandTotal.toFixed(1)} + Payment Rs.${paymentAmount.toFixed(1)} via ${paymentMethod} = Net Effect Rs.0 (PAID IN FULL)`
-        ]
-      );
-      
-      console.log(`✅ Single consolidated entry created: Full payment Rs.${paymentAmount.toFixed(1)}`);
-      
-      // Create payment record for tracking (separate table for reports)
-      await this.createPaymentRecord(customerId, customerName, paymentAmount, paymentMethod, invoiceId, billNumber, date, time);
-      
-    } else if (remainingBalance > 0) {
-      // PARTIAL PAYMENT OR NO PAYMENT: Create single entry for NET remaining balance
-      console.log(`💳 Outstanding balance: Rs.${remainingBalance.toFixed(1)} after Rs.${paymentAmount.toFixed(1)} payment`);
-      
-      const balanceAfterTransaction = currentBalance + remainingBalance;
-      await this.dbConnection.execute(
-        `INSERT INTO customer_ledger_entries 
-        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          customerId, customerName, 'debit', 'invoice', remainingBalance,
-          paymentAmount > 0 ? `Invoice ${billNumber} - Partial Payment` : `Invoice ${billNumber} - Credit Sale`,
-          invoiceId, billNumber, currentBalance, balanceAfterTransaction,
-          date, time, 'system',
-          paymentAmount > 0 
-            ? `PARTIAL PAYMENT: Invoice Rs.${grandTotal.toFixed(1)} - Payment Rs.${paymentAmount.toFixed(1)} via ${paymentMethod} = Outstanding Rs.${remainingBalance.toFixed(1)}`
-            : `CREDIT SALE: Invoice Rs.${grandTotal.toFixed(1)} - No payment - Full amount outstanding`
-        ]
-      );
-      
-      console.log(`✅ Single entry created for outstanding balance: Rs.${remainingBalance.toFixed(1)}`);
-      
-      // Update current balance tracker
-      currentBalance = balanceAfterTransaction;
-      
-      // Create payment record if payment was made
-      if (paymentAmount > 0) {
-        await this.createPaymentRecord(customerId, customerName, paymentAmount, paymentMethod, invoiceId, billNumber, date, time);
-      }
-    }
-
-    // Update customer balance in customers table to match ledger
+    // 1. ALWAYS create debit entry for the full invoice amount
+    const balanceAfterInvoice = currentBalance + grandTotal;
+    
     await this.dbConnection.execute(
-      'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [currentBalance, customerId]
+      `INSERT INTO customer_ledger_entries 
+      (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+       reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        customerId, customerName, 'debit', 'invoice', grandTotal,
+        `Invoice ${billNumber}`,
+        invoiceId, billNumber, currentBalance, balanceAfterInvoice,
+        date, time, 'system',
+        `Invoice amount: Rs. ${grandTotal.toFixed(2)}`
+      ]
     );
+    
+    console.log(`✅ Created debit entry: Invoice ${billNumber} - Rs. ${grandTotal.toFixed(2)}`);
+    currentBalance = balanceAfterInvoice;
 
-    console.log(`✅ Customer ledger entries completed for Invoice ${billNumber}`);
-    console.log(`   - Final Customer Balance: Rs.${currentBalance.toFixed(1)}`);
-    if (paymentAmount >= grandTotal) {
-      console.log(`   - Status: FULLY PAID (Single consolidated entry)`);
-    } else if (paymentAmount > 0) {
-      console.log(`   - Status: PARTIAL PAYMENT (Outstanding: Rs.${remainingBalance.toFixed(1)})`);
-    } else {
-      console.log(`   - Status: CREDIT SALE (Full amount outstanding)`);
+    // 2. If payment was made, create separate credit entry for the payment
+    if (paymentAmount > 0) {
+      const balanceAfterPayment = currentBalance - paymentAmount;
+      
+      await this.dbConnection.execute(
+        `INSERT INTO customer_ledger_entries 
+        (customer_id, customer_name, entry_type, transaction_type, amount, description, 
+         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          customerId, customerName, 'credit', 'payment', paymentAmount,
+          `Payment - Invoice ${billNumber}`,
+          invoiceId, `PAY-${billNumber}`, currentBalance, balanceAfterPayment,
+          date, time, 'system',
+          `Payment: Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod} for Invoice ${billNumber}`
+        ]
+      );
+      
+      console.log(`✅ Created credit entry: Payment Rs. ${paymentAmount.toFixed(2)} via ${paymentMethod}`);
+      currentBalance = balanceAfterPayment;
     }
+
+        // Update customer balance in customers table - CENTRALIZED SCHEMA: Use 'balance' column
+        await this.dbConnection.execute(
+            'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [currentBalance, customerId]
+        );    console.log(`✅ Customer ledger entries completed for Invoice ${billNumber}`);
+    console.log(`   - Final Customer Balance: Rs. ${currentBalance.toFixed(2)}`);
+    console.log(`   - Invoice Amount: Rs. ${grandTotal.toFixed(2)}`);
+    console.log(`   - Payment Amount: Rs. ${paymentAmount.toFixed(2)}`);
+    console.log(`   - Outstanding: Rs. ${(grandTotal - paymentAmount).toFixed(2)}`);
   }
 
   // Helper method to create payment records
@@ -9486,7 +9554,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       
       return {
         ...customer,
-        total_balance: currentBalance, // Use the current balance from customers table
+        total_balance: customer.balance || 0, // CENTRALIZED SCHEMA: Map from 'balance' column for API compatibility
         calculated_balance: calculatedBalance // Include calculated balance for comparison
       };
     } catch (error) {
@@ -13985,6 +14053,216 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       console.error('❌ Error cleaning up duplicate ledger entries:', error);
     }
   }
+  
+  // Enhanced Customer Account Information Function
+  async getCustomerAccountSummary(customerId: number): Promise<{
+    customer: any;
+    memberSince: string;
+    totalInvoicedAmount: number;
+    totalPaidAmount: number;
+    outstandingAmount: number;
+    totalInvoicesCount: number;
+    lastInvoiceDate: string | null;
+    lastPaymentDate: string | null;
+    daysOverdue: number;
+    invoicesOverdueCount: number;
+  }> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Get customer basic information
+      const customer = await this.getCustomer(customerId);
+      if (!customer) {
+        throw new Error('Customer not found');
+      }
+
+      // Get member since date (customer creation date)
+      const memberSince = new Date(customer.created_at).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit', 
+        year: 'numeric'
+      });
+
+      // CRITICAL FIX: Use customer_ledger_entries for consistency with Balance Summary
+      // Instead of raw invoice/payment tables, use the same ledger data source
+      const ledgerStats = await this.safeSelect(`
+        SELECT 
+          COUNT(CASE WHEN entry_type = 'debit' AND transaction_type = 'invoice' THEN 1 END) as total_invoices,
+          COALESCE(SUM(CASE WHEN entry_type = 'debit' AND transaction_type = 'invoice' THEN amount ELSE 0 END), 0) as total_invoiced,
+          COALESCE(SUM(CASE WHEN entry_type = 'credit' AND transaction_type = 'payment' THEN amount ELSE 0 END), 0) as total_paid,
+          MAX(CASE WHEN entry_type = 'debit' AND transaction_type = 'invoice' THEN date END) as last_invoice_date
+        FROM customer_ledger_entries 
+        WHERE customer_id = ?
+      `, [customerId]);
+
+      const stats = ledgerStats[0] || {};
+      
+      // Get last payment date from ledger entries
+      const lastPayment = await this.safeSelect(`
+        SELECT MAX(date) as last_payment_date
+        FROM customer_ledger_entries 
+        WHERE customer_id = ? AND entry_type = 'credit' AND transaction_type = 'payment'
+      `, [customerId]);
+
+      const lastPaymentDate = lastPayment[0]?.last_payment_date || null;
+
+      // CRITICAL FIX: Calculate outstanding balance from ledger entries for accuracy
+      // Outstanding = Total Debits - Total Credits from customer_ledger_entries
+      const outstandingCalculation = await this.safeSelect(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+          COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END), 0) as total_credits,
+          COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END), 0) as outstanding_balance
+        FROM customer_ledger_entries 
+        WHERE customer_id = ?
+      `, [customerId]);
+
+      const outstandingAmount = outstandingCalculation[0]?.outstanding_balance || 0;
+
+      // Sync customer balance in customers table if different (performance optimization)
+      const currentStoredBalance = customer.balance || 0;
+      if (Math.abs(outstandingAmount - currentStoredBalance) > 0.01) {
+        console.log(`🔄 Syncing customer ${customer.name} balance: ${currentStoredBalance} → ${outstandingAmount}`);
+        await this.dbConnection.execute(
+          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [outstandingAmount, customerId]
+        );
+        
+        // Emit balance update event for real-time UI updates
+        try {
+          const { eventBus, BUSINESS_EVENTS } = await import('../utils/eventBus');
+          eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+            customerId: customerId,
+            customerName: customer.name,
+            newBalance: outstandingAmount,
+            oldBalance: currentStoredBalance
+          });
+          console.log('✅ Balance sync event emitted for UI updates');
+        } catch (eventError) {
+          console.warn('⚠️ Failed to emit balance sync event:', eventError);
+        }
+      }
+
+      // CRITICAL ADDITION: Calculate overdue invoices and days
+      // Get overdue invoices (unpaid invoices past due date)
+      const overdueCalculation = await this.safeSelect(`
+        SELECT 
+          COUNT(DISTINCT i.id) as overdue_invoices_count,
+          MIN(
+            CASE 
+              WHEN i.due_date IS NOT NULL AND i.due_date < date('now') AND i.remaining_balance > 0 
+              THEN julianday('now') - julianday(i.due_date)
+              ELSE NULL
+            END
+          ) as oldest_overdue_days,
+          MAX(
+            CASE 
+              WHEN i.due_date IS NOT NULL AND i.due_date < date('now') AND i.remaining_balance > 0 
+              THEN julianday('now') - julianday(i.due_date)
+              ELSE NULL
+            END
+          ) as max_overdue_days,
+          AVG(
+            CASE 
+              WHEN i.due_date IS NOT NULL AND i.due_date < date('now') AND i.remaining_balance > 0 
+              THEN julianday('now') - julianday(i.due_date)
+              ELSE NULL
+            END
+          ) as avg_overdue_days
+        FROM invoices i
+        WHERE i.customer_id = ? 
+          AND i.due_date IS NOT NULL 
+          AND i.due_date < date('now') 
+          AND COALESCE(i.remaining_balance, i.grand_total) > 0
+      `, [customerId]);
+
+      const overdueData = overdueCalculation[0] || {};
+      
+      // Calculate days overdue (use the oldest/maximum overdue days for most critical view)
+      const daysOverdue = Math.max(0, Math.floor(overdueData.max_overdue_days || 0));
+      const invoicesOverdueCount = parseInt(overdueData.overdue_invoices_count || 0);
+
+      console.log(`📊 Overdue calculation for customer ${customer.name}:`);
+      console.log(`   Overdue invoices: ${invoicesOverdueCount}`);
+      console.log(`   Days overdue (max): ${daysOverdue}`);
+
+      return {
+        customer,
+        memberSince,
+        totalInvoicedAmount: parseFloat(stats.total_invoiced || 0),
+        totalPaidAmount: parseFloat(stats.total_paid || 0),
+        outstandingAmount: outstandingAmount,
+        totalInvoicesCount: parseInt(stats.total_invoices || 0),
+        lastInvoiceDate: stats.last_invoice_date || null,
+        lastPaymentDate: lastPaymentDate,
+        daysOverdue: daysOverdue,
+        invoicesOverdueCount: invoicesOverdueCount
+      };
+
+    } catch (error) {
+      console.error('Error getting customer account summary:', error);
+      throw new Error(`Failed to get customer account summary: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // OVERDUE MANAGEMENT FUNCTIONS
+  async updateCustomerOverdueStatus(customerId: number): Promise<void> {
+    try {
+      const accountSummary = await this.getCustomerAccountSummary(customerId);
+      
+      // Emit update event for real-time UI updates
+      eventBus.emit('CUSTOMER_OVERDUE_STATUS_UPDATED', {
+        customerId: customerId,
+        daysOverdue: accountSummary.daysOverdue,
+        invoicesOverdueCount: accountSummary.invoicesOverdueCount,
+        isOverdue: accountSummary.daysOverdue > 0,
+        severity: accountSummary.daysOverdue > 30 ? 'critical' : 
+                  accountSummary.daysOverdue > 0 ? 'warning' : 'normal'
+      });
+      
+    } catch (error) {
+      console.error('Error updating customer overdue status:', error);
+      throw new Error(`Failed to update overdue status for customer ${customerId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async updateAllOverdueCustomers(): Promise<void> {
+    try {
+      // Get all customers with outstanding balance > 0
+      const customersWithBalance = await this.dbConnection.execute(`
+        SELECT DISTINCT customer_id 
+        FROM ledger_entries 
+        WHERE customer_id IS NOT NULL 
+        GROUP BY customer_id 
+        HAVING SUM(amount) != 0
+      `) as { customer_id: number }[];
+
+      let overdueUpdates = 0;
+      
+      for (const customer of customersWithBalance) {
+        try {
+          await this.updateCustomerOverdueStatus(customer.customer_id);
+          overdueUpdates++;
+        } catch (error) {
+          console.warn(`Failed to update overdue status for customer ${customer.customer_id}:`, error);
+        }
+      }
+
+      console.log(`✅ Updated overdue status for ${overdueUpdates} customers`);
+      
+      // Emit global update event
+      eventBus.emit('ALL_CUSTOMERS_OVERDUE_STATUS_UPDATED', {
+        totalUpdated: overdueUpdates,
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('Error updating all customer overdue statuses:', error);
+      throw new Error(`Failed to update all overdue statuses: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
 }
 
 // Export the original database service directly to avoid proxy issues
@@ -14007,6 +14285,32 @@ if (typeof window !== 'undefined') {
     }
   };
   
-  console.log('🔧 Database service exposed to window.db');
+  // OVERDUE MANAGEMENT: Expose overdue functions for manual execution
+  (window as any).updateCustomerOverdueStatus = async (customerId: number) => {
+    try {
+      console.log(`🔄 Updating overdue status for customer ${customerId}...`);
+      await db.updateCustomerOverdueStatus(customerId);
+      console.log(`✅ Overdue status updated for customer ${customerId}!`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Overdue status update failed for customer ${customerId}:`, error);
+      return false;
+    }
+  };
+  
+  (window as any).updateAllOverdueCustomers = async () => {
+    try {
+      console.log('� Updating overdue status for all customers...');
+      await db.updateAllOverdueCustomers();
+      console.log('✅ All customer overdue statuses updated successfully!');
+      return true;
+    } catch (error) {
+      console.error('❌ Global overdue status update failed:', error);
+      return false;
+    }
+  };
+  
+  console.log('�🔧 Database service exposed to window.db');
   console.log('🧹 Manual cleanup function: cleanupDuplicateInvoiceEntries()');
+  console.log('⏰ Overdue functions: updateCustomerOverdueStatus(customerId), updateAllOverdueCustomers()');
 }
