@@ -71,7 +71,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const [showAddItem, setShowAddItem] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [expandedPayments, setExpandedPayments] = useState(false);
-  
+
   // Product selection for adding items
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -79,7 +79,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemLength, setNewItemLength] = useState('');
   const [newItemPieces, setNewItemPieces] = useState('');
-  
+
   // Payment form
   const [newPayment, setNewPayment] = useState({
     amount: '',
@@ -106,7 +106,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     try {
       const channels = await db.getPaymentChannels(false); // Only active channels
       setPaymentChannels(channels);
-      
+
       // Set default payment channel
       if (channels.length > 0) {
         const defaultChannel = channels[0];
@@ -156,10 +156,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
     try {
       setSaving(true);
-      
+
       const parsedQuantity = parseUnit(newItemQuantity, selectedProduct.unit_type as any);
       const unitPrice = parseCurrency(newItemPrice);
-      
+
       // CRITICAL FIX: Correct total price calculation based on unit type
       let totalPrice: number;
       if (selectedProduct.unit_type === 'kg-grams' || selectedProduct.unit_type === 'kg') {
@@ -182,7 +182,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       };
 
       await db.addInvoiceItems(invoiceId, [newItem]);
-      
+
       toast.success('Item added successfully');
       setShowAddItem(false);
       setSelectedProduct(null);
@@ -191,11 +191,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       setNewItemLength('');
       setNewItemPieces('');
       await loadInvoiceDetails();
-      
+
       if (onUpdate) {
         onUpdate();
       }
-      
+
       try {
         if (typeof window !== 'undefined') {
           const eventBus = (window as any).eventBus;
@@ -218,54 +218,33 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   };
 
   const handleUpdateItemQuantity = async (itemId: number, newQuantity: string) => {
-    console.log(`🔄 [InvoiceDetails] Starting quantity update - itemId: ${itemId}, newQuantity: ${newQuantity}`);
-    
     try {
       setSaving(true);
-      
+
       const item = invoice.items.find((i: InvoiceItem) => i.id === itemId);
-      if (!item) {
-        console.error(`❌ [InvoiceDetails] Item not found with id: ${itemId}`);
-        return;
-      }
-      console.log(`📄 [InvoiceDetails] Found item:`, item);
-      
+      if (!item) return;
+
       const product = products.find(p => p.id === item.product_id);
-      if (!product) {
-        console.error(`❌ [InvoiceDetails] Product not found with id: ${item.product_id}`);
-        return;
-      }
-      console.log(`📦 [InvoiceDetails] Found product:`, product);
+      if (!product) return;
 
       const quantityValidation = validateUnit(newQuantity, product.unit_type as any);
-      console.log(`✅ [InvoiceDetails] Quantity validation:`, quantityValidation);
-      
       if (!quantityValidation.isValid) {
         toast.error(`Invalid quantity: ${quantityValidation.error}`);
         return;
       }
 
       const parsedQuantity = parseUnit(newQuantity, product.unit_type as any);
-      console.log(`⚖️ [InvoiceDetails] Parsed quantity:`, parsedQuantity);
-      
-      console.log(`🔧 [InvoiceDetails] Calling database updateInvoiceItemQuantity...`);
       await db.updateInvoiceItemQuantity(invoiceId, itemId, parsedQuantity.numericValue);
-      
+
       toast.success('Quantity updated');
       setEditingItem(null);
-      
-      console.log(`📋 [InvoiceDetails] Reloading invoice details...`);
       await loadInvoiceDetails();
-      
+
       if (onUpdate) {
-        console.log(`📢 [InvoiceDetails] Calling onUpdate callback...`);
         onUpdate();
       }
-      
-      console.log(`✅ [InvoiceDetails] Quantity update completed successfully`);
-      
+
     } catch (error: any) {
-      console.error('❌ [InvoiceDetails] Error updating quantity:', error);
       toast.error(error.message || 'Failed to update item');
     } finally {
       setSaving(false);
@@ -278,14 +257,14 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     try {
       setSaving(true);
       await db.removeInvoiceItems(invoiceId, [itemId]);
-      
+
       toast.success('Item removed');
       await loadInvoiceDetails();
-      
+
       if (onUpdate) {
         onUpdate();
       }
-      
+
     } catch (error: any) {
       toast.error(error.message || 'Failed to remove item');
     } finally {
@@ -301,7 +280,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
     const paymentAmount = parseCurrency(newPayment.amount);
     const remainingBalance = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
-    
+
     // Use epsilon for floating point comparison to avoid precision issues
     if (paymentAmount > remainingBalance + 0.01) {
       toast.error(`Payment amount (${paymentAmount.toFixed(1)}) cannot exceed remaining balance (${remainingBalance.toFixed(1)})`);
@@ -310,7 +289,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
     try {
       setSaving(true);
-      
+
       await db.addInvoicePayment(invoiceId, {
         amount: paymentAmount,
         payment_method: newPayment.payment_method,
@@ -320,7 +299,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         notes: newPayment.notes,
         date: newPayment.date
       });
-      
+
       toast.success('Payment recorded successfully');
       setShowAddPayment(false);
       setNewPayment({
@@ -331,11 +310,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         date: new Date().toISOString().split('T')[0]
       });
       await loadInvoiceDetails();
-      
+
       if (onUpdate) {
         onUpdate();
       }
-      
+
     } catch (error: any) {
       toast.error(error.message || 'Failed to record payment');
     } finally {
@@ -353,20 +332,20 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const getStatusConfig = (status: string) => {
     switch (status) {
       case 'paid':
-        return { 
-          label: 'Paid', 
+        return {
+          label: 'Paid',
           color: 'bg-green-100 text-green-800 border-green-200',
           icon: CheckCircle
         };
       case 'partial':
-        return { 
-          label: 'Partial', 
+        return {
+          label: 'Partial',
           color: 'bg-yellow-100 text-yellow-800 border-yellow-200',
           icon: Clock
         };
       default:
-        return { 
-          label: 'Pending', 
+        return {
+          label: 'Pending',
           color: 'bg-red-100 text-red-800 border-red-200',
           icon: AlertTriangle
         };
@@ -592,7 +571,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <div className="flex items-center space-x-3">
@@ -609,13 +588,13 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               <p className="text-sm text-gray-500">{formatDateTime(invoice.created_at)}</p>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-3">
             <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium border ${statusConfig.color}`}>
               <StatusIcon className="h-4 w-4 mr-1" />
               {statusConfig.label}
             </div>
-            
+
             <button
               onClick={handlePrintInvoice}
               className="flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -623,7 +602,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               <Printer className="h-4 w-4 mr-2" />
               Print
             </button>
-            
+
             <button
               onClick={() => copyToClipboard(invoice.bill_number, 'Invoice number')}
               className="p-2 hover:bg-gray-100 rounded-lg"
@@ -637,7 +616,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         {/* Content */}
         <div className="flex-1 overflow-auto p-6">
           <div className="space-y-6">
-            
+
             {/* Customer & Summary */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-gray-50 rounded-lg p-4">
@@ -655,7 +634,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   )}
                 </div>
               </div>
-              
+
               <div className="bg-gray-50 rounded-lg p-4">
                 <h3 className="font-medium text-gray-900 mb-3">Payment Summary</h3>
                 <div className="space-y-2">
@@ -864,7 +843,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         </div>
                       );
                     })}
-                  
+
                   {invoice.payments.length > 3 && (
                     <div className="px-4 py-2 bg-gray-50 border-t">
                       <button
@@ -918,7 +897,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              
+
               <div className="p-6 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Product</label>
@@ -1037,7 +1016,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   <X className="h-5 w-5" />
                 </button>
               </div>
-              
+
               <div className="p-6 space-y-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <div className="text-sm text-yellow-800">
@@ -1093,11 +1072,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           setSelectedPaymentChannel(channel);
                           setNewPayment({ ...newPayment, payment_method: channel.name });
                         }}
-                        className={`p-2 text-sm rounded-lg border text-center transition-colors ${
-                          selectedPaymentChannel?.id === channel.id
+                        className={`p-2 text-sm rounded-lg border text-center transition-colors ${selectedPaymentChannel?.id === channel.id
                             ? 'border-green-500 bg-green-50 text-green-700'
                             : 'border-gray-300 hover:bg-gray-50'
-                        }`}
+                          }`}
                       >
                         <div className="font-medium">{channel.name}</div>
                         <div className="text-xs text-gray-500 capitalize">{channel.type}</div>

@@ -26,11 +26,11 @@ export class CentralizedRealtimeSolution {
    */
   private applyPermanentFixes(): void {
     console.log('🏗️ Applying Permanent Centralized Database Solution...');
-    
+
     this.fixStockReceivingAutoUpdate();
     this.fixInvoiceDetailBalanceUpdates();
     this.fixPaymentDirectionInDailyLedger();
-    
+
     console.log('✅ All permanent fixes applied');
   }
 
@@ -54,7 +54,7 @@ export class CentralizedRealtimeSolution {
           // Generate a unique, human-readable receiving number: S0001, S0002, ...
           const result = await this.db.dbConnection.select(
             'SELECT COUNT(*) as count FROM stock_receiving WHERE date = ?',
-            [receivingData.date || new Date().toISOString().slice(0,10)]
+            [receivingData.date || new Date().toISOString().slice(0, 10)]
           );
           const countToday = (result && result[0] && result[0].count) ? parseInt(result[0].count) : 0;
           // Always 4 digits, e.g., S0001, S0002, ...
@@ -67,7 +67,7 @@ export class CentralizedRealtimeSolution {
         let receivedTime = receivingData.received_time;
         if (!receivedDate || typeof receivedDate !== 'string' || !receivedDate.trim()) {
           // Use date from data or today
-          receivedDate = (receivingData.date || new Date().toISOString().slice(0,10));
+          receivedDate = (receivingData.date || new Date().toISOString().slice(0, 10));
         }
         if (!receivedTime || typeof receivedTime !== 'string' || !receivedTime.trim()) {
           // Use time from data or now (HH:MM:SS)
@@ -75,7 +75,7 @@ export class CentralizedRealtimeSolution {
             receivedTime = receivingData.time;
           } else {
             const now = new Date();
-            receivedTime = now.toTimeString().slice(0,8);
+            receivedTime = now.toTimeString().slice(0, 8);
           }
         }
 
@@ -158,14 +158,14 @@ export class CentralizedRealtimeSolution {
             let movementDate = receivingData.received_date;
             let movementTime = receivingData.received_time;
             if (!movementDate || typeof movementDate !== 'string' || !movementDate.trim()) {
-              movementDate = (receivingData.date || new Date().toISOString().slice(0,10));
+              movementDate = (receivingData.date || new Date().toISOString().slice(0, 10));
             }
             if (!movementTime || typeof movementTime !== 'string' || !movementTime.trim()) {
               if (receivingData.time && typeof receivingData.time === 'string' && receivingData.time.trim()) {
                 movementTime = receivingData.time;
               } else {
                 const now = new Date();
-                movementTime = now.toTimeString().slice(0,8);
+                movementTime = now.toTimeString().slice(0, 8);
               }
             }
             await this.db.createStockMovement({
@@ -227,7 +227,7 @@ export class CentralizedRealtimeSolution {
         // Get invoice and customer data BEFORE changes
         const invoiceBefore = await this.db.getInvoiceDetails(invoiceId);
         const customerBefore = await this.db.getCustomer(invoiceBefore.customer_id);
-        
+
         console.log('📊 Before state:', {
           invoiceTotal: invoiceBefore.total_amount,
           customerBalance: customerBefore.balance
@@ -271,41 +271,41 @@ export class CentralizedRealtimeSolution {
           // **CRITICAL FIX**: Create stock movement for audit trail
           const now = new Date();
           const date = now.toISOString().split('T')[0];
-          const time = now.toLocaleTimeString('en-PK', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            hour12: true 
+          const time = now.toLocaleTimeString('en-PK', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
           });
 
 
-              // **CRITICAL FIX**: Create stock movement for audit trail with correct display format
-              await this.db.createStockMovement({
-                product_id: item.product_id,
-                product_name: product.name,
-                movement_type: 'out',
-                transaction_type: 'sale',
-                quantity: `-${quantityData.display}`,
-                unit: product.unit_type || 'kg',
-                previous_stock: currentStockData.numericValue,
-                new_stock: newStockValue,
-                stock_before: currentStockData.numericValue,
-                stock_after: newStockValue,
-                unit_cost: product.rate_per_unit || 0,
-                unit_price: item.unit_price || 0,
-                total_cost: item.total_price || 0,
-                total_value: item.total_price || 0,
-                reason: 'Sale - Invoice item',
-                reference_type: 'invoice',
-                reference_id: invoiceId,
-                reference_number: `INV-${invoiceId}`,
-                customer_id: invoiceBefore.customer_id,
-                customer_name: customerBefore.name || 'Unknown Customer',
-                date: date,
-                time: time,
-                created_by: 'system'
-              });
+          // **CRITICAL FIX**: Create stock movement for audit trail with correct display format
+          await this.db.createStockMovement({
+            product_id: item.product_id,
+            product_name: product.name,
+            movement_type: 'out',
+            transaction_type: 'sale',
+            quantity: `-${quantityData.display}`,
+            unit: product.unit_type || 'kg',
+            previous_stock: currentStockData.numericValue,
+            new_stock: newStockValue,
+            stock_before: currentStockData.numericValue,
+            stock_after: newStockValue,
+            unit_cost: product.rate_per_unit || 0,
+            unit_price: item.unit_price || 0,
+            total_cost: item.total_price || 0,
+            total_value: item.total_price || 0,
+            reason: 'Sale - Invoice item',
+            reference_type: 'invoice',
+            reference_id: invoiceId,
+            reference_number: `INV-${invoiceId}`,
+            customer_id: invoiceBefore.customer_id,
+            customer_name: customerBefore.name || 'Unknown Customer',
+            date: date,
+            time: time,
+            created_by: 'system'
+          });
 
-              console.log(`✅ Stock movement created for ${product.name}: -${quantityData.display}`);
+          console.log(`✅ Stock movement created for ${product.name}: -${quantityData.display}`);
 
           totalAddition += item.total_price || 0;
         }
@@ -313,7 +313,7 @@ export class CentralizedRealtimeSolution {
         // CRITICAL: Update invoice totals and customer balance
         const newTotal = (invoiceBefore.total_amount || 0) + totalAddition;
         const newRemaining = newTotal - (invoiceBefore.payment_amount || 0);
-        
+
         await this.db.dbConnection.execute(`
           UPDATE invoices 
           SET total_amount = ?, grand_total = ?, remaining_balance = ?, updated_at = CURRENT_TIMESTAMP
@@ -324,10 +324,10 @@ export class CentralizedRealtimeSolution {
         console.log('🔍 [CENTRALIZED] Creating customer ledger entry for added items...');
         const now = new Date();
         const date = now.toISOString().split('T')[0];
-        const time = now.toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          hour12: true 
+        const time = now.toLocaleTimeString('en-PK', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
         });
 
         // Get current customer balance from customer_ledger_entries
@@ -335,7 +335,7 @@ export class CentralizedRealtimeSolution {
           'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
           [invoiceBefore.customer_id]
         );
-        
+
         const balanceBefore = currentBalanceResult?.[0]?.balance_after || 0;
         const balanceAfter = balanceBefore + totalAddition;
 
@@ -408,7 +408,7 @@ export class CentralizedRealtimeSolution {
         // CRITICAL FIX: Map payment method to centralized schema constraint values
         const paymentMethodMap: Record<string, string> = {
           'cash': 'cash',
-          'bank': 'bank', 
+          'bank': 'bank',
           'check': 'cheque',
           'cheque': 'cheque',
           'card': 'card',
@@ -473,10 +473,10 @@ export class CentralizedRealtimeSolution {
 
         // CRITICAL FIX: Create daily ledger entry with INCOMING direction
         const currentDate = paymentData.date || new Date().toISOString().split('T')[0];
-        const currentTime = new Date().toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          hour12: true 
+        const currentTime = new Date().toLocaleTimeString('en-PK', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
         });
 
         await this.db.dbConnection.execute(`
@@ -550,7 +550,7 @@ export class CentralizedRealtimeSolution {
 
       // Create new ledger entry with updated amounts
       const customer = await this.db.getCustomer(originalInvoice.customer_id);
-      
+
       await this.db.dbConnection.execute(`
         INSERT INTO ledger_entries (
           date, time, type, category, description, amount, customer_id, customer_name,
