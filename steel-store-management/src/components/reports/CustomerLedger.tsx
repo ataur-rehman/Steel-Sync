@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import { formatCustomerCode, formatInvoiceNumber } from '../../utils/numberFormatting';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { useNavigation } from '../../hooks/useNavigation';
+import { useSmartNavigation } from '../../hooks/useSmartNavigation';
+import SmartDetailHeader from '../common/SmartDetailHeader';
+import CustomerStatsDashboard from '../CustomerStatsDashboard';
 import {
   Search,
   FileText,
@@ -114,6 +118,9 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
           <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({filteredCustomers.length} customers)</span></p>
         </div>
       </div>
+
+      {/* Customer Statistics Dashboard */}
+      <CustomerStatsDashboard />
 
       {/* Filters */}
       <div className="bg-white border border-gray-200 rounded-xl p-6">
@@ -297,6 +304,9 @@ const CustomerLedger: React.FC = () => {
   // State management
   const navigate = useNavigate();
   const location = useLocation();
+  const params = useParams<{ id: string }>();
+  useNavigation(); // For navigation patterns
+  useSmartNavigation(); // For enhanced navigation patterns
   const activityLogger = useActivityLogger();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -478,19 +488,6 @@ const CustomerLedger: React.FC = () => {
     }
   }, [selectedCustomer, currentView]);
 
-  // Handle incoming customer selection from other components
-  useEffect(() => {
-    const state = location.state as any;
-    if (state?.customerId) {
-      const customer = customers.find(c => c.id === state.customerId);
-      if (customer) {
-        selectCustomer(customer);
-      }
-      // Clear the state to prevent issues on refresh
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state, customers]);
-
   const loadCustomers = async () => {
     try {
       setCustomersLoading(true);
@@ -617,12 +614,67 @@ const CustomerLedger: React.FC = () => {
   };
 
   const selectCustomer = useCallback((customer: Customer) => {
+    console.log('📋 [CustomerLedger] Selecting customer:', customer.name, 'ID:', customer.id);
+    
+    // Set loading state to prevent showing empty data
+    setLoading(true);
+    
+    // Batch state updates to prevent flickering
     setSelectedCustomer(customer);
     setCurrentView('ledger');
     setNewPayment(prev => ({ ...prev, customer_id: customer.id }));
-    loadCustomerInvoices(customer.id);
-    loadCustomerAccountSummary(customer.id);
+    
+    // Load data asynchronously without blocking UI
+    Promise.all([
+      loadCustomerInvoices(customer.id),
+      loadCustomerAccountSummary(customer.id)
+    ]).then(() => {
+      setLoading(false);
+    }).catch(error => {
+      console.error('Error loading customer data:', error);
+      setLoading(false);
+    });
   }, []);
+
+  // Enhanced auto-selection effect - optimized to prevent flickering
+  useEffect(() => {
+    const state = location.state as any;
+    
+    // Primary source: URL parameter (/customers/:id)
+    const customerIdFromUrl = params.id ? parseInt(params.id) : null;
+    // Secondary source: navigation state
+    const customerIdFromState = state?.customerId || state?.navigationContext?.customerId;
+    
+    // Use URL param first, then state
+    const customerId = customerIdFromUrl || customerIdFromState;
+    const customerName = state?.customerName || state?.navigationContext?.customerName;
+    
+    console.log('🔍 [CustomerLedger] Auto-selection check:', {
+      urlParam: customerIdFromUrl,
+      stateParam: customerIdFromState,
+      finalId: customerId,
+      customerName,
+      customersLoaded: customers.length > 0,
+      currentSelected: selectedCustomer?.id
+    });
+    
+    // Only proceed if we have a customer ID, customers are loaded, and it's not already selected
+    if (customerId && customers.length > 0 && (!selectedCustomer || selectedCustomer.id !== customerId)) {
+      console.log('🎯 [CustomerLedger] Auto-selecting customer ID:', customerId, 'Name:', customerName);
+      const customer = customers.find(c => c.id === customerId);
+      if (customer) {
+        console.log('✅ [CustomerLedger] Found customer for auto-selection:', customer.name);
+        selectCustomer(customer);
+      } else {
+        console.warn('⚠️ [CustomerLedger] Customer not found with ID:', customerId);
+        console.log('Available customers:', customers.map(c => ({ id: c.id, name: c.name })));
+      }
+    } else if (customerId && customers.length === 0) {
+      console.log('⏳ [CustomerLedger] Waiting for customers to load before auto-selection... Customer ID:', customerId);
+    } else if (!customerId && (state || params.id)) {
+      console.log('ℹ️ [CustomerLedger] No valid customerId found. URL param:', params.id, 'State keys:', state ? Object.keys(state) : 'no state');
+    }
+  }, [params.id, customers, selectedCustomer, selectCustomer]); // Removed location.state to prevent excessive re-renders
 
   const handleSelectCustomerForPayment = useCallback((customer: Customer) => {
     setSelectedCustomer(customer);
@@ -852,57 +904,59 @@ const CustomerLedger: React.FC = () => {
 
     return (
       <div className="space-y-6 p-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
+        {/* Header - only show when NOT viewing specific customer (SmartDetailHeader handles that case) */}
+        {!params.id && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <button
+                  onClick={() => setCurrentView('customers')}
+                  className="flex items-center text-gray-600 hover:text-gray-900 transition-colors px-2 py-1"
+                  title="Back to Customers"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Customers
+                </button>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
+              <p className="mt-1 text-sm text-gray-500">{selectedCustomer?.name} - Account Statement</p>
+            </div>
+            
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setCurrentView('customers')}
-                className="flex items-center text-gray-600 hover:text-gray-900 transition-colors px-2 py-1"
-                title="Back to Customers"
+                onClick={() => setShowAddPayment(true)}
+                className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
               >
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Customers
+                <Plus className="h-4 w-4 mr-2" />
+                Add Payment
+              </button>
+            
+              <button
+                onClick={createNewInvoice}
+                className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
+              >
+                <Receipt className="h-4 w-4 mr-2" />
+                New Invoice
+              </button>
+              
+              <button
+                onClick={exportLedger}
+                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                title="Export CSV"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+              
+              <button
+                onClick={printLedger}
+                className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                title="Print Ledger"
+              >
+                <Printer className="h-4 w-4" />
               </button>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
-            <p className="mt-1 text-sm text-gray-500">{selectedCustomer?.name} - Account Statement</p>
           </div>
-          
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddPayment(true)}
-              className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Payment
-            </button>
-            
-            <button
-              onClick={createNewInvoice}
-              className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
-            >
-              <Receipt className="h-4 w-4 mr-2" />
-              New Invoice
-            </button>
-            
-            <button
-              onClick={exportLedger}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              title="Export CSV"
-            >
-              <Download className="h-4 w-4" />
-            </button>
-            
-            <button
-              onClick={printLedger}
-              className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-              title="Print Ledger"
-            >
-              <Printer className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Customer Info Card - Enhanced */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
@@ -933,12 +987,12 @@ const CustomerLedger: React.FC = () => {
                   <div>
                     <p className="text-xs text-gray-500">Days Overdue</p>
                     <p className={`text-sm font-semibold ${
-                      customerAccountSummary && customerAccountSummary.daysOverdue > 0 
-                        ? 'text-red-600' 
+                      customerAccountSummary && customerAccountSummary.outstandingAmount > 0
+                        ? customerAccountSummary.daysOverdue > 30 ? 'text-red-600' : 'text-orange-600'
                         : 'text-green-600'
                     }`}>
-                      {customerAccountSummary && customerAccountSummary.daysOverdue > 0 
-                        ? `${customerAccountSummary.daysOverdue} days`
+                      {customerAccountSummary && customerAccountSummary.outstandingAmount > 0 
+                        ? `${Math.floor(customerAccountSummary.daysOverdue)} days`
                         : 'No overdue'
                       }
                     </p>
@@ -1206,8 +1260,37 @@ const CustomerLedger: React.FC = () => {
   
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Smart Detail Header when viewing specific customer */}
+      {selectedCustomer && params.id && (
+        <SmartDetailHeader
+          title={selectedCustomer.name}
+          subtitle="Customer Account Details"
+          backToListPath="/customers"
+          backToListLabel="Back to Customers"
+          backButtonMode="list"
+          actions={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowAddPayment(true)}
+                className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Payment
+              </button>
+              <button
+                onClick={() => handleNavigateToNewInvoice(selectedCustomer)}
+                className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
+              >
+                <Receipt className="h-4 w-4 mr-2" />
+                New Invoice
+              </button>
+            </div>
+          }
+        />
+      )}
+
       {/* Main Content */}
-      {currentView === 'customers' ? (
+      {currentView === 'customers' && !params.id ? (
         <CustomerListView
           customers={customers}
           filteredCustomers={filteredCustomers}
@@ -1220,6 +1303,14 @@ const CustomerLedger: React.FC = () => {
           onNavigateToNewInvoice={handleNavigateToNewInvoice}
           formatCurrency={formatCurrency}
         />
+      ) : params.id && (!selectedCustomer || loading) ? (
+        // Loading state when viewing specific customer
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading customer ledger...</p>
+          </div>
+        </div>
       ) : (
         <LedgerView />
       )}

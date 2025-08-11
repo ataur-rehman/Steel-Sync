@@ -50,9 +50,8 @@
                 console.log('   ✅ PASS: All customers have valid balance calculations');
             }
             
-            // 3. Test getLoanLedgerData method
-            console.log('\n3️⃣ Testing getLoanLedgerData method...');
-            const loanLedgerData = await window.db.getLoanLedgerData();
+            // 3. Test payment processing
+            console.log('\n3️⃣ Testing payment processing...');
             console.log('   Found', loanLedgerData.length, 'loan ledger entries');
             
             // Check for valid outstanding amounts

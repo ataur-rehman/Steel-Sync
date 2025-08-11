@@ -10,7 +10,6 @@ import {
   Package,
   Users,
   FileText,
-  RotateCcw,
   BarChart3,
   LogOut,
   Menu,
@@ -52,7 +51,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   }
   
   const { navigateTo, getCurrentTab } = useNavigation();
-  const { hasPermission, isAdmin } = useRoleAccess();
+  const { isAdmin } = useRoleAccess();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -135,12 +134,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     // Relations
     { name: 'Customers', href: '/customers', icon: Users, category: 'relations' },
     { name: 'Vendors', href: '/vendors', icon: Truck, category: 'relations' },
-    { name: 'Loan Ledger', href: '/loan/ledger', icon: CreditCard, category: 'relations' },
     
     // Reports
     { name: 'Stock Report', href: '/reports/stock', icon: Package, category: 'reports' },
     { name: 'Daily Ledger', href: '/reports/daily', icon: Activity, category: 'reports' },
-    { name: 'Customer Ledger', href: '/reports/customer', icon: Users, category: 'reports' },
     
     // Management
     { name: 'Staff Management', href: '/staff', icon: Users, category: 'management' },

@@ -19,10 +19,37 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
+  
+  // Enhanced debugging
+  console.log('useAuth called - context check:', {
+    contextExists: context !== undefined,
+    contextValue: context,
+    stackTrace: new Error().stack?.split('\n').slice(1, 4)
+  });
+  
   if (context === undefined) {
     // More detailed error with debugging info
-    console.error('useAuth called outside AuthProvider. Current context:', context);
+    console.error('❌ CRITICAL: useAuth called outside AuthProvider');
+    console.error('Current context:', context);
+    console.error('DOM state:', {
+      body: document.body?.innerHTML?.length || 'no body',
+      hasAuthProvider: document.querySelector('[data-auth-provider]') !== null,
+      reactRoot: document.querySelector('#root')?.innerHTML?.length || 'no root'
+    });
     console.error('Stack trace:', new Error().stack);
+    
+    // Try to recover by checking if we're in the middle of a hot reload
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('🔄 Development mode - attempting graceful degradation');
+      // Return a fallback context for development
+      return {
+        user: null,
+        loading: true,
+        login: async () => false,
+        logout: () => {}
+      };
+    }
+    
     throw new Error('useAuth must be used within an AuthProvider. Make sure your component is wrapped with <AuthProvider>.');
   }
   return context;
@@ -36,27 +63,47 @@ const isTauri = () => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
     // Initialize auth state
     console.log('AuthProvider initializing...');
     
-    // Check for existing authentication state
-    try {
-      const savedUser = localStorage.getItem('auth_user');
-      if (savedUser) {
-        const parsedUser = JSON.parse(savedUser);
-        console.log('Restored user from localStorage:', parsedUser);
-        setUser(parsedUser);
+    // Add small delay to ensure DOM is ready
+    const initAuth = async () => {
+      try {
+        // Check for existing authentication state
+        const savedUser = localStorage.getItem('auth_user');
+        if (savedUser) {
+          const parsedUser = JSON.parse(savedUser);
+          console.log('Restored user from localStorage:', parsedUser);
+          setUser(parsedUser);
+        }
+      } catch (error) {
+        console.warn('Failed to restore user from localStorage:', error);
+        localStorage.removeItem('auth_user'); // Clear corrupted data
       }
-    } catch (error) {
-      console.warn('Failed to restore user from localStorage:', error);
-      localStorage.removeItem('auth_user'); // Clear corrupted data
-    }
-    
-    setLoading(false);
-    console.log('AuthProvider initialized');
+      
+      setLoading(false);
+      setIsInitialized(true);
+      console.log('AuthProvider initialized');
+    };
+
+    // Small delay to prevent race conditions
+    setTimeout(initAuth, 10);
   }, []);
+
+  // Don't render children until initialized
+  if (!isInitialized) {
+    return (
+      <div data-auth-provider="initializing" className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+          <p className="text-sm text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
@@ -251,8 +298,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
+    <div data-auth-provider="true">
+      <AuthContext.Provider value={{ user, loading, login, logout }}>
+        {children}
+      </AuthContext.Provider>
+    </div>
   );
 };

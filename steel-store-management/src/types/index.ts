@@ -276,19 +276,6 @@ export interface CustomerLedgerEntry {
   updated_at: string;
 }
 
-// Loan Ledger Types
-export interface LoanCustomer {
-  customer_id: number;
-  customer_name: string;
-  customer_phone?: string;
-  total_outstanding: number;
-  last_payment_date?: string;
-  last_payment_amount?: number;
-  oldest_invoice_date?: string;
-  invoice_count: number;
-  days_overdue: number;
-}
-
 // Business Finance Types
 export interface BusinessExpense {
   id: number;

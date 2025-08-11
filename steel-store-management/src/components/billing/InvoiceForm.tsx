@@ -5,8 +5,10 @@ import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, hasSufficientStock, getStockAsNumber, getAlertLevelAsNumber, type UnitType } from '../../utils/unitUtils';
 import { parseCurrency, roundCurrency, addCurrency, subtractCurrency } from '../../utils/currency';
-import { calculateTotal, calculateDiscount } from '../../utils/calculations';
+import { calculateTotal, calculateDiscount, formatCurrency } from '../../utils/calculations';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
+import Modal from '../common/Modal';
+import CustomerForm from '../customers/CustomerForm';
 import { 
   Search, 
   Trash2, 
@@ -37,6 +39,13 @@ interface Customer {
   address?: string;
   cnic?: string;
   balance: number;
+}
+
+// Guest customer interface for one-time invoices
+interface GuestCustomer {
+  name: string;
+  phone: string;
+  address: string;
 }
 
 interface Product {
@@ -138,6 +147,15 @@ const InvoiceForm: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [stockPreview, setStockPreview] = useState<StockPreview[]>([]);
   
+  // Guest customer and quick creation states
+  const [isGuestMode, setIsGuestMode] = useState(false);
+  const [guestCustomer, setGuestCustomer] = useState<GuestCustomer>({
+    name: '',
+    phone: '',
+    address: ''
+  });
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -201,6 +219,23 @@ const InvoiceForm: React.FC = () => {
       }));
     }
   }, [formData.items, products]);
+
+  // Guest Mode: Automatically set payment amount to full total when items change
+  useEffect(() => {
+    if (isGuestMode && formData.items.length > 0) {
+      const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
+      const discountAmount = (grandTotal * formData.discount) / 100;
+      const finalTotal = grandTotal - discountAmount;
+      
+      // Only update if payment amount is different to avoid infinite loops
+      if (formData.payment_amount !== finalTotal) {
+        setFormData(prev => ({
+          ...prev,
+          payment_amount: finalTotal
+        }));
+      }
+    }
+  }, [isGuestMode, formData.items, formData.discount, formData.payment_amount]);
 
   const loadInitialData = async (showLoading = true) => {
     try {
@@ -327,6 +362,75 @@ const InvoiceForm: React.FC = () => {
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
     setErrors(prev => ({ ...prev, customer_id: '' }));
+  };
+
+  // Helper function to check if we have valid customer info
+  const hasValidCustomer = (): boolean => {
+    if (isGuestMode) {
+      return guestCustomer.name.trim() !== '';
+    } else {
+      return formData.customer_id !== null;
+    }
+  };
+
+  // Guest customer handlers
+  const toggleGuestMode = () => {
+    const newGuestMode = !isGuestMode;
+    setIsGuestMode(newGuestMode);
+    setSelectedCustomer(null);
+    setGuestCustomer({ name: '', phone: '', address: '' });
+    
+    setFormData(prev => {
+      // If switching TO guest mode, set payment amount to full total (no credit allowed)
+      if (newGuestMode && prev.items.length > 0) {
+        const grandTotal = prev.items.reduce((sum, item) => sum + item.total_price, 0);
+        return { ...prev, customer_id: null, payment_amount: grandTotal };
+      }
+      return { ...prev, customer_id: null };
+    });
+    
+    setCustomerSearch('');
+    setErrors(prev => ({ ...prev, customer_id: '' }));
+  };
+
+  const handleGuestCustomerChange = (field: keyof GuestCustomer, value: string) => {
+    setGuestCustomer(prev => ({ ...prev, [field]: value }));
+    setErrors(prev => ({ ...prev, customer_id: '' }));
+  };
+
+  // Handle successful customer creation from modal
+  const handleCustomerCreated = async () => {
+    setShowCustomerModal(false);
+    
+    try {
+      // Store the original customer count to identify the new customer
+      const originalCount = customers.length;
+      
+      // Refresh customer list
+      const updatedCustomers = await db.getCustomers();
+      setCustomers(updatedCustomers);
+      setFilteredCustomers(updatedCustomers);
+      
+      // Find the newly created customer by comparing with original list
+      // The new customer should be the one not in the original list
+      let newCustomer = null;
+      
+      if (updatedCustomers.length > originalCount) {
+        // Find customer that wasn't in the original list
+        const originalIds = new Set(customers.map(c => c.id));
+        newCustomer = updatedCustomers.find(c => !originalIds.has(c.id));
+      }
+      
+      if (newCustomer) {
+        selectCustomer(newCustomer);
+        toast.success(`Customer "${newCustomer.name}" created and selected successfully!`);
+      } else {
+        toast.success('Customer created successfully! Please select from the list.');
+      }
+    } catch (error) {
+      console.error('Error refreshing customers after creation:', error);
+      toast.error('Customer created but failed to refresh list');
+    }
   };
 
   // Product search and filtering - YOUR ORIGINAL LOGIC
@@ -523,8 +627,25 @@ const InvoiceForm: React.FC = () => {
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     
-    if (!formData.customer_id) {
-      newErrors.customer_id = 'Please select a customer';
+    // Customer validation
+    if (isGuestMode) {
+      if (!guestCustomer.name.trim()) {
+        newErrors.customer_id = 'Guest customer name is required';
+      }
+    } else {
+      // For regular customers, check both formData and selectedCustomer
+      const hasValidCustomerId = formData.customer_id && Number.isInteger(formData.customer_id) && formData.customer_id > 0;
+      const hasValidSelectedCustomer = selectedCustomer && selectedCustomer.id && Number.isInteger(selectedCustomer.id) && selectedCustomer.id > 0;
+      
+      if (!hasValidCustomerId && !hasValidSelectedCustomer) {
+        newErrors.customer_id = 'Please select a valid customer';
+        console.warn('🔍 Customer validation failed:', {
+          formDataCustomerId: formData.customer_id,
+          selectedCustomer: selectedCustomer,
+          hasValidCustomerId,
+          hasValidSelectedCustomer
+        });
+      }
     }
     
     if (formData.items.length === 0) {
@@ -543,6 +664,11 @@ const InvoiceForm: React.FC = () => {
       newErrors.payment_amount = 'Payment cannot exceed invoice total';
     }
     
+    // Guest mode: enforce full payment (no credit/partial payment allowed)
+    if (isGuestMode && formData.payment_amount < calculations.grandTotal) {
+      newErrors.payment_amount = 'Guest customers must pay the full amount. No credit allowed.';
+    }
+    
     const stockIssues: string[] = [];
     formData.items.forEach(item => {
       const currentProduct = products.find(p => p.id === item.product_id);
@@ -554,6 +680,17 @@ const InvoiceForm: React.FC = () => {
     if (stockIssues.length > 0) {
       newErrors.stock = `Insufficient stock for: ${stockIssues.join(', ')}`;
     }
+    
+    // Debug logging
+    console.log('🔍 Form validation:', {
+      isGuestMode,
+      guestCustomerName: guestCustomer.name,
+      formDataCustomerId: formData.customer_id,
+      selectedCustomerId: selectedCustomer?.id,
+      selectedCustomerName: selectedCustomer?.name,
+      itemsCount: formData.items.length,
+      errors: newErrors
+    });
     
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -576,15 +713,48 @@ const handleSubmit = async () => {
   try {
     // Prepare invoice data
     let payment_amount = formData.payment_amount;
-    if (selectedCustomer && selectedCustomer.balance < 0) {
-      const credit = Math.abs(selectedCustomer.balance);
-      const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
-      payment_amount = Math.min(credit, grandTotal);
+    let customer_id: number;
+    let customer_name = '';
+
+    if (isGuestMode) {
+      // For guest customers, use a special customer ID (-1) to satisfy NOT NULL constraint
+      customer_id = -1;
+      customer_name = guestCustomer.name;
+      payment_amount = formData.payment_amount; // Guest customers pay what they specify
+    } else {
+      // Regular customer - ensure we have a valid customer_id
+      if (!formData.customer_id && !selectedCustomer?.id) {
+        throw new Error('No customer selected. Please select a customer or switch to guest mode.');
+      }
+      
+      // Use selectedCustomer.id as primary source, formData.customer_id as fallback
+      customer_id = selectedCustomer?.id || formData.customer_id!;
+      
+      // Validate that customer_id is a valid positive integer
+      if (!customer_id || !Number.isInteger(customer_id) || customer_id <= 0) {
+        console.error('Invalid customer ID:', { 
+          selectedCustomerId: selectedCustomer?.id, 
+          formDataCustomerId: formData.customer_id,
+          resolvedCustomerId: customer_id
+        });
+        throw new Error('Invalid customer ID. Please select a valid customer.');
+      }
+      
+      customer_name = selectedCustomer?.name || '';
+      
+      if (selectedCustomer && selectedCustomer.balance < 0) {
+        // Apply credit for regular customers
+        const credit = Math.abs(selectedCustomer.balance);
+        const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
+        payment_amount = Math.min(credit, grandTotal);
+      }
     }
 
     const invoiceData = {
-      customer_id: formData.customer_id!,
-      customer_name: selectedCustomer?.name,
+      customer_id,
+      customer_name,
+      customer_phone: isGuestMode ? guestCustomer.phone : selectedCustomer?.phone || '',
+      customer_address: isGuestMode ? guestCustomer.address : selectedCustomer?.address || '',
       items: formData.items.map(item => ({
         product_id: item.product_id,
         product_name: item.product_name,
@@ -598,7 +768,6 @@ const handleSubmit = async () => {
       payment_channel_id: selectedPaymentChannel?.id || null,
       payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
       notes: formData.notes
-      
     };
     
     console.log('Creating invoice:', invoiceData);
@@ -610,7 +779,7 @@ const handleSubmit = async () => {
     try {
       await activityLogger.logInvoiceCreated(
         result.bill_number, 
-        selectedCustomer?.name || 'Unknown Customer',
+        customer_name,
         calculations.grandTotal
       );
     } catch (error) {
@@ -623,7 +792,8 @@ const handleSubmit = async () => {
       triggerInvoiceCreatedRefresh(result);
     });
     
-    toast.success(`Invoice created successfully! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
+    const modeText = isGuestMode ? ' (Guest Customer)' : '';
+    toast.success(`Invoice created successfully${modeText}! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
       duration: 5000
     });
     
@@ -712,6 +882,12 @@ const getSubmitButtonText = () => {
     setStockPreview([]);
     setErrors({});
     
+    // Reset guest customer state
+    setIsGuestMode(false);
+    setGuestCustomer({ name: '', phone: '', address: '' });
+    setGuestCustomer({ name: '', phone: '', address: '' });
+    setShowCustomerModal(false);
+    
     // Reset payment channel selection
     if (paymentChannels.length > 0) {
       setSelectedPaymentChannel(paymentChannels[0]);
@@ -770,7 +946,7 @@ const getSubmitButtonText = () => {
             
             <button
               onClick={handleSubmit}
-              disabled={!formData.customer_id || formData.items.length === 0 || creating}
+              disabled={!hasValidCustomer() || formData.items.length === 0 || creating}
               className="btn btn-primary flex items-center px-4 py-2 disabled:opacity-50"
             >
               {creating ? (
@@ -799,65 +975,134 @@ const getSubmitButtonText = () => {
                 <User className="h-4 w-4 mr-2 text-blue-600" />
                 Customer Selection
               </h3>
-              {selectedCustomer && (
+              <div className="flex items-center space-x-2">
+                {/* Guest Mode Toggle */}
                 <button
-                  onClick={() => {
-                    setSelectedCustomer(null);
-                    setFormData(prev => ({ ...prev, customer_id: null }));
-                    setCustomerSearch('');
-                  }}
-                  className="text-gray-500 hover:text-red-600"
+                  onClick={toggleGuestMode}
+                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                    isGuestMode 
+                      ? 'bg-orange-100 text-orange-700 border border-orange-300' 
+                      : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
+                  }`}
                 >
-                  <X className="h-4 w-4" />
+                  {isGuestMode ? 'Guest Mode' : 'Regular Mode'}
                 </button>
-              )}
+                {selectedCustomer && (
+                  <button
+                    onClick={() => {
+                      setSelectedCustomer(null);
+                      setFormData(prev => ({ ...prev, customer_id: null }));
+                      setCustomerSearch('');
+                    }}
+                    className="text-gray-500 hover:text-red-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            {!selectedCustomer ? (
-              <div className="relative" onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="text"
-                  value={customerSearch}
-                  onChange={(e) => handleCustomerSearch(e.target.value)}
-                  onFocus={() => setShowCustomerDropdown(true)}
-                  placeholder="Search customers by name, phone, or CNIC..."
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                    errors.customer_id ? 'border-red-500' : 'border-gray-300'
-                  }`}
-                />
-                <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
-                
-                {errors.customer_id && (
-                  <p className="mt-1 text-sm text-red-600">{errors.customer_id}</p>
-                )}
-                
-                {showCustomerDropdown && (
-                  <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {filteredCustomers.length > 0 ? (
-                      filteredCustomers.map(customer => (
-                        <div
-                          key={customer.id}
-                          onClick={() => selectCustomer(customer)}
-                          className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-medium text-gray-900">{customer.name}</div>
-                              <div className="text-sm text-gray-600">{customer.phone}</div>
-                            </div>
-                            <div className="text-right">
-                              <div className={`text-sm font-medium ${customer.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                Balance: Rs. {customer.balance.toFixed(2)}
+            {isGuestMode ? (
+              /* Guest Customer Form */
+              <div className="space-y-3">
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <p className="text-sm text-orange-700 mb-2 font-medium">Guest Customer (One-time Invoice)</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      placeholder="Customer Name *"
+                      value={guestCustomer.name}
+                      onChange={(e) => handleGuestCustomerChange('name', e.target.value)}
+                      className="px-3 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Phone Number"
+                      value={guestCustomer.phone}
+                      onChange={(e) => handleGuestCustomerChange('phone', e.target.value)}
+                      className="px-3 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Address (Optional)"
+                      value={guestCustomer.address}
+                      onChange={(e) => handleGuestCustomerChange('address', e.target.value)}
+                      className="md:col-span-2 px-3 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                  </div>
+                  {errors.customer_id && (
+                    <p className="mt-1 text-sm text-red-600">{errors.customer_id}</p>
+                  )}
+                </div>
+              </div>
+            ) : !selectedCustomer ? (
+              <div className="space-y-3">
+                {/* Customer Search */}
+                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="text"
+                    value={customerSearch}
+                    onChange={(e) => handleCustomerSearch(e.target.value)}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    placeholder="Search customers by name, phone, or CNIC..."
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      errors.customer_id ? 'border-red-500' : 'border-gray-300'
+                    }`}
+                  />
+                  <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
+                  
+                  {errors.customer_id && (
+                    <p className="mt-1 text-sm text-red-600">{errors.customer_id}</p>
+                  )}
+                  
+                  {showCustomerDropdown && (
+                    <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredCustomers.length > 0 ? (
+                        filteredCustomers.map(customer => (
+                          <div
+                            key={customer.id}
+                            onClick={() => selectCustomer(customer)}
+                            className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="font-medium text-gray-900">{customer.name}</div>
+                                <div className="text-sm text-gray-600">{customer.phone}</div>
+                              </div>
+                              <div className="text-right">
+                                <div className={`text-sm font-medium ${customer.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                  Balance: Rs. {customer.balance.toFixed(2)}
+                                </div>
                               </div>
                             </div>
                           </div>
+                        ))
+                      ) : customerSearch.trim() ? (
+                        <div className="p-3">
+                          <div className="text-gray-500 text-center mb-2">No customers found</div>
+                          <button
+                            onClick={() => setShowCustomerModal(true)}
+                            className="w-full px-3 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-sm"
+                          >
+                            + Create New Customer
+                          </button>
                         </div>
-                      ))
-                    ) : (
-                      <div className="p-3 text-gray-500 text-center">No customers found</div>
-                    )}
-                  </div>
-                )}
+                      ) : (
+                        <div className="p-3 text-gray-500 text-center">Start typing to search</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Create New Customer Button */}
+                <div className="text-center">
+                  <button
+                    onClick={() => setShowCustomerModal(true)}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    + Add New Customer
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
@@ -1197,7 +1442,12 @@ const getSubmitButtonText = () => {
 
               {/* Payment Amount */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Amount</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Payment Amount
+                  {isGuestMode && (
+                    <span className="text-red-600 text-xs ml-1">(Full payment required)</span>
+                  )}
+                </label>
                 <input
                   type="number"
                   min="0"
@@ -1210,14 +1460,18 @@ const getSubmitButtonText = () => {
                   }))}
                   className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-green-500 ${
                     errors.payment_amount ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  } ${isGuestMode ? 'bg-red-50 border-red-300' : ''}`}
                   placeholder="0.0"
+                  disabled={isGuestMode} // Disable editing in guest mode since it must be full amount
                 />
+                {isGuestMode && (
+                  <p className="text-xs text-red-600 mt-1">
+                    Guest customers must pay the full amount (Rs. {formatCurrency(calculations.grandTotal)}). No credit allowed.
+                  </p>
+                )}
                 {errors.payment_amount && (
                   <p className="text-xs text-red-600 mt-1">{errors.payment_amount}</p>
                 )}
-                
-             
               </div>
 
               {/* Balance Display */}
@@ -1284,7 +1538,7 @@ const getSubmitButtonText = () => {
           <div className="space-y-2">
             <button
               onClick={handleSubmit}
-              disabled={!formData.customer_id || formData.items.length === 0 || creating || stockPreview.some(p => p.status === 'insufficient')}
+              disabled={!hasValidCustomer() || formData.items.length === 0 || creating || stockPreview.some(p => p.status === 'insufficient')}
               className="w-full btn btn-primary py-3 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {creating ? (
@@ -1385,6 +1639,18 @@ const getSubmitButtonText = () => {
           </div>
         </div>
       )}
+
+      {/* Customer Creation Modal */}
+      <Modal
+        isOpen={showCustomerModal}
+        onClose={() => setShowCustomerModal(false)}
+        title="Add New Customer"
+      >
+        <CustomerForm
+          customer={null}
+          onSuccess={handleCustomerCreated}
+        />
+      </Modal>
     </div>
   );
 };

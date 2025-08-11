@@ -1,7 +1,11 @@
 export function formatCurrency(amount: number | undefined | null): string {
   const safeAmount = amount ?? 0;
-  // Use one decimal place instead of two
-  return `Rs. ${safeAmount.toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+  // Show no decimal places for whole numbers, one decimal place for others
+  if (safeAmount % 1 === 0) {
+    return `Rs. ${safeAmount.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+  } else {
+    return `Rs. ${safeAmount.toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+  }
 }
 
 export function calculateTotal(quantity: number, rate: number): number {

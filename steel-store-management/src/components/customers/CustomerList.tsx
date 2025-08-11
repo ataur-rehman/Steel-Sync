@@ -4,12 +4,13 @@ import { useDetailNavigation } from '../../hooks/useDetailNavigation';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import type { Customer } from '../../types';
 import { toast } from 'react-hot-toast';
-import { Plus, Edit, Eye, Trash2, Users, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Edit, FileText, Trash2, Users, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import Modal from '../common/Modal';
 import CustomerForm from './CustomerForm';
 import { formatCurrency } from '../../utils/calculations';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import ConfirmationModal from '../common/ConfirmationModal';
+import CustomerStatsDashboard from '../CustomerStatsDashboard';
 export default function CustomerList() {
   const { navigateToDetail } = useDetailNavigation();
   const { db } = useDatabase();
@@ -227,6 +228,9 @@ export default function CustomerList() {
         </button>
       </div>
 
+      {/* Customer Statistics Dashboard */}
+      <CustomerStatsDashboard />
+
       {/* Filters and Controls */}
       <div className="card p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
@@ -392,22 +396,27 @@ export default function CustomerList() {
                       <div className="flex space-x-2">
                         <button
                           onClick={async () => {
-                            // Log customer view activity
+                            // Log customer ledger access activity
                             try {
                               await activityLogger.logCustomerViewed(customer.id, customer.name);
                             } catch (error) {
-                              console.error('Failed to log customer view activity:', error);
+                              console.error('Failed to log customer ledger access activity:', error);
                             }
                             
+                            console.log('🚀 [CustomerList] Navigating to Customer Ledger for:', {
+                              customerId: customer.id,
+                              customerName: customer.name
+                            });
+                            
                             navigateToDetail(`/customers/${customer.id}`, {
-                              title: `${customer.name} - Customer Details`,
-                              state: { customer }
+                              title: `${customer.name} - Customer Ledger`,
+                              state: { customerId: customer.id, customerName: customer.name }
                             });
                           }}
                           className="btn btn-secondary flex items-center px-2 py-1 text-xs"
-                          title="View Profile"
+                          title="Customer Ledger"
                         >
-                          <Eye className="h-4 w-4" />
+                          <FileText className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => {

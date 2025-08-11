@@ -84,10 +84,7 @@ interface DatabaseConfig {
 }
 
 interface InvoiceCreationData {
-  customer_id: number; // -1 for guest customers, regular ID for database customers
-  customer_name?: string; // Required for guest customers when customer_id is -1
-  customer_phone?: string; // Phone for guest customers
-  customer_address?: string; // Address for guest customers
+  customer_id: number;
   items: InvoiceItem[];
   discount?: number;
   payment_amount?: number;
@@ -3080,21 +3077,6 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
 
   // Validate input
   this.validateInvoiceDataEnhanced(invoiceData);
-  
-  // Pre-validate all product IDs before starting transaction
-  console.log('🔍 Pre-validating product IDs...');
-  for (const item of invoiceData.items) {
-    const productExists = await this.dbConnection.select('SELECT id, name FROM products WHERE id = ?', [item.product_id]);
-    if (!productExists || productExists.length === 0) {
-      throw new Error(`Product with ID ${item.product_id} not found. Cannot create invoice.`);
-    }
-    console.log(`✅ Product ${item.product_id} (${productExists[0].name}) exists`);
-  }
-  
-  // Ensure guest customer record exists if we're creating a guest invoice
-  if (invoiceData.customer_id === -1) {
-    await this.ensureGuestCustomerExists();
-  }
 
   // CRITICAL FIX: Implement robust database lock handling with retry mechanism
   const maxRetries = 5;
@@ -3105,34 +3087,22 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
       // Set pragma settings to handle locks better
       await this.dbConnection.execute('PRAGMA busy_timeout = 30000'); // 30 seconds
       await this.dbConnection.execute('PRAGMA journal_mode = WAL'); // Write-Ahead Logging for better concurrency
-      await this.dbConnection.execute('PRAGMA foreign_keys = ON'); // Enable foreign key constraints
       
       // Use manual transaction control for better lock management
       await this.dbConnection.execute('BEGIN IMMEDIATE TRANSACTION');
       
       try {
-        // Get customer or use guest customer name
-        let customerName: string;
-        if (invoiceData.customer_id === -1) {
-          // Guest customer
-          if (!invoiceData.customer_name) {
-            throw new Error('Customer name is required for guest invoices');
-          }
-          customerName = invoiceData.customer_name;
-        } else {
-          // Regular customer
-          const customerResult = await this.dbConnection.select(
-            'SELECT * FROM customers WHERE id = ?',
-            [invoiceData.customer_id]
-          );
-          
-          if (!customerResult || customerResult.length === 0) {
-            throw new Error('Customer not found');
-          }
-          
-          const customer = customerResult[0];
-          customerName = customer.name;
+        // Get customer
+        const customerResult = await this.dbConnection.select(
+          'SELECT * FROM customers WHERE id = ?',
+          [invoiceData.customer_id]
+        );
+        
+        if (!customerResult || customerResult.length === 0) {
+          throw new Error('Customer not found');
         }
+        
+        const customer = customerResult[0];
         
         // Generate bill number
         const billNumber = await this.generateBillNumberInTransaction();
@@ -3151,16 +3121,14 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
         // Insert invoice - CENTRALIZED SCHEMA COMPLIANCE
         const invoiceResult = await this.dbConnection.execute(
           `INSERT INTO invoices (
-            bill_number, customer_id, customer_name, customer_phone, customer_address, subtotal, total_amount, discount_percentage, 
+            bill_number, customer_id, customer_name, subtotal, total_amount, discount_percentage, 
             discount_amount, grand_total, paid_amount, payment_amount, payment_method, 
             remaining_balance, notes, status, payment_status, date, time, created_by, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
             billNumber, 
             invoiceData.customer_id, 
-            customerName,
-            invoiceData.customer_phone || '', // Add customer_phone
-            invoiceData.customer_address || '', // Add customer_address  
+            customer.name, 
             total_amount, // subtotal
             total_amount, // total_amount  
             invoiceData.discount || 0, // discount_percentage
@@ -3184,89 +3152,24 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
           throw new Error('Failed to create invoice record');
         }
         
-        console.log(`✅ Invoice created with ID: ${invoiceId}, Bill Number: ${billNumber}`);
-        
-        // Verify the invoice was actually inserted
-        const verifyInvoice = await this.dbConnection.select('SELECT id, bill_number, customer_id FROM invoices WHERE id = ?', [invoiceId]);
-        if (!verifyInvoice || verifyInvoice.length === 0) {
-          throw new Error(`Invoice verification failed - Invoice ID ${invoiceId} not found after insertion`);
-        }
-        console.log(`✅ Invoice verification passed:`, verifyInvoice[0]);
-        
-        // Process all items within the same transaction
+        // Process all items
         for (const item of invoiceData.items) {
-          console.log(`🔄 Processing item: ${item.product_name} (ID: ${item.product_id})`);
-          await this.processInvoiceItem(invoiceId, item, billNumber, { id: invoiceData.customer_id, name: customerName });
+          await this.processInvoiceItem(invoiceId, item, billNumber, customer);
         }
         
-        // Update customer balance and create ledger entries only for regular customers (not guests)
-        if (invoiceData.customer_id !== -1) {
-          // Update customer balance if needed
-          if (remainingBalance !== 0) {
-            await this.dbConnection.execute(
-              'UPDATE customers SET balance = balance + ?, updated_at = datetime("now") WHERE id = ?',
-              [remainingBalance, invoiceData.customer_id]
-            );
-          }
-          
-          // Create ledger entries for regular customers only
-          await this.createInvoiceLedgerEntries(
-            invoiceId, { id: invoiceData.customer_id, name: customerName }, grandTotal, paymentAmount, 
-            billNumber, invoiceData.payment_method || 'cash'
+        // Update customer balance if needed
+        if (remainingBalance !== 0) {
+          await this.dbConnection.execute(
+            'UPDATE customers SET balance = balance + ?, updated_at = datetime("now") WHERE id = ?',
+            [remainingBalance, customer.id]
           );
-        } else {
-          // CRITICAL FIX: For guest customers, create daily ledger entries for cash flow tracking
-          // Guest customers should still contribute to business cash flow tracking
-          if (paymentAmount > 0) {
-            console.log(`🔄 Creating daily ledger entry for guest customer payment: Rs.${paymentAmount}`);
-            
-            const now = new Date();
-            const date = now.toISOString().split('T')[0];
-            const time = now.toLocaleTimeString('en-PK', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: true 
-            });
-            
-            // Get payment channel ID for the payment method
-            const paymentChannelData = await this.getPaymentChannelByMethod(invoiceData.payment_method || 'cash');
-            
-            // Create daily ledger entry for guest customer payment (no customer_id to prevent showing in customer ledger)
-            await this.dbConnection.execute(
-              `INSERT INTO ledger_entries (
-                date, time, type, category, description, amount, running_balance,
-                customer_id, customer_name, reference_id, reference_type, bill_number,
-                notes, created_by, payment_method, payment_channel_id, payment_channel_name, 
-                created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-              [
-                date, time, 'incoming', 'Payment Received',
-                `Payment - Invoice ${billNumber} - ${customerName} (Guest)`,
-                paymentAmount, 0, null, null, // customer_id = null for guest customers
-                invoiceId, 'payment', billNumber,
-                `Guest invoice payment: Rs. ${paymentAmount.toFixed(1)} via ${invoiceData.payment_method || 'cash'}`,
-                'system', invoiceData.payment_method || 'cash', 
-                paymentChannelData?.id || null, paymentChannelData?.name || (invoiceData.payment_method || 'cash')
-              ]
-            );
-            console.log(`✅ Daily ledger entry created for guest customer payment: Rs.${paymentAmount.toFixed(1)}`);
-            
-            // CRITICAL FIX: Update payment channel daily ledger for guest customer payments
-            if (paymentChannelData?.id) {
-              try {
-                console.log('🔄 Updating payment channel daily ledger for guest customer payment...');
-                await this.updatePaymentChannelDailyLedger(
-                  paymentChannelData.id,
-                  date,
-                  paymentAmount
-                );
-                console.log('✅ Payment channel daily ledger updated successfully for guest customer');
-              } catch (ledgerError) {
-                console.error('❌ Failed to update payment channel daily ledger for guest customer:', ledgerError);
-              }
-            }
-          }
         }
+        
+        // Create ledger entries
+        await this.createInvoiceLedgerEntries(
+          invoiceId, customer, grandTotal, paymentAmount, 
+          billNumber, invoiceData.payment_method || 'cash'
+        );
 
         // CRITICAL FIX: Create payment record if payment was made during invoice creation
         if (paymentAmount > 0) {
@@ -3304,7 +3207,7 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
               date, time, created_by, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           `, [
-            paymentCode, invoiceData.customer_id === -1 ? null : invoiceData.customer_id, customerName, invoiceId, billNumber,
+            paymentCode, customer.id, customer.name, invoiceId, billNumber,
             'incoming', paymentAmount, paymentAmount, paymentAmount, mappedPaymentMethod,
             `Invoice creation payment`, 'completed', 'PKR', 1.0, 0, 
             `Payment received during invoice creation: Rs.${paymentAmount}`,
@@ -3323,7 +3226,7 @@ async createInvoice(invoiceData: InvoiceCreationData): Promise<any> {
           id: invoiceId,
           bill_number: billNumber,
           customer_id: invoiceData.customer_id,
-          customer_name: customerName,
+          customer_name: customer.name,
           items: invoiceData.items,
           total_amount,
           discount: invoiceData.discount || 0,
@@ -3423,12 +3326,10 @@ private async processInvoiceItem(
   );
   
   if (!productResult || productResult.length === 0) {
-    console.error(`❌ Product not found: ID ${item.product_id}`);
     throw new Error(`Product ${item.product_id} not found`);
   }
   
   const product = productResult[0];
-  console.log(`✅ Product found: ${product.name} (ID: ${product.id})`);
   
   // Check stock
   const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
@@ -3439,47 +3340,29 @@ private async processInvoiceItem(
   const newStock = availableStock - soldQuantity;
   
   if (newStock < 0) {
-    console.error(`❌ Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
     throw new Error(`Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
   }
   
   // Insert invoice item - CENTRALIZED SCHEMA COMPLIANCE
-  try {
-    console.log(`🔄 Inserting invoice item: Invoice ID ${invoiceId}, Product ID ${item.product_id}`);
-    await this.dbConnection.execute(
-      `INSERT INTO invoice_items (
-        invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
-        selling_price, line_total, amount, total_price, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      [
-        invoiceId, 
-        item.product_id, 
-        product.name, 
-        item.quantity, 
-        product.unit || 'kg',
-        item.unit_price || 0, 
-        item.unit_price || 0, // rate (required)
-        item.unit_price || 0, // selling_price (required with DEFAULT 0)
-        item.total_price || 0, // line_total (NOT NULL required)
-        item.total_price || 0, // amount (NOT NULL required)
-        item.total_price || 0  // total_price (NOT NULL required)
-      ]
-    );
-    console.log(`✅ Invoice item inserted successfully`);
-  } catch (itemError: any) {
-    console.error(`❌ Failed to insert invoice item:`, itemError);
-    console.error(`❌ Invoice ID: ${invoiceId}, Product ID: ${item.product_id}`);
-    
-    // Check if invoice exists
-    const invoiceCheck = await this.dbConnection.select('SELECT id FROM invoices WHERE id = ?', [invoiceId]);
-    console.log(`🔍 Invoice exists check:`, invoiceCheck.length > 0 ? 'EXISTS' : 'NOT FOUND');
-    
-    // Check if product exists
-    const productCheck = await this.dbConnection.select('SELECT id FROM products WHERE id = ?', [item.product_id]);
-    console.log(`🔍 Product exists check:`, productCheck.length > 0 ? 'EXISTS' : 'NOT FOUND');
-    
-    throw new Error(`Failed to insert invoice item: ${itemError.message}`);
-  }
+  await this.dbConnection.execute(
+    `INSERT INTO invoice_items (
+      invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
+      selling_price, line_total, amount, total_price, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+    [
+      invoiceId, 
+      item.product_id, 
+      product.name, 
+      item.quantity, 
+      product.unit || 'kg',
+      item.unit_price || 0, 
+      item.unit_price || 0, // rate (required)
+      item.unit_price || 0, // selling_price (required with DEFAULT 0)
+      item.total_price || 0, // line_total (NOT NULL required)
+      item.total_price || 0, // amount (NOT NULL required)
+      item.total_price || 0  // total_price (NOT NULL required)
+    ]
+  );
   
   // Update product stock
   const newStockString = formatUnitString(
@@ -3618,35 +3501,15 @@ private async createInvoiceLedgerEntries(
 
 
 
-  // VALIDATION: Enhanced input validation
-  private validateInvoiceDataEnhanced(invoice: InvoiceCreationData): void {
-    if (!invoice || typeof invoice !== 'object') {
-      throw new Error('Invalid invoice data: must be an object');
-    }
+// VALIDATION: Enhanced input validation
+private validateInvoiceDataEnhanced(invoice: InvoiceCreationData): void {
+  if (!invoice || typeof invoice !== 'object') {
+    throw new Error('Invalid invoice data: must be an object');
+  }
 
-    // Validate customer information
-    if (invoice.customer_id === -1) {
-      // Guest customer validation
-      if (!invoice.customer_name || typeof invoice.customer_name !== 'string' || invoice.customer_name.trim() === '') {
-        throw new Error('Guest customer name is required when customer_id is -1');
-      }
-    } else {
-      // Regular customer validation
-      console.log('🔍 Validating customer ID:', { 
-        customer_id: invoice.customer_id, 
-        type: typeof invoice.customer_id,
-        isInteger: Number.isInteger(invoice.customer_id),
-        isPositive: invoice.customer_id > 0
-      });
-      
-      if (invoice.customer_id == null || invoice.customer_id === undefined) {
-        throw new Error('Customer ID is required. Please select a customer or use guest mode.');
-      }
-      
-      if (!Number.isInteger(invoice.customer_id) || invoice.customer_id <= 0) {
-        throw new Error(`Invalid customer ID: ${invoice.customer_id}. Must be a positive integer or -1 for guest customers.`);
-      }
-    }
+  if (!Number.isInteger(invoice.customer_id) || invoice.customer_id <= 0) {
+    throw new Error('Invalid customer ID: must be a positive integer');
+  }
 
   if (!Array.isArray(invoice.items) || invoice.items.length === 0) {
     throw new Error('Invoice must have at least one item');
@@ -3681,48 +3544,6 @@ private async createInvoiceLedgerEntries(
   const total = invoice.items.reduce((sum, item) => addCurrency(sum, item.total_price), 0);
   if (total > 50000000) { // 50 million max
     throw new Error('Invoice total exceeds maximum allowed amount');
-  }
-}
-
-/**
- * Ensures that a guest customer record exists in the database for foreign key constraints
- */
-private async ensureGuestCustomerExists(): Promise<void> {
-  try {
-    // Check if guest customer already exists
-    const existingGuest = await this.dbConnection.select(
-      'SELECT id FROM customers WHERE id = ?', 
-      [-1]
-    );
-    
-    if (!existingGuest || existingGuest.length === 0) {
-      // Create the guest customer record
-      console.log('🔄 Creating guest customer record for foreign key constraints...');
-      await this.dbConnection.execute(
-        `INSERT INTO customers (
-          id, customer_code, name, phone, address, cnic, balance, credit_limit, 
-          category, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-        [
-          -1,                           // id: Special ID for guest customers
-          'GUEST-CUSTOMER',             // customer_code: Required unique field
-          'Guest Customer',             // name
-          '',                          // phone
-          '',                          // address
-          'GUEST-CNIC-PLACEHOLDER',     // cnic: Unique placeholder for guest customer
-          0,                           // balance
-          0,                           // credit_limit
-          'guest',                     // category: Use 'guest' instead of customer_type
-          'system'                     // created_by
-        ]
-      );
-      console.log('✅ Guest customer record created successfully');
-    } else {
-      console.log('✅ Guest customer record already exists');
-    }
-  } catch (error) {
-    console.error('❌ Failed to ensure guest customer exists:', error);
-    throw new Error('Failed to initialize guest customer support');
   }
 }
 
@@ -6146,20 +5967,7 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
 
       // Get invoice
       const invoices = await this.dbConnection.select(`
-        SELECT 
-          i.*,
-          CASE 
-            WHEN i.customer_id = -1 THEN i.customer_name
-            ELSE c.name
-          END as customer_name,
-          CASE 
-            WHEN i.customer_id = -1 THEN i.customer_phone
-            ELSE c.phone
-          END as customer_phone,
-          CASE 
-            WHEN i.customer_id = -1 THEN i.customer_address
-            ELSE c.address
-          END as customer_address
+        SELECT i.*, c.name as customer_name, c.phone as customer_phone, c.address as customer_address
         FROM invoices i
         LEFT JOIN customers c ON i.customer_id = c.id
         WHERE i.id = ?
@@ -6527,43 +6335,30 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
           LEFT JOIN (
             SELECT 
               c_inner.id as customer_id,
-              -- Use customer table balance as primary, fallback to ledger balance_after
-              COALESCE(
-                c_inner.balance,
-                (SELECT balance_after 
-                 FROM customer_ledger_entries cle_inner 
-                 WHERE cle_inner.customer_id = c_inner.id 
-                 ORDER BY date DESC, created_at DESC 
-                 LIMIT 1),
-                0
-              ) as balance,
-              COALESCE(
-                c_inner.balance,
-                (SELECT balance_after 
-                 FROM customer_ledger_entries cle_inner 
-                 WHERE cle_inner.customer_id = c_inner.id 
-                 ORDER BY date DESC, created_at DESC 
-                 LIMIT 1),
-                0
-              ) as outstanding,
               COALESCE(SUM(CASE WHEN i.grand_total IS NOT NULL THEN CAST(i.grand_total AS REAL) ELSE 0 END), 0) as total_invoiced,
               COALESCE(SUM(CASE 
                 WHEN p.payment_type = 'return_refund' OR p.payment_type = 'outgoing' 
                 THEN -COALESCE(CAST(p.amount AS REAL), 0)
                 ELSE COALESCE(CAST(p.amount AS REAL), 0)
-              END), 0) as total_paid
+              END), 0) as total_paid,
+              (COALESCE(SUM(CASE WHEN i.grand_total IS NOT NULL THEN CAST(i.grand_total AS REAL) ELSE 0 END), 0) - 
+               COALESCE(SUM(CASE 
+                 WHEN p.payment_type = 'return_refund' OR p.payment_type = 'outgoing' 
+                 THEN -COALESCE(CAST(p.amount AS REAL), 0)
+                 ELSE COALESCE(CAST(p.amount AS REAL), 0)
+               END), 0)) as balance
             FROM customers c_inner
             LEFT JOIN invoices i ON c_inner.id = i.customer_id
             LEFT JOIN payments p ON c_inner.id = p.customer_id
-            GROUP BY c_inner.id, c_inner.balance
+            GROUP BY c_inner.id
           ) cb ON c.id = cb.customer_id
         `;
         countQuery += `
           LEFT JOIN (
-            SELECT 
-              c_inner.id as customer_id
+            SELECT c_inner.id as customer_id
             FROM customers c_inner
-          ) cb ON c.id = cb.customer_id
+            LEFT JOIN invoices i ON c_inner.id = i.customer_id
+            LEFT JOIN payments p ON c_inner.id = p.customer_id
             GROUP BY c_inner.id
           ) cb ON c.id = cb.customer_id
         `;
@@ -6608,15 +6403,10 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
       params.push(limit, offset);
 
       // Execute queries in parallel using smart execution
-      console.log('🔍 Customer balance query:', baseQuery);
-      console.log('🔍 Query params:', params);
-      
       const [customers, totalResult] = await Promise.all([
         this.executeSmartQuery(baseQuery, params, { cacheKey: `${cacheKey}_data`, cacheTtl: 30000 }),
         this.executeSmartQuery(countQuery, countParams, { cacheKey: `${cacheKey}_count`, cacheTtl: 60000 })
       ]);
-
-      console.log('🔍 Raw customer data from query:', customers?.slice(0, 2)); // Log first 2 customers
 
       const total = (totalResult[0] as any)?.total || 0;
       const hasMore = offset + limit < total;
@@ -6630,21 +6420,10 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
           const total_invoiced = parseFloat(customer.total_invoiced) || 0;
           const total_paid = parseFloat(customer.total_paid) || 0;
           
-          // Debug logging to understand the data
-          console.log(`🔍 Customer ${customer.id} (${customer.name}) balance data:`, {
-            raw_balance: customer.balance,
-            raw_outstanding: customer.outstanding,
-            parsed_balance: balance,
-            parsed_outstanding: outstanding,
-            total_invoiced,
-            total_paid
-          });
-          
           return {
             ...customer,
             balance: balance,
             outstanding: outstanding,
-            total_balance: balance, // Map to total_balance for frontend compatibility
             total_invoiced: total_invoiced,
             total_paid: total_paid
           };
@@ -6838,19 +6617,11 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
     try {
       // Build optimized query
       let baseQuery = `
-        SELECT i.*, 
-               CASE 
-                 WHEN i.customer_id = -1 THEN i.customer_name || ' (Guest)'
-                 ELSE COALESCE(c.name, i.customer_name)
-               END as customer_name,
-               CASE 
-                 WHEN i.customer_id = -1 THEN NULL
-                 ELSE c.phone
-               END as customer_phone
+        SELECT i.*, c.name as customer_name, c.phone as customer_phone
         ${includeItems ? `, GROUP_CONCAT(ii.product_name) as item_names` : ''}
         ${includePayments ? `, p.payment_count, p.total_payments` : ''}
         FROM invoices i
-        LEFT JOIN customers c ON i.customer_id = c.id AND i.customer_id > 0
+        LEFT JOIN customers c ON i.customer_id = c.id
       `;
 
       let countQuery = `SELECT COUNT(DISTINCT i.id) as total FROM invoices i`;
@@ -7214,19 +6985,12 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         const topCustomersQuery = `
           SELECT 
             i.customer_id,
-            CASE 
-              WHEN i.customer_id = -1 THEN 'Guest Customers'
-              ELSE c.name
-            END as customer_name,
+            c.name as customer_name,
             SUM(i.grand_total) as total_amount
           FROM invoices i
           LEFT JOIN customers c ON i.customer_id = c.id
           WHERE i.status != 'cancelled' ${dateFilter}
-          GROUP BY 
-            CASE 
-              WHEN i.customer_id = -1 THEN -1 
-              ELSE i.customer_id 
-            END
+          GROUP BY i.customer_id
           ORDER BY total_amount DESC
           LIMIT 10
         `;
@@ -7479,15 +7243,9 @@ async exportStockRegister(productId: number, format: 'csv' | 'pdf' = 'csv'): Pro
      
 
       let query = `
-        SELECT i.*, 
-               CASE 
-                 WHEN i.customer_id = -1 THEN i.customer_name || ' (Guest)'
-                 ELSE COALESCE(c.name, i.customer_name)
-               END as customer_name,
-               c.phone as customer_phone,
-               c.address as customer_address
+        SELECT i.*, c.name as customer_name 
         FROM invoices i
-        LEFT JOIN customers c ON i.customer_id = c.id AND i.customer_id > 0
+        LEFT JOIN customers c ON i.customer_id = c.id
         WHERE 1=1
       `;
       const params: any[] = [];
@@ -9778,31 +9536,33 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
       console.log('✅ Customer record found:', customer);
   
-      // Get the most recent balance_after from customer_ledger_entries (most accurate)
-      console.log('💰 Getting outstanding balance from customer_ledger_entries...');
+      // Use customer_ledger_entries table instead of non-existent ledger table
+      console.log('💰 Calculating balance from customer_ledger_entries...');
       const balanceResult = await this.dbConnection.select(`
         SELECT 
-          balance_after as outstanding_balance
+          COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+          COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END), 0) as total_credits
         FROM customer_ledger_entries 
         WHERE customer_id = ?
-        ORDER BY date DESC, created_at DESC
-        LIMIT 1
       `, [id]);
       
       console.log('📊 Balance query result:', balanceResult);
       
-      let outstandingBalance = 0;
+      let calculatedBalance = 0;
       if (balanceResult && balanceResult[0]) {
-        outstandingBalance = parseFloat(balanceResult[0].outstanding_balance || 0);
+        const { total_debits, total_credits } = balanceResult[0];
+        calculatedBalance = (total_debits || 0) - (total_credits || 0);
       }
       
-      console.log(`💰 Outstanding balance from ledger: ${outstandingBalance}`);
+      // Also get the current balance from the customers table
+      const currentBalance = customer.balance || 0;
+      
+      console.log(`💰 Balance calculation: ledger=${calculatedBalance}, current=${currentBalance}`);
       
       return {
         ...customer,
-        total_balance: outstandingBalance, // Use outstanding balance from ledger entries
-        outstanding: outstandingBalance,   // Also provide as outstanding field
-        balance_after: outstandingBalance  // Include balance_after for compatibility
+        total_balance: customer.balance || 0, // CENTRALIZED SCHEMA: Map from 'balance' column for API compatibility
+        calculated_balance: calculatedBalance // Include calculated balance for comparison
       };
     } catch (error) {
       console.error('❌ Error getting customer with balance:', error);
@@ -10287,12 +10047,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       }
 
       const invoices = await this.safeSelect(`
-        SELECT 
-          i.*, 
-          CASE 
-            WHEN i.customer_id = -1 THEN i.customer_name
-            ELSE c.name
-          END as customer_name 
+        SELECT i.*, c.name as customer_name 
         FROM invoices i
         LEFT JOIN customers c ON i.customer_id = c.id
         ORDER BY i.created_at DESC
@@ -10320,12 +10075,7 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
       const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
       const invoices = await this.safeSelect(`
-        SELECT 
-          i.*, 
-          CASE 
-            WHEN i.customer_id = -1 THEN i.customer_name
-            ELSE c.name
-          END as customer_name 
+        SELECT i.*, c.name as customer_name 
         FROM invoices i
         LEFT JOIN customers c ON i.customer_id = c.id
         WHERE i.status != 'paid' 
@@ -11178,64 +10928,6 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     } catch (error) {
       console.warn('❌ [DB] Error creating default payment channels:', error);
       // Don't throw, this is a fallback mechanism
-    }
-  }
-
-  /**
-   * Get payment channel by payment method name
-   */
-  private async getPaymentChannelByMethod(paymentMethod: string): Promise<{id: number, name: string, type: string} | null> {
-    try {
-      // Map payment method strings to payment channel types
-      const methodToTypeMap: Record<string, string> = {
-        'cash': 'cash',
-        'bank': 'bank',
-        'bank_transfer': 'bank',
-        'transfer': 'bank',
-        'wire_transfer': 'bank',
-        'card': 'card',
-        'credit_card': 'card',
-        'debit_card': 'card',
-        'cheque': 'cheque',
-        'check': 'cheque',
-        'jazzcash': 'digital',
-        'easypaisa': 'digital',
-        'upi': 'digital',
-        'digital': 'digital',
-        'online': 'digital'
-      };
-
-      const channelType = methodToTypeMap[paymentMethod.toLowerCase()] || 'cash';
-      
-      // First try to find by exact name match
-      let result = await this.dbConnection.select(
-        'SELECT id, name, type FROM payment_channels WHERE LOWER(name) = LOWER(?) AND is_active = 1 LIMIT 1',
-        [paymentMethod]
-      );
-
-      if (result && result.length > 0) {
-        return result[0];
-      }
-
-      // Then try to find by type
-      result = await this.dbConnection.select(
-        'SELECT id, name, type FROM payment_channels WHERE type = ? AND is_active = 1 LIMIT 1',
-        [channelType]
-      );
-
-      if (result && result.length > 0) {
-        return result[0];
-      }
-
-      // Fallback to cash if nothing found
-      result = await this.dbConnection.select(
-        'SELECT id, name, type FROM payment_channels WHERE type = "cash" AND is_active = 1 LIMIT 1'
-      );
-
-      return result && result.length > 0 ? result[0] : null;
-    } catch (error) {
-      console.error('Error getting payment channel by method:', error);
-      return null;
     }
   }
 
@@ -14401,21 +14093,16 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
         return this.customerStatsCache.data;
       }
 
-      // Single optimized query to get all statistics using balance_after
+      // Single optimized query to get all statistics
       const stats = await this.safeSelect(`
         WITH customer_balances AS (
           SELECT 
             c.id,
             c.name,
-            -- Use most recent balance_after from ledger entries (most accurate)
-            COALESCE(
-              (SELECT balance_after 
-               FROM customer_ledger_entries cle_inner 
-               WHERE cle_inner.customer_id = c.id 
-               ORDER BY date DESC, created_at DESC 
-               LIMIT 1), 0
-            ) as outstanding_balance,
-            -- Total amount invoiced (all time) 
+            -- Calculate outstanding balance from ledger entries for accuracy
+            COALESCE(SUM(CASE WHEN cle.entry_type = 'debit' THEN cle.amount ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN cle.entry_type = 'credit' THEN cle.amount ELSE 0 END), 0) as outstanding_balance,
+            -- Total amount invoiced (all time)
             COALESCE(SUM(CASE WHEN cle.entry_type = 'debit' AND cle.transaction_type = 'invoice' THEN cle.amount ELSE 0 END), 0) as total_invoiced,
             -- Total amount paid (all time)
             COALESCE(SUM(CASE WHEN cle.entry_type = 'credit' AND cle.transaction_type = 'payment' THEN cle.amount ELSE 0 END), 0) as total_paid,
@@ -14530,6 +14217,144 @@ async getReceivingPaymentHistory(receivingId: number): Promise<any[]> {
     }
   }
 }
+
+// Export the original database service directly to avoid proxy issues
+export const db = DatabaseService.getInstance();
+
+// DEVELOPER: Expose both services to global window object for console access
+if (typeof window !== 'undefined') {
+  (window as any).db = db;
+  
+  // PERMANENT FIX: Expose cleanup function for manual execution
+  (window as any).cleanupDuplicateInvoiceEntries = async () => {
+    try {
+      console.log('🧹 Manual cleanup of duplicate invoice ledger entries...');
+      await db.cleanupDuplicateInvoiceLedgerEntries();
+      console.log('✅ Manual cleanup completed successfully!');
+      return true;
+    } catch (error) {
+      console.error('❌ Manual cleanup failed:', error);
+      return false;
+    }
+  };
+  
+  // OVERDUE MANAGEMENT: Expose overdue functions for manual execution
+  (window as any).updateCustomerOverdueStatus = async (customerId: number) => {
+    try {
+      console.log(`🔄 Updating overdue status for customer ${customerId}...`);
+      await db.updateCustomerOverdueStatus(customerId);
+      console.log(`✅ Overdue status updated for customer ${customerId}!`);
+      return true;
+    } catch (error) {
+      console.error(`❌ Overdue status update failed for customer ${customerId}:`, error);
+      return false;
+    }
+  };
+  
+  (window as any).updateAllOverdueCustomers = async () => {
+    try {
+      console.log('📅 Updating overdue status for all customers...');
+      await db.updateAllOverdueCustomers();
+      console.log('✅ All customer overdue statuses updated successfully!');
+      return true;
+    } catch (error) {
+      console.error('❌ Global overdue status update failed:', error);
+      return false;
+    }
+  };
+  
+  console.log('🔧 Database service exposed to window.db');
+  console.log('🧹 Manual cleanup function: cleanupDuplicateInvoiceEntries()');
+  console.log('⏰ Overdue functions: updateCustomerOverdueStatus(customerId), updateAllOverdueCustomers()');
+}
+  } = {
+    data: null,
+    timestamp: 0,
+    ttl: 30000 // 30 seconds cache
+  };
+
+  async getCustomerStatsSummary(): Promise<{
+    totalCustomers: number;
+    totalOutstanding: number;
+    totalPaidUp: number;
+    totalReceivables: number;
+    averageBalance: number;
+    activeCustomers: number;
+  }> {
+    try {
+      if (!this.isInitialized) await this.initialize();
+      
+      // Check cache first for performance
+      const now = Date.now();
+      if (this.customerStatsCache.data && 
+          (now - this.customerStatsCache.timestamp) < this.customerStatsCache.ttl) {
+        return this.customerStatsCache.data;
+      }
+
+      // Single optimized query to get all statistics
+      const stats = await this.safeSelect(`
+        WITH customer_balances AS (
+          SELECT 
+            c.id,
+            c.name,
+            -- Calculate outstanding balance from ledger entries for accuracy
+            COALESCE(SUM(CASE WHEN cle.entry_type = 'debit' THEN cle.amount ELSE 0 END), 0) -
+            COALESCE(SUM(CASE WHEN cle.entry_type = 'credit' THEN cle.amount ELSE 0 END), 0) as outstanding_balance,
+            -- Total amount invoiced (all time)
+            COALESCE(SUM(CASE WHEN cle.entry_type = 'debit' AND cle.transaction_type = 'invoice' THEN cle.amount ELSE 0 END), 0) as total_invoiced,
+            -- Total amount paid (all time)
+            COALESCE(SUM(CASE WHEN cle.entry_type = 'credit' AND cle.transaction_type = 'payment' THEN cle.amount ELSE 0 END), 0) as total_paid,
+            -- Check if customer has any transactions (active)
+            COUNT(cle.id) as transaction_count
+          FROM customers c
+          LEFT JOIN customer_ledger_entries cle ON c.id = cle.customer_id
+          GROUP BY c.id, c.name
+        )
+        SELECT 
+          COUNT(*) as total_customers,
+          COALESCE(SUM(CASE WHEN outstanding_balance > 0 THEN outstanding_balance ELSE 0 END), 0) as total_outstanding,
+          COUNT(CASE WHEN outstanding_balance = 0 AND total_paid > 0 THEN 1 END) as customers_paid_up,
+          COALESCE(SUM(outstanding_balance), 0) as total_receivables,
+          COALESCE(AVG(outstanding_balance), 0) as average_balance,
+          COUNT(CASE WHEN transaction_count > 0 THEN 1 END) as active_customers,
+          COALESCE(SUM(total_invoiced), 0) as grand_total_invoiced,
+          COALESCE(SUM(total_paid), 0) as grand_total_paid
+        FROM customer_balances
+      `);
+
+      const result = stats[0] || {};
+      
+      const customerStats = {
+        totalCustomers: parseInt(result.total_customers || 0),
+        totalOutstanding: parseFloat(result.total_outstanding || 0),
+        totalPaidUp: parseInt(result.customers_paid_up || 0),
+        totalReceivables: parseFloat(result.total_receivables || 0),
+        averageBalance: parseFloat(result.average_balance || 0),
+        activeCustomers: parseInt(result.active_customers || 0)
+      };
+
+      // Cache the results for performance
+      this.customerStatsCache = {
+        data: customerStats,
+        timestamp: now,
+        ttl: 30000
+      };
+
+      console.log('📊 Customer Statistics Summary:', customerStats);
+      return customerStats;
+
+    } catch (error) {
+      console.error('Error getting customer statistics:', error);
+      throw new Error(`Failed to get customer statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // Clear customer stats cache when relevant operations happen
+  private clearCustomerStatsCache(): void {
+    this.customerStatsCache.timestamp = 0;
+  }
+}
+
 // Export the original database service directly to avoid proxy issues
 export const db = DatabaseService.getInstance();
 

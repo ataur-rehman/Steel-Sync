@@ -51,11 +51,6 @@ export async function verifyDatabaseMethods(): Promise<{
     'getProductStockRegister',
     'updateStock',
     
-    // Loan methods
-    'getCustomerLoans',
-    'createLoanTransaction',
-    'getLoanLedger',
-    
     // Payment methods
     'createPayment',
     'getPayments',

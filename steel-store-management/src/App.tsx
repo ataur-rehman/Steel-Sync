@@ -3,14 +3,15 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import VendorDetail from './components/vendor/VendorDetail';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from './hooks/useAuth';
+import { useSafeAuth } from './hooks/withAuth';
 import { SafeAuthProvider } from './components/auth/AuthErrorBoundary';
+import AuthContextErrorHandler from './utils/authErrorHandler';
 import { NavigationProvider } from './hooks/useNavigation';
 import { settingsService } from './services/settingsService';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './components/dashboard/Dashboard';
 import ProductList from './components/products/ProductList';
 import CustomerList from './components/customers/CustomerList';
-import CustomerProfile from './components/customers/CustomerProfile';
 import InvoiceForm from './components/billing/InvoiceForm';
 import InvoiceList from './components/billing/InvoiceList';
 import InvoiceDetailsPage from './components/billing/InvoiceDetailsPage';
@@ -19,8 +20,6 @@ import CustomerLedger from './components/reports/CustomerLedger';
 import StockReport from './components/reports/StockReport';
 import StockReceivingList from './components/stock/StockReceivingList';
 import StockReceivingNew from './components/stock/StockReceivingNew';
-import LoanLedger from './components/loan/LoanLedger';
-import CustomerLoanDetail from './components/loan/CustomerLoanDetail';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
 import PaymentChannelDetail from './components/payment/PaymentChannelDetail';
 import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
@@ -47,11 +46,11 @@ import StockReceivingPayment from "./components/stock/StockReceivingPayment";
 import { Activity } from 'lucide-react';
 
 function LoginForm() {
-  const { login } = useAuth();
+  const { login } = useSafeAuth(); // Use safe auth hook to prevent crashes
   const [username, setUsername] = React.useState('admin');
   const [password, setPassword] = React.useState('admin123');
   const [loading, setLoading] = React.useState(false);
-const [companyName, setCompanyName] = React.useState('Itehad Iron Store');
+  const [companyName, setCompanyName] = React.useState('Itehad Iron Store');
 
   // Load company name from settings
   React.useEffect(() => {
@@ -232,12 +231,12 @@ function AppContent() {
             } />
             <Route path="/customers/:id" element={
               <ProtectedRoute module="customers" level="view">
-                <CustomerProfile />
+                <CustomerLedger />
               </ProtectedRoute>
             } />
             <Route path="/customers/:id/edit" element={
               <ProtectedRoute module="customers" level="edit">
-                <CustomerProfile />
+                <CustomerLedger />
               </ProtectedRoute>
             } />
             <Route path="/customers/:id/ledger" element={
@@ -289,11 +288,6 @@ function AppContent() {
             <Route path="/reports/daily" element={
               <ProtectedRoute module="reports" level="view">
                 <DailyLedger />
-              </ProtectedRoute>
-            } />
-            <Route path="/reports/customer" element={
-              <ProtectedRoute module="reports" level="view">
-                <CustomerLedger />
               </ProtectedRoute>
             } />
             <Route path="/reports/stock" element={
@@ -430,18 +424,7 @@ function AppContent() {
                 </div>
               </ProtectedRoute>
             } />
-            
-            {/* Loan Management */}
-            <Route path="/loan/ledger" element={
-              <ProtectedRoute module="reports" level="view">
-                <LoanLedger />
-              </ProtectedRoute>
-            } />
-            <Route path="/loan-detail/:customerId" element={
-              <ProtectedRoute module="reports" level="view">
-                <CustomerLoanDetail />
-              </ProtectedRoute>
-            } />
+        
             
             {/* Activity Timeline */}
             <Route path="/activity" element={
@@ -548,40 +531,51 @@ function AppContent() {
 }
 
 function App() {
+  // Install global auth error handler
+  React.useEffect(() => {
+    AuthContextErrorHandler.install();
+  }, []);
+
   return (
-    <SafeAuthProvider>
-      <AppContent />
-      <Toaster 
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            background: '#333',
-            color: '#fff',
-          },
-          success: {
+    <React.Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    }>
+      <SafeAuthProvider>
+        <AppContent />
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
             style: {
-              background: '#10B981',
+              background: '#333',
               color: '#fff',
             },
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#10B981',
+            success: {
+              style: {
+                background: '#10B981',
+                color: '#fff',
+              },
+              iconTheme: {
+                primary: '#fff',
+                secondary: '#10B981',
+              },
             },
-          },
-          error: {
-            style: {
-              background: '#EF4444',
-              color: '#fff',
+            error: {
+              style: {
+                background: '#EF4444',
+                color: '#fff',
+              },
+              iconTheme: {
+                primary: '#fff',
+                secondary: '#EF4444',
+              },
             },
-            iconTheme: {
-              primary: '#fff',
-              secondary: '#EF4444',
-            },
-          },
-        }}
-      />
-    </SafeAuthProvider>
+          }}
+        />
+      </SafeAuthProvider>
+    </React.Suspense>
   );
 }
 
