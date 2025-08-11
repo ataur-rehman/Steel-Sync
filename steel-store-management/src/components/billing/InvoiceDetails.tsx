@@ -48,6 +48,8 @@ interface InvoiceItem {
   unit_price: number;
   total_price: number;
   unit?: string;
+  length?: number;
+  pieces?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -75,6 +77,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [newItemQuantity, setNewItemQuantity] = useState('');
   const [newItemPrice, setNewItemPrice] = useState('');
+  const [newItemLength, setNewItemLength] = useState('');
+  const [newItemPieces, setNewItemPieces] = useState('');
   
   // Payment form
   const [newPayment, setNewPayment] = useState({
@@ -172,7 +176,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         quantity: newItemQuantity,
         unit_price: unitPrice,
         total_price: totalPrice,
-        unit: formatUnitString(newItemQuantity, selectedProduct.unit_type as any)
+        unit: formatUnitString(newItemQuantity, selectedProduct.unit_type as any),
+        length: newItemLength ? parseFloat(newItemLength) : undefined,
+        pieces: newItemPieces ? parseFloat(newItemPieces) : undefined
       };
 
       await db.addInvoiceItems(invoiceId, [newItem]);
@@ -182,6 +188,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       setSelectedProduct(null);
       setNewItemQuantity('');
       setNewItemPrice('');
+      setNewItemLength('');
+      setNewItemPieces('');
       await loadInvoiceDetails();
       
       if (onUpdate) {
@@ -210,33 +218,54 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   };
 
   const handleUpdateItemQuantity = async (itemId: number, newQuantity: string) => {
+    console.log(`🔄 [InvoiceDetails] Starting quantity update - itemId: ${itemId}, newQuantity: ${newQuantity}`);
+    
     try {
       setSaving(true);
       
       const item = invoice.items.find((i: InvoiceItem) => i.id === itemId);
-      if (!item) return;
+      if (!item) {
+        console.error(`❌ [InvoiceDetails] Item not found with id: ${itemId}`);
+        return;
+      }
+      console.log(`📄 [InvoiceDetails] Found item:`, item);
       
       const product = products.find(p => p.id === item.product_id);
-      if (!product) return;
+      if (!product) {
+        console.error(`❌ [InvoiceDetails] Product not found with id: ${item.product_id}`);
+        return;
+      }
+      console.log(`📦 [InvoiceDetails] Found product:`, product);
 
       const quantityValidation = validateUnit(newQuantity, product.unit_type as any);
+      console.log(`✅ [InvoiceDetails] Quantity validation:`, quantityValidation);
+      
       if (!quantityValidation.isValid) {
         toast.error(`Invalid quantity: ${quantityValidation.error}`);
         return;
       }
 
       const parsedQuantity = parseUnit(newQuantity, product.unit_type as any);
+      console.log(`⚖️ [InvoiceDetails] Parsed quantity:`, parsedQuantity);
+      
+      console.log(`🔧 [InvoiceDetails] Calling database updateInvoiceItemQuantity...`);
       await db.updateInvoiceItemQuantity(invoiceId, itemId, parsedQuantity.numericValue);
       
       toast.success('Quantity updated');
       setEditingItem(null);
+      
+      console.log(`📋 [InvoiceDetails] Reloading invoice details...`);
       await loadInvoiceDetails();
       
       if (onUpdate) {
+        console.log(`📢 [InvoiceDetails] Calling onUpdate callback...`);
         onUpdate();
       }
       
+      console.log(`✅ [InvoiceDetails] Quantity update completed successfully`);
+      
     } catch (error: any) {
+      console.error('❌ [InvoiceDetails] Error updating quantity:', error);
       toast.error(error.message || 'Failed to update item');
     } finally {
       setSaving(false);
@@ -442,7 +471,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             <div class="items-header">ITEMS</div>
             ${invoice.items?.map((item: any) => `
               <div class="item-row">
-                <div class="item-name">${item.product_name}</div>
+                <div class="item-name">${item.product_name}${item.length ? ` • ${item.length}/L` : ''}${item.pieces ? ` • ${item.pieces}/pcs` : ''}</div>
                 ${item.created_at ? `<div class="item-timestamp">Added: ${formatDateTime(item.created_at)}</div>` : ''}
                 ${item.updated_at && item.updated_at !== item.created_at ? `<div class="item-timestamp">Updated: ${formatDateTime(item.updated_at)}</div>` : ''}
                 <div class="item-details">
@@ -680,7 +709,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                       {invoice.items.map((item: InvoiceItem) => (
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
-                            <div className="font-medium text-gray-900">{item.product_name}</div>
+                            <div className="font-medium text-gray-900">
+                              {item.product_name}
+                              {item.length && ` • ${item.length}/L`}
+                              {item.pieces && ` • ${item.pieces}/pcs`}
+                            </div>
                             <div className="text-sm text-gray-500">ID: {item.product_id}</div>
                             <div className="text-xs text-gray-400">
                               Added: {formatDateTime(item.created_at || '')}
@@ -931,6 +964,35 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         step="0.1"
                       />
+                    </div>
+
+                    {/* Length and Pieces - Optional */}
+                    <div className="border-t pt-3 mt-3">
+                      <p className="text-sm font-medium text-gray-700 mb-2">Optional Details</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Length (L)</label>
+                          <input
+                            type="number"
+                            value={newItemLength}
+                            onChange={(e) => setNewItemLength(e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="e.g. 45"
+                            step="0.1"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Pieces</label>
+                          <input
+                            type="number"
+                            value={newItemPieces}
+                            onChange={(e) => setNewItemPieces(e.target.value)}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="e.g. 87"
+                            step="1"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </>
                 )}

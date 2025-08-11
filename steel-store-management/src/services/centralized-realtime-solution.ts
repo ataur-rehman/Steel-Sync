@@ -240,28 +240,20 @@ export class CentralizedRealtimeSolution {
           await this.db.dbConnection.execute(`
             INSERT INTO invoice_items (
               invoice_id, product_id, product_name, quantity, unit, unit_price,
-              rate, selling_price, line_total, amount, total_price, discount_type,
-              discount_rate, discount_amount, tax_rate, tax_amount, cost_price, profit_margin
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              rate, total_price, amount, length, pieces, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
           `, [
             invoiceId,
             item.product_id,
             item.product_name,
             item.quantity,
-            item.unit || 'kg',
+            item.unit || 'piece',
             item.unit_price,
-            item.unit_price,
-            item.unit_price,
+            item.unit_price, // rate
             item.total_price,
-            item.total_price,
-            item.total_price,
-            'percentage',
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
+            item.total_price, // amount
+            item.length || null,
+            item.pieces || null
           ]);
 
           // Update product stock

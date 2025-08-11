@@ -35,6 +35,8 @@ interface InvoiceItem {
   total_price: number;
   unit?: string;
   unit_type?: string;
+  length?: number;
+  pieces?: number;
 }
 
 export default function InvoiceView() {
@@ -77,6 +79,20 @@ export default function InvoiceView() {
 
       // Load invoice items
       const itemsData = await db.getInvoiceItems(invoiceId);
+      
+      // Debug: Log the items data to check L/pcs values
+      console.log('🔍 DEBUG: Invoice items data:', itemsData);
+      if (itemsData && itemsData.length > 0) {
+        itemsData.forEach((item, index) => {
+          console.log(`🔍 Item ${index + 1}:`, {
+            product_name: item.product_name,
+            length: item.length,
+            pieces: item.pieces,
+            hasLength: item.hasOwnProperty('length'),
+            hasPieces: item.hasOwnProperty('pieces')
+          });
+        });
+      }
 
       setInvoice(invoiceData);
       setInvoiceItems(itemsData || []);
@@ -279,7 +295,11 @@ export default function InvoiceView() {
                   {invoiceItems.map((item) => (
                     <tr key={item.id} className="border-b border-gray-100">
                       <td className="py-3">
-                        <div className="font-medium text-gray-900">{item.product_name}</div>
+                        <div className="font-medium text-gray-900">
+                          {item.product_name}
+                          {item.length && ` • ${item.length}/L`}
+                          {item.pieces && ` • ${item.pieces}/pcs`}
+                        </div>
                       </td>
                       <td className="py-3 text-right text-gray-900">
                         {formatUnitString(item.quantity.toString(), (item.unit_type || 'piece') as any)}

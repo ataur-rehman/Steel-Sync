@@ -55,6 +55,8 @@ export interface InvoiceItem {
   unit_price: number;
   total_price: number;
   max_quantity?: number;
+  length?: number;
+  pieces?: number;
 }
 
 // Enhanced invoice creation interface

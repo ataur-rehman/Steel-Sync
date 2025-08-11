@@ -102,6 +102,8 @@ interface InvoiceItem {
   quantity: string;
   unit_price: number;
   total_price: number;
+  length?: number;
+  pieces?: number;
 }
 
 interface DatabaseMetrics {
@@ -2056,6 +2058,105 @@ export class DatabaseService {
   }
 
   /**
+   * Ensure invoice_items table has length and pieces columns
+   */
+  /**
+   * CENTRALIZED PERFORMANCE SOLUTION: L/pcs data handler for invoice items
+   * Optimized for performance with graceful fallbacks through centralized abstraction
+   */
+  private prepareLPcsData(item: any): { length: number | null, pieces: number | null } {
+    return {
+      length: (item.length !== undefined && item.length !== null && !isNaN(Number(item.length))) ? Number(item.length) : null,
+      pieces: (item.pieces !== undefined && item.pieces !== null && !isNaN(Number(item.pieces))) ? Number(item.pieces) : null
+    };
+  }
+
+  /**
+   * CENTRALIZED SOLUTION: Ensure invoice_items table has proper schema
+   * Uses table recreation instead of ALTER TABLE migrations
+   */
+  private async ensureInvoiceItemsSchemaCompliance(): Promise<void> {
+    try {
+      console.log('🔧 [CENTRALIZED] Checking invoice_items schema compliance...');
+      
+      // Force check current table structure
+      let tableInfo: any[] = [];
+      try {
+        tableInfo = await this.dbConnection.select("PRAGMA table_info(invoice_items)");
+        console.log('📋 [DEBUG] Current invoice_items schema:', tableInfo.map((col: any) => ({ name: col.name, type: col.type })));
+      } catch (error) {
+        console.log('⚠️ [CENTRALIZED] Table does not exist, will be created with proper schema');
+        tableInfo = [];
+      }
+      
+      const hasLength = tableInfo.some((col: any) => col.name === 'length');
+      const hasPieces = tableInfo.some((col: any) => col.name === 'pieces');
+      
+      console.log('🔍 [DEBUG] Schema check results:', { hasLength, hasPieces, columnCount: tableInfo.length });
+      
+      if (!hasLength || !hasPieces || tableInfo.length === 0) {
+        console.log('🔄 [CENTRALIZED] Recreating invoice_items table with L/pcs support...');
+        
+        // Backup existing data if table exists
+        let existingData: any[] = [];
+        try {
+          existingData = await this.dbConnection.select('SELECT * FROM invoice_items');
+          console.log(`📦 [BACKUP] Backed up ${existingData.length} existing invoice items`);
+        } catch (error) {
+          console.log('📦 [BACKUP] No existing data to backup (new table)');
+        }
+        
+        // Drop and recreate with centralized schema
+        await this.dbConnection.execute('DROP TABLE IF EXISTS invoice_items');
+        console.log('🗑️ [CENTRALIZED] Dropped old invoice_items table');
+        
+        // Import schema from centralized schemas
+        const { DATABASE_SCHEMAS } = await import('./database-schemas');
+        await this.dbConnection.execute(DATABASE_SCHEMAS.INVOICE_ITEMS);
+        console.log('🏗️ [CENTRALIZED] Created new invoice_items table with L/pcs schema');
+        
+        // Verify new schema
+        const newTableInfo = await this.dbConnection.select("PRAGMA table_info(invoice_items)");
+        console.log('✅ [VERIFY] New schema:', newTableInfo.map((col: any) => ({ name: col.name, type: col.type })));
+        
+        // Restore data with L/pcs columns if we had any
+        if (existingData.length > 0) {
+          console.log(`🔄 [RESTORE] Restoring ${existingData.length} items with L/pcs support...`);
+          
+          for (const item of existingData) {
+            const lpcsData = this.prepareLPcsData(item);
+            try {
+              await this.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  id, invoice_id, product_id, product_name, quantity, unit_price, 
+                  rate, total_price, amount, unit, length, pieces, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                item.id, item.invoice_id, item.product_id, item.product_name, 
+                item.quantity, item.unit_price, item.rate || item.unit_price, 
+                item.total_price, item.amount || item.total_price, 
+                item.unit || 'piece', lpcsData.length, lpcsData.pieces,
+                item.created_at, item.updated_at
+              ]);
+            } catch (restoreError) {
+              console.warn('⚠️ [RESTORE] Failed to restore item:', item.id, restoreError);
+            }
+          }
+          console.log('✅ [RESTORE] Data restoration completed');
+        }
+        
+        console.log('✅ [CENTRALIZED] invoice_items table recreated with L/pcs schema');
+      } else {
+        console.log('✅ [CENTRALIZED] invoice_items schema already compliant');
+      }
+      
+    } catch (error) {
+      console.error('❌ [CENTRALIZED] Schema compliance error:', error);
+      // Don't fail initialization but log the error clearly
+    }
+  }
+
+  /**
    * PERMANENT SOLUTION: Create database triggers that automatically maintain correct payment status
    * These triggers ensure vendor payment calculations are always correct, even after database recreation
    */
@@ -2884,6 +2985,9 @@ export class DatabaseService {
         // CRITICAL: Never fail - graceful handling ensures continuity
       }
       
+      // CENTRALIZED SOLUTION: Ensure invoice_items has L/pcs columns before marking as ready
+      await this.ensureInvoiceItemsSchemaCompliance();
+      
       // PRODUCTION FIX: Mark as ready IMMEDIATELY after abstraction layer
       this.isInitialized = true;
       console.log('✅ [PERMANENT] Database marked as ready - NO schema modifications performed');
@@ -3446,29 +3550,67 @@ private async processInvoiceItem(
   // Insert invoice item - CENTRALIZED SCHEMA COMPLIANCE
   try {
     console.log(`🔄 Inserting invoice item: Invoice ID ${invoiceId}, Product ID ${item.product_id}`);
-    await this.dbConnection.execute(
-      `INSERT INTO invoice_items (
-        invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
-        selling_price, line_total, amount, total_price, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      [
-        invoiceId, 
-        item.product_id, 
-        product.name, 
-        item.quantity, 
-        product.unit || 'kg',
-        item.unit_price || 0, 
-        item.unit_price || 0, // rate (required)
-        item.unit_price || 0, // selling_price (required with DEFAULT 0)
-        item.total_price || 0, // line_total (NOT NULL required)
-        item.total_price || 0, // amount (NOT NULL required)
-        item.total_price || 0  // total_price (NOT NULL required)
-      ]
-    );
-    console.log(`✅ Invoice item inserted successfully`);
+    
+    // EMERGENCY FIX: Ensure L/pcs columns exist before insertion
+    await this.ensureInvoiceItemsSchemaCompliance();
+    
+    // Try comprehensive insert with length and pieces first
+    try {
+      const lpcsData = this.prepareLPcsData(item);
+      console.log(`🔍 [DEBUG] L/pcs data for insertion:`, lpcsData);
+      await this.dbConnection.execute(
+        `INSERT INTO invoice_items (
+          invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
+          total_price, amount, length, pieces, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [
+          invoiceId, 
+          item.product_id, 
+          product.name, 
+          item.quantity, 
+          product.unit || 'piece',
+          item.unit_price || 0, 
+          item.unit_price || 0, // rate (required)
+          item.total_price || 0, // total_price (NOT NULL required)
+          item.total_price || 0, // amount (NOT NULL required)
+          lpcsData.length, // length (centralized handling)
+          lpcsData.pieces  // pieces (centralized handling)
+        ]
+      );
+      console.log(`✅ [CENTRALIZED] Invoice item inserted with L/pcs support:`, { length: lpcsData.length, pieces: lpcsData.pieces });
+    } catch (columnError: any) {
+      console.warn(`⚠️ Length/pieces columns not available, using fallback insert:`, columnError.message);
+      
+      // Fallback to basic insert without length/pieces
+      await this.dbConnection.execute(
+        `INSERT INTO invoice_items (
+          invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
+          total_price, amount, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [
+          invoiceId, 
+          item.product_id, 
+          product.name, 
+          item.quantity, 
+          product.unit || 'piece',
+          item.unit_price || 0, 
+          item.unit_price || 0, // rate (required)
+          item.total_price || 0, // total_price (NOT NULL required)
+          item.total_price || 0  // amount (NOT NULL required)
+        ]
+      );
+      console.log(`✅ Invoice item inserted successfully (fallback mode)`);
+    }
   } catch (itemError: any) {
     console.error(`❌ Failed to insert invoice item:`, itemError);
     console.error(`❌ Invoice ID: ${invoiceId}, Product ID: ${item.product_id}`);
+    console.error(`❌ Item data:`, { 
+      product_name: product.name, 
+      quantity: item.quantity, 
+      unit_price: item.unit_price, 
+      length: item.length, 
+      pieces: item.pieces 
+    });
     
     // Check if invoice exists
     const invoiceCheck = await this.dbConnection.select('SELECT id FROM invoices WHERE id = ?', [invoiceId]);
@@ -3478,7 +3620,8 @@ private async processInvoiceItem(
     const productCheck = await this.dbConnection.select('SELECT id FROM products WHERE id = ?', [item.product_id]);
     console.log(`🔍 Product exists check:`, productCheck.length > 0 ? 'EXISTS' : 'NOT FOUND');
     
-    throw new Error(`Failed to insert invoice item: ${itemError.message}`);
+    const errorMessage = itemError?.message || itemError?.toString() || 'Unknown database error';
+    throw new Error(`Failed to insert invoice item: ${errorMessage}`);
   }
   
   // Update product stock
@@ -5347,61 +5490,126 @@ async adjustStock(productId: number, quantity: number, reason: string, notes: st
           
           try {
             // ROBUST SCHEMA APPROACH: Try comprehensive insert first, fallback to basic if needed
-            await this.dbConnection.execute(`
-              INSERT INTO invoice_items (
-                invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
-                selling_price, line_total, amount, total_price, 
-                discount_type, discount_rate, discount_amount, 
-                tax_rate, tax_amount, cost_price, profit_margin,
-                created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-              invoiceId, 
-              item.product_id, 
-              item.product_name, 
-              item.quantity, 
-              item.unit || 'kg', 
-              item.unit_price, 
-              item.unit_price, // rate = unit_price
-              item.unit_price, // selling_price = unit_price (required field with DEFAULT 0)
-              item.total_price, 
-              item.total_price, // amount = total_price
-              item.total_price, 
-              'percentage', // discount_type DEFAULT
-              0, // discount_rate DEFAULT
-              0, // discount_amount DEFAULT
-              0, // tax_rate DEFAULT
-              0, // tax_amount DEFAULT
-              0, // cost_price DEFAULT
-              0, // profit_margin DEFAULT
-              now, 
-              now
-            ]);
+            try {
+              await this.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
+                  selling_price, line_total, amount, total_price, 
+                  discount_type, discount_rate, discount_amount, 
+                  tax_rate, tax_amount, cost_price, profit_margin,
+                  length, pieces, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                invoiceId, 
+                item.product_id, 
+                item.product_name, 
+                item.quantity, 
+                item.unit || 'kg', 
+                item.unit_price, 
+                item.unit_price, // rate = unit_price
+                item.unit_price, // selling_price = unit_price (required field with DEFAULT 0)
+                item.total_price, 
+                item.total_price, // amount = total_price
+                item.total_price, 
+                'percentage', // discount_type DEFAULT
+                0, // discount_rate DEFAULT
+                0, // discount_amount DEFAULT
+                0, // tax_rate DEFAULT
+                0, // tax_amount DEFAULT
+                0, // cost_price DEFAULT
+                0, // profit_margin DEFAULT
+                item.length || null, // length (optional)
+                item.pieces || null, // pieces (optional)
+                now, 
+                now
+              ]);
 
-            console.log('✅ [PERMANENT] Item inserted:', item.product_name);
+              console.log('✅ [PERMANENT] Item inserted with length/pieces support:', item.product_name);
+            } catch (columnError: any) {
+              console.warn('⚠️ [PERMANENT] Length/pieces columns not available, using fallback:', columnError.message);
+              
+              // Fallback to comprehensive insert without length/pieces
+              await this.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
+                  selling_price, line_total, amount, total_price, 
+                  discount_type, discount_rate, discount_amount, 
+                  tax_rate, tax_amount, cost_price, profit_margin,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                invoiceId, 
+                item.product_id, 
+                item.product_name, 
+                item.quantity, 
+                item.unit || 'kg', 
+                item.unit_price, 
+                item.unit_price, // rate = unit_price
+                item.unit_price, // selling_price = unit_price (required field with DEFAULT 0)
+                item.total_price, 
+                item.total_price, // amount = total_price
+                item.total_price, 
+                'percentage', // discount_type DEFAULT
+                0, // discount_rate DEFAULT
+                0, // discount_amount DEFAULT
+                0, // tax_rate DEFAULT
+                0, // tax_amount DEFAULT
+                0, // cost_price DEFAULT
+                0, // profit_margin DEFAULT
+                now, 
+                now
+              ]);
+
+              console.log('✅ [PERMANENT] Item inserted (fallback mode):', item.product_name);
+            }
 
           } catch (schemaError) {
             console.warn('⚠️ [PERMANENT] Comprehensive insert failed, trying basic insert:', 
               schemaError instanceof Error ? schemaError.message : 'Unknown error');
             
             // Fallback to basic required fields only
-            await this.dbConnection.execute(`
-              INSERT INTO invoice_items (
-                invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-              invoiceId,
-              item.product_id,
-              item.product_name,
-              item.quantity,
-              item.unit_price,
-              item.total_price,
-              item.unit || 'kg',
-              now,
-              now
-            ]);
+            try {
+              await this.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, length, pieces, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                invoiceId,
+                item.product_id,
+                item.product_name,
+                item.quantity,
+                item.unit_price,
+                item.total_price,
+                item.unit || 'kg',
+                item.length || null,
+                item.pieces || null,
+                now,
+                now
+              ]);
 
-            console.log('✅ [PERMANENT] Item inserted (fallback):', item.product_name);
+              console.log('✅ [PERMANENT] Item inserted (basic with L/pcs):', item.product_name);
+            } catch (basicColumnError: any) {
+              console.warn('⚠️ [PERMANENT] Basic L/pcs insert failed, using minimal fallback:', basicColumnError.message);
+              
+              // Final fallback without length/pieces
+              await this.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                invoiceId,
+                item.product_id,
+                item.product_name,
+                item.quantity,
+                item.unit_price,
+                item.total_price,
+                item.unit || 'kg',
+                now,
+                now
+              ]);
+
+              console.log('✅ [PERMANENT] Item inserted (minimal fallback):', item.product_name);
+            }
           }
 
           // PERMANENT SOLUTION: Direct stock update using self-contained helpers
@@ -5681,36 +5889,50 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
    * Update quantity of an existing invoice item
    */
   async updateInvoiceItemQuantity(invoiceId: number, itemId: number, newQuantity: number): Promise<void> {
+    console.log(`🔄 [Database] Starting updateInvoiceItemQuantity - invoiceId: ${invoiceId}, itemId: ${itemId}, newQuantity: ${newQuantity}`);
+    
     try {
       if (!this.isInitialized) {
+        console.log('🔧 [Database] Initializing database connection...');
         await this.initialize();
       }
 
-     
-
+      console.log('🟢 [Database] Starting transaction for item quantity update');
       await this.dbConnection.execute('BEGIN TRANSACTION');
 
       try {
         // Get current item
+        console.log(`🔍 [Database] Fetching item with id: ${itemId}`);
         const items = await this.dbConnection.select('SELECT * FROM invoice_items WHERE id = ?', [itemId]);
         if (!items || items.length === 0) {
           throw new Error('Invoice item not found');
         }
 
         const currentItem = items[0];
+        console.log(`📄 [Database] Current item found:`, currentItem);
         
         // Get invoice details for later use
+        console.log(`🧾 [Database] Fetching invoice details for invoiceId: ${invoiceId}`);
         const invoice = await this.getInvoiceDetails(invoiceId);
+        console.log(`🧾 [Database] Invoice details:`, invoice);
         
         // Parse current item quantity to numeric value for comparison
+        console.log(`📦 [Database] Fetching product details for productId: ${currentItem.product_id}`);
         const product = await this.getProduct(currentItem.product_id);
+        console.log(`📦 [Database] Product details:`, product);
+        
         const currentQuantityData = parseUnit(currentItem.quantity, product.unit_type || 'kg-grams');
+        console.log(`⚖️ [Database] Current quantity data:`, currentQuantityData);
+        
         const quantityDifference = newQuantity - currentQuantityData.numericValue;
+        console.log(`📊 [Database] Quantity difference: ${quantityDifference} (new: ${newQuantity}, current: ${currentQuantityData.numericValue})`);
         
         // Check stock availability if increasing quantity
         if (quantityDifference > 0) {
+          console.log(`📋 [Database] Checking stock availability (quantity increase: +${quantityDifference})`);
           const product = await this.getProduct(currentItem.product_id);
           const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+          console.log(`📦 [Database] Current stock: ${currentStockData.numericValue}, Required: ${quantityDifference}`);
           
           if (currentStockData.numericValue < quantityDifference) {
             throw new Error(`Insufficient stock for ${product.name}`);
@@ -5718,28 +5940,36 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
         }
 
         // Update item - convert newQuantity back to proper format for storage
+        console.log(`💾 [Database] Preparing to update item quantity`);
         const newQuantityString = this.formatStockValue(newQuantity, product.unit_type || 'kg-grams');
+        console.log(`🔤 [Database] New quantity string format: ${newQuantityString}`);
         
         // CRITICAL FIX: Correct total price calculation based on unit type
         let newTotalPrice: number;
         if (product.unit_type === 'kg-grams' || product.unit_type === 'kg') {
           // For weight-based units, convert grams to kg for pricing (divide by 1000)
           newTotalPrice = (newQuantity / 1000) * currentItem.unit_price;
+          console.log(`💰 [Database] Weight-based pricing: ${newQuantity}/1000 * ${currentItem.unit_price} = ${newTotalPrice}`);
         } else {
           // For simple units (piece, bag, etc.), use the numeric value directly
           newTotalPrice = newQuantity * currentItem.unit_price;
+          console.log(`💰 [Database] Simple unit pricing: ${newQuantity} * ${currentItem.unit_price} = ${newTotalPrice}`);
         }
         
         // Update updated_at to current timestamp
         const now = new Date().toISOString();
+        console.log(`⏰ [Database] Updating item with timestamp: ${now}`);
+        
         await this.dbConnection.execute(`
           UPDATE invoice_items 
           SET quantity = ?, total_price = ?, updated_at = ? 
           WHERE id = ?
         `, [newQuantityString, newTotalPrice, now, itemId]);
+        console.log(`✅ [Database] Item quantity updated successfully`);
 
         // Update stock (negative means stock out, positive means stock back)
         if (quantityDifference !== 0) {
+          console.log(`📦 [Database] Updating product stock by ${-quantityDifference}`);
           await this.updateProductStock(
             currentItem.product_id, 
             -quantityDifference, 
@@ -5748,15 +5978,25 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
             invoiceId, 
             `Quantity update in ${invoice.bill_number}`
           );
+          console.log(`✅ [Database] Product stock updated`);
         }
 
         // Recalculate invoice totals
+        console.log(`🧮 [Database] Recalculating invoice totals`);
         await this.recalculateInvoiceTotals(invoiceId);
-await this.updateCustomerLedgerForInvoice(invoiceId);
+        console.log(`✅ [Database] Invoice totals recalculated`);
+        
+        console.log(`📋 [Database] Updating customer ledger`);
+        await this.updateCustomerLedgerForInvoice(invoiceId);
+        console.log(`✅ [Database] Customer ledger updated`);
+        
+        console.log(`✅ [Database] Committing transaction`);
         await this.dbConnection.execute('COMMIT');
+        console.log(`🎉 [Database] Transaction committed successfully`);
         
         // ENHANCED: Emit events for real-time component updates
         try {
+          console.log(`📢 [Database] Emitting update events`);
           // Emit invoice updated event with customer information
           eventBus.emit('INVOICE_UPDATED', {
             invoiceId,
@@ -5791,15 +6031,17 @@ await this.updateCustomerLedgerForInvoice(invoiceId);
             console.warn(`Failed to auto-update overdue status for customer ${invoice.customer_id} after quantity update:`, error);
           });
           
+          console.log(`📢 [Database] All update events emitted successfully`);
         } catch (error) {
           console.warn('Could not emit invoice quantity update events:', error);
         }
       } catch (error) {
+        console.error('❌ [Database] Error in transaction, rolling back:', error);
         await this.dbConnection.execute('ROLLBACK');
         throw error;
       }
     } catch (error) {
-      console.error('Error updating invoice item quantity:', error);
+      console.error('❌ [Database] Error updating invoice item quantity:', error);
       throw error;
     }
   }

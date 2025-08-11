@@ -70,6 +70,8 @@ interface InvoiceItem {
   unit: string;
   available_stock: number;
   unit_type?: string;
+  length?: number;
+  pieces?: number;
 }
 
 interface InvoiceFormData {
@@ -524,7 +526,9 @@ const InvoiceForm: React.FC = () => {
         total_price: calculateTotal(initialQuantityNum, currentProduct.rate_per_unit),
         unit: currentProduct.unit,
         available_stock: getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type),
-        unit_type: currentProduct.unit_type
+        unit_type: currentProduct.unit_type,
+        length: undefined,
+        pieces: undefined
       };
       setFormData(prev => ({ 
         ...prev, 
@@ -615,6 +619,53 @@ const InvoiceForm: React.FC = () => {
     setFormData(prev => ({ ...prev, items: newItems }));
   };
 
+  // Update item length or pieces
+  const updateItemLengthPieces = (itemId: string, field: 'length' | 'pieces' | 'clear', value?: number) => {
+    console.log('🔍 DEBUG: updateItemLengthPieces called:', { itemId, field, value, valueType: typeof value });
+    
+    const newItems = formData.items.map(item => {
+      if (item.id === itemId) {
+        console.log('🔍 DEBUG: Found matching item:', item.product_name, 'Current L/pcs:', { length: item.length, pieces: item.pieces });
+        
+        if (field === 'clear') {
+          console.log('🔍 DEBUG: Clearing L/pcs for item:', item.product_name);
+          return {
+            ...item,
+            length: undefined,
+            pieces: undefined
+          };
+        } else {
+          console.log(`🔍 DEBUG: Setting ${field} = ${value} (${typeof value}) for item:`, item.product_name);
+          const updatedItem = {
+            ...item,
+            [field]: value
+          };
+          console.log('🔍 DEBUG: Updated item result:', updatedItem);
+          return updatedItem;
+        }
+      }
+      return item;
+    });
+    
+    console.log('🔍 DEBUG: Updated items:', newItems.map(item => ({
+      id: item.id,
+      product_name: item.product_name,
+      length: item.length,
+      pieces: item.pieces,
+      lengthType: typeof item.length,
+      piecesType: typeof item.pieces
+    })));
+    
+    console.log('🔍 DEBUG: Full updated items array:', newItems);
+    
+    setFormData(prev => ({ ...prev, items: newItems }));
+    
+    // Debug: Check state after update
+    setTimeout(() => {
+      console.log('🔍 DEBUG: State after update:', formData.items.find(item => item.id === itemId));
+    }, 100);
+  };
+
   // Remove item
   const removeItem = (itemId: string) => {
     setFormData(prev => ({
@@ -634,8 +685,9 @@ const InvoiceForm: React.FC = () => {
       }
     } else {
       // For regular customers, check both formData and selectedCustomer
-      const hasValidCustomerId = formData.customer_id && Number.isInteger(formData.customer_id) && formData.customer_id > 0;
-      const hasValidSelectedCustomer = selectedCustomer && selectedCustomer.id && Number.isInteger(selectedCustomer.id) && selectedCustomer.id > 0;
+      // Note: Guest Customer has ID -1 and should be considered valid
+      const hasValidCustomerId = formData.customer_id && Number.isInteger(formData.customer_id) && (formData.customer_id > 0 || formData.customer_id === -1);
+      const hasValidSelectedCustomer = selectedCustomer && selectedCustomer.id && Number.isInteger(selectedCustomer.id) && (selectedCustomer.id > 0 || selectedCustomer.id === -1);
       
       if (!hasValidCustomerId && !hasValidSelectedCustomer) {
         newErrors.customer_id = 'Please select a valid customer';
@@ -760,7 +812,9 @@ const handleSubmit = async () => {
         product_name: item.product_name,
         quantity: item.quantity,
         unit_price: item.unit_price,
-        total_price: item.total_price
+        total_price: item.total_price,
+        length: item.length,
+        pieces: item.pieces
       })),
       discount: formData.discount,
       payment_amount,
@@ -769,6 +823,18 @@ const handleSubmit = async () => {
       payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
       notes: formData.notes
     };
+    
+    // Debug: Log items with L/pcs data before sending to database
+    console.log('🔍 DEBUG: Creating invoice with items:', invoiceData.items);
+    invoiceData.items.forEach((item, index) => {
+      console.log(`🔍 Form Item ${index + 1}:`, {
+        product_name: item.product_name,
+        length: item.length,
+        pieces: item.pieces,
+        lengthType: typeof item.length,
+        piecesType: typeof item.pieces
+      });
+    });
     
     console.log('Creating invoice:', invoiceData);
     
@@ -1283,9 +1349,50 @@ const getSubmitButtonText = () => {
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2">
                             <div>
-                              <div className="font-medium text-gray-900">{item.product_name}</div>
+                              <div className="font-medium text-gray-900">
+                                {/* Display product name with length/pieces if they exist */}
+                                {item.product_name}
+                                {item.length && ` • ${item.length}/L`}
+                                {item.pieces && ` • ${item.pieces}/pcs`}
+                              </div>
                               <div className="text-xs text-gray-500">
                                 Available: {formattedAvailableStock}
+                              </div>
+                              {/* Quick add L/pcs buttons */}
+                              <div className="flex items-center gap-1 mt-1">
+                                <button
+                                  onClick={() => {
+                                    const value = prompt('Enter length (L):');
+                                    if (value && !isNaN(Number(value))) {
+                                      updateItemLengthPieces(item.id, 'length', Number(value));
+                                    }
+                                  }}
+                                  className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded border border-blue-200"
+                                  title="Add length (L)"
+                                >
+                                  +L
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    const value = prompt('Enter pieces:');
+                                    if (value && !isNaN(Number(value))) {
+                                      updateItemLengthPieces(item.id, 'pieces', Number(value));
+                                    }
+                                  }}
+                                  className="text-xs px-1.5 py-0.5 bg-green-50 text-green-600 hover:bg-green-100 rounded border border-green-200"
+                                  title="Add pieces"
+                                >
+                                  +pcs
+                                </button>
+                                {(item.length || item.pieces) && (
+                                  <button
+                                    onClick={() => updateItemLengthPieces(item.id, 'clear')}
+                                    className="text-xs px-1.5 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 rounded border border-red-200"
+                                    title="Clear L/pcs"
+                                  >
+                                    ×
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </td>

@@ -171,6 +171,8 @@ export const DATABASE_SCHEMAS = {
       total_price REAL NOT NULL CHECK (total_price >= 0),
       amount REAL NOT NULL CHECK (amount >= 0),
       unit TEXT DEFAULT 'piece',
+      length REAL DEFAULT NULL,
+      pieces REAL DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
