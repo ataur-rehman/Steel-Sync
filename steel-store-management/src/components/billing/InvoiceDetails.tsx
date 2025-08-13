@@ -42,7 +42,7 @@ interface InvoiceDetailsProps {
 
 interface InvoiceItem {
   id: number;
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   quantity: number;
   unit_price: number;
@@ -50,6 +50,8 @@ interface InvoiceItem {
   unit?: string;
   length?: number;
   pieces?: number;
+  is_misc_item?: boolean;
+  misc_description?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -80,6 +82,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const [newItemLength, setNewItemLength] = useState('');
   const [newItemPieces, setNewItemPieces] = useState('');
 
+  // Miscellaneous item state
+  const [itemType, setItemType] = useState<'product' | 'misc'>('product');
+  const [miscItemDescription, setMiscItemDescription] = useState('');
+  const [miscItemPrice, setMiscItemPrice] = useState('');
+
   // Payment form
   const [newPayment, setNewPayment] = useState({
     amount: '',
@@ -95,6 +102,18 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
   // Item editing
   const [editQuantity, setEditQuantity] = useState('');
+
+  // Function to reset add item form
+  const resetAddItemForm = () => {
+    setItemType('product');
+    setSelectedProduct(null);
+    setNewItemQuantity('');
+    setNewItemPrice('');
+    setNewItemLength('');
+    setNewItemPieces('');
+    setMiscItemDescription('');
+    setMiscItemPrice('');
+  };
 
   useEffect(() => {
     loadInvoiceDetails();
@@ -142,6 +161,63 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   };
 
   const handleAddItem = async () => {
+    if (itemType === 'misc') {
+      // Handle miscellaneous item
+      if (!miscItemDescription.trim() || !miscItemPrice || parseFloat(miscItemPrice) <= 0) {
+        toast.error('Please enter item description and valid price');
+        return;
+      }
+
+      try {
+        setSaving(true);
+
+        const newMiscItem = {
+          product_id: null,
+          product_name: miscItemDescription.trim(),
+          quantity: '1',
+          unit_price: parseFloat(miscItemPrice),
+          total_price: parseFloat(miscItemPrice),
+          unit: 'item',
+          is_misc_item: true,
+          misc_description: miscItemDescription.trim()
+        };
+
+        await db.addInvoiceItems(invoiceId, [newMiscItem]);
+
+        toast.success('Miscellaneous item added successfully');
+        setShowAddItem(false);
+        resetAddItemForm();
+        await loadInvoiceDetails();
+
+        if (onUpdate) {
+          onUpdate();
+        }
+
+        try {
+          if (typeof window !== 'undefined') {
+            const eventBus = (window as any).eventBus;
+            if (eventBus && eventBus.emit) {
+              eventBus.emit('INVOICE_DETAILS_UPDATED', {
+                invoiceId,
+                action: 'misc_item_added',
+                customerId: invoice?.customer_id
+              });
+            }
+          }
+        } catch (error) {
+          console.warn('Could not emit invoice details update event:', error);
+        }
+
+      } catch (error: any) {
+        console.error('Error adding miscellaneous item:', error);
+        toast.error(error.message || 'Failed to add miscellaneous item');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Handle regular product item
     if (!selectedProduct || !newItemQuantity || !newItemPrice) {
       toast.error('Please fill all required fields');
       return;
@@ -185,11 +261,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
       toast.success('Item added successfully');
       setShowAddItem(false);
-      setSelectedProduct(null);
-      setNewItemQuantity('');
-      setNewItemPrice('');
-      setNewItemLength('');
-      setNewItemPieces('');
+      resetAddItemForm();
       await loadInvoiceDetails();
 
       if (onUpdate) {
@@ -688,12 +760,24 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                       {invoice.items.map((item: InvoiceItem) => (
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
-                            <div className="font-medium text-gray-900">
+                            <div className="font-medium text-gray-900 flex items-center">
+                              {/* Show icon for misc vs product items */}
+                              {item.is_misc_item ? (
+                                <span className="mr-2 text-blue-600" title="Miscellaneous Item"></span>
+                              ) : (
+                                <span className="mr-2 text-green-600" title="Product Item"></span>
+                              )}
                               {item.product_name}
                               {item.length && ` • ${item.length}/L`}
                               {item.pieces && ` • ${item.pieces}/pcs`}
                             </div>
-                            <div className="text-sm text-gray-500">ID: {item.product_id}</div>
+                            <div className="text-sm text-gray-500">
+                              {item.is_misc_item ? (
+                                'Miscellaneous Item'
+                              ) : (
+                                `ID: ${item.product_id}`
+                              )}
+                            </div>
                             <div className="text-xs text-gray-400">
                               Added: {formatDateTime(item.created_at || '')}
                               {item.updated_at && item.updated_at !== item.created_at && (
@@ -702,41 +786,45 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                             </div>
                           </td>
                           <td className="px-4 py-3">
-                            {editingItem === item.id ? (
-                              <div className="flex items-center space-x-2">
-                                <input
-                                  type="text"
-                                  value={editQuantity}
-                                  onChange={(e) => setEditQuantity(e.target.value)}
-                                  className="w-20 px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500"
-                                />
-                                <button
-                                  onClick={() => handleUpdateItemQuantity(item.id, editQuantity)}
-                                  disabled={saving}
-                                  className="p-1 text-green-600 hover:text-green-800"
-                                >
-                                  <Save className="h-4 w-4" />
-                                </button>
-                                <button
-                                  onClick={() => setEditingItem(null)}
-                                  className="p-1 text-gray-600 hover:text-gray-800"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
+                            {item.is_misc_item ? (
+                              <span className="text-sm text-gray-500">1 item</span>
                             ) : (
-                              <div className="flex items-center space-x-2">
-                                <span className="text-sm">{item.quantity}</span>
-                                <button
-                                  onClick={() => {
-                                    setEditingItem(item.id);
-                                    setEditQuantity(item.quantity.toString());
-                                  }}
-                                  className="p-1 text-blue-600 hover:text-blue-800"
-                                >
-                                  <Edit2 className="h-3 w-3" />
-                                </button>
-                              </div>
+                              editingItem === item.id ? (
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="text"
+                                    value={editQuantity}
+                                    onChange={(e) => setEditQuantity(e.target.value)}
+                                    className="w-20 px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500"
+                                  />
+                                  <button
+                                    onClick={() => handleUpdateItemQuantity(item.id, editQuantity)}
+                                    disabled={saving}
+                                    className="p-1 text-green-600 hover:text-green-800"
+                                  >
+                                    <Save className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingItem(null)}
+                                    className="p-1 text-gray-600 hover:text-gray-800"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-sm">{item.quantity}</span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingItem(item.id);
+                                      setEditQuantity(item.quantity.toString());
+                                    }}
+                                    className="p-1 text-blue-600 hover:text-blue-800"
+                                  >
+                                    <Edit2 className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              )
                             )}
                           </td>
                           <td className="px-4 py-3 text-sm">{formatCurrency(item.unit_price)}</td>
@@ -891,7 +979,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               <div className="flex items-center justify-between px-6 py-4 border-b">
                 <h2 className="text-lg font-semibold text-gray-900">Add Item</h2>
                 <button
-                  onClick={() => setShowAddItem(false)}
+                  onClick={() => {
+                    setShowAddItem(false);
+                    resetAddItemForm();
+                  }}
                   className="p-2 hover:bg-gray-100 rounded-lg"
                 >
                   <X className="h-5 w-5" />
@@ -899,93 +990,153 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               </div>
 
               <div className="p-6 space-y-4">
+                {/* Item Type Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Product</label>
-                  <select
-                    value={selectedProduct?.id || ''}
-                    onChange={(e) => {
-                      const product = products.find(p => p.id === parseInt(e.target.value));
-                      setSelectedProduct(product || null);
-                      setNewItemPrice(product?.rate_per_unit.toString() || '');
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select a product</option>
-                    {products.map(product => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Item Type</label>
+                  <div className="flex space-x-4">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="product"
+                        checked={itemType === 'product'}
+                        onChange={(e) => setItemType(e.target.value as 'product' | 'misc')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Product</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="misc"
+                        checked={itemType === 'misc'}
+                        onChange={(e) => setItemType(e.target.value as 'product' | 'misc')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Miscellaneous Item</span>
+                    </label>
+                  </div>
                 </div>
 
-                {selectedProduct && (
+                {itemType === 'product' ? (
                   <>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Quantity ({getUnitTypeConfig(selectedProduct.unit_type as any).symbol})
-                      </label>
-                      <input
-                        type="text"
-                        value={newItemQuantity}
-                        onChange={(e) => setNewItemQuantity(e.target.value)}
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Product</label>
+                      <select
+                        value={selectedProduct?.id || ''}
+                        onChange={(e) => {
+                          const product = products.find(p => p.id === parseInt(e.target.value));
+                          setSelectedProduct(product || null);
+                          setNewItemPrice(product?.rate_per_unit.toString() || '');
+                        }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        placeholder={getUnitTypeConfig(selectedProduct.unit_type as any).examples[0]}
-                      />
+                      >
+                        <option value="">Select a product</option>
+                        {products.map(product => (
+                          <option key={product.id} value={product.id}>
+                            {product.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Unit Price (Rs.)</label>
-                      <input
-                        type="number"
-                        value={newItemPrice}
-                        onChange={(e) => setNewItemPrice(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        step="0.1"
-                      />
-                    </div>
-
-                    {/* Length and Pieces - Optional */}
-                    <div className="border-t pt-3 mt-3">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Optional Details</p>
-                      <div className="grid grid-cols-2 gap-3">
+                    {selectedProduct && (
+                      <>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Length (L)</label>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Quantity ({getUnitTypeConfig(selectedProduct.unit_type as any).symbol})
+                          </label>
+                          <input
+                            type="text"
+                            value={newItemQuantity}
+                            onChange={(e) => setNewItemQuantity(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder={getUnitTypeConfig(selectedProduct.unit_type as any).examples[0]}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Unit Price (Rs.)</label>
                           <input
                             type="number"
-                            value={newItemLength}
-                            onChange={(e) => setNewItemLength(e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="e.g. 45"
+                            value={newItemPrice}
+                            onChange={(e) => setNewItemPrice(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             step="0.1"
                           />
                         </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Pieces</label>
-                          <input
-                            type="number"
-                            value={newItemPieces}
-                            onChange={(e) => setNewItemPieces(e.target.value)}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="e.g. 87"
-                            step="1"
-                          />
+
+                        {/* Length and Pieces - Optional */}
+                        <div className="border-t pt-3 mt-3">
+                          <p className="text-sm font-medium text-gray-700 mb-2">Optional Details</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Length (L)</label>
+                              <input
+                                type="number"
+                                value={newItemLength}
+                                onChange={(e) => setNewItemLength(e.target.value)}
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="e.g. 45"
+                                step="0.1"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-gray-600 mb-1">Pieces</label>
+                              <input
+                                type="number"
+                                value={newItemPieces}
+                                onChange={(e) => setNewItemPieces(e.target.value)}
+                                className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="e.g. 87"
+                                step="1"
+                              />
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Item Description</label>
+                      <input
+                        type="text"
+                        value={miscItemDescription}
+                        onChange={(e) => setMiscItemDescription(e.target.value)}
+                        placeholder="Enter item description (e.g., Rent, Fare, Service charge)"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Price (Rs.)</label>
+                      <input
+                        type="number"
+                        value={miscItemPrice}
+                        onChange={(e) => setMiscItemPrice(e.target.value)}
+                        placeholder="Enter price"
+                        min="0"
+                        step="0.01"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
                     </div>
                   </>
                 )}
 
                 <div className="flex justify-end space-x-3 pt-4">
                   <button
-                    onClick={() => setShowAddItem(false)}
+                    onClick={() => {
+                      setShowAddItem(false);
+                      resetAddItemForm();
+                    }}
                     className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleAddItem}
-                    disabled={saving || !selectedProduct || !newItemQuantity || !newItemPrice}
+                    disabled={saving || (itemType === 'product' && (!selectedProduct || !newItemQuantity || !newItemPrice)) || (itemType === 'misc' && (!miscItemDescription.trim() || !miscItemPrice || parseFloat(miscItemPrice) <= 0))}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {saving ? (
@@ -1073,8 +1224,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           setNewPayment({ ...newPayment, payment_method: channel.name });
                         }}
                         className={`p-2 text-sm rounded-lg border text-center transition-colors ${selectedPaymentChannel?.id === channel.id
-                            ? 'border-green-500 bg-green-50 text-green-700'
-                            : 'border-gray-300 hover:bg-gray-50'
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-gray-300 hover:bg-gray-50'
                           }`}
                       >
                         <div className="font-medium">{channel.name}</div>

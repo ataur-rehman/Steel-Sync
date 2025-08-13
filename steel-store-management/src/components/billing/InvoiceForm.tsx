@@ -9,11 +9,11 @@ import { calculateTotal, calculateDiscount, formatCurrency } from '../../utils/c
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import Modal from '../common/Modal';
 import CustomerForm from '../customers/CustomerForm';
-import { 
-  Search, 
-  Trash2, 
-  User, 
-  Package, 
+import {
+  Search,
+  Trash2,
+  User,
+  Package,
   Calculator,
   AlertTriangle,
   CheckCircle,
@@ -62,7 +62,7 @@ interface Product {
 
 interface InvoiceItem {
   id: string;
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   quantity: string;
   unit_price: number;
@@ -72,10 +72,12 @@ interface InvoiceItem {
   unit_type?: string;
   length?: number;
   pieces?: number;
+  is_misc_item?: boolean;
+  misc_description?: string;
 }
 
 interface InvoiceFormData {
-  
+
   customer_id: number | null;
   items: InvoiceItem[];
   discount: number;
@@ -106,9 +108,9 @@ const InvoiceForm: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const activityLogger = useActivityLogger();
-  
+
   // Helper function to convert quantity string to numeric value for calculations - YOUR FUNCTION
-    const getQuantityAsNumber = (quantityString: string, unitType?: string): number => {
+  const getQuantityAsNumber = (quantityString: string, unitType?: string): number => {
     try {
       const parsed = parseUnit(quantityString, unitType as any || 'kg-grams');
       return parsed.numericValue;
@@ -141,14 +143,14 @@ const InvoiceForm: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  
+
   const [customerSearch, setCustomerSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [stockPreview, setStockPreview] = useState<StockPreview[]>([]);
-  
+
   // Guest customer and quick creation states
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [guestCustomer, setGuestCustomer] = useState<GuestCustomer>({
@@ -157,12 +159,16 @@ const InvoiceForm: React.FC = () => {
     address: ''
   });
   const [showCustomerModal, setShowCustomerModal] = useState(false);
-  
+
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showStockWarning, setShowStockWarning] = useState(false);
+
+  // Miscellaneous item state
+  const [miscItemDescription, setMiscItemDescription] = useState('');
+  const [miscItemPrice, setMiscItemPrice] = useState(0);
 
   // Initialize data - YOUR ORIGINAL FUNCTION
   useEffect(() => {
@@ -177,7 +183,7 @@ const InvoiceForm: React.FC = () => {
       const channels = await db.getPaymentChannels(false); // Only active channels
       console.log('✅ [InvoiceForm] Raw channels response:', channels);
       console.log('📊 [InvoiceForm] Number of channels:', channels?.length || 0);
-      
+
       if (channels && channels.length > 0) {
         setPaymentChannels(channels);
         const defaultChannel = channels[0];
@@ -228,7 +234,7 @@ const InvoiceForm: React.FC = () => {
       const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
       const discountAmount = (grandTotal * formData.discount) / 100;
       const finalTotal = grandTotal - discountAmount;
-      
+
       // Only update if payment amount is different to avoid infinite loops
       if (formData.payment_amount !== finalTotal) {
         setFormData(prev => ({
@@ -245,17 +251,17 @@ const InvoiceForm: React.FC = () => {
         setLoading(true);
       }
       await db.initialize();
-      
+
       const [customerList, productList] = await Promise.all([
         db.getCustomers(),
         db.getProducts()
       ]);
-      
+
       setCustomers(customerList);
       setProducts(productList);
       setFilteredCustomers(customerList);
       setFilteredProducts(productList);
-      
+
       console.log('Loaded data:', { customers: customerList.length, products: productList.length });
       console.log('Current product stocks:', productList.map((p: Product) => `${p.name}: ${p.current_stock}`));
     } catch (error) {
@@ -275,7 +281,7 @@ const InvoiceForm: React.FC = () => {
       const productList = await db.getProducts();
       setProducts(productList);
       setFilteredProducts(productList);
-      
+
       const updatedItems = formData.items.map((item: InvoiceItem) => {
         const updatedProduct = productList.find((p: Product) => p.id === item.product_id);
         if (updatedProduct) {
@@ -287,9 +293,9 @@ const InvoiceForm: React.FC = () => {
         }
         return item;
       });
-      
+
       setFormData(prev => ({ ...prev, items: updatedItems }));
-      
+
       console.log('Product data refreshed:', productList.map((p: Product) => `${p.name}: ${p.current_stock}`));
       toast.success('Product stock data refreshed');
     } catch (error) {
@@ -302,19 +308,24 @@ const InvoiceForm: React.FC = () => {
 
   const updateStockPreview = () => {
     const previews: StockPreview[] = [];
-    
+
     formData.items.forEach(item => {
+      // Skip stock preview for miscellaneous items
+      if (item.is_misc_item || !item.product_id) {
+        return;
+      }
+
       const product = products.find(p => p.id === item.product_id);
       if (product) {
         const newStock = getStockAsNumber(product.current_stock, product.unit_type) - getQuantityAsNumber(item.quantity, product.unit_type);
         let status: 'ok' | 'low' | 'insufficient' = 'ok';
-        
+
         if (newStock < 0) {
           status = 'insufficient';
         } else if (newStock <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)) {
           status = 'low';
         }
-        
+
         previews.push({
           product_id: item.product_id,
           product_name: item.product_name,
@@ -325,7 +336,7 @@ const InvoiceForm: React.FC = () => {
         });
       }
     });
-    
+
     setStockPreview(previews);
     setShowStockWarning(previews.some(p => p.status === 'insufficient' || p.status === 'low'));
   };
@@ -381,7 +392,7 @@ const InvoiceForm: React.FC = () => {
     setIsGuestMode(newGuestMode);
     setSelectedCustomer(null);
     setGuestCustomer({ name: '', phone: '', address: '' });
-    
+
     setFormData(prev => {
       // If switching TO guest mode, set payment amount to full total (no credit allowed)
       if (newGuestMode && prev.items.length > 0) {
@@ -390,7 +401,7 @@ const InvoiceForm: React.FC = () => {
       }
       return { ...prev, customer_id: null };
     });
-    
+
     setCustomerSearch('');
     setErrors(prev => ({ ...prev, customer_id: '' }));
   };
@@ -403,26 +414,26 @@ const InvoiceForm: React.FC = () => {
   // Handle successful customer creation from modal
   const handleCustomerCreated = async () => {
     setShowCustomerModal(false);
-    
+
     try {
       // Store the original customer count to identify the new customer
       const originalCount = customers.length;
-      
+
       // Refresh customer list
       const updatedCustomers = await db.getCustomers();
       setCustomers(updatedCustomers);
       setFilteredCustomers(updatedCustomers);
-      
+
       // Find the newly created customer by comparing with original list
       // The new customer should be the one not in the original list
       let newCustomer = null;
-      
+
       if (updatedCustomers.length > originalCount) {
         // Find customer that wasn't in the original list
         const originalIds = new Set(customers.map(c => c.id));
         newCustomer = updatedCustomers.find(c => !originalIds.has(c.id));
       }
-      
+
       if (newCustomer) {
         selectCustomer(newCustomer);
         toast.success(`Customer "${newCustomer.name}" created and selected successfully!`);
@@ -530,19 +541,63 @@ const InvoiceForm: React.FC = () => {
         length: undefined,
         pieces: undefined
       };
-      setFormData(prev => ({ 
-        ...prev, 
-        items: [...prev.items, newItem] 
+      setFormData(prev => ({
+        ...prev,
+        items: [...prev.items, newItem]
       }));
     }
-    
+
     setProductSearch('');
     setShowProductDropdown(false);
     toast.success(`${currentProduct.name} added to invoice`);
   };
 
+  // Add miscellaneous item function
+  const addMiscItem = () => {
+    if (!miscItemDescription.trim()) {
+      toast.error('Please enter item description');
+      return;
+    }
+    if (!miscItemPrice || miscItemPrice <= 0) {
+      toast.error('Please enter valid price');
+      return;
+    }
+
+    const newMiscItem: InvoiceItem = {
+      id: `misc_${Date.now()}_${Math.random()}`,
+      product_id: null,
+      product_name: miscItemDescription.trim(),
+      quantity: '1',
+      unit_price: miscItemPrice,
+      total_price: miscItemPrice,
+      unit: 'item',
+      available_stock: 0,
+      unit_type: 'pieces',
+      length: undefined,
+      pieces: undefined,
+      is_misc_item: true,
+      misc_description: miscItemDescription.trim()
+    };
+
+    setFormData(prev => ({
+      ...prev,
+      items: [...prev.items, newMiscItem]
+    }));
+
+    // Clear misc item inputs
+    setMiscItemDescription('');
+    setMiscItemPrice(0);
+    toast.success('Miscellaneous item added to invoice');
+  };
+
   // YOUR ORIGINAL UPDATE QUANTITY FUNCTION
   const updateItemQuantity = (itemId: string, newQuantityString: string) => {
+    // Check if this is a miscellaneous item - they can't have quantity changed
+    const targetItem = formData.items.find(item => item.id === itemId);
+    if (targetItem?.is_misc_item) {
+      return; // Don't allow quantity changes for misc items
+    }
+
     // If quantity is empty, keep it empty and do not remove or reset
     if (newQuantityString === '' || newQuantityString.trim() === '') {
       const newItems = formData.items.map(item => {
@@ -561,15 +616,15 @@ const InvoiceForm: React.FC = () => {
       if (item.id === itemId) {
         const currentProduct = products.find(p => p.id === item.product_id);
         if (!currentProduct) return item;
-        
+
         if (!isStockSufficient(currentProduct.current_stock, newQuantityString, currentProduct.unit_type)) {
           toast.error(`Cannot exceed available stock (${formatUnitString(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams')})`);
           return item;
         }
-        
+
         const newQuantityNum = getQuantityAsNumber(newQuantityString, currentProduct.unit_type);
         const availableStock = getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams');
-        
+
         let newTotalPrice = 0;
         if (currentProduct.unit_type === 'kg-grams') {
           const parsed = parseUnit(newQuantityString, 'kg-grams');
@@ -579,7 +634,7 @@ const InvoiceForm: React.FC = () => {
         } else {
           newTotalPrice = newQuantityNum * item.unit_price;
         }
-        
+
         return {
           ...item,
           quantity: newQuantityString,
@@ -597,17 +652,25 @@ const InvoiceForm: React.FC = () => {
   const updateItemPrice = (itemId: string, newPrice: number) => {
     const newItems = formData.items.map(item => {
       if (item.id === itemId) {
-        const currentProduct = products.find(p => p.id === item.product_id);
         let newTotalPrice = 0;
-        if (currentProduct?.unit_type === 'kg-grams') {
-          const parsed = parseUnit(item.quantity, 'kg-grams');
-          const kg = typeof parsed.kg === 'number' ? parsed.kg : 0;
-          const grams = typeof parsed.grams === 'number' ? parsed.grams : 0;
-          newTotalPrice = (kg + grams / 1000) * newPrice;
+
+        // Handle miscellaneous items
+        if (item.is_misc_item) {
+          newTotalPrice = newPrice; // For misc items, total = price (quantity is always 1)
         } else {
-          const quantityNum = getQuantityAsNumber(item.quantity, currentProduct?.unit_type);
-          newTotalPrice = quantityNum * newPrice;
+          // Handle product items
+          const currentProduct = products.find(p => p.id === item.product_id);
+          if (currentProduct?.unit_type === 'kg-grams') {
+            const parsed = parseUnit(item.quantity, 'kg-grams');
+            const kg = typeof parsed.kg === 'number' ? parsed.kg : 0;
+            const grams = typeof parsed.grams === 'number' ? parsed.grams : 0;
+            newTotalPrice = (kg + grams / 1000) * newPrice;
+          } else {
+            const quantityNum = getQuantityAsNumber(item.quantity, currentProduct?.unit_type);
+            newTotalPrice = quantityNum * newPrice;
+          }
         }
+
         return {
           ...item,
           unit_price: newPrice,
@@ -622,11 +685,11 @@ const InvoiceForm: React.FC = () => {
   // Update item length or pieces
   const updateItemLengthPieces = (itemId: string, field: 'length' | 'pieces' | 'clear', value?: number) => {
     console.log('🔍 DEBUG: updateItemLengthPieces called:', { itemId, field, value, valueType: typeof value });
-    
+
     const newItems = formData.items.map(item => {
       if (item.id === itemId) {
         console.log('🔍 DEBUG: Found matching item:', item.product_name, 'Current L/pcs:', { length: item.length, pieces: item.pieces });
-        
+
         if (field === 'clear') {
           console.log('🔍 DEBUG: Clearing L/pcs for item:', item.product_name);
           return {
@@ -646,7 +709,7 @@ const InvoiceForm: React.FC = () => {
       }
       return item;
     });
-    
+
     console.log('🔍 DEBUG: Updated items:', newItems.map(item => ({
       id: item.id,
       product_name: item.product_name,
@@ -655,11 +718,11 @@ const InvoiceForm: React.FC = () => {
       lengthType: typeof item.length,
       piecesType: typeof item.pieces
     })));
-    
+
     console.log('🔍 DEBUG: Full updated items array:', newItems);
-    
+
     setFormData(prev => ({ ...prev, items: newItems }));
-    
+
     // Debug: Check state after update
     setTimeout(() => {
       console.log('🔍 DEBUG: State after update:', formData.items.find(item => item.id === itemId));
@@ -677,7 +740,7 @@ const InvoiceForm: React.FC = () => {
   // YOUR ORIGINAL VALIDATION FUNCTION
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-    
+
     // Customer validation
     if (isGuestMode) {
       if (!guestCustomer.name.trim()) {
@@ -688,7 +751,7 @@ const InvoiceForm: React.FC = () => {
       // Note: Guest Customer has ID -1 and should be considered valid
       const hasValidCustomerId = formData.customer_id && Number.isInteger(formData.customer_id) && (formData.customer_id > 0 || formData.customer_id === -1);
       const hasValidSelectedCustomer = selectedCustomer && selectedCustomer.id && Number.isInteger(selectedCustomer.id) && (selectedCustomer.id > 0 || selectedCustomer.id === -1);
-      
+
       if (!hasValidCustomerId && !hasValidSelectedCustomer) {
         newErrors.customer_id = 'Please select a valid customer';
         console.warn('🔍 Customer validation failed:', {
@@ -699,28 +762,28 @@ const InvoiceForm: React.FC = () => {
         });
       }
     }
-    
+
     if (formData.items.length === 0) {
       newErrors.items = 'Please add at least one item';
     }
-    
+
     if (formData.discount < 0 || formData.discount > 100) {
       newErrors.discount = 'Discount must be between 0 and 100%';
     }
-    
+
     if (formData.payment_amount < 0) {
       newErrors.payment_amount = 'Payment amount cannot be negative';
     }
-    
+
     if (formData.payment_amount > calculations.grandTotal) {
       newErrors.payment_amount = 'Payment cannot exceed invoice total';
     }
-    
+
     // Guest mode: enforce full payment (no credit/partial payment allowed)
     if (isGuestMode && formData.payment_amount < calculations.grandTotal) {
       newErrors.payment_amount = 'Guest customers must pay the full amount. No credit allowed.';
     }
-    
+
     const stockIssues: string[] = [];
     formData.items.forEach(item => {
       const currentProduct = products.find(p => p.id === item.product_id);
@@ -728,11 +791,11 @@ const InvoiceForm: React.FC = () => {
         stockIssues.push(`${item.product_name} (Required: ${formatUnitString(item.quantity, currentProduct.unit_type || 'kg-grams')}, Available: ${formatUnitString(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams')})`);
       }
     });
-    
+
     if (stockIssues.length > 0) {
       newErrors.stock = `Insufficient stock for: ${stockIssues.join(', ')}`;
     }
-    
+
     // Debug logging
     console.log('🔍 Form validation:', {
       isGuestMode,
@@ -743,196 +806,202 @@ const InvoiceForm: React.FC = () => {
       itemsCount: formData.items.length,
       errors: newErrors
     });
-    
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
   // YOUR ORIGINAL SUBMIT FUNCTION
-// Replace your handleSubmit function in InvoiceForm.tsx with this lock-safe version:
+  // Replace your handleSubmit function in InvoiceForm.tsx with this lock-safe version:
 
-const handleSubmit = async () => {
-  // Refresh product data first
-  await refreshProductData();
-  
-  if (!validateForm()) {
-    toast.error('Please fix the errors before submitting');
-    return;
-  }
+  const handleSubmit = async () => {
+    // Refresh product data first
+    await refreshProductData();
 
-  setCreating(true);
-
-  try {
-    // Prepare invoice data
-    let payment_amount = formData.payment_amount;
-    let customer_id: number;
-    let customer_name = '';
-
-    if (isGuestMode) {
-      // For guest customers, use a special customer ID (-1) to satisfy NOT NULL constraint
-      customer_id = -1;
-      customer_name = guestCustomer.name;
-      payment_amount = formData.payment_amount; // Guest customers pay what they specify
-    } else {
-      // Regular customer - ensure we have a valid customer_id
-      if (!formData.customer_id && !selectedCustomer?.id) {
-        throw new Error('No customer selected. Please select a customer or switch to guest mode.');
-      }
-      
-      // Use selectedCustomer.id as primary source, formData.customer_id as fallback
-      customer_id = selectedCustomer?.id || formData.customer_id!;
-      
-      // Validate that customer_id is a valid positive integer
-      if (!customer_id || !Number.isInteger(customer_id) || customer_id <= 0) {
-        console.error('Invalid customer ID:', { 
-          selectedCustomerId: selectedCustomer?.id, 
-          formDataCustomerId: formData.customer_id,
-          resolvedCustomerId: customer_id
-        });
-        throw new Error('Invalid customer ID. Please select a valid customer.');
-      }
-      
-      customer_name = selectedCustomer?.name || '';
-      
-      if (selectedCustomer && selectedCustomer.balance < 0) {
-        // Apply credit for regular customers
-        const credit = Math.abs(selectedCustomer.balance);
-        const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
-        payment_amount = Math.min(credit, grandTotal);
-      }
+    if (!validateForm()) {
+      toast.error('Please fix the errors before submitting');
+      return;
     }
 
-    const invoiceData = {
-      customer_id,
-      customer_name,
-      customer_phone: isGuestMode ? guestCustomer.phone : selectedCustomer?.phone || '',
-      customer_address: isGuestMode ? guestCustomer.address : selectedCustomer?.address || '',
-      items: formData.items.map(item => ({
-        product_id: item.product_id,
-        product_name: item.product_name,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_price: item.total_price,
-        length: item.length,
-        pieces: item.pieces
-      })),
-      discount: formData.discount,
-      payment_amount,
-      payment_method: formData.payment_method,
-      payment_channel_id: selectedPaymentChannel?.id || null,
-      payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
-      notes: formData.notes
-    };
-    
-    // Debug: Log items with L/pcs data before sending to database
-    console.log('🔍 DEBUG: Creating invoice with items:', invoiceData.items);
-    invoiceData.items.forEach((item, index) => {
-      console.log(`🔍 Form Item ${index + 1}:`, {
-        product_name: item.product_name,
-        length: item.length,
-        pieces: item.pieces,
-        lengthType: typeof item.length,
-        piecesType: typeof item.pieces
-      });
-    });
-    
-    console.log('Creating invoice:', invoiceData);
-    
-    // Create invoice - the database will handle all retries internally
-    const result = await db.createInvoice(invoiceData);
-    
-    // Log activity
+    setCreating(true);
+
     try {
-      await activityLogger.logInvoiceCreated(
-        result.bill_number, 
+      // Prepare invoice data
+      let payment_amount = formData.payment_amount;
+      let customer_id: number;
+      let customer_name = '';
+
+      if (isGuestMode) {
+        // For guest customers, use a special customer ID (-1) to satisfy NOT NULL constraint
+        customer_id = -1;
+        customer_name = guestCustomer.name;
+        payment_amount = formData.payment_amount; // Guest customers pay what they specify
+      } else {
+        // Regular customer - ensure we have a valid customer_id
+        if (!formData.customer_id && !selectedCustomer?.id) {
+          throw new Error('No customer selected. Please select a customer or switch to guest mode.');
+        }
+
+        // Use selectedCustomer.id as primary source, formData.customer_id as fallback
+        customer_id = selectedCustomer?.id || formData.customer_id!;
+
+        // Validate that customer_id is a valid positive integer
+        if (!customer_id || !Number.isInteger(customer_id) || customer_id <= 0) {
+          console.error('Invalid customer ID:', {
+            selectedCustomerId: selectedCustomer?.id,
+            formDataCustomerId: formData.customer_id,
+            resolvedCustomerId: customer_id
+          });
+          throw new Error('Invalid customer ID. Please select a valid customer.');
+        }
+
+        customer_name = selectedCustomer?.name || '';
+
+        if (selectedCustomer && selectedCustomer.balance < 0) {
+          // Apply credit for regular customers
+          const credit = Math.abs(selectedCustomer.balance);
+          const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
+          payment_amount = Math.min(credit, grandTotal);
+        }
+      }
+
+      const invoiceData = {
+        customer_id,
         customer_name,
-        calculations.grandTotal
-      );
-    } catch (error) {
-      console.error('Failed to log invoice creation activity:', error);
-      // Don't fail the main operation if logging fails
-    }
-    
-    // Success
-    import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
-      triggerInvoiceCreatedRefresh(result);
-    });
-    
-    const modeText = isGuestMode ? ' (Guest Customer)' : '';
-    toast.success(`Invoice created successfully${modeText}! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
-      duration: 5000
-    });
-    
-    resetForm();
-    await loadInitialData(false);
-    
-  } catch (error: any) {
-    console.error('Invoice creation error:', error);
-    toast.error(error.message || 'Failed to create invoice');
-  } finally {
-    setCreating(false);
-  }
-};
+        customer_phone: isGuestMode ? guestCustomer.phone : selectedCustomer?.phone || '',
+        customer_address: isGuestMode ? guestCustomer.address : selectedCustomer?.address || '',
+        items: formData.items.map(item => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          length: item.length,
+          pieces: item.pieces,
+          is_misc_item: item.is_misc_item,
+          misc_description: item.misc_description
+        })),
+        discount: formData.discount,
+        payment_amount,
+        payment_method: formData.payment_method,
+        payment_channel_id: selectedPaymentChannel?.id || null,
+        payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
+        notes: formData.notes
+      };
 
-// ALSO ADD: Enhanced error handling for the entire component
-// Add this useEffect to handle global database errors:
-useEffect(() => {
-  const handleDatabaseError = (event: CustomEvent) => {
-    const { error, operation } = event.detail;
-    
-    if (error.message?.includes('database is locked') || error.code === 5) {
-      toast.error(`Database is busy during ${operation}. Please wait a moment and try again.`);
+      // Debug: Log items with L/pcs data before sending to database
+      console.log('🔍 DEBUG: Creating invoice with items:', invoiceData.items);
+      invoiceData.items.forEach((item, index) => {
+        console.log(`🔍 Form Item ${index + 1}:`, {
+          product_name: item.product_name,
+          length: item.length,
+          pieces: item.pieces,
+          lengthType: typeof item.length,
+          piecesType: typeof item.pieces
+        });
+      });
+
+      console.log('Creating invoice:', invoiceData);
+
+      // Create invoice - the database will handle all retries internally
+      const result = await db.createInvoice(invoiceData);
+
+      // Log activity
+      try {
+        await activityLogger.logInvoiceCreated(
+          result.bill_number,
+          customer_name,
+          calculations.grandTotal
+        );
+      } catch (error) {
+        console.error('Failed to log invoice creation activity:', error);
+        // Don't fail the main operation if logging fails
+      }
+
+      // Success
+      import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
+        triggerInvoiceCreatedRefresh(result);
+      });
+
+      const modeText = isGuestMode ? ' (Guest Customer)' : '';
+      toast.success(`Invoice created successfully${modeText}! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
+        duration: 5000
+      });
+
+      resetForm();
+      await loadInitialData(false);
+
+    } catch (error: any) {
+      console.error('Invoice creation error:', error);
+      toast.error(error.message || 'Failed to create invoice');
+    } finally {
+      setCreating(false);
     }
   };
 
-  // Listen for database errors
-  window.addEventListener('DATABASE_ERROR', handleDatabaseError as EventListener);
-  
-  return () => {
-    window.removeEventListener('DATABASE_ERROR', handleDatabaseError as EventListener);
-  };
-}, []);
+  // ALSO ADD: Enhanced error handling for the entire component
+  // Add this useEffect to handle global database errors:
+  useEffect(() => {
+    const handleDatabaseError = (event: CustomEvent) => {
+      const { error, operation } = event.detail;
 
-// ALSO UPDATE: The creating state message
-// In your button, update the creating text to be more informative:
-{creating ? (
-  <>
-    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-    Creating Invoice... {/* This will show retry attempts automatically via toast */}
-  </>
-) : (
-  <>
-    <CheckCircle className="h-4 w-4 mr-2" />
-    Create Invoice & Update Stock
-  </>
-)}
+      if (error.message?.includes('database is locked') || error.code === 5) {
+        toast.error(`Database is busy during ${operation}. Please wait a moment and try again.`);
+      }
+    };
 
-// ADDITIONAL: Add this helper function to your component for better UX
-const [retryCount] = useState(0);
+    // Listen for database errors
+    window.addEventListener('DATABASE_ERROR', handleDatabaseError as EventListener);
 
-// Update the submit button to show retry status
-const getSubmitButtonText = () => {
-  if (creating) {
-    if (retryCount > 0) {
-      return `Retrying... (${retryCount}/3)`;
-    }
-    return 'Creating Invoice...';
+    return () => {
+      window.removeEventListener('DATABASE_ERROR', handleDatabaseError as EventListener);
+    };
+  }, []);
+
+  // ALSO UPDATE: The creating state message
+  // In your button, update the creating text to be more informative:
+  {
+    creating ? (
+      <>
+        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+        Creating Invoice... {/* This will show retry attempts automatically via toast */}
+      </>
+    ) : (
+      <>
+        <CheckCircle className="h-4 w-4 mr-2" />
+        Create Invoice & Update Stock
+      </>
+    )
   }
-  return 'Create Invoice & Update Stock';
-};
 
-// And update your button text:
-{creating ? (
-  <>
-    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-    {getSubmitButtonText()}
-  </>
-) : (
-  <>
-    <CheckCircle className="h-4 w-4 mr-2" />
-    Create Invoice & Update Stock
-  </>
-)}
+  // ADDITIONAL: Add this helper function to your component for better UX
+  const [retryCount] = useState(0);
+
+  // Update the submit button to show retry status
+  const getSubmitButtonText = () => {
+    if (creating) {
+      if (retryCount > 0) {
+        return `Retrying... (${retryCount}/3)`;
+      }
+      return 'Creating Invoice...';
+    }
+    return 'Create Invoice & Update Stock';
+  };
+
+  // And update your button text:
+  {
+    creating ? (
+      <>
+        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+        {getSubmitButtonText()}
+      </>
+    ) : (
+      <>
+        <CheckCircle className="h-4 w-4 mr-2" />
+        Create Invoice & Update Stock
+      </>
+    )
+  }
   const resetForm = () => {
     setFormData({
       customer_id: null,
@@ -947,13 +1016,13 @@ const getSubmitButtonText = () => {
     setProductSearch('');
     setStockPreview([]);
     setErrors({});
-    
+
     // Reset guest customer state
     setIsGuestMode(false);
     setGuestCustomer({ name: '', phone: '', address: '' });
     setGuestCustomer({ name: '', phone: '', address: '' });
     setShowCustomerModal(false);
-    
+
     // Reset payment channel selection
     if (paymentChannels.length > 0) {
       setSelectedPaymentChannel(paymentChannels[0]);
@@ -968,7 +1037,7 @@ const getSubmitButtonText = () => {
     }
   };
 
- 
+
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -999,7 +1068,7 @@ const getSubmitButtonText = () => {
               Total: Rs. {calculations.grandTotal.toFixed(2)} • Items: {formData.items.length}
             </p>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <button
               onClick={refreshProductData}
@@ -1009,7 +1078,7 @@ const getSubmitButtonText = () => {
               <RefreshCw className={`h-4 w-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
               Refresh
             </button>
-            
+
             <button
               onClick={handleSubmit}
               disabled={!hasValidCustomer() || formData.items.length === 0 || creating}
@@ -1045,11 +1114,10 @@ const getSubmitButtonText = () => {
                 {/* Guest Mode Toggle */}
                 <button
                   onClick={toggleGuestMode}
-                  className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                    isGuestMode 
-                      ? 'bg-orange-100 text-orange-700 border border-orange-300' 
-                      : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
-                  }`}
+                  className={`px-3 py-1 text-xs rounded-full transition-colors ${isGuestMode
+                    ? 'bg-orange-100 text-orange-700 border border-orange-300'
+                    : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
+                    }`}
                 >
                   {isGuestMode ? 'Guest Mode' : 'Regular Mode'}
                 </button>
@@ -1111,16 +1179,15 @@ const getSubmitButtonText = () => {
                     onChange={(e) => handleCustomerSearch(e.target.value)}
                     onFocus={() => setShowCustomerDropdown(true)}
                     placeholder="Search customers by name, phone, or CNIC..."
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      errors.customer_id ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.customer_id ? 'border-red-500' : 'border-gray-300'
+                      }`}
                   />
                   <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
-                  
+
                   {errors.customer_id && (
                     <p className="mt-1 text-sm text-red-600">{errors.customer_id}</p>
                   )}
-                  
+
                   {showCustomerDropdown && (
                     <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                       {filteredCustomers.length > 0 ? (
@@ -1206,7 +1273,7 @@ const getSubmitButtonText = () => {
               <Package className="h-4 w-4 mr-2 text-green-600" />
               Invoice Items
             </h3>
-            
+
             {/* Product Search */}
             <div className="relative mb-4" onClick={(e) => e.stopPropagation()}>
               <input
@@ -1221,7 +1288,7 @@ const getSubmitButtonText = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
               />
               <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
-              
+
               {showProductDropdown && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                   {filteredProducts.length > 0 ? (
@@ -1229,9 +1296,8 @@ const getSubmitButtonText = () => {
                       <div
                         key={product.id}
                         onClick={() => addProduct(product)}
-                        className={`p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${
-                          getStockAsNumber(product.current_stock, product.unit_type) === 0 ? 'opacity-50' : ''
-                        }`}
+                        className={`p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${getStockAsNumber(product.current_stock, product.unit_type) === 0 ? 'opacity-50' : ''
+                          }`}
                       >
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
@@ -1241,11 +1307,10 @@ const getSubmitButtonText = () => {
                             </div>
                           </div>
                           <div className="text-right ml-4">
-                            <div className={`text-sm font-medium ${
-                              getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)
-                                ? 'text-red-600' 
-                                : 'text-green-600'
-                            }`}>
+                            <div className={`text-sm font-medium ${getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)
+                              ? 'text-red-600'
+                              : 'text-green-600'
+                              }`}>
                               {formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}
                             </div>
                             {getStockAsNumber(product.current_stock, product.unit_type) === 0 && (
@@ -1264,7 +1329,46 @@ const getSubmitButtonText = () => {
                 </div>
               )}
             </div>
-            
+
+            {/* Miscellaneous Items Section */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h4 className="font-medium text-gray-900 mb-3 flex items-center">
+                <Plus className="h-4 w-4 mr-2 text-blue-600" />
+                Add Miscellaneous Item
+              </h4>
+              <div className="space-y-3">
+                <div className="w-full">
+                  <input
+                    type="text"
+                    value={miscItemDescription}
+                    onChange={(e) => setMiscItemDescription(e.target.value)}
+                    placeholder="Enter item description (e.g., Rent, Fare, Service charge)"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    value={miscItemPrice || ''}
+                    onChange={(e) => setMiscItemPrice(parseFloat(e.target.value) || 0)}
+                    placeholder="Price"
+                    min="0"
+                    step="0.01"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={addMiscItem}
+                    disabled={!miscItemDescription.trim() || !miscItemPrice || miscItemPrice <= 0}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center transition-colors"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Stock Warning */}
             {showStockWarning && (
               <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -1288,7 +1392,7 @@ const getSubmitButtonText = () => {
                 </div>
               </div>
             )}
-            
+
             {errors.items && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm text-red-600 flex items-center">
@@ -1297,7 +1401,7 @@ const getSubmitButtonText = () => {
                 </p>
               </div>
             )}
-            
+
             {errors.stock && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <p className="text-sm text-red-600 flex items-center">
@@ -1306,7 +1410,7 @@ const getSubmitButtonText = () => {
                 </p>
               </div>
             )}
-            
+
             {/* REDESIGNED: Invoice Items Table */}
             {formData.items.length > 0 ? (
               <div className="border border-gray-200 rounded-lg overflow-hidden">
@@ -1334,7 +1438,7 @@ const getSubmitButtonText = () => {
                         }
                         formattedQuantity = formatUnitString(formattedQuantity, 'kg-grams');
                       }
-                      
+
                       // Format available stock for kg-grams
                       let formattedAvailableStock = item.available_stock.toString();
                       if (item.unit_type === 'kg-grams') {
@@ -1349,104 +1453,124 @@ const getSubmitButtonText = () => {
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="px-3 py-2">
                             <div>
-                              <div className="font-medium text-gray-900">
+                              <div className="font-medium text-gray-900 flex items-center">
+                                {/* Show icon for misc vs product items */}
+                                {item.is_misc_item ? (
+                                  <span className="mr-2 text-blue-600" title="Miscellaneous Item">📄</span>
+                                ) : (
+                                  <span className="mr-2 text-green-600" title="Product Item">📦</span>
+                                )}
                                 {/* Display product name with length/pieces if they exist */}
                                 {item.product_name}
                                 {item.length && ` • ${item.length}/L`}
                                 {item.pieces && ` • ${item.pieces}/pcs`}
                               </div>
-                              <div className="text-xs text-gray-500">
-                                Available: {formattedAvailableStock}
-                              </div>
-                              {/* Quick add L/pcs buttons */}
-                              <div className="flex items-center gap-1 mt-1">
-                                <button
-                                  onClick={() => {
-                                    const value = prompt('Enter length (L):');
-                                    if (value && !isNaN(Number(value))) {
-                                      updateItemLengthPieces(item.id, 'length', Number(value));
-                                    }
-                                  }}
-                                  className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded border border-blue-200"
-                                  title="Add length (L)"
-                                >
-                                  +L
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    const value = prompt('Enter pieces:');
-                                    if (value && !isNaN(Number(value))) {
-                                      updateItemLengthPieces(item.id, 'pieces', Number(value));
-                                    }
-                                  }}
-                                  className="text-xs px-1.5 py-0.5 bg-green-50 text-green-600 hover:bg-green-100 rounded border border-green-200"
-                                  title="Add pieces"
-                                >
-                                  +pcs
-                                </button>
-                                {(item.length || item.pieces) && (
+                              {/* Show different info for misc vs product items */}
+                              {item.is_misc_item ? (
+                                <div className="text-xs text-blue-600">
+                                  Miscellaneous Item
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-500">
+                                  Available: {formattedAvailableStock}
+                                </div>
+                              )}
+                              {/* Quick add L/pcs buttons - only for product items */}
+                              {!item.is_misc_item && (
+                                <div className="flex items-center gap-1 mt-1">
                                   <button
-                                    onClick={() => updateItemLengthPieces(item.id, 'clear')}
-                                    className="text-xs px-1.5 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 rounded border border-red-200"
-                                    title="Clear L/pcs"
+                                    onClick={() => {
+                                      const value = prompt('Enter length (L):');
+                                      if (value && !isNaN(Number(value))) {
+                                        updateItemLengthPieces(item.id, 'length', Number(value));
+                                      }
+                                    }}
+                                    className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded border border-blue-200"
+                                    title="Add length (L)"
                                   >
-                                    ×
+                                    +L
                                   </button>
-                                )}
-                              </div>
+                                  <button
+                                    onClick={() => {
+                                      const value = prompt('Enter pieces:');
+                                      if (value && !isNaN(Number(value))) {
+                                        updateItemLengthPieces(item.id, 'pieces', Number(value));
+                                      }
+                                    }}
+                                    className="text-xs px-1.5 py-0.5 bg-green-50 text-green-600 hover:bg-green-100 rounded border border-green-200"
+                                    title="Add pieces"
+                                  >
+                                    +pcs
+                                  </button>
+                                  {(item.length || item.pieces) && (
+                                    <button
+                                      onClick={() => updateItemLengthPieces(item.id, 'clear')}
+                                      className="text-xs px-1.5 py-0.5 bg-red-50 text-red-600 hover:bg-red-100 rounded border border-red-200"
+                                      title="Clear L/pcs"
+                                    >
+                                      ×
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </td>
                           <td className="px-3 py-2">
-                            <div className="flex items-center space-x-1">
-                              <button
-                                onClick={() => {
-                                  if (item.unit_type === 'kg-grams') {
-                                    // Decrease by 1kg (1000g), minimum 1kg
-                                    const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
-                                    const newQtyNum = Math.max(1000, currentQty - 1000);
-                                    const kg = Math.floor(newQtyNum / 1000);
-                                    const grams = newQtyNum % 1000;
-                                    const newQtyStr = `${kg}-${grams}`;
-                                    updateItemQuantity(item.id, newQtyStr);
-                                  } else {
-                                    const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
-                                    updateItemQuantity(item.id, Math.max(1, currentQty - 1).toString());
-                                  }
-                                }}
-                                className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
-                              >
-                                <Minus className="h-3 w-3" />
-                              </button>
-                              <input
-                                type="text"
-                                value={item.quantity}
-                                onChange={(e) => updateItemQuantity(item.id, e.target.value)}
-                                placeholder={item.unit_type === 'kg-grams' ? 'e.g. 155-20' : 'e.g. 100'}
-                                className={`w-16 h-6 text-center text-xs border focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
-                                  getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock ? 'border-red-500 bg-red-50' : 'border-gray-300'
-                                }`}
-                              />
-                              <button
-                                onClick={() => {
-                                  if (item.unit_type === 'kg-grams') {
-                                    // Increase by 1kg (1000g)
-                                    const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
-                                    const newQtyNum = currentQty + 1000;
-                                    const kg = Math.floor(newQtyNum / 1000);
-                                    const grams = newQtyNum % 1000;
-                                    const newQtyStr = `${kg}-${grams}`;
-                                    updateItemQuantity(item.id, newQtyStr);
-                                  } else {
-                                    const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
-                                    updateItemQuantity(item.id, (currentQty + 1).toString());
-                                  }
-                                }}
-                                className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
-                              >
-                                <Plus className="h-3 w-3" />
-                              </button>
-                            </div>
-                            {getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock && (
+                            {item.is_misc_item ? (
+                              <div className="text-center text-gray-500 text-sm">
+                                1 item
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1">
+                                <button
+                                  onClick={() => {
+                                    if (item.unit_type === 'kg-grams') {
+                                      // Decrease by 1kg (1000g), minimum 1kg
+                                      const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
+                                      const newQtyNum = Math.max(1000, currentQty - 1000);
+                                      const kg = Math.floor(newQtyNum / 1000);
+                                      const grams = newQtyNum % 1000;
+                                      const newQtyStr = `${kg}-${grams}`;
+                                      updateItemQuantity(item.id, newQtyStr);
+                                    } else {
+                                      const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
+                                      updateItemQuantity(item.id, Math.max(1, currentQty - 1).toString());
+                                    }
+                                  }}
+                                  className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <input
+                                  type="text"
+                                  value={item.quantity}
+                                  onChange={(e) => updateItemQuantity(item.id, e.target.value)}
+                                  placeholder={item.unit_type === 'kg-grams' ? 'e.g. 155-20' : 'e.g. 100'}
+                                  className={`w-16 h-6 text-center text-xs border focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                                    }`}
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (item.unit_type === 'kg-grams') {
+                                      // Increase by 1kg (1000g)
+                                      const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
+                                      const newQtyNum = currentQty + 1000;
+                                      const kg = Math.floor(newQtyNum / 1000);
+                                      const grams = newQtyNum % 1000;
+                                      const newQtyStr = `${kg}-${grams}`;
+                                      updateItemQuantity(item.id, newQtyStr);
+                                    } else {
+                                      const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
+                                      updateItemQuantity(item.id, (currentQty + 1).toString());
+                                    }
+                                  }}
+                                  className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            )}
+                            {!item.is_misc_item && getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock && (
                               <div className="text-xs text-red-500 mt-1">Exceeds stock!</div>
                             )}
                           </td>
@@ -1496,21 +1620,21 @@ const getSubmitButtonText = () => {
               <Calculator className="h-4 w-4 mr-2 text-purple-600" />
               Order Summary
             </h3>
-            
+
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-600">Items ({formData.items.length}):</span>
                 <span className="font-medium">Rs. {calculations.subtotal.toFixed(2)}</span>
               </div>
-              
-        
-              
+
+
+
               <div className="flex justify-between text-lg font-semibold border-t pt-2">
                 <span>Total:</span>
                 <span>Rs. {calculations.grandTotal.toFixed(2)}</span>
               </div>
             </div>
-         
+
           </div>
 
           {/* REDESIGNED: Payment Details */}
@@ -1522,30 +1646,29 @@ const getSubmitButtonText = () => {
 
             <div className="space-y-3">
               {/* Payment Method */}
-                <div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Payment Channel</label>
                 <div className="grid grid-cols-2 gap-2">
                   {paymentChannels.map(channel => (
-                  <button
-                    key={channel.id}
-                    onClick={() => {
-                      setSelectedPaymentChannel(channel);
-                      setFormData(prev => ({ ...prev, payment_method: channel.name }));
-                    }}
-                    className={`p-2 text-sm rounded border transition-colors ${
-                    selectedPaymentChannel?.id === channel.id
-                      ? 'border-green-500 bg-green-50 text-green-700'
-                      : 'border-gray-300 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="text-center">
-                      <div className="font-medium">{channel.name}</div>
-                      <div className="text-xs text-gray-500 capitalize">{channel.type}</div>
-                    </div>
-                  </button>
+                    <button
+                      key={channel.id}
+                      onClick={() => {
+                        setSelectedPaymentChannel(channel);
+                        setFormData(prev => ({ ...prev, payment_method: channel.name }));
+                      }}
+                      className={`p-2 text-sm rounded border transition-colors ${selectedPaymentChannel?.id === channel.id
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-gray-300 hover:bg-gray-50'
+                        }`}
+                    >
+                      <div className="text-center">
+                        <div className="font-medium">{channel.name}</div>
+                        <div className="text-xs text-gray-500 capitalize">{channel.type}</div>
+                      </div>
+                    </button>
                   ))}
                 </div>
-                </div>
+              </div>
 
               {/* Payment Amount */}
               <div>
@@ -1561,13 +1684,12 @@ const getSubmitButtonText = () => {
                   max={calculations.grandTotal}
                   step="0.1"
                   value={formData.payment_amount}
-                  onChange={(e) => setFormData(prev => ({ 
-                    ...prev, 
-                    payment_amount: parseCurrency(e.target.value) 
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    payment_amount: parseCurrency(e.target.value)
                   }))}
-                  className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-green-500 ${
-                    errors.payment_amount ? 'border-red-500' : 'border-gray-300'
-                  } ${isGuestMode ? 'bg-red-50 border-red-300' : ''}`}
+                  className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-green-500 ${errors.payment_amount ? 'border-red-500' : 'border-gray-300'
+                    } ${isGuestMode ? 'bg-red-50 border-red-300' : ''}`}
                   placeholder="0.0"
                   disabled={isGuestMode} // Disable editing in guest mode since it must be full amount
                 />
@@ -1582,16 +1704,14 @@ const getSubmitButtonText = () => {
               </div>
 
               {/* Balance Display */}
-              <div className={`p-3 rounded-lg border ${
-                calculations.remainingBalance > 0 
-                  ? 'border-orange-200 bg-orange-50' 
-                  : 'border-green-200 bg-green-50'
-              }`}>
+              <div className={`p-3 rounded-lg border ${calculations.remainingBalance > 0
+                ? 'border-orange-200 bg-orange-50'
+                : 'border-green-200 bg-green-50'
+                }`}>
                 <div className="flex justify-between items-center text-sm">
                   <span className="font-medium text-gray-700">Remaining Balance:</span>
-                  <span className={`font-bold ${
-                    calculations.remainingBalance > 0 ? 'text-orange-600' : 'text-green-600'
-                  }`}>
+                  <span className={`font-bold ${calculations.remainingBalance > 0 ? 'text-orange-600' : 'text-green-600'
+                    }`}>
                     Rs. {calculations.remainingBalance.toFixed(2)}
                   </span>
                 </div>
@@ -1604,43 +1724,43 @@ const getSubmitButtonText = () => {
             </div>
           </div>
 
- {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
-        <div>
-          <button
-            type="button"
-            className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            onClick={() => setShowOptional((v) => !v)}
-            aria-expanded={showOptional}
-            disabled={loading}
-          >
-            <span className="tracking-wide">Optional Details</span>
-            <svg
-              className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
+          {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
+          <div>
+            <button
+              type="button"
+              className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              onClick={() => setShowOptional((v) => !v)}
+              aria-expanded={showOptional}
+              disabled={loading}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-          <div
-            className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
-            style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
-          >
-          {/* REDESIGNED: Notes */}
-          
-            <label className="block text-sm font-medium text-gray-700 mb-2">Notes (Optional)</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 resize-none"
-              rows={2}
-              placeholder="Add any special instructions or notes..."
-            />
-         
+              <span className="tracking-wide">Optional Details</span>
+              <svg
+                className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <div
+              className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
+              style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
+            >
+              {/* REDESIGNED: Notes */}
+
+              <label className="block text-sm font-medium text-gray-700 mb-2">Notes (Optional)</label>
+              <textarea
+                value={formData.notes}
+                onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 resize-none"
+                rows={2}
+                placeholder="Add any special instructions or notes..."
+              />
+
+            </div>
           </div>
-</div>
           {/* REDESIGNED: Action Buttons */}
           <div className="space-y-2">
             <button
@@ -1660,7 +1780,7 @@ const getSubmitButtonText = () => {
                 </>
               )}
             </button>
-            
+
             <button
               type="button"
               onClick={resetForm}
@@ -1702,23 +1822,21 @@ const getSubmitButtonText = () => {
                 formattedNewStock = formatUnitString(stock.new_stock.toString(), unitType);
               }
               return (
-                <div 
-                  key={stock.product_id} 
-                  className={`p-3 rounded-lg border ${
-                    stock.status === 'insufficient' ? 'border-red-200 bg-red-50' :
+                <div
+                  key={stock.product_id}
+                  className={`p-3 rounded-lg border ${stock.status === 'insufficient' ? 'border-red-200 bg-red-50' :
                     stock.status === 'low' ? 'border-yellow-200 bg-yellow-50' :
-                    'border-green-200 bg-green-50'
-                  }`}
+                      'border-green-200 bg-green-50'
+                    }`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-medium text-gray-900 text-sm">{stock.product_name}</h4>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      stock.status === 'insufficient' ? 'bg-red-100 text-red-800' :
+                    <span className={`text-xs px-2 py-1 rounded-full ${stock.status === 'insufficient' ? 'bg-red-100 text-red-800' :
                       stock.status === 'low' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-green-100 text-green-800'
-                    }`}>
+                        'bg-green-100 text-green-800'
+                      }`}>
                       {stock.status === 'insufficient' ? 'Insufficient' :
-                       stock.status === 'low' ? 'Low Stock' : 'OK'}
+                        stock.status === 'low' ? 'Low Stock' : 'OK'}
                     </span>
                   </div>
                   <div className="space-y-1 text-xs">
@@ -1734,7 +1852,7 @@ const getSubmitButtonText = () => {
                       <span className="text-gray-600">After Sale:</span>
                       <span className={
                         stock.status === 'insufficient' ? 'text-red-600' :
-                        stock.status === 'low' ? 'text-yellow-600' : 'text-green-600'
+                          stock.status === 'low' ? 'text-yellow-600' : 'text-green-600'
                       }>
                         {formattedNewStock}
                       </span>

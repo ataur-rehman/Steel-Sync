@@ -60,7 +60,7 @@ interface DailySummary {
 
 interface TransactionForm {
   type: 'incoming' | 'outgoing';
-  category: string;
+  category?: string; // Made optional since we'll auto-determine it
   description: string;
   amount: number;
   customer_id?: number;
@@ -71,10 +71,10 @@ interface TransactionForm {
   date: string;
 }
 
-// Enhanced categories
+// Enhanced categories with consistent naming
 const INCOMING_CATEGORIES = [
+  'Payment Received',
   'Sale Revenue',
-  'Payment Received', 
   'Advance Payment',
   'Service Income',
   'Interest Income',
@@ -93,6 +93,7 @@ const OUTGOING_CATEGORIES = [
   'Marketing Expense',
   'Professional Services',
   'Return Refund',
+  'Vendor Payment',
   'Bank Charges',
   'Other Expense'
 ];
@@ -101,28 +102,27 @@ const DailyLedger: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const activityLogger = useActivityLogger();
-  
+
   // Core state
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(false);
-  
+
   // UI state
   const [showAddTransaction, setShowAddTransaction] = useState(false);
   const [editingEntry, setEditingEntry] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null);
   const [showCustomerFilter, setShowCustomerFilter] = useState(false);
-  
+
   // Payment channel filtering state
   const [selectedPaymentChannels, setSelectedPaymentChannels] = useState<number[]>([]);
   const [showPaymentChannelFilter, setShowPaymentChannelFilter] = useState(false);
-  
+
   // Form state
   const [newTransaction, setNewTransaction] = useState<TransactionForm>({
     type: 'incoming',
-    category: '',
     description: '',
     amount: 0,
     payment_method: 'Cash',
@@ -131,21 +131,21 @@ const DailyLedger: React.FC = () => {
     notes: '',
     date: new Date().toISOString().split('T')[0]
   });
-  
+
   const [editForm, setEditForm] = useState<Partial<LedgerEntry>>({});
-  
+
   // Invoice selection for payment allocation (DailyLedger)
   const [customerInvoices, setCustomerInvoices] = useState<any[]>([]);
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
-  
+
   // Data
   const [customers, setCustomers] = useState<any[]>([]);
   const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
 
   useEffect(() => {
     loadInitialData();
-    
+
     // ENHANCED: Listen to business events for real-time updates
     try {
       if (typeof window !== 'undefined') {
@@ -173,7 +173,7 @@ const DailyLedger: React.FC = () => {
               loadDayData(selectedDate); // Refresh today's data
             }
           };
-          
+
           // Subscribe to relevant events
           eventBus.on('DAILY_LEDGER_UPDATED', handleDailyLedgerUpdate);
           eventBus.on('daily_ledger:updated', handleDailyLedgerUpdate); // New event name
@@ -181,7 +181,7 @@ const DailyLedger: React.FC = () => {
           eventBus.on('invoice:created', handleInvoiceCreated); // New event name
           eventBus.on('PAYMENT_RECORDED', handlePaymentReceived);
           eventBus.on('payment:recorded', handlePaymentReceived); // New event name
-          
+
           // Store cleanup function
           (window as any).dailyLedgerCleanup = () => {
             eventBus.off('DAILY_LEDGER_UPDATED', handleDailyLedgerUpdate);
@@ -234,21 +234,21 @@ const DailyLedger: React.FC = () => {
       await db.initialize();
       const customerList = await db.getAllCustomers();
       setCustomers(customerList);
-      
+
       // Load payment channels from database
       console.log('🔄 [DailyLedger] Loading payment channels...');
       const channels = await db.getPaymentChannels();
       console.log('✅ [DailyLedger] Payment channels loaded:', channels);
       console.log('📊 [DailyLedger] Channel count:', channels?.length || 0);
-      
+
       if (!channels || channels.length === 0) {
         console.error('❌ [DailyLedger] No payment channels found');
         toast.error('No payment channels found. Please set up payment channels first.');
         return;
       }
-      
+
       setPaymentChannels(channels);
-      
+
       // Set default payment channel if available
       if (channels.length > 0) {
         setNewTransaction(prev => ({
@@ -258,6 +258,7 @@ const DailyLedger: React.FC = () => {
           payment_method: channels[0].type
         }));
       }
+
     } catch (error) {
       console.error('Failed to load initial data:', error);
       toast.error('Failed to load data');
@@ -267,27 +268,94 @@ const DailyLedger: React.FC = () => {
   const loadDayData = async (date: string) => {
     try {
       setLoading(true);
-      
+
       // Load from localStorage first (for manual entries)
       const storedEntries = getStoredEntries(date);
-      
+
       // Generate system entries from database
       const systemEntries = await generateSystemEntries(date);
-      
-      // Combine and deduplicate
+
+      // Combine and deduplicate with enhanced logic
       const allEntries = [...storedEntries, ...systemEntries];
-      const uniqueEntries = allEntries.filter((entry, index, self) => 
-        index === self.findIndex(e => e.id === entry.id)
-      );
-      
+
+      // ENHANCED DEDUPLICATION: Remove duplicates based on multiple criteria
+      const uniqueEntries = allEntries.filter((entry, index, self) => {
+        return index === self.findIndex(e => {
+          // 1. Exact ID match
+          if (e.id === entry.id) return true;
+
+          // 2. Same transaction from different sources (this is the key fix)
+          // Check if entries represent the same real-world transaction
+          const isSameTransaction = (
+            e.amount === entry.amount &&
+            e.date === entry.date &&
+            e.type === entry.type &&
+            e.customer_id === entry.customer_id &&
+            // Allow small time differences (within 5 minutes)
+            Math.abs(
+              new Date(`${e.date} ${e.time}`).getTime() -
+              new Date(`${entry.date} ${entry.time}`).getTime()
+            ) < 300000 && // 5 minutes in milliseconds
+            (
+              // Same bill/reference number
+              (e.bill_number && entry.bill_number && e.bill_number === entry.bill_number) ||
+              // Same reference ID and type
+              (e.reference_id && entry.reference_id && e.reference_id === entry.reference_id && e.reference_type === entry.reference_type) ||
+              // Same payment details for customer payments (relaxed payment method matching)
+              (e.customer_id && entry.customer_id && e.customer_id === entry.customer_id &&
+                // Don't require exact payment method match - same customer, amount, date is enough
+                e.description === entry.description) ||
+              // Same transaction based on customer name and amount (for cases where customer_id might differ)
+              (e.customer_name && entry.customer_name &&
+                e.customer_name === entry.customer_name &&
+                e.description === entry.description)
+            )
+          );
+
+          if (isSameTransaction) {
+            // Keep the more detailed entry (system entries have more metadata)
+            return !entry.is_manual; // Keep system entry over manual if they're the same transaction
+          }
+
+          return false;
+        });
+      });
+
+      console.log(`🧹 [DailyLedger] Deduplication: ${allEntries.length} → ${uniqueEntries.length} entries`);
+
+      // ADDITIONAL AGGRESSIVE DEDUPLICATION: Handle cases where same payment appears with different payment methods
+      const finalEntries = uniqueEntries.filter((entry, index, self) => {
+        return index === self.findIndex(e => {
+          // Same customer payment on same date with same amount should be considered duplicate
+          // regardless of payment method differences
+          if (e.type === 'incoming' && entry.type === 'incoming' &&
+            e.customer_id === entry.customer_id &&
+            e.amount === entry.amount &&
+            e.date === entry.date &&
+            e.category === entry.category &&
+            // Same customer name (handle cases where customer_id might be null)
+            e.customer_name === entry.customer_name &&
+            // Within reasonable time window (30 minutes for payment method variations)
+            Math.abs(
+              new Date(`${e.date} ${e.time}`).getTime() -
+              new Date(`${entry.date} ${entry.time}`).getTime()
+            ) < 1800000) { // 30 minutes
+            return true;
+          }
+          return e === entry; // Keep if it's the exact same entry
+        });
+      });
+
+      console.log(`🔥 [DailyLedger] Final aggressive deduplication: ${uniqueEntries.length} → ${finalEntries.length} entries`);
+
       // FIXED: Apply customer and payment channel filters if selected
-      let filteredEntries = uniqueEntries;
+      let filteredEntries = finalEntries;
       if (selectedCustomerId) {
-        filteredEntries = filteredEntries.filter(entry => 
+        filteredEntries = filteredEntries.filter(entry =>
           entry.customer_id === selectedCustomerId
         );
       }
-      
+
       // Apply payment channel filter if channels are selected
       if (selectedPaymentChannels.length > 0) {
         filteredEntries = filteredEntries.filter(entry => {
@@ -297,7 +365,7 @@ const DailyLedger: React.FC = () => {
           }
           // If entry only has payment_method, match by channel name
           if (entry.payment_method) {
-            const matchedChannel = paymentChannels.find(channel => 
+            const matchedChannel = paymentChannels.find(channel =>
               channel.name.toLowerCase() === (entry.payment_method || '').toLowerCase() ||
               channel.type.toLowerCase() === (entry.payment_method || '').toLowerCase()
             );
@@ -306,19 +374,36 @@ const DailyLedger: React.FC = () => {
           return false;
         });
       }
-      
+
       // Sort by time
       filteredEntries.sort((a, b) => a.time.localeCompare(b.time));
-      
+
       setEntries(filteredEntries);
-      
-      // Calculate summary (always use all entries for balance calculation)
-      const daySummary = calculateSummary(uniqueEntries, date);
+
+      // Debug: Log manual vs system entries
+      const manualCount = filteredEntries.filter(e => e.is_manual).length;
+      const systemCount = filteredEntries.filter(e => !e.is_manual).length;
+      console.log(`📊 [DailyLedger] Loaded entries for ${date}: ${manualCount} manual, ${systemCount} system, ${filteredEntries.length} total`);
+
+      // Log a sample of manual entries for debugging
+      const manualEntries = filteredEntries.filter(e => e.is_manual);
+      if (manualEntries.length > 0) {
+        console.log('📝 [DailyLedger] Sample manual entries:', manualEntries.slice(0, 3).map(e => ({
+          id: e.id,
+          description: e.description,
+          amount: e.amount,
+          is_manual: e.is_manual,
+          category: e.category
+        })));
+      }
+
+      // Calculate summary (always use all unique entries for balance calculation)
+      const daySummary = calculateSummary(finalEntries, date);
       setSummary(daySummary);
-      
+
       // Store closing balance for next day
       localStorage.setItem(`closing_balance_${date}`, daySummary.closing_balance.toString());
-      
+
     } catch (error) {
       console.error('Failed to load day data:', error);
       toast.error('Failed to load day data');
@@ -348,263 +433,159 @@ const DailyLedger: React.FC = () => {
 
   const generateSystemEntries = async (date: string): Promise<LedgerEntry[]> => {
     const systemEntries: LedgerEntry[] = [];
-    
+
     try {
-      console.log('🔄 [DailyLedger] Loading real cash flow entries for date:', date);
-      
-      // PHASE 1: Load existing daily ledger entries (ONLY CASH FLOW ENTRIES)
+      console.log('🔄 [DailyLedger] Loading entries from centralized system for date:', date);
+
+      // CENTRALIZED SYSTEM: Load from ledger_entries table AND vendor_payments table
+      // This follows centralized approach - vendor payments stay in their own table
+
+      // Phase 1: Load from centralized ledger_entries table (customer payments, salaries, etc.)
       const dailyLedgerData = await db.getDailyLedgerEntries(date, { customer_id: selectedCustomerId });
-      const existingEntries = dailyLedgerData.entries || [];
-      
+      const ledgerEntries = dailyLedgerData.entries || [];
+
+      console.log(`� [DailyLedger] Centralized ledger entries:`, ledgerEntries.length);
+
+      // Phase 2: Load vendor payments directly from vendor_payments table
+      const vendorPayments = await db.executeRawQuery(`
+        SELECT vp.*, 
+               COALESCE(v.name, vp.vendor_name, 'Unknown Vendor') as vendor_name
+        FROM vendor_payments vp
+        LEFT JOIN vendors v ON vp.vendor_id = v.id
+        WHERE vp.date = ? AND vp.amount > 0
+        ORDER BY vp.created_at ASC
+      `, [date]);
+
+      console.log(`📊 [DailyLedger] Vendor payments for ${date}:`, vendorPayments.map(p => ({
+        id: p.id,
+        vendor_name: p.vendor_name,
+        receiving_id: p.receiving_id,
+        display_receiving: p.receiving_id ? `S0${p.receiving_id}` : null,
+        amount: p.amount
+      })));
+
+      console.log(`� [DailyLedger] Vendor payments for ${date}:`, vendorPayments.length);
+
+      // Add vendor payments to system entries
+      for (const payment of vendorPayments) {
+        // Generate display receiving number from receiving_id (e.g., receiving_id=1 -> S01)
+        const displayReceivingNumber = payment.receiving_id ? `S0${payment.receiving_id}` : null;
+
+        console.log(`🔍 [DailyLedger] Processing vendor payment:`, {
+          id: payment.id,
+          vendor_name: payment.vendor_name,
+          receiving_id: payment.receiving_id,
+          display_receiving_number: displayReceivingNumber,
+          amount: payment.amount
+        });
+
+        const description = `Payment to ${payment.vendor_name}${displayReceivingNumber ? ` - Stock Receiving ${displayReceivingNumber}` : ''}`;
+        console.log(`📝 [DailyLedger] Generated description:`, description);
+
+        systemEntries.push({
+          id: `vendor_payment_${payment.id}`,
+          date: payment.date,
+          time: payment.time || new Date(payment.created_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          type: 'outgoing',
+          category: 'Vendor Payment',
+          description: description,
+          amount: payment.amount || 0,
+          reference_id: payment.id,
+          reference_type: 'vendor_payment',
+          customer_id: undefined,
+          customer_name: `Vendor: ${payment.vendor_name}`,
+          payment_method: payment.payment_channel_name || 'Cash',
+          payment_channel_id: payment.payment_channel_id,
+          payment_channel_name: payment.payment_channel_name || 'Cash',
+          notes: payment.notes || `Vendor payment via ${payment.payment_channel_name || 'Cash'}${displayReceivingNumber ? ` - Stock Receiving ${displayReceivingNumber}` : ''}`,
+          bill_number: payment.reference_number,
+          is_manual: false,
+          created_at: payment.created_at,
+          updated_at: payment.updated_at
+        });
+
+        console.log(`✅ [DailyLedger] Added vendor payment entry with description:`, description);
+      }
+
+      // Phase 3: Add centralized ledger entries (customer payments, salaries, etc.)
       // Filter to only include REAL CASH FLOW entries, exclude invoice creation entries
-      const cashFlowEntries = existingEntries.filter((entry: LedgerEntry) => {
+      const cashFlowEntries = ledgerEntries.filter((entry: LedgerEntry) => {
         // Include manual entries (user-created transactions)
         if (entry.is_manual) return true;
-        
+
         // Exclude invoice/sale entries that don't represent actual payments
-        if (entry.category === 'Sale Invoice' || 
-            entry.category === 'Invoice' || 
-            entry.category === 'Sale' ||
-            entry.description?.includes('Products sold') ||
-            entry.description?.includes('Invoice amount:')) {
+        if (entry.category === 'Sale Invoice' ||
+          entry.category === 'Invoice' ||
+          entry.category === 'Sale' ||
+          entry.description?.includes('Products sold') ||
+          entry.description?.includes('Invoice amount:')) {
           return false;
         }
-        
-        // Include only cash flow categories
+
+        // Include only cash flow categories (excluding Vendor Payment since we load those separately)
         const cashFlowCategories = [
-          'Invoice Payment',
-          'Payment Received', 
+          'Payment Received',
           'Customer Payment',
-          'Vendor Payment',
+          'Invoice Payment',
+          'Advance Payment',
+          'Return Refund',
           'Staff Salary',
           'Salary Payment',
           'Business Expense',
           'Manual Income',
-          'Manual Expense'
+          'Manual Expense',
+          'Office Rent',
+          'Utilities Bill',
+          'Transportation',
+          'Raw Materials',
+          'Equipment Purchase',
+          'Marketing Expense',
+          'Professional Services',
+          'Bank Charges',
+          'Other Income',
+          'Other Expense'
         ];
-        
+
         return cashFlowCategories.includes(entry.category);
       });
-      
-      systemEntries.push(...cashFlowEntries);
-      
-      console.log(`✅ [DailyLedger] Cash flow entries loaded: ${systemEntries.length}`);
-      console.log(`📋 [DailyLedger] Filtered out ${existingEntries.length - cashFlowEntries.length} non-cash-flow entries`);
-      
-      // PHASE 2: Vendor Payments (Stock Receiving Payments) - REAL OUTGOING CASH FLOW
-      try {
-        // Try multiple possible table structures for vendor payments
-        let vendorPayments = [];
-        
-        try {
-          // First try with full join structure
-          vendorPayments = await db.executeRawQuery(`
-            SELECT vp.*, 
-                   v.name as vendor_name,
-                   pc.name as payment_channel_name,
-                   pc.type as payment_method,
-                   sr.receiving_number
-            FROM vendor_payments vp
-            LEFT JOIN vendors v ON vp.vendor_id = v.id
-            LEFT JOIN payment_channels pc ON vp.payment_channel_id = pc.id
-            LEFT JOIN stock_receivings sr ON vp.receiving_id = sr.id
-            WHERE vp.date = ? AND vp.amount > 0
-            ORDER BY vp.created_at ASC
-          `, [date]);
-        } catch (joinError) {
-          console.log('🔄 [DailyLedger] Trying simplified vendor payment query...');
-          // Fallback to simpler query
-          vendorPayments = await db.executeRawQuery(`
-            SELECT vp.*, 
-                   COALESCE(v.name, vp.vendor_name, 'Unknown Vendor') as vendor_name
-            FROM vendor_payments vp
-            LEFT JOIN vendors v ON vp.vendor_id = v.id
-            WHERE vp.date = ? AND vp.amount > 0
-            ORDER BY vp.created_at ASC
-          `, [date]);
-        }
-        
-        console.log(`🔍 [DailyLedger] Found ${vendorPayments.length} vendor payments for ${date}`);
-        
-        for (const payment of vendorPayments) {
-          // Check if already exists to avoid duplicates
-          const existingEntry = systemEntries.find(entry => 
-            entry.reference_type === 'vendor_payment' && entry.reference_id === payment.id
-          );
-          
-          if (!existingEntry) {
-            console.log(`💰 [DailyLedger] Adding vendor payment: ${payment.amount} to ${payment.vendor_name}`);
-            systemEntries.push({
-              id: `vendor_payment_${payment.id}`,
-              date: payment.date,
-              time: payment.time || new Date(payment.created_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-              type: 'outgoing',
-              category: 'Vendor Payment',
-              description: `Payment to ${payment.vendor_name}${payment.receiving_number ? ` - Stock Receiving #${payment.receiving_number}` : ''}`,
-              amount: payment.amount || 0,
-              reference_id: payment.id,
-              reference_type: 'vendor_payment',
-              customer_id: undefined,
-              customer_name: `Vendor: ${payment.vendor_name}`,
-              payment_method: payment.payment_method || 'Cash',
-              payment_channel_id: payment.payment_channel_id,
-              payment_channel_name: payment.payment_channel_name || 'Cash',
-              notes: payment.notes || `Vendor payment for stock receiving`,
-              bill_number: payment.reference_number,
-              is_manual: false,
-              created_at: payment.created_at,
-              updated_at: payment.updated_at
-            });
-          }
-        }
-        console.log(`✅ [DailyLedger] Vendor payments processed: ${vendorPayments.length}`);
-      } catch (vendorError) {
-        console.error('⚠️ [DailyLedger] Error loading vendor payments:', vendorError);
-      }
-      
-      // PHASE 3: Invoice Payments (REAL INCOMING CASH FLOW ONLY)
-      try {
-        const invoicePayments = await db.executeRawQuery(`
-          SELECT p.*, 
-                 c.name as customer_name,
-                 i.bill_number,
-                 pc.name as payment_channel_name,
-                 pc.type as payment_method_type
-          FROM payments p
-          LEFT JOIN customers c ON p.customer_id = c.id
-          LEFT JOIN invoices i ON p.reference_invoice_id = i.id
-          LEFT JOIN payment_channels pc ON p.payment_channel_id = pc.id
-          WHERE p.date = ? AND p.amount > 0
-          ORDER BY p.created_at ASC
-        `, [date]);
-        
-        for (const payment of invoicePayments) {
-          const existingEntry = systemEntries.find(entry => 
-            entry.reference_type === 'invoice_payment' && entry.reference_id === payment.id
-          );
-          
-          if (!existingEntry) {
-            console.log(`💰 [DailyLedger] Adding invoice payment: ${payment.amount} from ${payment.customer_name}`);
-            systemEntries.push({
-              id: `invoice_payment_${payment.id}`,
-              date: payment.date,
-              time: payment.time || new Date(payment.created_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-              type: 'incoming',
-              category: 'Invoice Payment',
-              description: `Payment from ${payment.customer_name}${payment.bill_number ? ` - Invoice ${payment.bill_number}` : ''}`,
-              amount: payment.amount || 0,
-              reference_id: payment.id,
-              reference_type: 'invoice_payment',
-              customer_id: payment.customer_id,
-              customer_name: payment.customer_name,
-              payment_method: payment.payment_method || payment.payment_method_type || 'Cash',
-              payment_channel_id: payment.payment_channel_id,
-              payment_channel_name: payment.payment_channel_name || 'Cash',
-              notes: payment.notes || 'Invoice payment received',
-              bill_number: payment.bill_number,
-              is_manual: false,
-              created_at: payment.created_at,
-              updated_at: payment.updated_at
-            });
-          }
-        }
-        console.log(`✅ [DailyLedger] Invoice payments processed: ${invoicePayments.length}`);
-      } catch (paymentError) {
-        console.error('⚠️ [DailyLedger] Error loading invoice payments:', paymentError);
-      }
-      
-      // PHASE 4: Staff Salary Payments - REAL OUTGOING CASH FLOW
-      try {
-        // Try multiple possible table structures for salary payments
-        let salaryPayments = [];
-        
-        try {
-          // First try with full join structure
-          salaryPayments = await db.executeRawQuery(`
-            SELECT sp.*, 
-                   s.full_name as staff_name,
-                   s.employee_id,
-                   pc.name as payment_channel_name,
-                   pc.type as payment_method_type
-            FROM salary_payments sp
-            LEFT JOIN staff s ON sp.staff_id = s.id
-            LEFT JOIN payment_channels pc ON sp.payment_channel_id = pc.id
-            WHERE DATE(sp.payment_date) = ? AND sp.payment_amount > 0
-            ORDER BY sp.payment_date ASC
-          `, [date]);
-        } catch (joinError) {
-          console.log('🔄 [DailyLedger] Trying simplified salary payment query...');
-          // Fallback to simpler query
-          try {
-            salaryPayments = await db.executeRawQuery(`
-              SELECT sp.*, 
-                     COALESCE(s.full_name, sp.staff_name, 'Unknown Staff') as staff_name,
-                     COALESCE(s.employee_id, sp.employee_id, 'N/A') as employee_id
-              FROM salary_payments sp
-              LEFT JOIN staff s ON sp.staff_id = s.id
-              WHERE DATE(sp.payment_date) = ? AND sp.payment_amount > 0
-              ORDER BY sp.payment_date ASC
-            `, [date]);
-          } catch (fallbackError) {
-            console.log('🔄 [DailyLedger] Trying basic salary payment query...');
-            salaryPayments = await db.executeRawQuery(`
-              SELECT * FROM salary_payments 
-              WHERE DATE(payment_date) = ? AND payment_amount > 0
-              ORDER BY payment_date ASC
-            `, [date]);
-          }
-        }
-        
-        console.log(`🔍 [DailyLedger] Found ${salaryPayments.length} salary payments for ${date}`);
-        
-        for (const salary of salaryPayments) {
-          const existingEntry = systemEntries.find(entry => 
-            entry.reference_type === 'salary_payment' && entry.reference_id === salary.id
-          );
-          
-          if (!existingEntry) {
-            console.log(`💰 [DailyLedger] Adding salary payment: ${salary.payment_amount} to ${salary.staff_name || 'Unknown Staff'}`);
-            systemEntries.push({
-              id: `salary_payment_${salary.id}`,
-              date: date,
-              time: new Date(salary.payment_date).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
-              type: 'outgoing',
-              category: 'Staff Salary',
-              description: `Salary payment to ${salary.staff_name || 'Unknown Staff'} ${salary.employee_id ? `(${salary.employee_id})` : ''} - ${salary.payment_type || 'Regular'}`,
-              amount: salary.payment_amount || 0,
-              reference_id: salary.id,
-              reference_type: 'salary_payment',
-              customer_id: undefined,
-              customer_name: `Staff: ${salary.staff_name || 'Unknown Staff'}`,
-              payment_method: salary.payment_method || salary.payment_method_type || 'Cash',
-              payment_channel_id: salary.payment_channel_id,
-              payment_channel_name: salary.payment_channel_name || 'Cash',
-              notes: `${salary.payment_type || 'Regular'} salary payment${salary.notes ? ` - ${salary.notes}` : ''}`,
-              bill_number: salary.reference_number,
-              is_manual: false,
-              created_at: salary.created_at || salary.payment_date,
-              updated_at: salary.updated_at || salary.payment_date
-            });
-          }
-        }
-        console.log(`✅ [DailyLedger] Salary payments processed: ${salaryPayments.length}`);
-      } catch (salaryError) {
-        console.error('⚠️ [DailyLedger] Error loading salary payments:', salaryError);
-      }
-      
-      console.log(`✅ [DailyLedger] Total cash flow entries: ${systemEntries.length}`);
-      
-      // Remove duplicates based on unique identifier
-      const uniqueEntries = systemEntries.filter((entry: any, index: number, self: any[]) => 
-        index === self.findIndex((e: any) => e.id === entry.id)
-      );
-      
-      console.log(`✅ [DailyLedger] Unique cash flow entries: ${uniqueEntries.length}`);
-      
-      return uniqueEntries;
-      
+
+      // Clean the entries to ensure consistent data format
+      const cleanedEntries = cashFlowEntries.map((entry: any) => {
+        const cleanedEntry = {
+          id: entry.id,
+          date: entry.date,
+          time: entry.time,
+          type: entry.type,
+          category: entry.category,
+          description: entry.description,
+          amount: entry.amount,
+          reference_id: entry.reference_id,
+          reference_type: entry.reference_type,
+          customer_id: entry.customer_id,
+          customer_name: entry.customer_name,
+          payment_method: entry.payment_method,
+          payment_channel_id: entry.payment_channel_id,
+          payment_channel_name: entry.payment_channel_name,
+          notes: entry.notes,
+          bill_number: entry.bill_number,
+          is_manual: Boolean(entry.is_manual),
+          created_at: entry.created_at,
+          updated_at: entry.updated_at
+        };
+
+        return cleanedEntry;
+      });
+
+      systemEntries.push(...cleanedEntries);
+
+      console.log(`✅ [DailyLedger] Total centralized system entries: ${systemEntries.length}`);
+      console.log(`� [DailyLedger] Vendor payments: ${systemEntries.filter(e => e.category === 'Vendor Payment').length}`);
+      console.log(`� [DailyLedger] Ledger entries: ${cleanedEntries.length}`);
+
+      return systemEntries;
+
     } catch (error) {
-      console.error('❌ [DailyLedger] Error loading system entries:', error);
+      console.error('❌ [DailyLedger] Error loading entries from daily_ledger table:', error);
       return [];
     }
   };
@@ -614,7 +595,7 @@ const DailyLedger: React.FC = () => {
     const totalIncoming = dayEntries.filter(e => e.type === 'incoming').reduce((sum, e) => sum + e.amount, 0);
     const totalOutgoing = dayEntries.filter(e => e.type === 'outgoing').reduce((sum, e) => sum + e.amount, 0);
     const closingBalance = openingBalance + totalIncoming - totalOutgoing;
-    
+
     return {
       date,
       opening_balance: openingBalance,
@@ -630,7 +611,7 @@ const DailyLedger: React.FC = () => {
     const previousDate = new Date(date);
     previousDate.setDate(previousDate.getDate() - 1);
     const prevDateStr = previousDate.toISOString().split('T')[0];
-    
+
     const storedBalance = localStorage.getItem(`closing_balance_${prevDateStr}`);
     return storedBalance ? parseFloat(storedBalance) : 100000;
   };
@@ -650,13 +631,16 @@ const DailyLedger: React.FC = () => {
 
   const addTransaction = async () => {
     try {
-      if (!newTransaction.category || !newTransaction.description || newTransaction.amount <= 0) {
-        toast.error('Please fill all required fields');
+      if (!newTransaction.description || newTransaction.amount <= 0) {
+        toast.error('Please fill all required fields (description and amount)');
         return;
       }
 
+      // Auto-determine category
+      const autoCategory = getAutoCategory(newTransaction);
+
       const now = new Date();
-      const customerName = newTransaction.customer_id ? 
+      const customerName = newTransaction.customer_id ?
         customers.find(c => c.id === newTransaction.customer_id)?.name : undefined;
 
       console.log('💰 [DailyLedger] Adding transaction:', newTransaction);
@@ -665,7 +649,7 @@ const DailyLedger: React.FC = () => {
       if (newTransaction.customer_id && newTransaction.type === 'incoming') {
         try {
           console.log('🔄 [DailyLedger] Processing customer payment with full integration...');
-          
+
           // Use recordPayment for proper customer payment integration
           const paymentRecord = {
             customer_id: newTransaction.customer_id,
@@ -673,7 +657,7 @@ const DailyLedger: React.FC = () => {
             payment_method: newTransaction.payment_method,
             payment_channel_id: newTransaction.payment_channel_id,
             payment_channel_name: newTransaction.payment_channel_name,
-            payment_type: (newTransaction.category.toLowerCase().includes('advance') ? 'advance_payment' : 'bill_payment') as 'bill_payment' | 'advance_payment',
+            payment_type: (autoCategory.toLowerCase().includes('advance') ? 'advance_payment' : 'bill_payment') as 'bill_payment' | 'advance_payment',
             reference: newTransaction.description,
             notes: newTransaction.notes || '',
             date: newTransaction.date,
@@ -697,25 +681,25 @@ const DailyLedger: React.FC = () => {
             }
           }
 
-          const invoiceInfo = selectedInvoice ? 
+          const invoiceInfo = selectedInvoice ?
             ` (allocated to Invoice ${formatInvoiceNumber(customerInvoices.find(inv => inv.id === selectedInvoice)?.bill_number || '')})` : '';
-          
+
           toast.success(`Customer payment recorded successfully${invoiceInfo}. Integrated with Customer Ledger, Daily Ledger, and Payment Channels.`);
-          
+
         } catch (paymentError: any) {
           console.error('❌ [DailyLedger] Customer payment failed:', paymentError);
           toast.error(`Failed to record customer payment: ${paymentError?.message || 'Unknown error'}`);
           return;
         }
       }
-      
+
       // PHASE 2: Vendor Payment Processing (Outgoing)
-      else if (newTransaction.type === 'outgoing' && 
-               (newTransaction.category.toLowerCase().includes('vendor') || 
-                newTransaction.category.toLowerCase().includes('supplier'))) {
+      else if (newTransaction.type === 'outgoing' &&
+        (autoCategory.toLowerCase().includes('vendor') ||
+          autoCategory.toLowerCase().includes('supplier'))) {
         try {
           console.log('🔄 [DailyLedger] Processing vendor payment with full integration...');
-          
+
           // For vendor payments, we need to use createVendorPayment if we have vendor details
           // For now, create a general ledger entry but with vendor-specific handling
           const vendorPayment = {
@@ -745,7 +729,7 @@ const DailyLedger: React.FC = () => {
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
               `, [newTransaction.amount, newTransaction.payment_channel_id]);
-              
+
               await db.updatePaymentChannelDailyLedger(
                 newTransaction.payment_channel_id,
                 newTransaction.date,
@@ -758,21 +742,21 @@ const DailyLedger: React.FC = () => {
           }
 
           toast.success('Vendor payment recorded successfully. Integrated with Daily Ledger and Payment Channels.');
-          
+
         } catch (vendorError: any) {
           console.error('❌ [DailyLedger] Vendor payment failed:', vendorError);
           toast.error(`Failed to record vendor payment: ${vendorError?.message || 'Unknown error'}`);
           return;
         }
       }
-      
+
       // PHASE 3: Staff Salary Processing (Outgoing)
-      else if (newTransaction.type === 'outgoing' && 
-               (newTransaction.category.toLowerCase().includes('salary') || 
-                newTransaction.category.toLowerCase().includes('staff'))) {
+      else if (newTransaction.type === 'outgoing' &&
+        (autoCategory.toLowerCase().includes('salary') ||
+          autoCategory.toLowerCase().includes('staff'))) {
         try {
           console.log('🔄 [DailyLedger] Processing staff salary with full integration...');
-          
+
           const salaryPayment = {
             date: newTransaction.date,
             time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
@@ -814,7 +798,7 @@ const DailyLedger: React.FC = () => {
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
               `, [newTransaction.amount, newTransaction.payment_channel_id]);
-              
+
               await db.updatePaymentChannelDailyLedger(
                 newTransaction.payment_channel_id,
                 newTransaction.date,
@@ -827,19 +811,19 @@ const DailyLedger: React.FC = () => {
           }
 
           toast.success('Staff salary recorded successfully. Integrated with Daily Ledger and Payment Channels.');
-          
+
         } catch (salaryError: any) {
           console.error('❌ [DailyLedger] Salary payment failed:', salaryError);
           toast.error(`Failed to record salary payment: ${salaryError?.message || 'Unknown error'}`);
           return;
         }
       }
-      
+
       // PHASE 4: General Business Transactions
       else {
         try {
           console.log('🔄 [DailyLedger] Processing general business transaction...');
-          
+
           if (newTransaction.customer_id) {
             // Customer-related transaction
             const customerTransaction = {
@@ -862,7 +846,7 @@ const DailyLedger: React.FC = () => {
             await db.createDailyLedgerEntry({
               date: customerTransaction.date,
               type: customerTransaction.type,
-              category: customerTransaction.category,
+              category: autoCategory,
               description: customerTransaction.description,
               amount: customerTransaction.amount,
               customer_id: customerTransaction.customer_id,
@@ -873,7 +857,7 @@ const DailyLedger: React.FC = () => {
               notes: customerTransaction.notes,
               is_manual: true
             });
-            
+
             // For customer transactions, also update customer ledger if needed
             if (newTransaction.type === 'incoming') {
               await db.executeRawQuery(`
@@ -882,7 +866,7 @@ const DailyLedger: React.FC = () => {
                 WHERE id = ?
               `, [newTransaction.amount, newTransaction.customer_id]);
             }
-            
+
           } else {
             // General business transaction
             const businessTransaction = {
@@ -903,7 +887,7 @@ const DailyLedger: React.FC = () => {
             await db.createDailyLedgerEntry({
               date: businessTransaction.date,
               type: businessTransaction.type,
-              category: businessTransaction.category,
+              category: autoCategory,
               description: businessTransaction.description,
               amount: businessTransaction.amount,
               customer_id: null,
@@ -926,7 +910,7 @@ const DailyLedger: React.FC = () => {
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
               `, [newTransaction.amount, newTransaction.payment_channel_id]);
-              
+
               await db.updatePaymentChannelDailyLedger(
                 newTransaction.payment_channel_id,
                 newTransaction.date,
@@ -939,7 +923,7 @@ const DailyLedger: React.FC = () => {
           }
 
           toast.success('Transaction recorded successfully. Integrated with Daily Ledger and Payment Channels.');
-          
+
         } catch (generalError: any) {
           console.error('❌ [DailyLedger] General transaction failed:', generalError);
           toast.error(`Failed to record transaction: ${generalError?.message || 'Unknown error'}`);
@@ -954,7 +938,7 @@ const DailyLedger: React.FC = () => {
           date: newTransaction.date,
           type: newTransaction.type,
           amount: newTransaction.amount,
-          category: newTransaction.category
+          category: autoCategory
         });
         console.log('✅ [DailyLedger] Real-time update events emitted');
       } catch (eventError) {
@@ -965,7 +949,6 @@ const DailyLedger: React.FC = () => {
       setNewTransaction({
         date: newTransaction.date,
         type: 'incoming',
-        category: '',
         description: '',
         amount: 0,
         customer_id: undefined,
@@ -976,16 +959,21 @@ const DailyLedger: React.FC = () => {
       });
       setSelectedInvoice(null);
       setShowAddTransaction(false);
-      
-      // Reload day data to show the new entry
-      await loadDayData(newTransaction.date);
-      
+
+      // Immediately refresh entries to show the new manual entry
+      console.log('🔄 [DailyLedger] Refreshing entries after manual transaction creation...');
+
+      // Small delay to ensure database transaction is committed
+      setTimeout(async () => {
+        await loadDayData(newTransaction.date);
+      }, 100);
+
       // Log activity using the correct method
       await activityLogger.logCustomActivity(
         'CREATE' as any,
         'REPORTS' as any,
         Date.now(),
-        `${newTransaction.type === 'incoming' ? 'Added income' : 'Added expense'}: ${newTransaction.category} - Amount: ₹${newTransaction.amount.toLocaleString()}`
+        `${newTransaction.type === 'incoming' ? 'Added income' : 'Added expense'}: ${autoCategory} - Amount: ₹${newTransaction.amount.toLocaleString()}`
       );
 
     } catch (error: any) {
@@ -1005,20 +993,20 @@ const DailyLedger: React.FC = () => {
 
   const saveEdit = () => {
     try {
-      const updatedEntries = entries.map(entry => 
-        entry.id === editingEntry 
+      const updatedEntries = entries.map(entry =>
+        entry.id === editingEntry
           ? { ...entry, ...editForm, updated_at: new Date().toISOString() }
           : entry
       );
-      
+
       setEntries(updatedEntries);
       saveEntriesToStorage(selectedDate, updatedEntries);
-      
+
       // Recalculate summary
       const newSummary = calculateSummary(updatedEntries, selectedDate);
       setSummary(newSummary);
       localStorage.setItem(`closing_balance_${selectedDate}`, newSummary.closing_balance.toString());
-      
+
       setEditingEntry(null);
       setEditForm({});
       toast.success('Transaction updated successfully');
@@ -1035,20 +1023,20 @@ const DailyLedger: React.FC = () => {
         toast.error('System generated entries cannot be deleted');
         return;
       }
-      
+
       if (!confirm('Are you sure you want to delete this transaction?')) {
         return;
       }
-      
+
       const updatedEntries = entries.filter(e => e.id !== entryId);
       setEntries(updatedEntries);
       saveEntriesToStorage(selectedDate, updatedEntries);
-      
+
       // Recalculate summary
       const newSummary = calculateSummary(updatedEntries, selectedDate);
       setSummary(newSummary);
       localStorage.setItem(`closing_balance_${selectedDate}`, newSummary.closing_balance.toString());
-      
+
       toast.success('Transaction deleted successfully');
     } catch (error) {
       console.error('Error deleting transaction:', error);
@@ -1062,7 +1050,7 @@ const DailyLedger: React.FC = () => {
       toast.error('No reference available for this transaction');
       return;
     }
-    
+
     try {
       let url = '';
       switch (entry.reference_type) {
@@ -1079,7 +1067,7 @@ const DailyLedger: React.FC = () => {
           toast.error('Unknown reference type');
           return;
       }
-      
+
       navigate(url);
     } catch (error) {
       console.error('Navigation error:', error);
@@ -1130,13 +1118,13 @@ const DailyLedger: React.FC = () => {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-      
+
       // Log export activity
       await activityLogger.logReportExported(
-        'Daily Ledger', 
+        'Daily Ledger',
         `Date: ${selectedDate}, Entries: ${entries.length}`
       );
-      
+
       toast.success('Data exported successfully');
     } catch (error) {
       console.error('Failed to export daily ledger:', error);
@@ -1156,7 +1144,10 @@ const DailyLedger: React.FC = () => {
   const incomingEntries = filteredEntries.filter(e => e.type === 'incoming');
   const outgoingEntries = filteredEntries.filter(e => e.type === 'outgoing');
 
-  const formatCurrency = (amount: number): string => {
+  const formatCurrency = (amount: number | undefined | null): string => {
+    if (amount === undefined || amount === null || isNaN(amount)) {
+      return 'Rs. 0.00';
+    }
     return `Rs. ${amount.toLocaleString('en-PK')}`;
   };
 
@@ -1169,8 +1160,118 @@ const DailyLedger: React.FC = () => {
     });
   };
 
+  // Auto-determine category based on transaction type and context
+  const getAutoCategory = (transaction: TransactionForm): string => {
+    if (transaction.type === 'incoming') {
+      if (transaction.customer_id) {
+        return 'Payment Received';
+      } else {
+        return 'Other Income';
+      }
+    } else {
+      // For outgoing transactions, try to determine from description
+      const desc = transaction.description.toLowerCase();
+      if (desc.includes('salary') || desc.includes('staff')) {
+        return 'Staff Salary';
+      } else if (desc.includes('rent')) {
+        return 'Office Rent';
+      } else if (desc.includes('utilities') || desc.includes('bill')) {
+        return 'Utilities Bill';
+      } else if (desc.includes('vendor') || desc.includes('supplier')) {
+        return 'Vendor Payment';
+      } else {
+        return 'Other Expense';
+      }
+    }
+  };
+
   // Transaction Row Component for reusability
-  const TransactionRow = ({ entry, isEditing = false }: { entry: LedgerEntry, isEditing?: boolean }) => {
+  // Helper function to get clean display text for table rows
+  const getCleanDisplayText = (entry: LedgerEntry) => {
+    let primaryText = '';
+
+    // Clean customer name (remove prefixes)
+    const cleanCustomerName = entry.customer_name
+      ?.replace(/^(Guest:|Vendor:|Staff:)\s*/i, '')
+      ?.replace(/\s*\(Guest\)$/, '')
+      ?.trim();
+
+    switch (entry.category) {
+      case 'Customer Payment':
+      case 'Payment Received':
+      case 'Invoice Payment':
+      case 'Advance Payment':
+        // CONSISTENT FORMAT: "Payment - Invoice [Number] - [Customer Name]"
+        let paymentText = 'Payment';
+
+        // Add invoice number if available
+        if (entry.bill_number) {
+          paymentText += ` - ${formatInvoiceNumber(entry.bill_number)}`;
+        }
+
+        // Add customer name
+        if (cleanCustomerName) {
+          paymentText += ` - ${cleanCustomerName}`;
+          // Add (Guest) suffix if it's a guest customer
+          if (entry.description && entry.description.includes('(Guest)')) {
+            paymentText += ' (Guest)';
+          }
+        } else if (entry.description) {
+          // Try to extract customer name from description
+          const invoiceMatch = entry.description.match(/Invoice\s*[I\d]+\s*-\s*(.+?)(?:\s*\(Guest\))?$/i);
+          if (invoiceMatch && invoiceMatch[1]) {
+            paymentText += ` - ${invoiceMatch[1].trim()}`;
+            if (entry.description.includes('(Guest)')) {
+              paymentText += ' (Guest)';
+            }
+          } else {
+            // Fallback to description but still maintain Payment prefix
+            const cleanDesc = entry.description
+              .replace(/^Payment\s*-?\s*/i, '')
+              .replace(/^Invoice\s+[I\d]+\s*-\s*/i, '')
+              .trim();
+            if (cleanDesc) {
+              paymentText += ` - ${cleanDesc}`;
+            }
+          }
+        }
+
+        primaryText = paymentText;
+        break;
+
+      case 'Vendor Payment':
+        // Extract vendor name from customer_name or description
+        let vendorName = cleanCustomerName || 'Unknown Vendor';
+        if (vendorName.startsWith('Vendor: ')) {
+          vendorName = vendorName.replace('Vendor: ', '');
+        }
+
+        // Extract stock receiving number from notes
+        let stockReceivingNumber = '';
+        if (entry.notes) {
+          const receivingMatch = entry.notes.match(/Stock Receiving\s+(S\d+)/i);
+          if (receivingMatch) {
+            stockReceivingNumber = receivingMatch[1]; // Get "S01"
+          }
+        }
+
+        primaryText = stockReceivingNumber
+          ? `${vendorName} - ${stockReceivingNumber}`
+          : vendorName;
+        break;
+
+      case 'Staff Salary':
+      case 'Salary Payment':
+        primaryText = cleanCustomerName || entry.description || 'Staff Salary';
+        break;
+
+      default:
+        // For other categories, prefer customer name over generic description
+        primaryText = cleanCustomerName || entry.description || entry.category;
+    }
+
+    return { primaryText };
+  }; const TransactionRow = ({ entry, isEditing = false }: { entry: LedgerEntry, isEditing?: boolean }) => {
     if (isEditing && editingEntry === entry.id) {
       return (
         <div className="space-y-3">
@@ -1202,8 +1303,8 @@ const DailyLedger: React.FC = () => {
               value={editForm.payment_method || ''}
               onChange={(e) => {
                 const selectedChannel = paymentChannels.find(c => c.name === e.target.value);
-                setEditForm(prev => ({ 
-                  ...prev, 
+                setEditForm(prev => ({
+                  ...prev,
                   payment_method: selectedChannel ? selectedChannel.name : e.target.value
                 }));
               }}
@@ -1244,84 +1345,289 @@ const DailyLedger: React.FC = () => {
       );
     }
 
-    return (
-      <div className="flex justify-between items-start">
-        <div className="flex-1">
-          <div className="flex items-center space-x-2">
-            <span className={`text-xs px-2 py-1 rounded ${
-              entry.type === 'incoming' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-            }`}>
-              {entry.category}
-            </span>
-            <span className="text-xs text-gray-500">{entry.time}</span>
-            {entry.is_manual && (
-              <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded">
-                Manual
-              </span>
-            )}
-            {entry.bill_number && (
-              <span className="text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded">
-                {formatInvoiceNumber(entry.bill_number)}
-              </span>
-            )}
+    // Clean, non-redundant display format
+    const getCleanFormat = () => {
+      let primaryText = '';
+      let secondaryText = '';
+      let customerName = '';
+
+      // Clean customer name (remove prefixes)
+      if (entry.customer_name) {
+        customerName = entry.customer_name
+          .replace(/^(Guest:|Vendor:|Staff:)\s*/i, '')
+          .replace(/\s*\(Guest\)$/, '')
+          .trim();
+      }
+
+      // If no customer_name in entry, try to extract from description
+      if (!customerName && entry.description) {
+        // Try to extract customer name from description patterns
+        const patterns = [
+          /Payment\s*-\s*Invoice\s*[I\d]+\s*-\s*(.+?)(?:\s*\(Guest\))?$/i, // "Payment - Invoice I01 - Customer (Guest)"
+          /^(.+?)\s*-\s*Invoice/i,  // "Customer Name - Invoice..."
+          /Payment from\s+(.+?)(?:\s-|$)/i, // "Payment from Customer"
+          /Payment\s*-\s*(.+?)(?:\s*-|$)/i, // "Payment - Customer"
+          /Invoice\s*[I\d]+\s*-\s*(.+?)(?:\s*\(Guest\))?$/i, // "Invoice I01 - Customer (Guest)"
+          /^(.+?)(?:\s*\(Guest\))?$/i  // Just the description itself, removing (Guest)
+        ];
+
+        for (const pattern of patterns) {
+          const match = entry.description.match(pattern);
+          if (match && match[1] && match[1].trim()) {
+            let extractedName = match[1].trim();
+            // Clean up common unwanted phrases
+            extractedName = extractedName
+              .replace(/\(Guest\)$/i, '')
+              .replace(/^Guest\s+/i, '')
+              .replace(/^Customer\s+/i, '')
+              .trim();
+
+            if (extractedName && extractedName.length > 1) {
+              customerName = extractedName;
+              break;
+            }
+          }
+        }
+      }
+
+      // Special handling for guest customers - check if description contains guest info
+      if (!customerName && entry.description) {
+        // Look for guest customer patterns
+        const guestPatterns = [
+          /guest\s+invoice\s+payment.*?via/i,
+          /guest.*?payment/i
+        ];
+
+        for (const pattern of guestPatterns) {
+          if (pattern.test(entry.description)) {
+            // Check if there's a customer name in customer_name field even if it has "Guest" prefix
+            if (entry.customer_name) {
+              customerName = entry.customer_name
+                .replace(/^(Guest:|Vendor:|Staff:)\s*/i, '')
+                .replace(/\s*\(Guest\)$/, '')
+                .trim();
+            }
+
+            // If still no name found, mark as Guest Customer
+            if (!customerName) {
+              customerName = 'Guest Customer';
+            }
+            break;
+          }
+        }
+      }
+
+      // Format based on category with consistent design for all payments
+      switch (entry.category) {
+        case 'Payment Received':
+          // CONSISTENT FORMAT: "Payment - Invoice [Number] - [Customer Name]"
+          let paymentText = 'Payment';
+
+          // Add invoice number if available
+          if (entry.bill_number) {
+            paymentText += ` - ${formatInvoiceNumber(entry.bill_number)}`;
+          }
+
+          // Add customer name if available
+          if (customerName) {
+            paymentText += ` - ${customerName}`;
+            // Add (Guest) suffix if it's a guest customer
+            if (entry.description && entry.description.includes('(Guest)')) {
+              paymentText += ' (Guest)';
+            }
+          } else {
+            // If no customer name, try to extract from description
+            const invoiceMatch = entry.description.match(/Invoice\s*[I\d]+\s*-\s*(.+?)(?:\s*\(Guest\))?$/i);
+            if (invoiceMatch && invoiceMatch[1]) {
+              paymentText += ` - ${invoiceMatch[1].trim()}`;
+              if (entry.description.includes('(Guest)')) {
+                paymentText += ' (Guest)';
+              }
+            }
+          }
+
+          primaryText = paymentText;
+
+          // Only show additional notes if they're not redundant
+          if (entry.notes &&
+            !entry.notes.toLowerCase().includes('payment') &&
+            !entry.notes.toLowerCase().includes('invoice') &&
+            entry.notes !== 'Invoice payment received') {
+            secondaryText = entry.notes;
+          }
+          break;
+
+        case 'Staff Salary':
+          // Extract just the staff name
+          const staffMatch = entry.description.match(/to\s+([^(]+)/);
+          primaryText = staffMatch ? staffMatch[1].trim() : customerName || 'Staff Salary';
+          // Only show meaningful notes
+          if (entry.notes && !entry.notes.includes('salary payment')) {
+            secondaryText = entry.notes;
+          }
+          break;
+
+        case 'Vendor Payment':
+          // Extract vendor name from various possible formats
+          let vendorName = '';
+
+          if (customerName) {
+            vendorName = customerName;
+          } else if (entry.description) {
+            // Try different patterns to extract vendor name
+            const vendorPatterns = [
+              /Payment to\s+(.+?)(?:\s*-|$)/i,  // "Payment to Vendor Name"
+              /^(.+?)(?:\s*-|$)/i,             // Just the vendor name at start
+              /to\s+([^-]+)/i                   // "to Vendor Name"
+            ];
+
+            for (const pattern of vendorPatterns) {
+              const match = entry.description.match(pattern);
+              if (match && match[1] && match[1].trim()) {
+                vendorName = match[1].trim();
+                break;
+              }
+            }
+          }
+
+          primaryText = vendorName || 'Vendor Payment';
+
+          // Debug vendor payment display logic
+          console.log('🔍 [DailyLedger] Vendor Payment Display Debug:', {
+            entryId: entry.id,
+            vendorName,
+            notes: entry.notes,
+            notesType: typeof entry.notes,
+            notesLength: entry.notes?.length,
+            billNumber: entry.bill_number,
+            fullEntry: entry
+          });
+
+          // Enhanced stock receiving display - combine with vendor name for consistent design
+          let stockReceivingNumber = '';
+          if (entry.notes) {
+            console.log('🔍 [DailyLedger] Processing notes:', entry.notes);
+
+            // Check for stock receiving number patterns - look for "Stock Receiving S01" format
+            const receivingMatch = entry.notes.match(/Stock Receiving\s+(S\d+)/i);
+            if (receivingMatch) {
+              stockReceivingNumber = receivingMatch[1]; // Get just "S01"
+              console.log('🔍 [DailyLedger] Extracted receiving number:', receivingMatch[1]);
+            } else if (entry.notes.includes('Stock Receiving #')) {
+              // Fallback for "Stock Receiving #S01" format
+              const legacyMatch = entry.notes.match(/Stock Receiving #([A-Z]\d+)/i);
+              if (legacyMatch) {
+                stockReceivingNumber = legacyMatch[1]; // Get just "S01"
+                console.log('🔍 [DailyLedger] Extracted legacy receiving number:', legacyMatch[1]);
+              }
+            } else if (entry.notes.includes('SR') || entry.notes.match(/^[A-Z]\d+$/)) {
+              // Handle other stock receiving patterns like "SR01" or just "S01"
+              stockReceivingNumber = entry.notes;
+              console.log('🔍 [DailyLedger] Using SR pattern or direct code:', entry.notes);
+            } else if (entry.notes.includes('Reference:')) {
+              // Show reference numbers as secondary text instead
+              const refMatch = entry.notes.match(/Reference:\s*(.+)/);
+              if (refMatch) {
+                secondaryText = refMatch[1].trim();
+                console.log('🔍 [DailyLedger] Using reference number as secondary:', refMatch[1].trim());
+              }
+            } else if (!entry.notes.toLowerCase().includes('payment') &&
+              !entry.notes.toLowerCase().includes('vendor') &&
+              entry.notes.length > 0) {
+              // Show other meaningful notes as secondary text
+              secondaryText = entry.notes;
+              console.log('🔍 [DailyLedger] Using other meaningful notes as secondary:', entry.notes);
+            }
+          }
+
+          // Combine vendor name with stock receiving number for consistency
+          if (stockReceivingNumber) {
+            primaryText = `${vendorName} - ${stockReceivingNumber}`;
+            console.log('🔍 [DailyLedger] Combined vendor name with stock receiving:', primaryText);
+          } else {
+            primaryText = vendorName || 'Vendor Payment';
+          }
+
+          // If no stock receiving number but we have bill_number, use it as secondary text
+          if (!stockReceivingNumber && !secondaryText && entry.bill_number) {
+            secondaryText = entry.bill_number;
+            console.log('🔍 [DailyLedger] Using bill_number as secondary fallback:', entry.bill_number);
+          }
+
+          console.log('🔍 [DailyLedger] Final vendor payment display:', {
+            primaryText,
+            secondaryText,
+            hasSecondaryText: !!secondaryText
+          });
+          break;
+
+        default:
+          // For other categories, use clean description
+          primaryText = entry.description;
+          if (entry.notes) {
+            secondaryText = entry.notes;
+          }
+      }
+
+      return { primaryText, secondaryText, customerName };
+    };
+
+    const { primaryText, secondaryText } = getCleanFormat(); return (
+      <div className="py-3">
+        {/* Header: Category and Time - Clean Format */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center space-x-3">
+            <h4 className="font-medium text-gray-900">{entry.category}</h4>
+            <span className="text-sm text-gray-500">{entry.time}</span>
           </div>
-          <p className="font-medium text-gray-900 mt-1">{entry.description}</p>
-          {entry.customer_name && (
-            <p className="text-sm text-gray-600">{entry.customer_name}</p>
-          )}
-          {entry.notes && (
-            <p className="text-xs text-gray-500 mt-1">{entry.notes}</p>
-          )}
-        </div>
-        
-        <div className="text-right ml-4">
-          <p className={`font-bold ${
-            entry.type === 'incoming' ? 'text-green-600' : 'text-red-600'
-          }`}>
-            {entry.type === 'incoming' ? '+' : '-'}{formatCurrency(entry.amount)}
-          </p>
-          {(entry.payment_method || entry.payment_channel_name) && (
-            <div className="flex items-center space-x-1 text-xs text-gray-500">
-              {entry.payment_channel_name && (
-                <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs">
-                  {entry.payment_channel_name}
-                </span>
-              )}
-              {entry.payment_method && !entry.payment_channel_name && (
-                <span>{entry.payment_method}</span>
-              )}
+          {entry.is_manual && (
+            <div className="flex items-center space-x-1">
+              <button
+                onClick={() => startEdit(entry)}
+                className="text-gray-400 hover:text-gray-600"
+                title="Edit"
+              >
+                <Edit className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => deleteEntry(entry.id)}
+                className="text-gray-400 hover:text-red-600"
+                title="Delete"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
             </div>
           )}
-          
-          <div className="flex items-center space-x-1 mt-1">
+        </div>
+
+        {/* Primary Text - Main Description (Non-redundant) */}
+        <p className="text-gray-900 font-medium mb-1">{primaryText}</p>
+
+        {/* Secondary Text - Additional Notes (Only if meaningful) */}
+        {secondaryText && (
+          <p className="text-sm text-gray-600 mb-2">{secondaryText}</p>
+        )}        {/* Amount and Payment Method */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <span className={`text-lg font-bold ${entry.type === 'incoming' ? 'text-green-600' : 'text-red-600'
+              }`}>
+              {entry.type === 'incoming' ? '+' : ''}{formatCurrency(entry.amount)}
+            </span>
             {entry.reference_id && (
               <button
                 onClick={() => navigateToEntity(entry)}
-                className="text-xs text-blue-600 hover:text-blue-800 flex items-center"
+                className="text-blue-600 hover:text-blue-800"
                 title="View Reference"
               >
-                <Eye className="h-3 w-3" />
+                <Eye className="h-4 w-4" />
               </button>
             )}
-            
-            {entry.is_manual && (
-              <>
-                <button
-                  onClick={() => startEdit(entry)}
-                  className="text-xs text-gray-600 hover:text-gray-800"
-                  title="Edit"
-                >
-                  <Edit className="h-3 w-3" />
-                </button>
-                <button
-                  onClick={() => deleteEntry(entry.id)}
-                  className="text-xs text-red-600 hover:text-red-800"
-                  title="Delete"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </>
-            )}
+          </div>
+
+          <div className="text-right">
+            <p className="text-sm font-medium text-gray-700">
+              {entry.payment_channel_name || entry.payment_method || 'Cash'}
+            </p>
           </div>
         </div>
       </div>
@@ -1342,13 +1648,13 @@ const DailyLedger: React.FC = () => {
           )}
           {selectedPaymentChannels.length > 0 && (
             <p className="text-sm text-green-600">
-              Payment Channels: {selectedPaymentChannels.map(id => 
+              Payment Channels: {selectedPaymentChannels.map(id =>
                 paymentChannels.find(c => c.id === id)?.name
               ).filter(Boolean).join(', ')}
             </p>
           )}
         </div>
-        
+
         <div className="flex items-center space-x-3">
           <div className="flex items-center bg-white border rounded-lg">
             <button
@@ -1357,14 +1663,14 @@ const DailyLedger: React.FC = () => {
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
-            
+
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               className="px-3 py-2 border-0 focus:ring-0"
             />
-            
+
             <button
               onClick={() => changeDate('next')}
               className="p-2 hover:bg-gray-100 rounded-r-lg"
@@ -1373,7 +1679,7 @@ const DailyLedger: React.FC = () => {
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
-          
+
           {/* Customer Filter Button */}
           <button
             onClick={() => setShowCustomerFilter(!showCustomerFilter)}
@@ -1382,7 +1688,7 @@ const DailyLedger: React.FC = () => {
           >
             <User className="h-4 w-4" />
           </button>
-          
+
           {/* Payment Channel Filter Button */}
           <button
             onClick={() => setShowPaymentChannelFilter(!showPaymentChannelFilter)}
@@ -1391,7 +1697,7 @@ const DailyLedger: React.FC = () => {
           >
             <TrendingUp className="h-4 w-4" />
           </button>
-          
+
           <button
             onClick={() => setShowAddTransaction(true)}
             className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
@@ -1399,7 +1705,7 @@ const DailyLedger: React.FC = () => {
             <Plus className="h-4 w-4 mr-2" />
             Add Transaction
           </button>
-          
+
           <button
             onClick={exportData}
             className="p-2 border rounded-lg hover:bg-gray-100"
@@ -1407,7 +1713,7 @@ const DailyLedger: React.FC = () => {
           >
             <Download className="h-4 w-4" />
           </button>
-          
+
           <button
             onClick={() => loadDayData(selectedDate)}
             disabled={loading}
@@ -1429,9 +1735,8 @@ const DailyLedger: React.FC = () => {
                 setSelectedCustomerId(null);
                 setShowCustomerFilter(false);
               }}
-              className={`p-2 text-left border rounded text-sm hover:bg-gray-50 ${
-                !selectedCustomerId ? 'bg-blue-50 border-blue-300' : ''
-              }`}
+              className={`p-2 text-left border rounded text-sm hover:bg-gray-50 ${!selectedCustomerId ? 'bg-blue-50 border-blue-300' : ''
+                }`}
             >
               All Customers
             </button>
@@ -1442,9 +1747,8 @@ const DailyLedger: React.FC = () => {
                   setSelectedCustomerId(customer.id);
                   setShowCustomerFilter(false);
                 }}
-                className={`p-2 text-left border rounded text-sm hover:bg-gray-50 ${
-                  selectedCustomerId === customer.id ? 'bg-blue-50 border-blue-300' : ''
-                }`}
+                className={`p-2 text-left border rounded text-sm hover:bg-gray-50 ${selectedCustomerId === customer.id ? 'bg-blue-50 border-blue-300' : ''
+                  }`}
               >
                 {customer.name}
               </button>
@@ -1460,8 +1764,8 @@ const DailyLedger: React.FC = () => {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">
-                {selectedPaymentChannels.length > 0 
-                  ? `${selectedPaymentChannels.length} channel(s) selected` 
+                {selectedPaymentChannels.length > 0
+                  ? `${selectedPaymentChannels.length} channel(s) selected`
                   : 'No channels selected (showing all)'
                 }
               </span>
@@ -1480,14 +1784,13 @@ const DailyLedger: React.FC = () => {
                 </button>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
               {paymentChannels.map(channel => (
                 <label
                   key={channel.id}
-                  className={`flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${
-                    selectedPaymentChannels.includes(channel.id) ? 'bg-green-50 border-green-300' : ''
-                  }`}
+                  className={`flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${selectedPaymentChannels.includes(channel.id) ? 'bg-green-50 border-green-300' : ''
+                    }`}
                 >
                   <input
                     type="checkbox"
@@ -1515,7 +1818,7 @@ const DailyLedger: React.FC = () => {
                 </label>
               ))}
             </div>
-            
+
             {paymentChannels.length === 0 && (
               <div className="text-center py-4 text-gray-500">
                 <p>No payment channels found.</p>
@@ -1536,30 +1839,29 @@ const DailyLedger: React.FC = () => {
                 {formatCurrency(summary.opening_balance)}
               </p>
             </div>
-            
+
             <div className="text-center">
               <p className="text-sm text-gray-600">Incoming</p>
               <p className="text-xl font-bold text-green-600">
                 +{formatCurrency(summary.total_incoming)}
               </p>
             </div>
-            
+
             <div className="text-center">
               <p className="text-sm text-gray-600">Outgoing</p>
               <p className="text-xl font-bold text-red-600">
                 -{formatCurrency(summary.total_outgoing)}
               </p>
             </div>
-            
+
             <div className="text-center">
               <p className="text-sm text-gray-600">Net</p>
-              <p className={`text-xl font-bold ${
-                summary.net_movement >= 0 ? 'text-green-600' : 'text-red-600'
-              }`}>
+              <p className={`text-xl font-bold ${summary.net_movement >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
                 {summary.net_movement >= 0 ? '+' : ''}{formatCurrency(summary.net_movement)}
               </p>
             </div>
-            
+
             <div className="text-center">
               <p className="text-sm text-gray-600">Closing</p>
               <p className="text-xl font-bold text-gray-900">
@@ -1582,71 +1884,168 @@ const DailyLedger: React.FC = () => {
         />
       </div>
 
-      {/* Transactions - FIXED: Both columns visible, properly editable */}
+      {/* Transactions - Clean Minimalistic Design */}
       {loading ? (
         <div className="flex items-center justify-center h-32">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Incoming */}
-          <div className="bg-white rounded-lg border">
+          {/* Incoming Transactions Table */}
+          <div className="bg-white rounded-lg border overflow-hidden">
             <div className="p-4 border-b bg-green-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <TrendingUp className="h-5 w-5 text-green-600 mr-2" />
                   <h3 className="font-semibold text-green-900">Incoming ({incomingEntries.length})</h3>
                 </div>
-                <span className="text-sm font-bold text-green-600">
+                <span className="text-lg font-bold text-green-600">
                   {formatCurrency(incomingEntries.reduce((sum, e) => sum + e.amount, 0))}
                 </span>
               </div>
             </div>
-            
-            <div className="divide-y">
-              {incomingEntries.length > 0 ? (
-                incomingEntries.map((entry) => (
-                  <div key={entry.id} className="p-4 hover:bg-gray-50">
-                    <TransactionRow entry={entry} isEditing={editingEntry === entry.id} />
-                  </div>
-                ))
-              ) : (
-                <div className="p-8 text-center text-gray-500">
-                  <TrendingUp className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                  <p>No incoming transactions</p>
-                </div>
-              )}
-            </div>
+
+            {incomingEntries.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 text-xs">Time</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 text-xs">Description</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-700 text-xs">Amount</th>
+                      <th className="px-3 py-2 text-center font-medium text-gray-700 text-xs">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {incomingEntries.map((entry) => {
+                      const { primaryText } = getCleanDisplayText(entry);
+
+                      return (
+                        <tr key={entry.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-600 text-xs">{entry.time}</td>
+                          <td className="px-3 py-2">
+                            <div className="text-gray-900 font-medium text-sm">{primaryText}</div>
+                            <div className="text-xs text-gray-500">
+                              {entry.payment_channel_name || entry.payment_method || 'Cash'}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <span className="font-bold text-green-600 text-sm">
+                              +{formatCurrency(entry.amount)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {entry.is_manual ? (
+                              <div className="flex items-center justify-center space-x-1">
+                                <button
+                                  onClick={() => startEdit(entry)}
+                                  className="text-blue-600 hover:text-blue-800 p-1"
+                                  title="Edit Transaction"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                                <button
+                                  onClick={() => deleteEntry(entry.id)}
+                                  className="text-red-600 hover:text-red-800 p-1"
+                                  title="Delete Transaction"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">System</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-gray-500">
+                <TrendingUp className="h-6 w-6 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm">No incoming transactions</p>
+              </div>
+            )}
           </div>
 
-          {/* Outgoing */}
-          <div className="bg-white rounded-lg border">
+          {/* Outgoing Transactions Table */}
+          <div className="bg-white rounded-lg border overflow-hidden">
             <div className="p-4 border-b bg-red-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <TrendingDown className="h-5 w-5 text-red-600 mr-2" />
                   <h3 className="font-semibold text-red-900">Outgoing ({outgoingEntries.length})</h3>
                 </div>
-                <span className="text-sm font-bold text-red-600">
+                <span className="text-lg font-bold text-red-600">
                   {formatCurrency(outgoingEntries.reduce((sum, e) => sum + e.amount, 0))}
                 </span>
               </div>
             </div>
-            
-            <div className="divide-y">
-              {outgoingEntries.length > 0 ? (
-                outgoingEntries.map((entry) => (
-                  <div key={entry.id} className="p-4 hover:bg-gray-50">
-                    <TransactionRow entry={entry} isEditing={editingEntry === entry.id} />
-                  </div>
-                ))
-              ) : (
-                <div className="p-8 text-center text-gray-500">
-                  <TrendingDown className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                  <p>No outgoing transactions</p>
-                </div>
-              )}
-            </div>
+
+            {outgoingEntries.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 text-xs">Time</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 text-xs">Description</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-700 text-xs">Amount</th>
+                      <th className="px-3 py-2 text-center font-medium text-gray-700 text-xs">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {outgoingEntries.map((entry) => {
+                      const { primaryText } = getCleanDisplayText(entry);
+                      return (
+                        <tr key={entry.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-gray-600 text-xs">{entry.time}</td>
+                          <td className="px-3 py-2">
+                            <div className="text-gray-900 font-medium text-sm">{primaryText}</div>
+                            <div className="text-xs text-gray-500">
+                              {entry.payment_channel_name || entry.payment_method || 'Cash'}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <span className="font-bold text-red-600 text-sm">
+                              -{formatCurrency(entry.amount)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            {entry.is_manual ? (
+                              <div className="flex items-center justify-center space-x-1">
+                                <button
+                                  onClick={() => startEdit(entry)}
+                                  className="text-blue-600 hover:text-blue-800 p-1"
+                                  title="Edit Transaction"
+                                >
+                                  <Edit className="h-3 w-3" />
+                                </button>
+                                <button
+                                  onClick={() => deleteEntry(entry.id)}
+                                  className="text-red-600 hover:text-red-800 p-1"
+                                  title="Delete Transaction"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400">System</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-gray-500">
+                <TrendingDown className="h-6 w-6 mx-auto mb-2 text-gray-300" />
+                <p className="text-sm">No outgoing transactions</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1658,34 +2057,32 @@ const DailyLedger: React.FC = () => {
             <div className="p-6 border-b sticky top-0 bg-white">
               <h3 className="text-lg font-semibold">Add Transaction</h3>
             </div>
-            
+
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <button
                   onClick={() => setNewTransaction(prev => ({ ...prev, type: 'incoming' }))}
-                  className={`p-3 rounded-lg border-2 transition-all ${
-                    newTransaction.type === 'incoming'
-                      ? 'border-green-500 bg-green-50 text-green-700'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={`p-3 rounded-lg border-2 transition-all ${newTransaction.type === 'incoming'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-200 hover:border-gray-300'
+                    }`}
                 >
                   <TrendingUp className="h-5 w-5 mx-auto mb-1" />
                   <span className="text-sm font-medium">Incoming</span>
                 </button>
-                
+
                 <button
                   onClick={() => setNewTransaction(prev => ({ ...prev, type: 'outgoing' }))}
-                  className={`p-3 rounded-lg border-2 transition-all ${
-                    newTransaction.type === 'outgoing'
-                      ? 'border-red-500 bg-red-50 text-red-700'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
+                  className={`p-3 rounded-lg border-2 transition-all ${newTransaction.type === 'outgoing'
+                    ? 'border-red-500 bg-red-50 text-red-700'
+                    : 'border-gray-200 hover:border-gray-300'
+                    }`}
                 >
                   <TrendingDown className="h-5 w-5 mx-auto mb-1" />
                   <span className="text-sm font-medium">Outgoing</span>
                 </button>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
                 <input
@@ -1695,21 +2092,9 @@ const DailyLedger: React.FC = () => {
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
-                <select
-                  value={newTransaction.category}
-                  onChange={(e) => setNewTransaction(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Select Category</option>
-                  {(newTransaction.type === 'incoming' ? INCOMING_CATEGORIES : OUTGOING_CATEGORIES).map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-              
+
+              {/* Category field removed for simplicity - auto-determined based on transaction type and description */}
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description *</label>
                 <input
@@ -1720,7 +2105,7 @@ const DailyLedger: React.FC = () => {
                   placeholder="Enter description"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
                 <input
@@ -1733,15 +2118,15 @@ const DailyLedger: React.FC = () => {
                   placeholder="0.00"
                 />
               </div>
-              
+
               {newTransaction.type === 'incoming' && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Customer (Optional)</label>
                   <select
                     value={newTransaction.customer_id || ''}
-                    onChange={(e) => setNewTransaction(prev => ({ 
-                      ...prev, 
-                      customer_id: e.target.value ? parseInt(e.target.value) : undefined 
+                    onChange={(e) => setNewTransaction(prev => ({
+                      ...prev,
+                      customer_id: e.target.value ? parseInt(e.target.value) : undefined
                     }))}
                     className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
@@ -1764,7 +2149,7 @@ const DailyLedger: React.FC = () => {
                   )}
 
                   {/* Invoice Selection for Payment Allocation */}
-                  {newTransaction.customer_id && newTransaction.category.toLowerCase().includes('payment') && (
+                  {newTransaction.customer_id && newTransaction.type === 'incoming' && (
                     <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Allocate to Invoice (Optional)
@@ -1793,7 +2178,7 @@ const DailyLedger: React.FC = () => {
                   )}
                 </div>
               )}
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment Channel</label>
                 <select
@@ -1801,8 +2186,8 @@ const DailyLedger: React.FC = () => {
                   onChange={(e) => {
                     const channelId = parseInt(e.target.value);
                     const selectedChannel = paymentChannels.find(c => c.id === channelId);
-                    setNewTransaction(prev => ({ 
-                      ...prev, 
+                    setNewTransaction(prev => ({
+                      ...prev,
                       payment_channel_id: channelId,
                       payment_channel_name: selectedChannel?.name || '',
                       payment_method: selectedChannel?.name || ''
@@ -1818,7 +2203,7 @@ const DailyLedger: React.FC = () => {
                   ))}
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
                 <textarea
@@ -1829,15 +2214,15 @@ const DailyLedger: React.FC = () => {
                   placeholder="Additional notes or reference information"
                 />
               </div>
-              
+
               <div className="bg-gray-50 p-3 rounded-lg">
                 <p className="text-xs text-gray-600">
-                  <strong>Note:</strong> System entries (from invoices) are automatically generated. 
+                  <strong>Note:</strong> System entries (from invoices) are automatically generated.
                   Only manual entries can be edited or deleted.
                 </p>
               </div>
             </div>
-            
+
             <div className="p-6 border-t flex justify-end space-x-3 sticky bottom-0 bg-white">
               <button
                 onClick={() => setShowAddTransaction(false)}
@@ -1847,7 +2232,7 @@ const DailyLedger: React.FC = () => {
               </button>
               <button
                 onClick={addTransaction}
-                disabled={!newTransaction.category || !newTransaction.description || newTransaction.amount <= 0}
+                disabled={!newTransaction.description || newTransaction.amount <= 0}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add Transaction
@@ -1857,7 +2242,112 @@ const DailyLedger: React.FC = () => {
         </div>
       )}
 
-      
+      {/* Edit Transaction Modal */}
+      {editingEntry && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b sticky top-0 bg-white">
+              <h3 className="text-lg font-semibold">Edit Transaction</h3>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={editForm.category || ''}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {(editForm.type === 'incoming' ? INCOMING_CATEGORIES : OUTGOING_CATEGORIES).map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={editForm.description || ''}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Transaction description"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+                <input
+                  type="number"
+                  value={editForm.amount || 0}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="0.00"
+                  step="0.01"
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
+                <select
+                  value={editForm.payment_method || ''}
+                  onChange={(e) => {
+                    const selectedChannel = paymentChannels.find(c => c.name === e.target.value);
+                    setEditForm(prev => ({
+                      ...prev,
+                      payment_method: selectedChannel ? selectedChannel.name : e.target.value,
+                      payment_channel_name: selectedChannel ? selectedChannel.name : e.target.value
+                    }));
+                  }}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {paymentChannels.map(channel => (
+                    <option key={channel.id} value={channel.name}>{channel.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                <textarea
+                  value={editForm.notes || ''}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  rows={3}
+                  placeholder="Additional notes or reference information"
+                />
+              </div>
+
+              <div className="bg-yellow-50 p-3 rounded-lg">
+                <p className="text-xs text-yellow-800">
+                  <strong>Note:</strong> Only manual entries can be edited. System-generated entries from invoices and payments cannot be modified.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t flex justify-end space-x-3 sticky bottom-0 bg-white">
+              <button
+                onClick={() => {
+                  setEditingEntry(null);
+                  setEditForm({});
+                }}
+                className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={!editForm.description || !editForm.amount || editForm.amount <= 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Balance Transfer Info */}
       {summary && selectedDate !== new Date().toISOString().split('T')[0] && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -1866,7 +2356,7 @@ const DailyLedger: React.FC = () => {
             <div>
               <h4 className="text-sm font-medium text-blue-900">Balance Transfer</h4>
               <p className="text-sm text-blue-700 mt-1">
-                Closing balance of {formatCurrency(summary.closing_balance)} was automatically 
+                Closing balance of {formatCurrency(summary.closing_balance)} was automatically
                 transferred as opening balance for the next day.
               </p>
             </div>
@@ -1887,7 +2377,7 @@ const DailyLedger: React.FC = () => {
             <span>{summary?.transactions_count || 0} transactions today</span>
             <span>•</span>
             <span>
-              {entries.filter(e => e.is_manual).length} manual, 
+              {entries.filter(e => e.is_manual).length} manual,
               {entries.filter(e => !e.is_manual).length} system
             </span>
             {selectedCustomerId && (

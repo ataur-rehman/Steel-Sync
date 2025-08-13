@@ -48,18 +48,52 @@ export class CentralizedRealtimeSolution {
         await this.db.dbConnection.execute('BEGIN TRANSACTION');
 
 
-        // Ensure receiving_number is always set (permanent, migration-free fix)
+        // Ensure receiving_number is always set with proper uniqueness check
         let receivingNumber = receivingData.receiving_number;
         if (!receivingNumber || typeof receivingNumber !== 'string' || !receivingNumber.trim()) {
           // Generate a unique, human-readable receiving number: S0001, S0002, ...
-          const result = await this.db.dbConnection.select(
-            'SELECT COUNT(*) as count FROM stock_receiving WHERE date = ?',
-            [receivingData.date || new Date().toISOString().slice(0, 10)]
-          );
-          const countToday = (result && result[0] && result[0].count) ? parseInt(result[0].count) : 0;
-          // Always 4 digits, e.g., S0001, S0002, ...
-          const serial = (countToday + 1).toString().padStart(4, '0');
-          receivingNumber = `S${serial}`;
+          // Use a more robust approach to prevent duplicates
+          let attempts = 0;
+          const maxAttempts = 100;
+
+          while (attempts < maxAttempts) {
+            // Get the highest existing receiving number
+            const result = await this.db.dbConnection.select(
+              `SELECT receiving_number FROM stock_receiving 
+               WHERE receiving_number LIKE 'S%' 
+               ORDER BY CAST(SUBSTR(receiving_number, 2) AS INTEGER) DESC 
+               LIMIT 1`
+            );
+
+            let nextNumber = 1;
+            if (result && result[0] && result[0].receiving_number) {
+              const lastNumber = parseInt(result[0].receiving_number.substring(1));
+              if (!isNaN(lastNumber)) {
+                nextNumber = lastNumber + 1;
+              }
+            }
+
+            // Always 4 digits, e.g., S0001, S0002, ...
+            const serial = nextNumber.toString().padStart(4, '0');
+            const candidateNumber = `S${serial}`;
+
+            // Check if this number already exists
+            const existsCheck = await this.db.dbConnection.select(
+              'SELECT COUNT(*) as count FROM stock_receiving WHERE receiving_number = ?',
+              [candidateNumber]
+            );
+
+            if (!existsCheck || !existsCheck[0] || existsCheck[0].count === 0) {
+              receivingNumber = candidateNumber;
+              break;
+            }
+
+            attempts++;
+          }
+
+          if (attempts >= maxAttempts) {
+            throw new Error(`Failed to generate unique receiving number after ${maxAttempts} attempts`);
+          }
         }
 
         // Ensure received_date and received_time are always set (permanent, migration-free fix)
@@ -236,76 +270,104 @@ export class CentralizedRealtimeSolution {
         // Add each item
         let totalAddition = 0;
         for (const item of items) {
-          // Insert invoice item
-          await this.db.dbConnection.execute(`
-            INSERT INTO invoice_items (
-              invoice_id, product_id, product_name, quantity, unit, unit_price,
-              rate, total_price, amount, length, pieces, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-          `, [
-            invoiceId,
-            item.product_id,
-            item.product_name,
-            item.quantity,
-            item.unit || 'piece',
-            item.unit_price,
-            item.unit_price, // rate
-            item.total_price,
-            item.total_price, // amount
-            item.length || null,
-            item.pieces || null
-          ]);
+          // Check if this is a miscellaneous item
+          const isMiscItem = Boolean(item.is_misc_item) || item.product_id === null || item.product_id === undefined;
 
-          // Update product stock
-          const product = await this.db.getProduct(item.product_id);
-          const quantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-          const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-          const newStockValue = currentStockData.numericValue - quantityData.numericValue;
-          const newStockString = createUnitFromNumericValue(Math.max(0, newStockValue), product.unit_type);
+          // Insert invoice item with misc item support
+          if (isMiscItem) {
+            // Insert miscellaneous item without product_id
+            await this.db.dbConnection.execute(`
+              INSERT INTO invoice_items (
+                invoice_id, product_id, product_name, quantity, unit, unit_price,
+                rate, total_price, amount, is_misc_item, misc_description, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            `, [
+              invoiceId,
+              null, // product_id is null for misc items
+              item.product_name,
+              item.quantity || '1',
+              item.unit || 'item',
+              item.unit_price,
+              item.unit_price, // rate
+              item.total_price,
+              item.total_price, // amount
+              1, // is_misc_item = true
+              item.misc_description || item.product_name // misc_description
+            ]);
 
-          await this.db.dbConnection.execute(
-            'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [newStockString, item.product_id]
-          );
+            console.log('✅ Miscellaneous item added:', item.product_name);
+          } else {
+            // Insert regular product item
+            await this.db.dbConnection.execute(`
+              INSERT INTO invoice_items (
+                invoice_id, product_id, product_name, quantity, unit, unit_price,
+                rate, total_price, amount, length, pieces, is_misc_item, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            `, [
+              invoiceId,
+              item.product_id,
+              item.product_name,
+              item.quantity,
+              item.unit || 'piece',
+              item.unit_price,
+              item.unit_price, // rate
+              item.total_price,
+              item.total_price, // amount
+              item.length || null,
+              item.pieces || null,
+              0 // is_misc_item = false
+            ]);
 
-          // **CRITICAL FIX**: Create stock movement for audit trail
-          const now = new Date();
-          const date = now.toISOString().split('T')[0];
-          const time = now.toLocaleTimeString('en-PK', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          });
+            // Update product stock ONLY for regular items
+            const product = await this.db.getProduct(item.product_id);
+            const quantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+            const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+            const newStockValue = currentStockData.numericValue - quantityData.numericValue;
+            const newStockString = createUnitFromNumericValue(Math.max(0, newStockValue), product.unit_type);
 
+            await this.db.dbConnection.execute(
+              'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [newStockString, item.product_id]
+            );
 
-          // **CRITICAL FIX**: Create stock movement for audit trail with correct display format
-          await this.db.createStockMovement({
-            product_id: item.product_id,
-            product_name: product.name,
-            movement_type: 'out',
-            transaction_type: 'sale',
-            quantity: `-${quantityData.display}`,
-            unit: product.unit_type || 'kg',
-            previous_stock: currentStockData.numericValue,
-            new_stock: newStockValue,
-            stock_before: currentStockData.numericValue,
-            stock_after: newStockValue,
-            unit_cost: product.rate_per_unit || 0,
-            unit_price: item.unit_price || 0,
-            total_cost: item.total_price || 0,
-            total_value: item.total_price || 0,
-            reason: 'Sale - Invoice item',
-            reference_type: 'invoice',
-            reference_id: invoiceId,
-            reference_number: `INV-${invoiceId}`,
-            customer_id: invoiceBefore.customer_id,
-            customer_name: customerBefore.name || 'Unknown Customer',
-            date: date,
-            time: time,
-            created_by: 'system'
-          });
+            // **CRITICAL FIX**: Create stock movement for audit trail ONLY for regular items
+            const now = new Date();
+            const date = now.toISOString().split('T')[0];
+            const time = now.toLocaleTimeString('en-PK', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            });
 
-          console.log(`✅ Stock movement created for ${product.name}: -${quantityData.display}`);
+            // **CRITICAL FIX**: Create stock movement for audit trail with correct display format
+            await this.db.createStockMovement({
+              product_id: item.product_id,
+              product_name: product.name,
+              movement_type: 'out',
+              transaction_type: 'sale',
+              quantity: `-${quantityData.display}`,
+              unit: product.unit_type || 'kg',
+              previous_stock: currentStockData.numericValue,
+              new_stock: newStockValue,
+              stock_before: currentStockData.numericValue,
+              stock_after: newStockValue,
+              unit_cost: product.rate_per_unit || 0,
+              unit_price: item.unit_price || 0,
+              total_cost: item.total_price || 0,
+              total_value: item.total_price || 0,
+              reason: 'Sale - Invoice item',
+              reference_type: 'invoice',
+              reference_id: invoiceId,
+              reference_number: `INV-${invoiceId}`,
+              customer_id: invoiceBefore.customer_id,
+              customer_name: customerBefore.name || 'Unknown Customer',
+              date: date,
+              time: time,
+              created_by: 'system'
+            });
+
+            console.log(`✅ Stock movement created for ${product.name}: -${quantityData.display}`);
+          }
 
           totalAddition += item.total_price || 0;
         }

@@ -97,13 +97,15 @@ interface InvoiceCreationData {
 }
 
 interface InvoiceItem {
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   quantity: string;
   unit_price: number;
   total_price: number;
   length?: number;
   pieces?: number;
+  is_misc_item?: boolean;
+  misc_description?: string;
 }
 
 interface DatabaseMetrics {
@@ -137,7 +139,6 @@ export class DatabaseService {
   private cacheMisses = 0;
 
   // STOCK OPERATION FLAGS: Force cache bypass after stock operations
-  private stockOperationInProgress = false;
   private lastStockOperationTime = 0;
   private readonly STOCK_CACHE_BYPASS_DURATION = 10000; // 10 seconds bypass after stock operations
 
@@ -1844,7 +1845,11 @@ export class DatabaseService {
           amount: roundedAmount,
           reference_type: 'manual_transaction',
           notes: entry.notes,
-          created_by: 'manual'
+          created_by: 'manual',
+          payment_method: entry.payment_method,
+          payment_channel_id: entry.payment_channel_id,
+          payment_channel_name: entry.payment_channel_name,
+          is_manual: entry.is_manual
         });
       }
 
@@ -2091,11 +2096,19 @@ export class DatabaseService {
 
       const hasLength = tableInfo.some((col: any) => col.name === 'length');
       const hasPieces = tableInfo.some((col: any) => col.name === 'pieces');
+      const hasMiscItem = tableInfo.some((col: any) => col.name === 'is_misc_item');
+      const hasMiscDescription = tableInfo.some((col: any) => col.name === 'misc_description');
 
-      console.log('🔍 [DEBUG] Schema check results:', { hasLength, hasPieces, columnCount: tableInfo.length });
+      console.log('🔍 [DEBUG] Schema check results:', {
+        hasLength,
+        hasPieces,
+        hasMiscItem,
+        hasMiscDescription,
+        columnCount: tableInfo.length
+      });
 
-      if (!hasLength || !hasPieces || tableInfo.length === 0) {
-        console.log('🔄 [CENTRALIZED] Recreating invoice_items table with L/pcs support...');
+      if (!hasLength || !hasPieces || !hasMiscItem || !hasMiscDescription || tableInfo.length === 0) {
+        console.log('🔄 [CENTRALIZED] Recreating invoice_items table with L/pcs and misc items support...');
 
         // Backup existing data if table exists
         let existingData: any[] = [];
@@ -2113,15 +2126,15 @@ export class DatabaseService {
         // Import schema from centralized schemas
         const { DATABASE_SCHEMAS } = await import('./database-schemas');
         await this.dbConnection.execute(DATABASE_SCHEMAS.INVOICE_ITEMS);
-        console.log('🏗️ [CENTRALIZED] Created new invoice_items table with L/pcs schema');
+        console.log('🏗️ [CENTRALIZED] Created new invoice_items table with L/pcs and misc items schema');
 
         // Verify new schema
         const newTableInfo = await this.dbConnection.select("PRAGMA table_info(invoice_items)");
         console.log('✅ [VERIFY] New schema:', newTableInfo.map((col: any) => ({ name: col.name, type: col.type })));
 
-        // Restore data with L/pcs columns if we had any
+        // Restore data with L/pcs and misc item columns if we had any
         if (existingData.length > 0) {
-          console.log(`🔄 [RESTORE] Restoring ${existingData.length} items with L/pcs support...`);
+          console.log(`🔄 [RESTORE] Restoring ${existingData.length} items with L/pcs and misc support...`);
 
           for (const item of existingData) {
             const lpcsData = this.prepareLPcsData(item);
@@ -2129,13 +2142,15 @@ export class DatabaseService {
               await this.dbConnection.execute(`
                 INSERT INTO invoice_items (
                   id, invoice_id, product_id, product_name, quantity, unit_price, 
-                  rate, total_price, amount, unit, length, pieces, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  rate, total_price, amount, unit, length, pieces, is_misc_item, misc_description,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `, [
                 item.id, item.invoice_id, item.product_id, item.product_name,
                 item.quantity, item.unit_price, item.rate || item.unit_price,
                 item.total_price, item.amount || item.total_price,
                 item.unit || 'piece', lpcsData.length, lpcsData.pieces,
+                item.is_misc_item || 0, item.misc_description || null,
                 item.created_at, item.updated_at
               ]);
             } catch (restoreError) {
@@ -2145,7 +2160,7 @@ export class DatabaseService {
           console.log('✅ [RESTORE] Data restoration completed');
         }
 
-        console.log('✅ [CENTRALIZED] invoice_items table recreated with L/pcs schema');
+        console.log('✅ [CENTRALIZED] invoice_items table recreated with L/pcs and misc items schema');
       } else {
         console.log('✅ [CENTRALIZED] invoice_items schema already compliant');
       }
@@ -3185,9 +3200,15 @@ export class DatabaseService {
     // Validate input
     this.validateInvoiceDataEnhanced(invoiceData);
 
-    // Pre-validate all product IDs before starting transaction
+    // Pre-validate all product IDs before starting transaction (skip misc items)
     console.log('🔍 Pre-validating product IDs...');
     for (const item of invoiceData.items) {
+      // Skip validation for miscellaneous items (they don't have product_id)
+      if (Boolean(item.is_misc_item) || item.product_id === null || item.product_id === undefined) {
+        console.log(`⏭️ Skipping validation for miscellaneous item: ${item.misc_description || 'Unknown'}`);
+        continue;
+      }
+
       const productExists = await this.dbConnection.select('SELECT id, name FROM products WHERE id = ?', [item.product_id]);
       if (!productExists || productExists.length === 0) {
         throw new Error(`Product with ID ${item.product_id} not found. Cannot create invoice.`);
@@ -3304,7 +3325,7 @@ export class DatabaseService {
           }
 
           // Update customer balance and create ledger entries only for regular customers (not guests)
-          if (invoiceData.customer_id !== -1) {
+          if (!this.isGuestCustomer(invoiceData.customer_id)) {
             // Update customer balance if needed
             if (remainingBalance !== 0) {
               await this.dbConnection.execute(
@@ -3321,6 +3342,8 @@ export class DatabaseService {
           } else {
             // CRITICAL FIX: For guest customers, create daily ledger entries for cash flow tracking
             // Guest customers should still contribute to business cash flow tracking
+            console.log(`🔄 Guest customer detected: ${customerName} (ID: ${invoiceData.customer_id}). Skipping customer balance updates and ledger creation.`);
+
             if (paymentAmount > 0) {
               console.log(`🔄 Creating daily ledger entry for guest customer payment: Rs.${paymentAmount}`);
 
@@ -3369,7 +3392,11 @@ export class DatabaseService {
                   console.error('❌ Failed to update payment channel daily ledger for guest customer:', ledgerError);
                 }
               }
+            } else {
+              console.log(`ℹ️ No payment made for guest customer invoice ${billNumber} - no daily ledger entry needed`);
             }
+
+            console.log(`✅ Guest customer invoice processing completed - NO customer ledger pollution`);
           }
 
           // CRITICAL FIX: Create payment record if payment was made during invoice creation
@@ -3520,68 +3547,89 @@ export class DatabaseService {
     billNumber: string,
     customer: any
   ): Promise<void> {
-    // Get product
-    const productResult = await this.dbConnection.select(
-      'SELECT * FROM products WHERE id = ?',
-      [item.product_id]
-    );
+    // Check if this is a miscellaneous item - fix type comparison
+    const isMiscItem = Boolean(item.is_misc_item);
 
-    if (!productResult || productResult.length === 0) {
-      console.error(`❌ Product not found: ID ${item.product_id}`);
-      throw new Error(`Product ${item.product_id} not found`);
-    }
+    let product: any = null;
+    let productName = '';
 
-    const product = productResult[0];
-    console.log(`✅ Product found: ${product.name} (ID: ${product.id})`);
+    if (isMiscItem) {
+      // For miscellaneous items, use the provided description
+      productName = item.misc_description || item.product_name || 'Miscellaneous Item';
+      console.log(`🎫 Processing miscellaneous item: ${productName}`);
+    } else {
+      // Get product for regular items
+      const productResult = await this.dbConnection.select(
+        'SELECT * FROM products WHERE id = ?',
+        [item.product_id]
+      );
 
-    // Check stock
-    const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-    const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+      if (!productResult || productResult.length === 0) {
+        console.error(`❌ Product not found: ID ${item.product_id}`);
+        throw new Error(`Product ${item.product_id} not found`);
+      }
 
-    const availableStock = currentStockData.numericValue;
-    const soldQuantity = itemQuantityData.numericValue;
-    const newStock = availableStock - soldQuantity;
+      product = productResult[0];
+      productName = product.name;
+      console.log(`✅ Product found: ${product.name} (ID: ${product.id})`);
 
-    if (newStock < 0) {
-      console.error(`❌ Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
-      throw new Error(`Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+      // Check stock for product items
+      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+      const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+
+      const availableStock = currentStockData.numericValue;
+      const soldQuantity = itemQuantityData.numericValue;
+      const newStock = availableStock - soldQuantity;
+
+      if (newStock < 0) {
+        console.error(`❌ Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+        throw new Error(`Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+      }
     }
 
     // Insert invoice item - CENTRALIZED SCHEMA COMPLIANCE
     try {
-      console.log(`🔄 Inserting invoice item: Invoice ID ${invoiceId}, Product ID ${item.product_id}`);
+      console.log(`🔄 Inserting invoice item: Invoice ID ${invoiceId}, ${isMiscItem ? 'Misc Item' : 'Product ID ' + item.product_id}`);
 
       // EMERGENCY FIX: Ensure L/pcs columns exist before insertion
       await this.ensureInvoiceItemsSchemaCompliance();
 
-      // Try comprehensive insert with length and pieces first
+      // Try comprehensive insert with length, pieces, and misc item support
       try {
         const lpcsData = this.prepareLPcsData(item);
         console.log(`🔍 [DEBUG] L/pcs data for insertion:`, lpcsData);
         await this.dbConnection.execute(
           `INSERT INTO invoice_items (
           invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
-          total_price, amount, length, pieces, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          total_price, amount, length, pieces, is_misc_item, misc_description,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
             invoiceId,
-            item.product_id,
-            product.name,
-            item.quantity,
-            product.unit || 'piece',
+            isMiscItem ? null : item.product_id,
+            productName,
+            item.quantity || '1',
+            (product?.unit || 'piece'),
             item.unit_price || 0,
             item.unit_price || 0, // rate (required)
             item.total_price || 0, // total_price (NOT NULL required)
             item.total_price || 0, // amount (NOT NULL required)
             lpcsData.length, // length (centralized handling)
-            lpcsData.pieces  // pieces (centralized handling)
+            lpcsData.pieces, // pieces (centralized handling)
+            isMiscItem ? 1 : 0, // is_misc_item
+            isMiscItem ? (item.misc_description || item.product_name) : null // misc_description
           ]
         );
-        console.log(`✅ [CENTRALIZED] Invoice item inserted with L/pcs support:`, { length: lpcsData.length, pieces: lpcsData.pieces });
+        console.log(`✅ [CENTRALIZED] Invoice item inserted with L/pcs and misc support:`, {
+          length: lpcsData.length,
+          pieces: lpcsData.pieces,
+          isMiscItem,
+          productName
+        });
       } catch (columnError: any) {
-        console.warn(`⚠️ Length/pieces columns not available, using fallback insert:`, columnError.message);
+        console.warn(`⚠️ Length/pieces/misc columns not available, using fallback insert:`, columnError.message);
 
-        // Fallback to basic insert without length/pieces
+        // Fallback to basic insert without length/pieces/misc
         await this.dbConnection.execute(
           `INSERT INTO invoice_items (
           invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
@@ -3589,10 +3637,10 @@ export class DatabaseService {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
             invoiceId,
-            item.product_id,
-            product.name,
-            item.quantity,
-            product.unit || 'piece',
+            isMiscItem ? null : item.product_id,
+            productName,
+            item.quantity || '1',
+            (product?.unit || 'piece'),
             item.unit_price || 0,
             item.unit_price || 0, // rate (required)
             item.total_price || 0, // total_price (NOT NULL required)
@@ -3603,106 +3651,118 @@ export class DatabaseService {
       }
     } catch (itemError: any) {
       console.error(`❌ Failed to insert invoice item:`, itemError);
-      console.error(`❌ Invoice ID: ${invoiceId}, Product ID: ${item.product_id}`);
+      console.error(`❌ Invoice ID: ${invoiceId}, ${isMiscItem ? 'Misc Item' : 'Product ID: ' + item.product_id}`);
       console.error(`❌ Item data:`, {
-        product_name: product.name,
+        product_name: productName,
         quantity: item.quantity,
         unit_price: item.unit_price,
         length: item.length,
-        pieces: item.pieces
+        pieces: item.pieces,
+        is_misc_item: isMiscItem,
+        misc_description: item.misc_description
       });
 
       // Check if invoice exists
       const invoiceCheck = await this.dbConnection.select('SELECT id FROM invoices WHERE id = ?', [invoiceId]);
       console.log(`🔍 Invoice exists check:`, invoiceCheck.length > 0 ? 'EXISTS' : 'NOT FOUND');
 
-      // Check if product exists
-      const productCheck = await this.dbConnection.select('SELECT id FROM products WHERE id = ?', [item.product_id]);
-      console.log(`🔍 Product exists check:`, productCheck.length > 0 ? 'EXISTS' : 'NOT FOUND');
+      // Check if product exists (only for product items)
+      if (!isMiscItem) {
+        const productCheck = await this.dbConnection.select('SELECT id FROM products WHERE id = ?', [item.product_id]);
+        console.log(`🔍 Product exists check:`, productCheck.length > 0 ? 'EXISTS' : 'NOT FOUND');
+      }
 
       const errorMessage = itemError?.message || itemError?.toString() || 'Unknown database error';
       throw new Error(`Failed to insert invoice item: ${errorMessage}`);
     }
 
-    // Update product stock
-    const newStockString = formatUnitString(
-      createUnitFromNumericValue(newStock, product.unit_type || 'kg-grams'),
-      product.unit_type || 'kg-grams'
-    );
+    // Update product stock (only for product items, not miscellaneous items)
+    if (!isMiscItem && product) {
+      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+      const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+      const newStock = currentStockData.numericValue - itemQuantityData.numericValue;
 
-    await this.dbConnection.execute(
-      'UPDATE products SET current_stock = ?, updated_at = datetime("now") WHERE id = ?',
-      [newStockString, item.product_id]
-    );
+      const newStockString = formatUnitString(
+        createUnitFromNumericValue(newStock, product.unit_type || 'kg-grams'),
+        product.unit_type || 'kg-grams'
+      );
 
-    // Create stock movement
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+      await this.dbConnection.execute(
+        'UPDATE products SET current_stock = ?, updated_at = datetime("now") WHERE id = ?',
+        [newStockString, item.product_id]
+      );
 
-    await this.dbConnection.execute(
-      `INSERT INTO stock_movements (
-      product_id, product_name, movement_type, transaction_type, quantity, unit, 
-      previous_stock, stock_before, stock_after, new_stock, unit_cost, unit_price, 
-      total_cost, total_value, reason, reference_type, reference_id, reference_number, 
-      customer_id, customer_name, notes, date, time, created_by, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
-      [
-        item.product_id,
-        product.name,
-        'out',
-        'sale', // transaction_type (required)
-        (() => {
-          // CRITICAL FIX: Properly handle quantity from invoice form
-          // item.quantity comes from form as string like "1", "1-200", "5.500", "150" etc.
-          let unitType = product.unit_type || 'kg-grams';
-          let quantityString = String(item.quantity); // Always use as string from form
+      console.log(`✅ Updated stock for ${product.name}: ${product.current_stock} → ${newStockString}`);
 
-          // Parse the quantity to get its numeric value for negative display
-          const quantityData = parseUnit(quantityString, unitType);
+      // Create stock movement (only for product items, not miscellaneous items) 
+      const now = new Date();
+      const date = now.toISOString().split('T')[0];
+      const time = now.toLocaleTimeString('en-PK', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
 
-          // For stock OUT movements, show as negative
-          if (unitType === 'kg-grams') {
-            const kg = Math.floor(quantityData.numericValue / 1000);
-            const grams = quantityData.numericValue % 1000;
-            return grams > 0 ? `-${kg}kg ${grams}g` : `-${kg}kg`;
-          } else if (unitType === 'kg') {
-            const kg = Math.floor(quantityData.numericValue / 1000);
-            const grams = quantityData.numericValue % 1000;
-            return grams > 0 ? `-${kg}.${String(grams).padStart(3, '0')}kg` : `-${kg}kg`;
-          } else if (unitType === 'piece') {
-            return `-${quantityData.numericValue} pcs`;
-          } else if (unitType === 'bag') {
-            return `-${quantityData.numericValue} bags`;
-          } else {
-            return `-${quantityData.numericValue}`;
-          }
-        })(), // quantity as formatted string (negative for OUT movements)
-        product.unit || 'kg', // unit (required)
-        product.current_stock, // previous_stock 
-        product.current_stock, // stock_before 
-        newStockString, // stock_after
-        newStockString, // new_stock
-        item.unit_price || 0, // unit_cost
-        item.unit_price || 0, // unit_price
-        item.total_price || 0, // total_cost
-        item.total_price || 0, // total_value
-        'Invoice Sale', // reason
-        'invoice', // reference_type
-        invoiceId, // reference_id
-        billNumber, // reference_number
-        customer.id, // customer_id
-        customer.name, // customer_name
-        `Sale to ${customer.name} (Bill: ${billNumber})`, // notes
-        date,
-        time,
-        'system' // created_by
-      ]
-    );
+      await this.dbConnection.execute(
+        `INSERT INTO stock_movements (
+        product_id, product_name, movement_type, transaction_type, quantity, unit, 
+        previous_stock, stock_before, stock_after, new_stock, unit_cost, unit_price, 
+        total_cost, total_value, reason, reference_type, reference_id, reference_number, 
+        customer_id, customer_name, notes, date, time, created_by, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        [
+          item.product_id,
+          product.name,
+          'out',
+          'sale', // transaction_type (required)
+          (() => {
+            // CRITICAL FIX: Properly handle quantity from invoice form
+            // item.quantity comes from form as string like "1", "1-200", "5.500", "150" etc.
+            let unitType = product.unit_type || 'kg-grams';
+            let quantityString = String(item.quantity); // Always use as string from form
+
+            // Parse the quantity to get its numeric value for negative display
+            const quantityData = parseUnit(quantityString, unitType);
+
+            // For stock OUT movements, show as negative
+            if (unitType === 'kg-grams') {
+              const kg = Math.floor(quantityData.numericValue / 1000);
+              const grams = quantityData.numericValue % 1000;
+              return grams > 0 ? `-${kg}kg ${grams}g` : `-${kg}kg`;
+            } else if (unitType === 'kg') {
+              const kg = Math.floor(quantityData.numericValue / 1000);
+              const grams = quantityData.numericValue % 1000;
+              return grams > 0 ? `-${kg}.${String(grams).padStart(3, '0')}kg` : `-${kg}kg`;
+            } else if (unitType === 'piece') {
+              return `-${quantityData.numericValue} pcs`;
+            } else if (unitType === 'bag') {
+              return `-${quantityData.numericValue} bags`;
+            } else {
+              return `-${quantityData.numericValue}`;
+            }
+          })(), // quantity as formatted string (negative for OUT movements)
+          product.unit || 'kg', // unit (required)
+          product.current_stock, // previous_stock 
+          product.current_stock, // stock_before 
+          newStockString, // stock_after
+          newStockString, // new_stock
+          item.unit_price || 0, // unit_cost
+          item.unit_price || 0, // unit_price
+          item.total_price || 0, // total_cost
+          item.total_price || 0, // total_value
+          'Invoice Sale', // reason
+          'invoice', // reference_type
+          invoiceId, // reference_id
+          billNumber, // reference_number
+          customer.id, // customer_id
+          customer.name, // customer_name
+          `Sale to ${customer.name} (Bill: ${billNumber})`, // notes
+          date,
+          time,
+          'system' // created_by
+        ]
+      );
+    }
   }
 
   private async createInvoiceLedgerEntries(
@@ -3713,6 +3773,45 @@ export class DatabaseService {
     billNumber: string,
     paymentMethod: string
   ): Promise<void> {
+    // CRITICAL FIX: Skip customer ledger creation for guest customers
+    if (this.isGuestCustomer(customer.id)) {
+      console.log(`⏭️ Skipping customer ledger creation for guest customer: ${customer.name}`);
+
+      // Only create daily ledger entry for business cash flow (no customer_id) for guest customers
+      if (paymentAmount > 0) {
+        const now = new Date();
+        const date = now.toISOString().split('T')[0];
+        const time = now.toLocaleTimeString('en-PK', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        });
+
+        console.log(`🔄 Creating daily ledger entry for guest customer payment: Rs.${paymentAmount}`);
+
+        await this.dbConnection.execute(
+          `INSERT INTO ledger_entries (
+          date, time, type, category, description, amount, running_balance,
+          customer_id, customer_name, reference_id, reference_type, bill_number,
+          notes, created_by, payment_method, payment_channel_id, payment_channel_name, 
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          [
+            date, time, 'incoming', 'Payment Received',
+            `Payment - Invoice ${billNumber} - ${customer.name} (Guest)`,
+            paymentAmount, 0, null, null, // customer_id = null to prevent showing in customer ledger
+            invoiceId, 'payment', billNumber,
+            `Guest invoice payment: Rs. ${paymentAmount.toFixed(1)} via ${paymentMethod}`,
+            'system', paymentMethod, null, paymentMethod
+          ]
+        );
+        console.log(`✅ Daily ledger entry created for guest customer payment: Rs.${paymentAmount.toFixed(1)}`);
+      }
+
+      console.log(`✅ Guest customer ledger handling completed - NO customer ledger entries created`);
+      return;
+    }
+
     const now = new Date();
     const date = now.toISOString().split('T')[0];
     const time = now.toLocaleTimeString('en-PK', {
@@ -3761,6 +3860,11 @@ export class DatabaseService {
 
 
 
+  // GUEST CUSTOMER UTILITIES
+  private isGuestCustomer(customerId: number): boolean {
+    return customerId === -1;
+  }
+
   // VALIDATION: Enhanced input validation
   private validateInvoiceDataEnhanced(invoice: InvoiceCreationData): void {
     if (!invoice || typeof invoice !== 'object') {
@@ -3803,8 +3907,34 @@ export class DatabaseService {
     invoice.items.forEach((item, index) => {
       const itemNum = index + 1;
 
-      if (!Number.isInteger(item.product_id) || item.product_id <= 0) {
-        throw new Error(`Item ${itemNum}: Invalid product ID`);
+      // Check if this is a miscellaneous item - fix type comparison
+      const isMiscItem = Boolean(item.is_misc_item);
+
+      if (isMiscItem) {
+        // For miscellaneous items, product_id can be null
+        if (item.product_id !== null && (!Number.isInteger(item.product_id) || item.product_id <= 0)) {
+          throw new Error(`Item ${itemNum}: Invalid product ID for miscellaneous item`);
+        }
+
+        // Miscellaneous items must have a description
+        if (!item.misc_description || typeof item.misc_description !== 'string' || item.misc_description.trim() === '') {
+          throw new Error(`Item ${itemNum}: Miscellaneous item must have a description`);
+        }
+
+        // Quantity should be '1' for misc items by default
+        if (!item.quantity) {
+          item.quantity = '1';
+        }
+      } else {
+        // For product items, product_id is required and cannot be null
+        if (item.product_id === null || !Number.isInteger(item.product_id) || item.product_id <= 0) {
+          throw new Error(`Item ${itemNum}: Invalid product ID`);
+        }
+
+        // Product items must have quantity
+        if (!item.quantity || typeof item.quantity !== 'string') {
+          throw new Error(`Item ${itemNum}: Invalid quantity format`);
+        }
       }
 
       if (typeof item.unit_price !== 'number' || item.unit_price <= 0) {
@@ -5210,15 +5340,26 @@ export class DatabaseService {
         : payment.payment_type === 'return_refund' ? 'non_invoice_payment'
           : payment.payment_type; // 'advance_payment' stays the same
 
+      // Determine payment type description
+      const paymentTypeDescription = payment.payment_type === 'bill_payment' ? 'Invoice Payment'
+        : payment.payment_type === 'advance_payment' ? 'Advance Payment'
+          : payment.payment_type === 'return_refund' ? 'Return Refund'
+            : 'Payment';
+
       await this.dbConnection.execute(`
           INSERT INTO enhanced_payments (
-            customer_id, customer_name, amount, payment_channel_id, payment_channel_name,
-            payment_type, reference_invoice_id, reference_number, notes, date, time, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            payment_number, entity_type, entity_id, entity_name, gross_amount, net_amount, 
+            payment_method, payment_type, payment_channel_id, payment_channel_name,
+            related_document_type, related_document_id, related_document_number, 
+            description, internal_notes, date, time, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
-        payment.customer_id, customerName, payment.amount, payment.payment_channel_id || null,
-        payment.payment_channel_name || payment.payment_method, enhancedPaymentType,
-        payment.reference_invoice_id, payment.reference, payment.notes, today, time,
+        paymentCode, 'customer', payment.customer_id, customerName, payment.amount, payment.amount,
+        this.mapPaymentMethodForConstraint(payment.payment_method), enhancedPaymentType,
+        payment.payment_channel_id || null, payment.payment_channel_name || payment.payment_method,
+        payment.payment_type === 'bill_payment' ? 'invoice' : null,
+        payment.reference_invoice_id, payment.reference,
+        `${paymentTypeDescription} from ${customerName}`, payment.notes, today, time,
         payment.created_by || 'system'
       ]);
 
@@ -5275,7 +5416,8 @@ export class DatabaseService {
           created_by: payment.created_by || 'system',
           payment_method: payment.payment_method,
           payment_channel_id: payment.payment_channel_id,
-          payment_channel_name: payment.payment_channel_name
+          payment_channel_name: payment.payment_channel_name,
+          is_manual: false
         });
 
         console.log('✅ Ledger entry created for payment');
@@ -5461,8 +5603,14 @@ export class DatabaseService {
 
         console.log('✅ [PERMANENT] Invoice found:', invoice.bill_number);
 
-        // Validate stock for new items using self-contained parsing
+        // Validate stock for new items using self-contained parsing (skip misc items)
         for (const item of items) {
+          // Skip stock validation for miscellaneous items
+          if (Boolean(item.is_misc_item) || item.product_id === null || item.product_id === undefined) {
+            console.log(`⏭️ Skipping stock validation for miscellaneous item: ${item.misc_description || item.product_name}`);
+            continue;
+          }
+
           const product = await this.getProduct(item.product_id);
           if (!product) {
             throw new Error(`Product not found: ${item.product_id}`);
@@ -5497,8 +5645,8 @@ export class DatabaseService {
                   selling_price, line_total, amount, total_price, 
                   discount_type, discount_rate, discount_amount, 
                   tax_rate, tax_amount, cost_price, profit_margin,
-                  length, pieces, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  length, pieces, is_misc_item, misc_description, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `, [
                 invoiceId,
                 item.product_id,
@@ -5520,23 +5668,25 @@ export class DatabaseService {
                 0, // profit_margin DEFAULT
                 item.length || null, // length (optional)
                 item.pieces || null, // pieces (optional)
+                Boolean(item.is_misc_item) ? 1 : 0, // is_misc_item
+                Boolean(item.is_misc_item) ? (item.misc_description || item.product_name) : null, // misc_description
                 now,
                 now
               ]);
 
-              console.log('✅ [PERMANENT] Item inserted with length/pieces support:', item.product_name);
+              console.log('✅ [PERMANENT] Item inserted with misc item support:', item.product_name);
             } catch (columnError: any) {
               console.warn('⚠️ [PERMANENT] Length/pieces columns not available, using fallback:', columnError.message);
 
-              // Fallback to comprehensive insert without length/pieces
+              // Fallback to comprehensive insert without length/pieces but with misc support
               await this.dbConnection.execute(`
                 INSERT INTO invoice_items (
                   invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
                   selling_price, line_total, amount, total_price, 
                   discount_type, discount_rate, discount_amount, 
                   tax_rate, tax_amount, cost_price, profit_margin,
-                  created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  is_misc_item, misc_description, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `, [
                 invoiceId,
                 item.product_id,
@@ -5556,6 +5706,8 @@ export class DatabaseService {
                 0, // tax_amount DEFAULT
                 0, // cost_price DEFAULT
                 0, // profit_margin DEFAULT
+                Boolean(item.is_misc_item) ? 1 : 0, // is_misc_item
+                Boolean(item.is_misc_item) ? (item.misc_description || item.product_name) : null, // misc_description
                 now,
                 now
               ]);
@@ -5567,12 +5719,13 @@ export class DatabaseService {
             console.warn('⚠️ [PERMANENT] Comprehensive insert failed, trying basic insert:',
               schemaError instanceof Error ? schemaError.message : 'Unknown error');
 
-            // Fallback to basic required fields only
+            // Fallback to basic required fields only with misc support
             try {
               await this.dbConnection.execute(`
                 INSERT INTO invoice_items (
-                  invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, length, pieces, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, 
+                  length, pieces, is_misc_item, misc_description, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `, [
                 invoiceId,
                 item.product_id,
@@ -5583,19 +5736,22 @@ export class DatabaseService {
                 item.unit || 'kg',
                 item.length || null,
                 item.pieces || null,
+                Boolean(item.is_misc_item) ? 1 : 0, // is_misc_item
+                Boolean(item.is_misc_item) ? (item.misc_description || item.product_name) : null, // misc_description
                 now,
                 now
               ]);
 
-              console.log('✅ [PERMANENT] Item inserted (basic with L/pcs):', item.product_name);
+              console.log('✅ [PERMANENT] Item inserted (basic with misc support):', item.product_name);
             } catch (basicColumnError: any) {
               console.warn('⚠️ [PERMANENT] Basic L/pcs insert failed, using minimal fallback:', basicColumnError.message);
 
-              // Final fallback without length/pieces
+              // Final fallback without length/pieces but with misc support
               await this.dbConnection.execute(`
                 INSERT INTO invoice_items (
-                  invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  invoice_id, product_id, product_name, quantity, unit_price, total_price, unit, 
+                  is_misc_item, misc_description, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
               `, [
                 invoiceId,
                 item.product_id,
@@ -5604,6 +5760,8 @@ export class DatabaseService {
                 item.unit_price,
                 item.total_price,
                 item.unit || 'kg',
+                Boolean(item.is_misc_item) ? 1 : 0, // is_misc_item
+                Boolean(item.is_misc_item) ? (item.misc_description || item.product_name) : null, // misc_description
                 now,
                 now
               ]);
@@ -5612,19 +5770,26 @@ export class DatabaseService {
             }
           }
 
-          // PERMANENT SOLUTION: Direct stock update using self-contained helpers
-          const product = await this.getProduct(item.product_id);
-          const quantityData = this.parseUnitSelfContained(item.quantity, product.unit_type || 'kg-grams');
-          const currentStockData = this.parseUnitSelfContained(product.current_stock, product.unit_type || 'kg-grams');
-          const newStockValue = currentStockData.numericValue - quantityData.numericValue;
-          const newStockString = this.createUnitStringSelfContained(newStockValue, product.unit_type || 'kg-grams');
+          // PERMANENT SOLUTION: Direct stock update using self-contained helpers (skip misc items)
+          const isMiscItem = Boolean(item.is_misc_item) || item.product_id === null || item.product_id === undefined;
 
-          await this.dbConnection.execute(
-            'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [newStockString, item.product_id]
-          );
+          if (!isMiscItem) {
+            const product = await this.getProduct(item.product_id);
+            const quantityData = this.parseUnitSelfContained(item.quantity, product.unit_type || 'kg-grams');
+            const currentStockData = this.parseUnitSelfContained(product.current_stock, product.unit_type || 'kg-grams');
+            const newStockValue = currentStockData.numericValue - quantityData.numericValue;
+            const newStockString = this.createUnitStringSelfContained(newStockValue, product.unit_type || 'kg-grams');
 
-          console.log('✅ [PERMANENT] Stock updated for:', item.product_name, 'New stock:', newStockString);
+            await this.dbConnection.execute(
+              'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [newStockString, item.product_id]
+            );
+
+            console.log('✅ [PERMANENT] Stock updated for:', item.product_name, 'New stock:', newStockString);
+          } else {
+            console.log('⏭️ Skipping stock update for miscellaneous item:', item.product_name);
+          }
+
           totalAddition += item.total_price || 0;
         }
 
@@ -6031,6 +6196,12 @@ export class DatabaseService {
         return;
       }
 
+      // CRITICAL FIX: Skip ledger updates for guest customers
+      if (this.isGuestCustomer(invoice.customer_id)) {
+        console.log(`⏭️ [Customer Ledger] Skipping ledger update for guest customer invoice ${invoiceId}`);
+        return;
+      }
+
       const customer = await this.getCustomer(invoice.customer_id);
       if (!customer) {
         console.log('⚠️ [Customer Ledger] Customer not found, skipping ledger update');
@@ -6070,7 +6241,8 @@ export class DatabaseService {
         reference_type: 'invoice', // This will be properly handled by createLedgerEntry
         bill_number: invoice.bill_number,
         notes: `Outstanding: Rs. ${invoice.remaining_balance || 0}`,
-        created_by: 'system'
+        created_by: 'system',
+        is_manual: false
       });
 
       console.log('✅ [Customer Ledger] Successfully updated customer ledger for invoice:', invoiceId);
@@ -6211,55 +6383,62 @@ export class DatabaseService {
 
         console.log('✅ [Invoice Payment] Invoice amounts updated');
 
-        // Update customer balance (reduce outstanding balance)
-        await this.dbConnection.execute(
-          'UPDATE customers SET balance = COALESCE(balance, 0) - ?, updated_at = datetime(\'now\') WHERE id = ?',
-          [paymentData.amount, invoice.customer_id]
-        );
-
-        console.log('✅ [Invoice Payment] Customer balance updated');
-
-        // CRITICAL FIX: Create customer ledger entry for the payment
-        try {
-          console.log('🔄 [Invoice Payment] Creating customer ledger entry for payment...');
-
-          // Get current customer balance from customer_ledger_entries to maintain running balance
-          const currentBalanceResult = await this.dbConnection.select(
-            'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
-            [invoice.customer_id]
+        // Update customer balance (reduce outstanding balance) - Skip for guest customers
+        if (!this.isGuestCustomer(invoice.customer_id)) {
+          await this.dbConnection.execute(
+            'UPDATE customers SET balance = COALESCE(balance, 0) - ?, updated_at = datetime(\'now\') WHERE id = ?',
+            [paymentData.amount, invoice.customer_id]
           );
+          console.log('✅ [Invoice Payment] Customer balance updated');
+        } else {
+          console.log('⏭️ [Invoice Payment] Skipping customer balance update for guest customer');
+        }
 
-          const currentBalance = currentBalanceResult?.[0]?.balance_after || 0;
-          const balanceAfter = currentBalance - paymentData.amount;
+        // CRITICAL FIX: Create customer ledger entry for the payment - Skip for guest customers
+        if (!this.isGuestCustomer(invoice.customer_id)) {
+          try {
+            console.log('🔄 [Invoice Payment] Creating customer ledger entry for payment...');
 
-          await this.dbConnection.execute(`
-            INSERT INTO customer_ledger_entries (
-              customer_id, customer_name, entry_type, transaction_type, amount, description,
-              reference_id, reference_number, balance_before, balance_after, 
-              date, time, created_by, notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-          `, [
-            invoice.customer_id,
-            customerName,
-            'credit', // entry_type for payment (reduces customer balance)
-            'payment', // transaction_type
-            paymentData.amount,
-            `Payment received for Invoice ${invoice.bill_number || invoice.invoice_number}`,
-            paymentId,
-            `PAY#${paymentId}`,
-            currentBalance,
-            balanceAfter,
-            paymentData.date || new Date().toISOString().split('T')[0],
-            currentTime,
-            'system',
-            paymentData.notes || `Invoice payment via ${mappedPaymentMethod}`
-          ]);
+            // Get current customer balance from customer_ledger_entries to maintain running balance
+            const currentBalanceResult = await this.dbConnection.select(
+              'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
+              [invoice.customer_id]
+            );
 
-          console.log('✅ [Invoice Payment] Customer ledger entry created successfully');
+            const currentBalance = currentBalanceResult?.[0]?.balance_after || 0;
+            const balanceAfter = currentBalance - paymentData.amount;
 
-        } catch (ledgerError) {
-          console.error('⚠️ [Invoice Payment] Failed to create customer ledger entry:', ledgerError);
-          // Don't fail the payment - ledger is for display purposes
+            await this.dbConnection.execute(`
+              INSERT INTO customer_ledger_entries (
+                customer_id, customer_name, entry_type, transaction_type, amount, description,
+                reference_id, reference_number, balance_before, balance_after, 
+                date, time, created_by, notes, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            `, [
+              invoice.customer_id,
+              customerName,
+              'credit', // entry_type for payment (reduces customer balance)
+              'payment', // transaction_type
+              paymentData.amount,
+              `Payment received for Invoice ${invoice.bill_number || invoice.invoice_number}`,
+              paymentId,
+              `PAY#${paymentId}`,
+              currentBalance,
+              balanceAfter,
+              paymentData.date || new Date().toISOString().split('T')[0],
+              currentTime,
+              'system',
+              paymentData.notes || `Invoice payment via ${mappedPaymentMethod}`
+            ]);
+
+            console.log('✅ [Invoice Payment] Customer ledger entry created successfully');
+
+          } catch (ledgerError) {
+            console.error('⚠️ [Invoice Payment] Failed to create customer ledger entry:', ledgerError);
+            // Don't fail the payment - ledger is for display purposes
+          }
+        } else {
+          console.log('⏭️ [Invoice Payment] Skipping customer ledger entry creation for guest customer payment');
         }
 
         // CRITICAL FIX: Create daily ledger entry for the payment
@@ -8116,34 +8295,9 @@ export class DatabaseService {
         // Don't fail the whole payment - this is for analytics only
       }
 
-      // CRITICAL FIX: Create ledger entry for vendor payment so it appears in Daily Ledger
-      try {
-        console.log('🔄 Creating ledger entry for vendor payment...');
-
-        await this.createLedgerEntry({
-          date: sanitizedPayment.date,
-          time: sanitizedPayment.time,
-          type: 'outgoing',
-          category: 'Vendor Payment',
-          description: `Payment to ${sanitizedPayment.vendor_name}${sanitizedPayment.receiving_id ? ` - Stock Receiving #${sanitizedPayment.receiving_id}` : ''}`,
-          amount: sanitizedPayment.amount,
-          customer_id: undefined, // Vendor payments don't have customer_id
-          customer_name: `Vendor: ${sanitizedPayment.vendor_name}`,
-          reference_id: paymentId,
-          reference_type: 'vendor_payment',
-          bill_number: sanitizedPayment.reference_number || undefined,
-          notes: sanitizedPayment.notes || `Vendor payment via ${sanitizedPayment.payment_channel_name}`,
-          created_by: sanitizedPayment.created_by || 'system',
-          payment_method: sanitizedPayment.payment_channel_name,
-          payment_channel_id: sanitizedPayment.payment_channel_id || undefined, // Use undefined instead of null
-          payment_channel_name: sanitizedPayment.payment_channel_name
-        });
-
-        console.log('✅ Ledger entry created for vendor payment');
-      } catch (ledgerEntryError) {
-        console.error('❌ Failed to create ledger entry for vendor payment:', ledgerEntryError);
-        // Don't fail the whole payment - this is for Daily Ledger display only
-      }
+      // REMOVED: No longer creating ledger entries for vendor payments
+      // Daily Ledger will load vendor payments directly from vendor_payments table
+      console.log('✅ Vendor payment created - Daily Ledger will load from vendor_payments table');
 
       // REAL-TIME UPDATE: Emit vendor payment events for UI updates
       try {
@@ -8999,7 +9153,11 @@ export class DatabaseService {
       { table: 'staff_management', column: 'username', type: 'TEXT' },
       { table: 'staff_management', column: 'employee_id', type: 'TEXT' },
       { table: 'staff_sessions', column: 'expires_at', type: 'DATETIME' },
-      { table: 'audit_logs', column: 'entity_id', type: 'TEXT' }
+      { table: 'audit_logs', column: 'entity_id', type: 'TEXT' },
+      { table: 'ledger_entries', column: 'is_manual', type: 'INTEGER DEFAULT 0' },
+      // PERMANENT: Miscellaneous items support in invoice_items
+      { table: 'invoice_items', column: 'is_misc_item', type: 'INTEGER DEFAULT 0' },
+      { table: 'invoice_items', column: 'misc_description', type: 'TEXT' }
     ];
 
     for (const check of columnChecks) {
@@ -9530,6 +9688,12 @@ export class DatabaseService {
     billNumber: string,
     paymentMethod: string = 'cash'
   ): Promise<void> {
+    // CRITICAL FIX: Prevent guest customer ledger creation
+    if (this.isGuestCustomer(customerId)) {
+      console.log(`❌ Attempted to create customer ledger for guest customer ${customerName}. Skipping to prevent ledger pollution.`);
+      return;
+    }
+
     const now = new Date();
     const date = now.toISOString().split('T')[0];
     const time = now.toLocaleTimeString('en-PK', {
@@ -9612,63 +9776,6 @@ export class DatabaseService {
     console.log(`   - Outstanding: Rs. ${(grandTotal - paymentAmount).toFixed(2)}`);
   }
 
-  // Helper method to create payment records
-  private async createPaymentRecord(
-    customerId: number,
-    customerName: string,
-    paymentAmount: number,
-    paymentMethod: string,
-    invoiceId: number,
-    billNumber: string,
-    date: string,
-    time: string
-  ): Promise<void> {
-    try {
-      const paymentCode = await this.generatePaymentCode();
-
-      // Find or create payment channel
-      let paymentChannelId = null;
-      let paymentChannelName = paymentMethod;
-
-      try {
-        const existingChannel = await this.dbConnection.select(`
-          SELECT id, name FROM payment_channels 
-          WHERE (LOWER(name) = LOWER(?) OR LOWER(type) = LOWER(?)) AND is_active = 1 
-          LIMIT 1
-        `, [paymentMethod, paymentMethod]);
-
-        if (existingChannel && existingChannel.length > 0) {
-          paymentChannelId = existingChannel[0].id;
-          paymentChannelName = existingChannel[0].name;
-        }
-      } catch (channelError) {
-        console.warn(`⚠️ Could not find payment channel for ${paymentMethod}:`, channelError);
-      }
-
-      // Create payment record
-      await this.dbConnection.execute(`
-        INSERT INTO payments (
-          customer_id, customer_name, payment_code, amount, payment_amount, net_amount,
-          payment_method, payment_channel_id, payment_channel_name, payment_type,
-          reference, notes, date, time, status, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        customerId, customerName, paymentCode,
-        paymentAmount, paymentAmount, paymentAmount,
-        this.mapPaymentMethodForConstraint(paymentMethod), paymentChannelId, paymentChannelName, 'incoming',
-        billNumber,
-        `Invoice ${billNumber} payment via ${paymentMethod}`,
-        date, time, 'completed', 'system'
-      ]);
-
-      console.log(`✅ Payment record created: Rs.${paymentAmount.toFixed(1)} via ${paymentMethod}`);
-
-    } catch (error) {
-      console.error('⚠️ Failed to create payment record:', error);
-      // Don't fail the main transaction
-    }
-  }
-
   // ENHANCED: Helper method to create ledger entries with PROPER running balance calculation
   private async createLedgerEntry(entry: {
     date: string;
@@ -9687,6 +9794,7 @@ export class DatabaseService {
     payment_method?: string;
     payment_channel_id?: number;
     payment_channel_name?: string;
+    is_manual?: boolean;
   }): Promise<void> {
 
     console.log('🔧 [Ledger Entry] Creating ledger entry with reference_type:', entry.reference_type);
@@ -9705,17 +9813,233 @@ export class DatabaseService {
     await this.dbConnection.execute(
       `INSERT INTO ledger_entries 
       (date, time, type, category, description, amount, running_balance, customer_id, customer_name, 
-       reference_id, reference_type, bill_number, notes, created_by, payment_method, payment_channel_id, payment_channel_name, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       reference_id, reference_type, bill_number, notes, created_by, payment_method, payment_channel_id, payment_channel_name, is_manual, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         entry.date, entry.time, entry.type, entry.category, entry.description, entry.amount,
         0, // running_balance calculated separately in real DB
         entry.customer_id, entry.customer_name, entry.reference_id, validReferenceType,
-        entry.bill_number, entry.notes, entry.created_by, entry.payment_method, entry.payment_channel_id, entry.payment_channel_name
+        entry.bill_number, entry.notes, entry.created_by, entry.payment_method, entry.payment_channel_id, entry.payment_channel_name,
+        entry.is_manual ? 1 : 0 // Convert boolean to integer for SQLite
       ]
     );
 
     console.log('✅ [Ledger Entry] Successfully created ledger entry with reference_type:', validReferenceType);
+  }
+
+  /**
+   * CRITICAL FIX: Create missing ledger entries for existing salary payments
+   * This fixes the issue where salary payments don't show in Daily Ledger under Option 2
+   */
+  async createMissingSalaryPaymentLedgerEntries(): Promise<{
+    success: boolean;
+    message: string;
+    details: {
+      totalSalaryPayments: number;
+      missingLedgerEntries: number;
+      created: number;
+      errors: number;
+    };
+  }> {
+    try {
+      console.log('🔄 [SALARY LEDGER FIX] Checking for missing salary payment ledger entries...');
+
+      // Get all salary payments from multiple possible table structures
+      const salaryPayments = await this.executeRawQuery(`
+        SELECT sp.*, 
+               COALESCE(s.full_name, sp.staff_name, 'Unknown Staff') as staff_name,
+               COALESCE(s.employee_id, sp.employee_id, 'N/A') as employee_id
+        FROM salary_payments sp
+        LEFT JOIN staff s ON sp.staff_id = s.id
+        WHERE sp.payment_amount > 0
+        ORDER BY sp.payment_date ASC
+      `);
+
+      console.log(`📊 [SALARY LEDGER FIX] Found ${salaryPayments.length} salary payments`);
+
+      let missingLedgerEntries = 0;
+      let created = 0;
+      let errors = 0;
+
+      for (const payment of salaryPayments) {
+        try {
+          // Check if ledger entry exists for this salary payment
+          const existingLedgerEntry = await this.executeRawQuery(`
+            SELECT id FROM ledger_entries 
+            WHERE reference_id = ? AND reference_type = ? 
+          `, [payment.id, 'salary_payment']);
+
+          if (existingLedgerEntry.length === 0) {
+            missingLedgerEntries++;
+
+            console.log(`🔧 [SALARY LEDGER FIX] Creating missing ledger entry for salary payment ${payment.id}`);
+
+            const paymentDate = payment.payment_date ?
+              new Date(payment.payment_date).toISOString().split('T')[0] :
+              new Date().toISOString().split('T')[0];
+
+            // Create the missing ledger entry
+            await this.createLedgerEntry({
+              date: paymentDate,
+              time: new Date(payment.payment_date || Date.now()).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              type: 'outgoing',
+              category: 'Staff Salary',
+              description: `Salary payment to ${payment.staff_name}`,
+              amount: payment.payment_amount,
+              customer_id: undefined,
+              customer_name: `Staff: ${payment.staff_name}`,
+              reference_id: payment.id,
+              reference_type: 'salary_payment',
+              bill_number: payment.reference_number || undefined,
+              notes: payment.notes || `${payment.payment_type || 'Regular'} salary payment via ${payment.payment_method || 'Cash'}`,
+              created_by: payment.paid_by || 'system',
+              payment_method: payment.payment_method || 'Cash',
+              payment_channel_id: undefined,
+              payment_channel_name: payment.payment_method || 'Cash',
+              is_manual: false
+            });
+
+            created++;
+            console.log(`✅ [SALARY LEDGER FIX] Created ledger entry for salary payment ${payment.id}`);
+          }
+        } catch (entryError) {
+          console.error(`❌ [SALARY LEDGER FIX] Failed to create ledger entry for salary payment ${payment.id}:`, entryError);
+          errors++;
+        }
+      }
+
+      const result = {
+        success: true,
+        message: `Salary payment ledger fix completed. Created ${created} missing ledger entries out of ${missingLedgerEntries} missing.`,
+        details: {
+          totalSalaryPayments: salaryPayments.length,
+          missingLedgerEntries,
+          created,
+          errors
+        }
+      };
+
+      console.log('✅ [SALARY LEDGER FIX] Completed:', result);
+      return result;
+
+    } catch (error: any) {
+      console.error('❌ [SALARY LEDGER FIX] Error:', error);
+      return {
+        success: false,
+        message: `Failed to fix salary payment ledger entries: ${error?.message || 'Unknown error'}`,
+        details: {
+          totalSalaryPayments: 0,
+          missingLedgerEntries: 0,
+          created: 0,
+          errors: 1
+        }
+      };
+    }
+  }
+
+  /**
+   * CRITICAL FIX: Create missing ledger entries for existing vendor payments
+   * This fixes the issue where vendor payments don't show in Daily Ledger under Option 2
+   */
+  async createMissingVendorPaymentLedgerEntries(): Promise<{
+    success: boolean;
+    message: string;
+    details: {
+      totalVendorPayments: number;
+      missingLedgerEntries: number;
+      created: number;
+      errors: number;
+    };
+  }> {
+    try {
+      console.log('🔄 [VENDOR LEDGER FIX] Checking for missing vendor payment ledger entries...');
+
+      // Get all vendor payments
+      const vendorPayments = await this.executeRawQuery(`
+        SELECT vp.*, 
+               COALESCE(v.name, vp.vendor_name, 'Unknown Vendor') as vendor_name
+        FROM vendor_payments vp
+        LEFT JOIN vendors v ON vp.vendor_id = v.id
+        WHERE vp.amount > 0
+        ORDER BY vp.date ASC, vp.created_at ASC
+      `);
+
+      console.log(`📊 [VENDOR LEDGER FIX] Found ${vendorPayments.length} vendor payments`);
+
+      let missingLedgerEntries = 0;
+      let created = 0;
+      let errors = 0;
+
+      for (const payment of vendorPayments) {
+        try {
+          // Check if ledger entry exists for this vendor payment
+          const existingLedgerEntry = await this.executeRawQuery(`
+            SELECT id FROM ledger_entries 
+            WHERE reference_id = ? AND reference_type = ? 
+          `, [payment.id, 'vendor_payment']);
+
+          if (existingLedgerEntry.length === 0) {
+            missingLedgerEntries++;
+
+            console.log(`🔧 [VENDOR LEDGER FIX] Creating missing ledger entry for vendor payment ${payment.id}`);
+
+            // Create the missing ledger entry
+            await this.createLedgerEntry({
+              date: payment.date,
+              time: payment.time || new Date(payment.created_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              type: 'outgoing',
+              category: 'Vendor Payment',
+              description: `Payment to ${payment.vendor_name}${payment.receiving_id ? ` - Stock Receiving #${payment.receiving_id}` : ''}`,
+              amount: payment.amount,
+              customer_id: undefined,
+              customer_name: `Vendor: ${payment.vendor_name}`,
+              reference_id: payment.id,
+              reference_type: 'vendor_payment',
+              bill_number: payment.reference_number || undefined,
+              notes: payment.notes || `Vendor payment via ${payment.payment_channel_name || 'Cash'}`,
+              created_by: payment.created_by || 'system',
+              payment_method: payment.payment_channel_name || 'Cash',
+              payment_channel_id: payment.payment_channel_id || undefined,
+              payment_channel_name: payment.payment_channel_name || 'Cash',
+              is_manual: false
+            });
+
+            created++;
+            console.log(`✅ [VENDOR LEDGER FIX] Created ledger entry for vendor payment ${payment.id}`);
+          }
+        } catch (entryError) {
+          console.error(`❌ [VENDOR LEDGER FIX] Failed to create ledger entry for vendor payment ${payment.id}:`, entryError);
+          errors++;
+        }
+      }
+
+      const result = {
+        success: true,
+        message: `Vendor payment ledger fix completed. Created ${created} missing ledger entries out of ${missingLedgerEntries} missing.`,
+        details: {
+          totalVendorPayments: vendorPayments.length,
+          missingLedgerEntries,
+          created,
+          errors
+        }
+      };
+
+      console.log('✅ [VENDOR LEDGER FIX] Completed:', result);
+      return result;
+
+    } catch (error: any) {
+      console.error('❌ [VENDOR LEDGER FIX] Error:', error);
+      return {
+        success: false,
+        message: `Failed to fix vendor payment ledger entries: ${error?.message || 'Unknown error'}`,
+        details: {
+          totalVendorPayments: 0,
+          missingLedgerEntries: 0,
+          created: 0,
+          errors: 1
+        }
+      };
+    }
   }
 
   // CRITICAL FIX: Return Management System
@@ -12874,28 +13198,40 @@ export class DatabaseService {
       let receivingNumber = '';
       let receivingCode = '';
       let attempts = 0;
-      const maxAttempts = 5;
+      const maxAttempts = 10;
       while (attempts < maxAttempts) {
         try {
-          const allReceivingNumbers = await this.dbConnection.select(`SELECT receiving_number FROM stock_receiving ORDER BY id`);
-          console.log(`📋 Existing receiving numbers:`, allReceivingNumbers.map((r: any) => r.receiving_number));
-          const lastRow = await this.dbConnection.select(`SELECT receiving_number FROM stock_receiving ORDER BY id DESC LIMIT 1`);
-          if (lastRow && lastRow.length > 0) {
-            const lastNum = parseInt((lastRow[0].receiving_number || '').replace(/^S/, '')) || 0;
-            receivingNumber = `S${(lastNum + 1).toString().padStart(4, '0')}`;
-          } else {
-            receivingNumber = 'S0001';
+          // Get the highest existing receiving number more reliably
+          const lastRow = await this.dbConnection.select(`
+            SELECT receiving_number 
+            FROM stock_receiving 
+            WHERE receiving_number LIKE 'S%' 
+            ORDER BY CAST(SUBSTR(receiving_number, 2) AS INTEGER) DESC 
+            LIMIT 1
+          `);
+
+          let nextNumber = 1;
+          if (lastRow && lastRow.length > 0 && lastRow[0].receiving_number) {
+            const lastNum = parseInt(lastRow[0].receiving_number.replace(/^S/, '')) || 0;
+            nextNumber = lastNum + 1;
           }
-          // Use same value for receiving_code (or customize if needed)
-          receivingCode = receivingNumber;
-          // Check if this code already exists (race condition protection)
-          const existingRow = await this.dbConnection.select(`SELECT id FROM stock_receiving WHERE receiving_code = ?`, [receivingCode]);
+
+          receivingNumber = `S${nextNumber.toString().padStart(4, '0')}`;
+          receivingCode = receivingNumber; // Use same value for receiving_code
+
+          // Check if this number already exists (race condition protection)
+          const existingRow = await this.dbConnection.select(`
+            SELECT id FROM stock_receiving 
+            WHERE receiving_number = ? OR receiving_code = ?
+          `, [receivingNumber, receivingCode]);
+
           if (existingRow && existingRow.length > 0) {
-            // Code exists, increment and try again
-            console.log(`⚠️ Receiving code ${receivingCode} already exists, retrying...`);
+            // Number exists, increment and try again
+            console.log(`⚠️ Receiving number ${receivingNumber} already exists, retrying... (attempt ${attempts + 1})`);
             attempts++;
             continue;
           }
+
           console.log(`✅ Generated unique receiving number/code: ${receivingNumber}`);
           break;
         } catch (error) {
@@ -13295,16 +13631,21 @@ export class DatabaseService {
       const time = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
 
+      const paymentCode = await this.generatePaymentCode();
+
       const result = await this.dbConnection.execute(`
         INSERT INTO enhanced_payments (
-          customer_id, customer_name, amount, payment_channel_id, payment_channel_name,
-          payment_type, reference_invoice_id, reference_number, cheque_number, cheque_date,
-          notes, date, time, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          payment_number, entity_type, entity_id, entity_name, gross_amount, net_amount, payment_method,
+          payment_type, payment_channel_id, payment_channel_name, related_document_type,
+          related_document_id, related_document_number, bank_reference, description,
+          internal_notes, date, time, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
-        payment.customer_id, payment.customer_name, payment.amount, payment.payment_channel_id,
-        payment.payment_channel_name, payment.payment_type, payment.reference_invoice_id,
-        payment.reference_number, payment.cheque_number, payment.cheque_date, payment.notes,
+        paymentCode, 'customer', payment.customer_id, payment.customer_name, payment.amount, payment.amount,
+        payment.payment_channel_name, payment.payment_type, payment.payment_channel_id,
+        payment.payment_channel_name, payment.payment_type === 'bill_payment' ? 'invoice' : null,
+        payment.reference_invoice_id, payment.reference_number, payment.cheque_number || null,
+        `Enhanced payment from ${payment.customer_name}`, payment.notes,
         today, time, payment.created_by
       ]);
 
@@ -13346,7 +13687,7 @@ export class DatabaseService {
           c.phone as customer_phone,
           c.balance as total_outstanding,
           MAX(ep.date) as last_payment_date,
-          (SELECT amount FROM enhanced_payments WHERE customer_id = c.id ORDER BY date DESC LIMIT 1) as last_payment_amount,
+          (SELECT net_amount FROM enhanced_payments WHERE entity_type = 'customer' AND entity_id = c.id ORDER BY date DESC LIMIT 1) as last_payment_amount,
           MIN(i.created_at) as oldest_invoice_date,
           COUNT(DISTINCT i.id) as invoice_count,
           CASE 
@@ -13355,7 +13696,7 @@ export class DatabaseService {
             ELSE 0 
           END as days_overdue
         FROM customers c
-        LEFT JOIN enhanced_payments ep ON c.id = ep.customer_id
+        LEFT JOIN enhanced_payments ep ON c.id = ep.entity_id AND ep.entity_type = 'customer'
         LEFT JOIN invoices i ON c.id = i.customer_id AND i.remaining_balance > 0
         WHERE c.balance > 0
         GROUP BY c.id, c.name, c.phone, c.balance
@@ -14359,19 +14700,6 @@ export class DatabaseService {
     return `${year}-${month}-${day}`;
   }
 
-  private validateSystemTime(): boolean {
-    const systemTime = new Date();
-    const expectedTime = Date.now();
-    const timeDiff = Math.abs(systemTime.getTime() - expectedTime);
-
-    if (timeDiff > 60000) { // More than 1 minute difference
-      console.warn('⚠️ WARNING: System time may be incorrect! Difference:', timeDiff, 'ms');
-      return false;
-    }
-
-    return true;
-  }
-
   /**
    * PERMANENT FIX: Clean up duplicate invoice ledger entries
    * Removes duplicate entries from ledger_entries table that also exist in customer_ledger_entries
@@ -14670,11 +14998,6 @@ export class DatabaseService {
       console.error('Error getting customer statistics:', error);
       throw new Error(`Failed to get customer statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  // Clear customer stats cache when relevant operations happen
-  private clearCustomerStatsCache(): void {
-    this.customerStatsCache.timestamp = 0;
   }
 
   // Invalidate customer statistics cache when relevant operations happen

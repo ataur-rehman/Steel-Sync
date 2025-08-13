@@ -48,7 +48,7 @@ export interface Invoice {
 export interface InvoiceItem {
   id?: number;
   invoice_id?: number;
-  product_id: number;
+  product_id: number | null;
   product_name: string;
   unit: string;
   quantity: string; // Changed to string for unit format compatibility
@@ -57,17 +57,25 @@ export interface InvoiceItem {
   max_quantity?: number;
   length?: number;
   pieces?: number;
+  available_stock?: number;
+  unit_type?: string;
+  is_misc_item?: boolean;
+  misc_description?: string;
 }
 
 // Enhanced invoice creation interface
 export interface InvoiceCreationData {
   customer_id: number;
   items: {
-    product_id: number;
+    product_id: number | null;
     product_name?: string;
     quantity: string;
     unit_price: number;
     total_price: number;
+    length?: number;
+    pieces?: number;
+    is_misc_item?: boolean;
+    misc_description?: string;
   }[];
   discount?: number;
   payment_amount?: number;

@@ -77,13 +77,13 @@ class SalaryHistoryService {
   private async ensureSalaryPaymentsCompatibility(): Promise<void> {
     try {
       console.log('🔧 [SALARY] Ensuring salary_payments table compatibility...');
-      
+
       // Check which columns exist in salary_payments table
       const tableInfo = await db.executeRawQuery("PRAGMA table_info(salary_payments)");
       const columns = tableInfo.map((col: any) => col.name);
-      
+
       console.log('📋 [SALARY] Salary payments columns:', columns);
-      
+
       // Detect schema type
       const hasPaymentCode = columns.includes('payment_code');
       const hasBasicSalary = columns.includes('basic_salary');
@@ -91,7 +91,7 @@ class SalaryHistoryService {
       const hasSalaryAmount = columns.includes('salary_amount');
       const hasPaymentAmount = columns.includes('payment_amount');
       const hasPaymentType = columns.includes('payment_type');
-      
+
       if (hasPaymentCode && hasBasicSalary) {
         console.log('📋 [SALARY] Detected Schema 1 (management style)');
         this.salaryPaymentsSchema = 'management';
@@ -103,7 +103,7 @@ class SalaryHistoryService {
         await this.createUnifiedSalaryPaymentsSchema();
         this.salaryPaymentsSchema = 'unified';
       }
-      
+
     } catch (error) {
       console.warn('⚠️ [SALARY] Error checking salary_payments compatibility:', error);
       // Try to create the table if it doesn't exist
@@ -118,7 +118,7 @@ class SalaryHistoryService {
   private async createUnifiedSalaryPaymentsSchema(): Promise<void> {
     try {
       console.log('🔧 [SALARY] Creating unified salary_payments schema...');
-      
+
       // First, try to rename existing table as backup
       try {
         await db.executeCommand(`ALTER TABLE salary_payments RENAME TO salary_payments_backup_${Date.now()}`);
@@ -126,7 +126,7 @@ class SalaryHistoryService {
       } catch (error) {
         console.log('ℹ️ [SALARY] No existing table to backup (this is normal for new installations)');
       }
-      
+
       // Create unified schema with ALL possible columns
       await db.executeCommand(`
         CREATE TABLE IF NOT EXISTS salary_payments (
@@ -160,9 +160,9 @@ class SalaryHistoryService {
           FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
         )
       `);
-      
+
       console.log('✅ [SALARY] Unified salary_payments schema created');
-      
+
     } catch (error) {
       console.error('❌ [SALARY] Error creating unified schema:', error);
       throw error;
@@ -187,7 +187,7 @@ class SalaryHistoryService {
           const timestamp = Date.now();
           const paymentCode = `SAL-${data.staff_id}-${timestamp}`;
           const baseSalary = staff.salary || data.payment_amount;
-          
+
           return [
             data.staff_id,
             staff.full_name,
@@ -219,7 +219,7 @@ class SalaryHistoryService {
         columnMapping: (data: any, staff: any, paidBy?: string) => {
           const baseSalary = staff.salary || 0;
           const paymentPercentage = baseSalary > 0 ? (data.payment_amount / baseSalary) * 100 : 100;
-          
+
           return [
             data.staff_id,
             staff.full_name,
@@ -253,7 +253,7 @@ class SalaryHistoryService {
           const paymentCode = `SAL-${data.staff_id}-${timestamp}`;
           const baseSalary = staff.salary || 0;
           const paymentPercentage = baseSalary > 0 ? (data.payment_amount / baseSalary) * 100 : 100;
-          
+
           return [
             data.staff_id,
             staff.full_name,
@@ -286,7 +286,7 @@ class SalaryHistoryService {
     try {
       const tableInfo = await db.executeRawQuery("PRAGMA table_info(staff)");
       const columns = tableInfo.map((col: any) => col.name);
-      
+
       if (columns.includes('is_active')) {
         return '(s.is_active = 1 OR s.is_active = true)';
       } else if (columns.includes('status')) {
@@ -310,58 +310,58 @@ class SalaryHistoryService {
       // Check which columns exist in the staff table
       const tableInfo = await db.executeRawQuery("PRAGMA table_info(staff)");
       const columns = tableInfo.map((col: any) => col.name);
-      
+
       console.log('📋 [SALARY] Staff table columns:', columns);
-      
+
       // Check if we have the right active status column
       const hasIsActive = columns.includes('is_active');
       const hasStatus = columns.includes('status');
-      
+
       if (!hasIsActive && !hasStatus) {
         // Add is_active column if neither exists
         console.log('🔧 [SALARY] Adding is_active column to staff table...');
         await db.executeCommand(`
           ALTER TABLE staff ADD COLUMN is_active BOOLEAN DEFAULT 1
         `);
-        
+
         // Update all existing records to be active
         await db.executeCommand(`
           UPDATE staff SET is_active = 1 WHERE is_active IS NULL
         `);
       }
-      
+
       // Ensure we have full_name column (some schemas use 'name' instead)
       const hasFullName = columns.includes('full_name');
       const hasName = columns.includes('name');
-      
+
       if (!hasFullName && hasName) {
         console.log('🔧 [SALARY] Adding full_name column to staff table...');
         await db.executeCommand(`
           ALTER TABLE staff ADD COLUMN full_name TEXT
         `);
-        
+
         // Copy name to full_name for existing records
         await db.executeCommand(`
           UPDATE staff SET full_name = name WHERE full_name IS NULL
         `);
       }
-      
+
       // Ensure we have salary column (some schemas use 'basic_salary' instead)
       const hasSalary = columns.includes('salary');
       const hasBasicSalary = columns.includes('basic_salary');
-      
+
       if (!hasSalary && hasBasicSalary) {
         console.log('🔧 [SALARY] Adding salary column to staff table...');
         await db.executeCommand(`
           ALTER TABLE staff ADD COLUMN salary REAL DEFAULT 0
         `);
-        
+
         // Copy basic_salary to salary for existing records
         await db.executeCommand(`
           UPDATE staff SET salary = basic_salary WHERE salary IS NULL OR salary = 0
         `);
       }
-      
+
       console.log('✅ [SALARY] Staff table compatibility ensured');
     } catch (error) {
       console.warn('⚠️ [SALARY] Error ensuring staff table compatibility:', error);
@@ -381,19 +381,19 @@ class SalaryHistoryService {
 
     try {
       console.log('🔄 [SALARY] Initializing salary history tables...');
-      
+
       // Ensure staff table compatibility first
       await this.ensureStaffTableCompatibility();
-      
+
       // Ensure salary payments table compatibility
       await this.ensureSalaryPaymentsCompatibility();
-      
+
       // PERFORMANCE: Skip if already initialized
       if (salaryTablesInitialized) {
         console.log('✅ [SALARY] Tables already initialized, skipping...');
         return;
       }
-      
+
       // Create salary_payments table
       await db.executeCommand(`
         CREATE TABLE IF NOT EXISTS salary_payments (
@@ -422,15 +422,15 @@ class SalaryHistoryService {
       await db.executeCommand(`
         CREATE INDEX IF NOT EXISTS idx_salary_payments_staff_id ON salary_payments(staff_id)
       `);
-      
+
       await db.executeCommand(`
         CREATE INDEX IF NOT EXISTS idx_salary_payments_date ON salary_payments(payment_date)
       `);
-      
+
       await db.executeCommand(`
         CREATE INDEX IF NOT EXISTS idx_salary_payments_month ON salary_payments(payment_month)
       `);
-      
+
       await db.executeCommand(`
         CREATE INDEX IF NOT EXISTS idx_salary_payments_year ON salary_payments(payment_year)
       `);
@@ -460,7 +460,7 @@ class SalaryHistoryService {
       `);
 
       console.log('Salary history tables initialized successfully');
-      
+
       // Mark as initialized to prevent repeated calls
       salaryTablesInitialized = true;
       console.log('✅ [SALARY] Salary service initialization completed');
@@ -476,28 +476,28 @@ class SalaryHistoryService {
   async recordPayment(data: SalaryHistoryFormData, paidBy: string): Promise<SalaryPayment> {
     try {
       await this.initializeTables();
-      
+
       // Validate required fields
       if (!data.staff_id || data.staff_id <= 0) {
         throw new Error('Invalid staff ID provided');
       }
-      
+
       if (!data.payment_amount || data.payment_amount <= 0) {
         throw new Error('Payment amount must be greater than 0');
       }
-      
+
       console.log('Recording payment for staff_id:', data.staff_id, 'amount:', data.payment_amount);
-      
+
       // PRODUCTION FIX: Ensure staff data integrity using centralized system
       await db.ensureCentralizedStaffExist();
-      
+
       // Get staff information using centralized system
       const allStaff = await db.getCentralizedStaff();
       const staff = allStaff.find((s: any) => s.id === data.staff_id);
-      
+
       if (!staff) {
         // Log available staff for debugging
-        console.warn(`⚠️ [SALARY] Staff member with ID ${data.staff_id} not found. Available staff:`, 
+        console.warn(`⚠️ [SALARY] Staff member with ID ${data.staff_id} not found. Available staff:`,
           allStaff.map((s: any) => ({ id: s.id, name: s.full_name, employee_id: s.employee_id })));
         throw new Error(`Staff member not found with ID: ${data.staff_id}. Available staff count: ${allStaff.length}`);
       }
@@ -511,9 +511,9 @@ class SalaryHistoryService {
       // Insert payment record using dynamic schema
       const result = await db.executeCommand(insertInfo.query, values);
 
-      console.log('Payment insert result:', { 
-        lastInsertRowId: result.lastInsertRowId, 
-        changes: result.changes 
+      console.log('Payment insert result:', {
+        lastInsertRowId: result.lastInsertRowId,
+        changes: result.changes
       });
 
       // Get the created payment
@@ -564,6 +564,35 @@ class SalaryHistoryService {
       // Ensure payment has an id before using it
       if (!safePayment.id) {
         throw new Error(`Created payment record is missing required id field. Payment object: ${JSON.stringify(payment)}`);
+      }
+
+      // CRITICAL FIX: Create ledger entry for salary payment so it appears in Daily Ledger
+      try {
+        console.log('🔄 Creating ledger entry for salary payment...');
+
+        const paymentDate = data.payment_month ?
+          new Date(data.payment_month + '-01').toISOString().split('T')[0] :
+          new Date().toISOString().split('T')[0];
+
+        await db.createDailyLedgerEntry({
+          date: paymentDate,
+          type: 'outgoing',
+          category: 'Staff Salary',
+          description: `Salary payment to ${staff.full_name}`,
+          amount: data.payment_amount,
+          customer_id: null, // Salary payments don't have customer_id
+          customer_name: `Staff: ${staff.full_name}`,
+          payment_method: data.payment_method,
+          payment_channel_id: undefined, // To be enhanced when payment channels are added to salary system
+          payment_channel_name: data.payment_method,
+          notes: data.notes || `${data.payment_type} salary payment via ${data.payment_method}`,
+          is_manual: false
+        });
+
+        console.log('✅ Ledger entry created for salary payment');
+      } catch (ledgerEntryError) {
+        console.error('❌ Failed to create ledger entry for salary payment:', ledgerEntryError);
+        // Don't fail the whole payment - this is for Daily Ledger display only
       }
 
       // Log audit event (optional - don't fail payment if audit logging fails)
@@ -650,9 +679,9 @@ class SalaryHistoryService {
   async getStaffPayments(staffId: number, limit: number = 50): Promise<SalaryPayment[]> {
     try {
       await this.initializeTables(); // Ensure schema compatibility
-      
+
       const columns = this.getColumnMapping();
-      
+
       const result = await db.executeRawQuery(`
         SELECT 
           ${columns.id} as id,
@@ -698,9 +727,9 @@ class SalaryHistoryService {
   } = {}): Promise<SalaryPayment[]> {
     try {
       await this.initializeTables(); // Ensure schema compatibility
-      
+
       const columns = this.getColumnMapping();
-      
+
       let query = `
         SELECT 
           ${columns.id} as id,
@@ -749,7 +778,7 @@ class SalaryHistoryService {
       if (options.limit) {
         query += ' LIMIT ?';
         params.push(options.limit);
-        
+
         if (options.offset) {
           query += ' OFFSET ?';
           params.push(options.offset);
@@ -770,7 +799,7 @@ class SalaryHistoryService {
   async getSalaryStatistics(): Promise<SalaryStatistics> {
     try {
       await this.initializeTables(); // Ensure schema compatibility
-      
+
       const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
       const currentYear = new Date().getFullYear();
       const columns = this.getColumnMapping();
@@ -816,7 +845,7 @@ class SalaryHistoryService {
       const totalPaidThisMonth = (monthResult[0] as any).total;
       const totalPaidThisYear = (yearResult[0] as any).total;
       const staffSummary = summaryResult as any[];
-      
+
       const pendingPayments = staffSummary.filter(s => s.payment_status === 'pending').length;
       const averageMonthlyPayment = staffSummary.length > 0 ? totalPaidThisMonth / staffSummary.length : 0;
 

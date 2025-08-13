@@ -163,9 +163,9 @@ export const DATABASE_SCHEMAS = {
     CREATE TABLE IF NOT EXISTS invoice_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       invoice_id INTEGER NOT NULL,
-      product_id INTEGER NOT NULL,
+      product_id INTEGER DEFAULT NULL,
       product_name TEXT NOT NULL,
-      quantity TEXT NOT NULL,
+      quantity TEXT DEFAULT '1',
       unit_price REAL NOT NULL CHECK (unit_price >= 0),
       rate REAL NOT NULL CHECK (rate > 0),
       total_price REAL NOT NULL CHECK (total_price >= 0),
@@ -173,6 +173,8 @@ export const DATABASE_SCHEMAS = {
       unit TEXT DEFAULT 'piece',
       length REAL DEFAULT NULL,
       pieces REAL DEFAULT NULL,
+      is_misc_item BOOLEAN DEFAULT 0,
+      misc_description TEXT DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,
@@ -412,7 +414,7 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_staff_management_username ON staff_management(username)',
     'CREATE INDEX IF NOT EXISTS idx_staff_management_hire_date ON staff_management(hire_date)'
   ],
-  
+
   SALARY_PAYMENTS: [
     'CREATE INDEX IF NOT EXISTS idx_salary_payments_staff_id ON salary_payments(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_salary_payments_date ON salary_payments(payment_date)',
@@ -420,33 +422,33 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_salary_payments_month ON salary_payments(payment_month)',
     'CREATE INDEX IF NOT EXISTS idx_salary_payments_status ON salary_payments(payment_status)'
   ],
-  
+
   STAFF_SESSIONS: [
     'CREATE INDEX IF NOT EXISTS idx_staff_sessions_staff_id ON staff_sessions(staff_id)',
     'CREATE INDEX IF NOT EXISTS idx_staff_sessions_token ON staff_sessions(token)',
     'CREATE INDEX IF NOT EXISTS idx_staff_sessions_expires_at ON staff_sessions(expires_at)',
     'CREATE INDEX IF NOT EXISTS idx_staff_sessions_is_active ON staff_sessions(is_active)'
   ],
-  
+
   BUSINESS_EXPENSES: [
     'CREATE INDEX IF NOT EXISTS idx_business_expenses_date ON business_expenses(date)',
     'CREATE INDEX IF NOT EXISTS idx_business_expenses_category ON business_expenses(category)',
     'CREATE INDEX IF NOT EXISTS idx_business_expenses_status ON business_expenses(payment_status)'
   ],
-  
+
   PRODUCTS: [
     'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
     'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
     'CREATE INDEX IF NOT EXISTS idx_products_status ON products(status)',
     'CREATE INDEX IF NOT EXISTS idx_products_unit_type ON products(unit_type)'
   ],
-  
+
   CUSTOMERS: [
     'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
     'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
     'CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(balance)'
   ],
-  
+
   INVOICES: [
     'CREATE INDEX IF NOT EXISTS idx_invoices_bill_number ON invoices(bill_number)',
     'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)',
@@ -454,13 +456,13 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)',
     'CREATE INDEX IF NOT EXISTS idx_invoices_payment_status ON invoices(payment_status)'
   ],
-  
+
   INVOICE_ITEMS: [
     'CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id)',
     'CREATE INDEX IF NOT EXISTS idx_invoice_items_product_id ON invoice_items(product_id)',
     'CREATE INDEX IF NOT EXISTS idx_invoice_items_product_name ON invoice_items(product_name)'
   ],
-  
+
   STOCK_MOVEMENTS: [
     'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)',
     'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_name ON stock_movements(product_name)',
@@ -468,7 +470,7 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)',
     'CREATE INDEX IF NOT EXISTS idx_stock_movements_reference ON stock_movements(reference_type, reference_id)'
   ],
-  
+
   LEDGER_ENTRIES: [
     'CREATE INDEX IF NOT EXISTS idx_ledger_entries_date ON ledger_entries(date)',
     'CREATE INDEX IF NOT EXISTS idx_ledger_entries_type ON ledger_entries(type)',
@@ -476,7 +478,7 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_ledger_entries_product_id ON ledger_entries(product_id)',
     'CREATE INDEX IF NOT EXISTS idx_ledger_entries_category ON ledger_entries(category)'
   ],
-  
+
   PAYMENTS: [
     'CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)',
     'CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)',
@@ -484,7 +486,7 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(payment_status)',
     'CREATE INDEX IF NOT EXISTS idx_payments_code ON payments(payment_code)'
   ],
-  
+
   VENDORS: [
     'CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name)',
     'CREATE INDEX IF NOT EXISTS idx_vendors_company_name ON vendors(company_name)',
@@ -510,13 +512,13 @@ export const DATABASE_INDEXES = {
     'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_batch_number ON stock_receiving_items(batch_number)',
     'CREATE INDEX IF NOT EXISTS idx_stock_receiving_items_lot_number ON stock_receiving_items(lot_number)'
   ],
-  
+
   PAYMENT_CHANNELS: [
     'CREATE INDEX IF NOT EXISTS idx_payment_channels_name ON payment_channels(name)',
     'CREATE INDEX IF NOT EXISTS idx_payment_channels_type ON payment_channels(type)',
     'CREATE INDEX IF NOT EXISTS idx_payment_channels_active ON payment_channels(is_active)'
   ],
-  
+
   AUDIT_LOGS: [
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)',
     'CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id)',
@@ -546,7 +548,7 @@ export function validateTableSchema(tableInfo: any[], expectedColumns: string[])
  */
 export function getStaffManagementExpectedColumns(): string[] {
   return [
-    'id', 'staff_code', 'username', 'employee_id', 'full_name', 'email', 
+    'id', 'staff_code', 'username', 'employee_id', 'full_name', 'email',
     'role', 'department', 'hire_date', 'joining_date', 'salary', 'basic_salary',
     'position', 'address', 'phone', 'cnic', 'emergency_contact', 'employment_type',
     'status', 'is_active', 'last_login', 'permissions', 'password_hash', 'notes',

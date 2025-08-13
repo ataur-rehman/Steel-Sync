@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guest Customer Verification Tool</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #34495e;
+            margin-top: 30px;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .status.info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+
+        .status.warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #2980b9;
+        }
+
+        .btn.danger {
+            background-color: #e74c3c;
+        }
+
+        .btn.danger:hover {
+            background-color: #c0392b;
+        }
+
+        .btn.success {
+            background-color: #27ae60;
+        }
+
+        .btn.success:hover {
+            background-color: #229954;
+        }
+
+        .log-output {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin: 10px 0;
+        }
+
+        .progress {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: #28a745;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #495057;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+
+        .test-result {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+
+        .test-result.pass {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .test-result.fail {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .test-result .icon {
+            margin-right: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 Guest Customer Verification Tool</h1>
+
+        <div class="status info">
+            <strong>Purpose:</strong> This tool verifies that guest customers (customer_id = -1) do NOT create customer
+            ledger entries while maintaining business cash flow tracking.
+        </div>
+
+        <h2>📊 Verification Status</h2>
+        <div class="progress">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div id="statusDisplay" class="status info">
+            Ready to start verification...
+        </div>
+
+        <h2>🎯 Test Controls</h2>
+        <button class="btn" onclick="runCompleteVerification()">Run Complete Verification</button>
+        <button class="btn" onclick="checkGuestInvoices()">Check Guest Invoices</button>
+        <button class="btn" onclick="checkGuestLedgerEntries()">Check Guest Ledger Entries</button>
+        <button class="btn danger" onclick="cleanupGuestEntries()">Clean Up Guest Ledger Entries</button>
+
+        <h2>📈 Statistics</h2>
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number" id="guestInvoicesCount">-</div>
+                <div class="stat-label">Guest Invoices</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="guestLedgerCount">-</div>
+                <div class="stat-label">Guest Ledger Entries</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="guestDailyCount">-</div>
+                <div class="stat-label">Guest Daily Entries</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="verificationScore">-</div>
+                <div class="stat-label">Verification Score</div>
+            </div>
+        </div>
+
+        <h2>🧪 Test Results</h2>
+        <div id="testResults"></div>
+
+        <h2>📋 Log Output</h2>
+        <div class="log-output" id="logOutput">Waiting for tests to run...</div>
+
+        <h2>ℹ️ What This Tool Checks</h2>
+        <ul>
+            <li><strong>Guest Customer Record:</strong> Ensures guest customer (ID: -1) exists in customers table</li>
+            <li><strong>No Customer Ledger Pollution:</strong> Verifies guest customers don't create
+                customer_ledger_entries</li>
+            <li><strong>Business Cash Flow:</strong> Confirms guest payments still create daily ledger entries</li>
+            <li><strong>Data Integrity:</strong> Validates overall system consistency</li>
+        </ul>
+
+        <h2>🔧 Manual Testing Instructions</h2>
+        <ol>
+            <li>Click "Run Complete Verification" to check current status</li>
+            <li>Create a test guest invoice through the Invoice Form</li>
+            <li>Run verification again to see if guest ledger entries were created</li>
+            <li>If guest ledger entries exist, use "Clean Up" to remove them</li>
+            <li>Verify that guest customers don't appear in customer reports</li>
+        </ol>
+    </div>
+
+    <script>
+        // Store console.log and console.error to capture them
+        const originalLog = console.log;
+        const originalError = console.error;
+        const logOutput = document.getElementById('logOutput');
+        const testResults = document.getElementById('testResults');
+
+        // Override console functions to display in our log
+        function logToDisplay(message, type = 'log') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+
+            if (logOutput) {
+                const colorClass = type === 'error' ? 'color: red;' : type === 'warn' ? 'color: orange;' : 'color: black;';
+                logOutput.innerHTML += `<div style="${colorClass}">${logMessage}</div>`;
+                logOutput.scrollTop = logOutput.scrollHeight;
+            }
+
+            // Also call original function
+            if (type === 'error') {
+                originalError(message);
+            } else {
+                originalLog(message);
+            }
+        }
+
+        console.log = (message) => logToDisplay(message, 'log');
+        console.error = (message) => logToDisplay(message, 'error');
+        console.warn = (message) => logToDisplay(message, 'warn');
+
+        function updateStatus(message, type = 'info') {
+            const statusDisplay = document.getElementById('statusDisplay');
+            statusDisplay.className = `status ${type}`;
+            statusDisplay.innerHTML = message;
+        }
+
+        function updateProgress(percentage) {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = `${percentage}%`;
+        }
+
+        function updateStats(stats) {
+            if (stats.guestInvoicesFound !== undefined) {
+                document.getElementById('guestInvoicesCount').textContent = stats.guestInvoicesFound;
+            }
+            if (stats.guestLedgerEntries !== undefined) {
+                document.getElementById('guestLedgerCount').textContent = stats.guestLedgerEntries;
+            }
+            if (stats.guestDailyEntries !== undefined) {
+                document.getElementById('guestDailyCount').textContent = stats.guestDailyEntries;
+            }
+            if (stats.verificationScore !== undefined) {
+                document.getElementById('verificationScore').textContent = stats.verificationScore + '%';
+            }
+        }
+
+        function addTestResult(name, passed, details = '') {
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${passed ? 'pass' : 'fail'}`;
+            resultDiv.innerHTML = `
+                <span class="icon">${passed ? '✅' : '❌'}</span>
+                <span><strong>${name}</strong> ${details}</span>
+            `;
+            testResults.appendChild(resultDiv);
+        }
+
+        async function runCompleteVerification() {
+            updateStatus('Running complete verification...', 'info');
+            updateProgress(0);
+            logOutput.innerHTML = '';
+            testResults.innerHTML = '';
+
+            try {
+                // Check if database is available
+                if (!window.db && !window.APP_STATE?.db) {
+                    throw new Error('Database not available. Please make sure the app is loaded.');
+                }
+
+                updateProgress(10);
+
+                // Load the verification script if not already loaded
+                if (!window.GUEST_CUSTOMER_VERIFICATION) {
+                    updateStatus('Loading verification script...', 'info');
+                    await loadVerificationScript();
+                }
+
+                updateProgress(20);
+
+                // Run verification
+                const results = await window.GUEST_CUSTOMER_VERIFICATION.runCompleteVerification();
+
+                updateProgress(100);
+
+                // Update UI with results
+                const stats = {
+                    guestInvoicesFound: results.guestInvoicesFound || 0,
+                    guestLedgerEntries: results.noGuestLedgerEntries ? 0 : '?',
+                    guestDailyEntries: results.guestDailyEntriesFound || 0,
+                    verificationScore: calculateScore(results)
+                };
+
+                updateStats(stats);
+
+                // Add test results
+                addTestResult('Guest Customer Record', results.guestRecordExists);
+                addTestResult('No Guest Ledger Entries', results.noGuestLedgerEntries,
+                    results.noGuestLedgerEntries ? '(Correct behavior)' : '(PROBLEM: Guest customers creating ledger entries)');
+                addTestResult('Utilities Working', results.utilitiesTested);
+
+                const allPassed = results.guestRecordExists && results.noGuestLedgerEntries && results.utilitiesTested;
+
+                if (allPassed) {
+                    updateStatus('✅ All tests passed! Guest customer implementation is working correctly.', 'success');
+                } else {
+                    updateStatus('❌ Some tests failed. Guest customer implementation needs attention.', 'error');
+                }
+
+            } catch (error) {
+                updateStatus(`❌ Error during verification: ${error.message}`, 'error');
+                console.error('Verification error:', error);
+                updateProgress(0);
+            }
+        }
+
+        async function checkGuestInvoices() {
+            updateStatus('Checking guest invoices...', 'info');
+            try {
+                if (!window.GUEST_CUSTOMER_VERIFICATION) {
+                    await loadVerificationScript();
+                }
+                const invoices = await window.GUEST_CUSTOMER_VERIFICATION.checkGuestInvoices();
+                updateStats({ guestInvoicesFound: invoices.length });
+                updateStatus(`Found ${invoices.length} guest invoices`, 'success');
+            } catch (error) {
+                updateStatus(`Error checking guest invoices: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkGuestLedgerEntries() {
+            updateStatus('Checking guest ledger entries...', 'info');
+            try {
+                if (!window.GUEST_CUSTOMER_VERIFICATION) {
+                    await loadVerificationScript();
+                }
+                const hasNoEntries = await window.GUEST_CUSTOMER_VERIFICATION.checkExistingGuestLedgerEntries();
+                updateStats({ guestLedgerEntries: hasNoEntries ? 0 : '?' });
+                updateStatus(hasNoEntries ? 'No guest ledger entries found (correct)' : 'Guest ledger entries found (problem)',
+                    hasNoEntries ? 'success' : 'error');
+            } catch (error) {
+                updateStatus(`Error checking guest ledger entries: ${error.message}`, 'error');
+            }
+        }
+
+        async function cleanupGuestEntries() {
+            updateStatus('Cleaning up guest ledger entries...', 'warning');
+            try {
+                if (!window.GUEST_CUSTOMER_VERIFICATION) {
+                    await loadVerificationScript();
+                }
+                const cleaned = await window.GUEST_CUSTOMER_VERIFICATION.cleanupGuestLedgerEntries();
+                if (cleaned) {
+                    updateStatus('Guest ledger entries cleaned up successfully', 'success');
+                    updateStats({ guestLedgerEntries: 0 });
+                } else {
+                    updateStatus('Cleanup cancelled or no entries to clean', 'info');
+                }
+            } catch (error) {
+                updateStatus(`Error during cleanup: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadVerificationScript() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = './guest-customer-verification.js';
+                script.onload = resolve;
+                script.onerror = () => reject(new Error('Failed to load verification script'));
+                document.head.appendChild(script);
+            });
+        }
+
+        function calculateScore(results) {
+            let score = 0;
+            let total = 0;
+
+            if (results.guestRecordExists !== undefined) {
+                score += results.guestRecordExists ? 25 : 0;
+                total += 25;
+            }
+
+            if (results.noGuestLedgerEntries !== undefined) {
+                score += results.noGuestLedgerEntries ? 50 : 0; // This is the most important test
+                total += 50;
+            }
+
+            if (results.utilitiesTested !== undefined) {
+                score += results.utilitiesTested ? 25 : 0;
+                total += 25;
+            }
+
+            return total > 0 ? Math.round((score / total) * 100) : 0;
+        }
+
+        // Initialize the page
+        updateStatus('Ready to start verification. Click "Run Complete Verification" to begin.', 'info');
+        console.log('Guest Customer Verification Tool loaded successfully');
+    </script>
+</body>
+
+</html>
