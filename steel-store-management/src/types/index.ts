@@ -23,11 +23,12 @@ export interface Product {
   id: number;
   name: string;
   category?: string;
-  unit_type: 'kg-grams' | 'piece' | 'bag' | 'kg'; // Unit type determines how unit and stock are handled
+  unit_type: 'kg-grams' | 'piece' | 'bag' | 'kg' | 'meter' | 'ton' | 'foot'; // Unit type determines how unit and stock are handled
   unit: string; // Format depends on unit_type: "1600-60" for kg-grams, "500.10" for kg, "100" for pieces, "50" for bags
   rate_per_unit: number;
   current_stock: string; // Stock in same unit format as unit
   min_stock_alert: string; // Alert level in same unit format
+  track_inventory: number; // 1 = track inventory, 0 = non-stock product
   size?: string; // Optional size
   grade?: string; // Optional grade
   created_at: string;

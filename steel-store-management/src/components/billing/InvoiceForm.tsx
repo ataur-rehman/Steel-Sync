@@ -9,6 +9,7 @@ import { calculateTotal, calculateDiscount, formatCurrency } from '../../utils/c
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import Modal from '../common/Modal';
 import CustomerForm from '../customers/CustomerForm';
+import { TIronCalculator } from './TIronCalculator';
 import {
   Search,
   Trash2,
@@ -51,11 +52,12 @@ interface GuestCustomer {
 interface Product {
   id: number;
   name: string;
-  unit_type?: 'kg-grams' | 'piece' | 'bag' | 'kg';
+  unit_type?: 'kg-grams' | 'piece' | 'bag' | 'kg' | 'meter' | 'ton' | 'foot';
   unit: string;
   rate_per_unit: number;
   current_stock: string;
   min_stock_alert: string;
+  track_inventory?: number; // 1 = track inventory, 0 = non-stock product
   size?: string;
   grade?: string;
 }
@@ -74,6 +76,13 @@ interface InvoiceItem {
   pieces?: number;
   is_misc_item?: boolean;
   misc_description?: string;
+  // T-Iron calculation fields
+  t_iron_pieces?: number;
+  t_iron_length_per_piece?: number;
+  t_iron_total_feet?: number;
+  t_iron_unit?: string; // Unit type: 'pcs' or 'L'
+  product_description?: string;
+  is_non_stock_item?: boolean;
 }
 
 interface InvoiceFormData {
@@ -169,6 +178,23 @@ const InvoiceForm: React.FC = () => {
   // Miscellaneous item state
   const [miscItemDescription, setMiscItemDescription] = useState('');
   const [miscItemPrice, setMiscItemPrice] = useState(0);
+
+  // T-Iron calculator state
+  const [showTIronCalculator, setShowTIronCalculator] = useState(false);
+  const [selectedTIronProduct, setSelectedTIronProduct] = useState<Product | null>(null);
+  const [editingTIronItemId, setEditingTIronItemId] = useState<string | null>(null); // Track which item is being edited
+
+  // Enhanced non-stock calculation state
+  const [nonStockCalculation, setNonStockCalculation] = useState<{
+    [itemId: string]: {
+      baseQuantity: string;      // e.g., "12"
+      baseUnit: 'L' | 'pcs';     // L or pcs
+      multiplierQuantity: string; // e.g., "13"
+      multiplierUnit: 'ft' | 'L'; // ft or L  
+      unitPrice: string;         // price per unit
+      isCalculating: boolean;
+    }
+  }>({});
 
   // Initialize data - YOUR ORIGINAL FUNCTION
   useEffect(() => {
@@ -316,7 +342,7 @@ const InvoiceForm: React.FC = () => {
       }
 
       const product = products.find(p => p.id === item.product_id);
-      if (product) {
+      if (product && product.track_inventory !== 0) { // Only check stock for products that track inventory
         const newStock = getStockAsNumber(product.current_stock, product.unit_type) - getQuantityAsNumber(item.quantity, product.unit_type);
         let status: 'ok' | 'low' | 'insufficient' = 'ok';
 
@@ -460,9 +486,102 @@ const InvoiceForm: React.FC = () => {
     }
   }, [products]);
 
+  // Enhanced non-stock calculation helper functions
+  const initializeNonStockCalculation = (itemId: string, isNonStock: boolean) => {
+    if (isNonStock && !nonStockCalculation[itemId]) {
+      setNonStockCalculation(prev => ({
+        ...prev,
+        [itemId]: {
+          baseQuantity: '1',
+          baseUnit: 'pcs',
+          multiplierQuantity: '1',
+          multiplierUnit: 'ft',
+          unitPrice: '0',
+          isCalculating: false
+        }
+      }));
+    }
+  };
+
+  const updateNonStockCalculation = (itemId: string, field: string, value: string) => {
+    setNonStockCalculation(prev => ({
+      ...prev,
+      [itemId]: {
+        ...prev[itemId],
+        [field]: value
+      }
+    }));
+    // The useEffect will handle updating the item when nonStockCalculation changes
+  };
+
+  const updateItemWithEnhancedCalculation = (itemId: string) => {
+    const calc = nonStockCalculation[itemId];
+    if (!calc) return;
+
+    const baseQty = parseFloat(calc.baseQuantity) || 0;
+    const multiplierQty = parseFloat(calc.multiplierQuantity) || 0;
+    const price = parseFloat(calc.unitPrice) || 0;
+    const totalCalculated = baseQty * multiplierQty * price;
+    const totalFeet = baseQty * multiplierQty;
+
+    setFormData(prev => ({
+      ...prev,
+      items: prev.items.map(item => {
+        if (item.id === itemId) {
+          return {
+            ...item,
+            // Update T-Iron specific fields
+            t_iron_pieces: baseQty,
+            t_iron_length_per_piece: multiplierQty,
+            t_iron_total_feet: totalFeet,
+            quantity: totalFeet.toString(), // Total feet as quantity
+            unit_price: price,
+            total_price: totalCalculated,
+            is_non_stock_item: true
+          };
+        }
+        return item;
+      })
+    }));
+  };
+
+  // Update items when enhanced calculation changes
+  useEffect(() => {
+    Object.keys(nonStockCalculation).forEach(itemId => {
+      const calc = nonStockCalculation[itemId];
+      if (calc && calc.baseQuantity && calc.multiplierQuantity && calc.unitPrice) {
+        // Delay the update to avoid immediate state update during render
+        setTimeout(() => updateItemWithEnhancedCalculation(itemId), 0);
+      }
+    });
+  }, [nonStockCalculation]);
+
+  const calculateNonStockTotal = (itemId: string) => {
+    const calc = nonStockCalculation[itemId];
+    if (!calc) return 0;
+
+    const baseQty = parseFloat(calc.baseQuantity) || 0;
+    const multiplierQty = parseFloat(calc.multiplierQuantity) || 0;
+    const price = parseFloat(calc.unitPrice) || 0;
+
+    return baseQty * multiplierQty * price;
+  };
+
+  const getNonStockDisplayText = (itemId: string) => {
+    const calc = nonStockCalculation[itemId];
+    if (!calc) return '';
+
+    return `${calc.baseQuantity}/${calc.baseUnit} × ${calc.multiplierQuantity}${calc.multiplierUnit}/${calc.baseUnit} × Rs.${calc.unitPrice}`;
+  };
+
   // Calculate totals with proper currency precision - YOUR ORIGINAL LOGIC
   const calculations = React.useMemo(() => {
     const getItemTotal = (item: InvoiceItem) => {
+      // Use enhanced calculation for non-stock items
+      if (item.is_non_stock_item && nonStockCalculation[item.id]) {
+        return calculateNonStockTotal(item.id);
+      }
+
       if (item.unit_type === 'kg-grams') {
         const parsed = parseUnit(item.quantity, 'kg-grams');
         const kg = typeof parsed.kg === 'number' ? parsed.kg : 0;
@@ -481,7 +600,7 @@ const InvoiceForm: React.FC = () => {
       grandTotal: roundCurrency(grandTotal),
       remainingBalance: roundCurrency(remainingBalance)
     };
-  }, [formData.items, formData.discount, formData.payment_amount]);
+  }, [formData.items, formData.discount, formData.payment_amount, nonStockCalculation]);
 
   // YOUR ORIGINAL ADD PRODUCT FUNCTION
   const addProduct = (product: Product) => {
@@ -508,7 +627,8 @@ const InvoiceForm: React.FC = () => {
         newQuantityNum = currentQuantity + 1;
         newQuantity = newQuantityNum.toString();
       }
-      if (!isStockSufficient(currentProduct.current_stock, newQuantity, currentProduct.unit_type)) {
+      // Skip stock validation for non-stock products (track_inventory = 0)
+      if (currentProduct.track_inventory !== 0 && !isStockSufficient(currentProduct.current_stock, newQuantity, currentProduct.unit_type)) {
         toast.error(`Cannot add more. Only ${formatUnitString(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams')} available.`);
         return;
       }
@@ -521,13 +641,50 @@ const InvoiceForm: React.FC = () => {
       };
       setFormData(prev => ({ ...prev, items: newItems }));
     } else {
-      if (getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type) < 1) {
+      // Check if this is a T-Iron or similar non-stock product that needs special calculation
+      const isTIronProduct = currentProduct.name.toLowerCase().includes('t-iron') ||
+        currentProduct.name.toLowerCase().includes('tiron') ||
+        currentProduct.name.toLowerCase().includes('t iron');
+
+      console.log('🔍 T-Iron Detection Check:', {
+        productName: currentProduct.name,
+        track_inventory: currentProduct.track_inventory,
+        unit_type: currentProduct.unit_type,
+        isTIronProduct,
+        shouldShowCalculator: isTIronProduct
+      });
+
+      if (isTIronProduct) {
+        // Show T-Iron calculator for all T-Iron products regardless of inventory settings
+        setSelectedTIronProduct(currentProduct);
+        setShowTIronCalculator(true);
+        setProductSearch('');
+        setShowProductDropdown(false);
+        return;
+      }
+
+      // Skip stock validation for non-stock products (track_inventory = 0)
+      if (currentProduct.track_inventory !== 0 && getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type) < 1) {
         toast.error(`${currentProduct.name} is out of stock`);
         return;
       }
       // Always start with quantity 1 for all units
       const initialQuantity = "1";
       const initialQuantityNum = 1;
+
+      // Debug logging for T-Iron products
+      if (currentProduct.name.toLowerCase().includes('t-iron') ||
+        currentProduct.name.toLowerCase().includes('tiron') ||
+        currentProduct.name.toLowerCase().includes('t iron')) {
+        console.log('🔍 T-Iron Product Debug:', {
+          name: currentProduct.name,
+          track_inventory: currentProduct.track_inventory,
+          unit_type: currentProduct.unit_type,
+          isNonStock: currentProduct.track_inventory === 0,
+          willForceNonStock: true
+        });
+      }
+
       const newItem: InvoiceItem = {
         id: `item_${Date.now()}_${Math.random()}`,
         product_id: currentProduct.id,
@@ -539,8 +696,31 @@ const InvoiceForm: React.FC = () => {
         available_stock: getStockAsNumber(currentProduct.current_stock, currentProduct.unit_type),
         unit_type: currentProduct.unit_type,
         length: undefined,
-        pieces: undefined
+        pieces: undefined,
+        // Non-stock item detection - Force T-Iron products to be non-stock
+        is_non_stock_item: currentProduct.track_inventory === 0 ||
+          currentProduct.name.toLowerCase().includes('t-iron') ||
+          currentProduct.name.toLowerCase().includes('tiron') ||
+          currentProduct.name.toLowerCase().includes('t iron')
       };
+
+      // Initialize enhanced calculation for non-stock items - Force for T-Iron
+      const isNonStock = currentProduct.track_inventory === 0 ||
+        currentProduct.name.toLowerCase().includes('t-iron') ||
+        currentProduct.name.toLowerCase().includes('tiron') ||
+        currentProduct.name.toLowerCase().includes('t iron');
+      console.log('🔧 Non-stock check:', {
+        productName: currentProduct.name,
+        isNonStock,
+        track_inventory: currentProduct.track_inventory,
+        isTIron: currentProduct.name.toLowerCase().includes('t-iron') || currentProduct.name.toLowerCase().includes('tiron')
+      });
+
+      if (isNonStock) {
+        console.log('✅ Initializing enhanced calculation for:', currentProduct.name);
+        initializeNonStockCalculation(newItem.id, true);
+      }
+
       setFormData(prev => ({
         ...prev,
         items: [...prev.items, newItem]
@@ -550,6 +730,106 @@ const InvoiceForm: React.FC = () => {
     setProductSearch('');
     setShowProductDropdown(false);
     toast.success(`${currentProduct.name} added to invoice`);
+  };
+
+  // T-Iron calculator callbacks
+  const handleTIronCalculationComplete = (calculatedItem: any) => {
+    // DEBUG: Log the received data
+    console.log('🔧 T-Iron Calculator Data Received:', {
+      pieces: calculatedItem.t_iron_pieces,
+      lengthPerPiece: calculatedItem.t_iron_length_per_piece,
+      totalFeet: calculatedItem.t_iron_total_feet,
+      unit: calculatedItem.t_iron_unit,
+      pricePerFoot: calculatedItem.unit_price,
+      totalPrice: calculatedItem.total_price,
+      description: calculatedItem.product_description
+    });
+
+    if (editingTIronItemId) {
+      // Update existing item
+      setFormData(prev => ({
+        ...prev,
+        items: prev.items.map(item => {
+          if (item.id === editingTIronItemId) {
+            const updatedItem = {
+              ...item,
+              quantity: calculatedItem.quantity.toString(), // Total feet
+              unit_price: calculatedItem.unit_price, // Price per foot
+              total_price: calculatedItem.total_price,
+              // T-Iron specific calculation data
+              t_iron_pieces: calculatedItem.t_iron_pieces,
+              t_iron_length_per_piece: calculatedItem.t_iron_length_per_piece,
+              t_iron_total_feet: calculatedItem.t_iron_total_feet,
+              t_iron_unit: calculatedItem.t_iron_unit,
+              product_description: calculatedItem.product_description,
+              is_non_stock_item: calculatedItem.is_non_stock_item
+            };
+
+            // DEBUG: Log the updated item
+            console.log('🔧 Updated Existing T-Iron Item:', {
+              id: updatedItem.id,
+              pieces: updatedItem.t_iron_pieces,
+              lengthPerPiece: updatedItem.t_iron_length_per_piece,
+              unit: updatedItem.t_iron_unit,
+              totalFeet: updatedItem.t_iron_total_feet
+            });
+
+            return updatedItem;
+          }
+          return item;
+        })
+      }));
+
+      toast.success(`T-Iron updated: ${calculatedItem.t_iron_pieces}${calculatedItem.t_iron_unit || 'pcs'} × ${calculatedItem.t_iron_length_per_piece}ft × Rs.${calculatedItem.unit_price}/ft = Rs.${calculatedItem.total_price}`);
+    } else {
+      // Add new item
+      const newItem: InvoiceItem = {
+        id: `item_${Date.now()}_${Math.random()}`,
+        product_id: calculatedItem.product_id,
+        product_name: calculatedItem.product_name,
+        quantity: calculatedItem.quantity.toString(), // Total feet
+        unit_price: calculatedItem.unit_price, // Price per foot
+        total_price: calculatedItem.total_price,
+        unit: calculatedItem.unit,
+        available_stock: 0, // Non-stock items don't track stock
+        unit_type: 'foot',
+        // T-Iron specific calculation data
+        t_iron_pieces: calculatedItem.t_iron_pieces,
+        t_iron_length_per_piece: calculatedItem.t_iron_length_per_piece,
+        t_iron_total_feet: calculatedItem.t_iron_total_feet,
+        t_iron_unit: calculatedItem.t_iron_unit, // Add the unit field
+        product_description: calculatedItem.product_description,
+        is_non_stock_item: calculatedItem.is_non_stock_item
+      };
+
+      // DEBUG: Log the created invoice item
+      console.log('🔧 New T-Iron Item Created:', {
+        pieces: newItem.t_iron_pieces,
+        lengthPerPiece: newItem.t_iron_length_per_piece,
+        totalFeet: newItem.t_iron_total_feet,
+        unit: newItem.t_iron_unit,
+        pricePerFoot: newItem.unit_price,
+        totalPrice: newItem.total_price,
+        quantity: newItem.quantity
+      });
+
+      setFormData(prev => ({
+        ...prev,
+        items: [...prev.items, newItem]
+      }));
+
+      toast.success(`T-Iron added: ${calculatedItem.t_iron_pieces}${calculatedItem.t_iron_unit || 'pcs'} × ${calculatedItem.t_iron_length_per_piece}ft × Rs.${calculatedItem.unit_price}/ft = Rs.${calculatedItem.total_price}`);
+    }
+
+    setShowTIronCalculator(false);
+    setSelectedTIronProduct(null);
+    setEditingTIronItemId(null);
+  };
+
+  const handleTIronCalculatorCancel = () => {
+    setShowTIronCalculator(false);
+    setSelectedTIronProduct(null);
+    setEditingTIronItemId(null);
   };
 
   // Add miscellaneous item function
@@ -617,7 +897,8 @@ const InvoiceForm: React.FC = () => {
         const currentProduct = products.find(p => p.id === item.product_id);
         if (!currentProduct) return item;
 
-        if (!isStockSufficient(currentProduct.current_stock, newQuantityString, currentProduct.unit_type)) {
+        // Skip stock validation for non-stock products (track_inventory = 0)
+        if (currentProduct.track_inventory !== 0 && !isStockSufficient(currentProduct.current_stock, newQuantityString, currentProduct.unit_type)) {
           toast.error(`Cannot exceed available stock (${formatUnitString(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams')})`);
           return item;
         }
@@ -787,7 +1068,8 @@ const InvoiceForm: React.FC = () => {
     const stockIssues: string[] = [];
     formData.items.forEach(item => {
       const currentProduct = products.find(p => p.id === item.product_id);
-      if (currentProduct && !isStockSufficient(currentProduct.current_stock, item.quantity, currentProduct.unit_type)) {
+      // Skip stock validation for non-stock products (track_inventory = 0)
+      if (currentProduct && currentProduct.track_inventory !== 0 && !isStockSufficient(currentProduct.current_stock, item.quantity, currentProduct.unit_type)) {
         stockIssues.push(`${item.product_name} (Required: ${formatUnitString(item.quantity, currentProduct.unit_type || 'kg-grams')}, Available: ${formatUnitString(currentProduct.current_stock, currentProduct.unit_type || 'kg-grams')})`);
       }
     });
@@ -879,7 +1161,14 @@ const InvoiceForm: React.FC = () => {
           length: item.length,
           pieces: item.pieces,
           is_misc_item: item.is_misc_item,
-          misc_description: item.misc_description
+          misc_description: item.misc_description,
+          // T-Iron calculation fields
+          t_iron_pieces: item.t_iron_pieces,
+          t_iron_length_per_piece: item.t_iron_length_per_piece,
+          t_iron_total_feet: item.t_iron_total_feet,
+          t_iron_unit: item.t_iron_unit, // Add unit type
+          product_description: item.product_description,
+          is_non_stock_item: item.is_non_stock_item
         })),
         discount: formData.discount,
         payment_amount,
@@ -933,7 +1222,24 @@ const InvoiceForm: React.FC = () => {
 
     } catch (error: any) {
       console.error('Invoice creation error:', error);
-      toast.error(error.message || 'Failed to create invoice');
+
+      // Enhanced error handling for database lock issues
+      if (error.message?.includes('database is locked') || error.code === 5) {
+        toast.error('Database is currently busy. Please wait a moment and try again.', {
+          duration: 4000,
+          icon: '🔒'
+        });
+      } else if (error.message?.includes('UNIQUE constraint failed')) {
+        toast.error('Duplicate record detected. Please refresh and try again.', {
+          duration: 4000,
+          icon: '⚠️'
+        });
+      } else {
+        toast.error(error.message || 'Failed to create invoice', {
+          duration: 4000,
+          icon: '❌'
+        });
+      }
     } finally {
       setCreating(false);
     }
@@ -1296,7 +1602,7 @@ const InvoiceForm: React.FC = () => {
                       <div
                         key={product.id}
                         onClick={() => addProduct(product)}
-                        className={`p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${getStockAsNumber(product.current_stock, product.unit_type) === 0 ? 'opacity-50' : ''
+                        className={`p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${product.track_inventory !== 0 && getStockAsNumber(product.current_stock, product.unit_type) === 0 ? 'opacity-50' : ''
                           }`}
                       >
                         <div className="flex justify-between items-start">
@@ -1307,17 +1613,23 @@ const InvoiceForm: React.FC = () => {
                             </div>
                           </div>
                           <div className="text-right ml-4">
-                            <div className={`text-sm font-medium ${getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)
-                              ? 'text-red-600'
-                              : 'text-green-600'
-                              }`}>
-                              {formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}
-                            </div>
-                            {getStockAsNumber(product.current_stock, product.unit_type) === 0 && (
-                              <div className="text-xs text-red-500">Out of Stock</div>
-                            )}
-                            {getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type) && getStockAsNumber(product.current_stock, product.unit_type) > 0 && (
-                              <div className="text-xs text-yellow-600">Low Stock</div>
+                            {product.track_inventory !== 0 ? (
+                              <>
+                                <div className={`text-sm font-medium ${getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)
+                                  ? 'text-red-600'
+                                  : 'text-green-600'
+                                  }`}>
+                                  {formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}
+                                </div>
+                                {getStockAsNumber(product.current_stock, product.unit_type) === 0 && (
+                                  <div className="text-xs text-red-500">Out of Stock</div>
+                                )}
+                                {getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type) && getStockAsNumber(product.current_stock, product.unit_type) > 0 && (
+                                  <div className="text-xs text-yellow-600">Low Stock</div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="text-sm font-medium text-blue-600">Non-Stock Item</div>
                             )}
                           </div>
                         </div>
@@ -1460,23 +1772,93 @@ const InvoiceForm: React.FC = () => {
                                 ) : (
                                   <span className="mr-2 text-green-600" title="Product Item">📦</span>
                                 )}
-                                {/* Display product name with length/pieces if they exist */}
+                                {/* Display product name with T-Iron calculation or regular length/pieces */}
                                 {item.product_name}
-                                {item.length && ` • ${item.length}/L`}
-                                {item.pieces && ` • ${item.pieces}/pcs`}
+                                {item.t_iron_pieces && item.t_iron_length_per_piece ? (
+                                  <span className="text-sm text-blue-600 ml-2">
+                                    ({item.t_iron_pieces}{item.t_iron_unit || 'pcs'} × {item.t_iron_length_per_piece}ft/{item.t_iron_unit || 'pcs'} × Rs.{item.unit_price})
+                                  </span>
+                                ) : (
+                                  <>
+                                    {item.length && ` • ${item.length}/L`}
+                                    {item.pieces && ` • ${item.pieces}/pcs`}
+                                  </>
+                                )}
                               </div>
                               {/* Show different info for misc vs product items */}
                               {item.is_misc_item ? (
                                 <div className="text-xs text-blue-600">
                                   Miscellaneous Item
                                 </div>
+                              ) : item.is_non_stock_item ? (
+                                <div className="text-xs text-green-600">
+                                  Non-Stock Item • Total: {item.t_iron_total_feet || item.quantity} ft
+                                </div>
                               ) : (
                                 <div className="text-xs text-gray-500">
                                   Available: {formattedAvailableStock}
                                 </div>
                               )}
-                              {/* Quick add L/pcs buttons - only for product items */}
-                              {!item.is_misc_item && (
+                              {/* Enhanced calculation for non-stock items (but NOT T-Iron) */}
+                              {!item.is_misc_item && item.is_non_stock_item &&
+                                !item.product_name.toLowerCase().includes('t-iron') &&
+                                !item.product_name.toLowerCase().includes('tiron') &&
+                                !item.product_name.toLowerCase().includes('t iron') && (
+                                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                                    <div className="text-xs font-medium text-blue-800 mb-2">Enhanced Calculation</div>
+                                    <div className="grid grid-cols-3 gap-2 text-xs">
+                                      <div>
+                                        <input
+                                          type="number"
+                                          placeholder="Qty"
+                                          value={nonStockCalculation[item.id]?.baseQuantity || '1'}
+                                          onChange={(e) => updateNonStockCalculation(item.id, 'baseQuantity', e.target.value)}
+                                          className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
+                                        />
+                                        <select
+                                          value={nonStockCalculation[item.id]?.baseUnit || 'pcs'}
+                                          onChange={(e) => updateNonStockCalculation(item.id, 'baseUnit', e.target.value)}
+                                          className="w-full mt-1 px-1 py-1 border border-gray-300 rounded text-xs"
+                                        >
+                                          <option value="pcs">pcs</option>
+                                          <option value="L">L</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <input
+                                          type="number"
+                                          placeholder="Length"
+                                          value={nonStockCalculation[item.id]?.multiplierQuantity || '1'}
+                                          onChange={(e) => updateNonStockCalculation(item.id, 'multiplierQuantity', e.target.value)}
+                                          className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
+                                        />
+                                        <select
+                                          value={nonStockCalculation[item.id]?.multiplierUnit || 'ft'}
+                                          onChange={(e) => updateNonStockCalculation(item.id, 'multiplierUnit', e.target.value)}
+                                          className="w-full mt-1 px-1 py-1 border border-gray-300 rounded text-xs"
+                                        >
+                                          <option value="ft">ft</option>
+                                          <option value="L">L</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <input
+                                          type="number"
+                                          placeholder="Price"
+                                          value={nonStockCalculation[item.id]?.unitPrice || item.unit_price.toString()}
+                                          onChange={(e) => updateNonStockCalculation(item.id, 'unitPrice', e.target.value)}
+                                          className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
+                                        />
+                                        <div className="text-xs text-gray-500 mt-1">per unit</div>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 text-xs text-blue-700 font-medium">
+                                      Formula: {getNonStockDisplayText(item.id)} = Rs.{calculateNonStockTotal(item.id).toFixed(2)}
+                                    </div>
+                                  </div>
+                                )}
+                              {/* Quick add L/pcs buttons - only for regular product items */}
+                              {!item.is_misc_item && !item.is_non_stock_item && (
                                 <div className="flex items-center gap-1 mt-1">
                                   <button
                                     onClick={() => {
@@ -1520,59 +1902,105 @@ const InvoiceForm: React.FC = () => {
                               <div className="text-center text-gray-500 text-sm">
                                 1 item
                               </div>
-                            ) : (
-                              <div className="flex items-center space-x-1">
-                                <button
-                                  onClick={() => {
-                                    if (item.unit_type === 'kg-grams') {
-                                      // Decrease by 1kg (1000g), minimum 1kg
-                                      const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
-                                      const newQtyNum = Math.max(1000, currentQty - 1000);
-                                      const kg = Math.floor(newQtyNum / 1000);
-                                      const grams = newQtyNum % 1000;
-                                      const newQtyStr = `${kg}-${grams}`;
-                                      updateItemQuantity(item.id, newQtyStr);
-                                    } else {
-                                      const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
-                                      updateItemQuantity(item.id, Math.max(1, currentQty - 1).toString());
-                                    }
-                                  }}
-                                  className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
-                                >
-                                  <Minus className="h-3 w-3" />
-                                </button>
-                                <input
-                                  type="text"
-                                  value={item.quantity}
-                                  onChange={(e) => updateItemQuantity(item.id, e.target.value)}
-                                  placeholder={item.unit_type === 'kg-grams' ? 'e.g. 155-20' : 'e.g. 100'}
-                                  className={`w-16 h-6 text-center text-xs border focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock ? 'border-red-500 bg-red-50' : 'border-gray-300'
-                                    }`}
-                                />
-                                <button
-                                  onClick={() => {
-                                    if (item.unit_type === 'kg-grams') {
-                                      // Increase by 1kg (1000g)
-                                      const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
-                                      const newQtyNum = currentQty + 1000;
-                                      const kg = Math.floor(newQtyNum / 1000);
-                                      const grams = newQtyNum % 1000;
-                                      const newQtyStr = `${kg}-${grams}`;
-                                      updateItemQuantity(item.id, newQtyStr);
-                                    } else {
-                                      const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
-                                      updateItemQuantity(item.id, (currentQty + 1).toString());
-                                    }
-                                  }}
-                                  className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </button>
-                              </div>
-                            )}
-                            {!item.is_misc_item && getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock && (
-                              <div className="text-xs text-red-500 mt-1">Exceeds stock!</div>
-                            )}
+                            ) : (() => {
+                              // Check if this is a T-Iron product
+                              const isTIronProduct = item.product_name.toLowerCase().includes('t-iron') ||
+                                item.product_name.toLowerCase().includes('tiron') ||
+                                item.product_name.toLowerCase().includes('t iron');
+
+                              if (isTIronProduct && item.t_iron_pieces && item.t_iron_length_per_piece) {
+                                // T-Iron product with calculator data - show the calculation
+                                const unit = item.t_iron_unit || 'pcs';
+                                return (
+                                  <div className="text-center text-blue-600 text-sm">
+                                    <div className="font-medium">
+                                      {item.t_iron_pieces}{unit}
+                                    </div>
+                                    <div className="text-xs">
+                                      × {item.t_iron_length_per_piece}ft/{unit}
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                      = {item.t_iron_total_feet}ft
+                                    </div>
+                                  </div>
+                                );
+                              } else if (item.is_non_stock_item && !isTIronProduct) {
+                                // Other non-stock items use enhanced calculation
+                                return (
+                                  <div className="text-center text-blue-600 text-sm">
+                                    <div className="font-medium">
+                                      {(nonStockCalculation[item.id]?.baseQuantity || '1')}/{nonStockCalculation[item.id]?.baseUnit || 'pcs'}
+                                    </div>
+                                    <div className="text-xs">
+                                      × {(nonStockCalculation[item.id]?.multiplierQuantity || '1')}{nonStockCalculation[item.id]?.multiplierUnit || 'ft'}
+                                    </div>
+                                  </div>
+                                );
+                              } else {
+                                // Regular products with normal quantity editing
+                                return (
+                                  <div className="flex items-center space-x-1">
+                                    <button
+                                      onClick={() => {
+                                        if (item.unit_type === 'kg-grams') {
+                                          // Decrease by 1kg (1000g), minimum 1kg
+                                          const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
+                                          const newQtyNum = Math.max(1000, currentQty - 1000);
+                                          const kg = Math.floor(newQtyNum / 1000);
+                                          const grams = newQtyNum % 1000;
+                                          const newQtyStr = `${kg}-${grams}`;
+                                          updateItemQuantity(item.id, newQtyStr);
+                                        } else {
+                                          const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
+                                          updateItemQuantity(item.id, Math.max(1, currentQty - 1).toString());
+                                        }
+                                      }}
+                                      className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                    </button>
+                                    <input
+                                      type="text"
+                                      value={item.quantity}
+                                      onChange={(e) => updateItemQuantity(item.id, e.target.value)}
+                                      placeholder={item.unit_type === 'kg-grams' ? 'e.g. 155-20' : 'e.g. 100'}
+                                      className={`w-16 h-6 text-center text-xs border focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                                        }`}
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        if (item.unit_type === 'kg-grams') {
+                                          // Increase by 1kg (1000g)
+                                          const currentQty = getQuantityAsNumber(item.quantity, 'kg-grams');
+                                          const newQtyNum = currentQty + 1000;
+                                          const kg = Math.floor(newQtyNum / 1000);
+                                          const grams = newQtyNum % 1000;
+                                          const newQtyStr = `${kg}-${grams}`;
+                                          updateItemQuantity(item.id, newQtyStr);
+                                        } else {
+                                          const currentQty = getQuantityAsNumber(item.quantity, item.unit_type);
+                                          updateItemQuantity(item.id, (currentQty + 1).toString());
+                                        }
+                                      }}
+                                      className="w-6 h-6 flex items-center justify-center bg-gray-100 hover:bg-gray-200 rounded border border-gray-300"
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                );
+                              }
+                            })()}
+                            {(() => {
+                              // Check if this is a non-stock item (including T-Iron products)
+                              const isTIronProduct = item.product_name.toLowerCase().includes('t-iron') ||
+                                item.product_name.toLowerCase().includes('tiron') ||
+                                item.product_name.toLowerCase().includes('t iron');
+                              const isNonStock = item.is_non_stock_item || isTIronProduct;
+
+                              return !item.is_misc_item && !isNonStock && getQuantityAsNumber(item.quantity, item.unit_type) > item.available_stock && (
+                                <div className="text-xs text-red-500 mt-1">Exceeds stock!</div>
+                              );
+                            })()}
                           </td>
                           <td className="px-3 py-2">
                             <input
@@ -1585,16 +2013,64 @@ const InvoiceForm: React.FC = () => {
                             />
                           </td>
                           <td className="px-3 py-2 font-medium text-gray-900">
-                            Rs. {item.total_price.toFixed(2)}
+                            {(() => {
+                              // Check if this is a T-Iron product
+                              const isTIronProduct = item.product_name.toLowerCase().includes('t-iron') ||
+                                item.product_name.toLowerCase().includes('tiron') ||
+                                item.product_name.toLowerCase().includes('t iron');
+
+                              if (isTIronProduct && item.t_iron_pieces && item.t_iron_length_per_piece) {
+                                // T-Iron product with calculator data - use the stored total_price
+                                return (
+                                  <div>
+                                    <div>Rs. {item.total_price.toFixed(2)}</div>
+                                    <div className="text-xs text-gray-500">(T-Iron Calc)</div>
+                                  </div>
+                                );
+                              } else if (item.is_non_stock_item && !isTIronProduct) {
+                                // Other non-stock items use enhanced calculation
+                                return (
+                                  <div>
+                                    <div>Rs. {calculateNonStockTotal(item.id).toFixed(2)}</div>
+                                    <div className="text-xs text-gray-500">(Enhanced Calc)</div>
+                                  </div>
+                                );
+                              } else {
+                                // Regular items
+                                return <div>Rs. {item.total_price.toFixed(2)}</div>;
+                              }
+                            })()}
                           </td>
                           <td className="px-3 py-2">
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item.id)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center space-x-1">
+                              {/* T-Iron Calculator Button */}
+                              {!item.is_misc_item && item.unit_type === 'foot' &&
+                                item.product_name.toLowerCase().includes('t-iron') && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const product = products.find(p => p.id === item.product_id);
+                                      if (product) {
+                                        setSelectedTIronProduct(product);
+                                        setEditingTIronItemId(item.id); // Track which item we're editing
+                                        setShowTIronCalculator(true);
+                                      }
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800"
+                                    title="T-Iron Calculator"
+                                  >
+                                    <Calculator className="h-4 w-4" />
+                                  </button>
+                                )}
+                              {/* Delete Button */}
+                              <button
+                                type="button"
+                                onClick={() => removeItem(item.id)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1876,6 +2352,19 @@ const InvoiceForm: React.FC = () => {
           onSuccess={handleCustomerCreated}
         />
       </Modal>
+
+      {/* T-Iron Calculator Modal */}
+      {showTIronCalculator && selectedTIronProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <TIronCalculator
+              product={selectedTIronProduct}
+              onCalculationComplete={handleTIronCalculationComplete}
+              onCancel={handleTIronCalculatorCancel}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

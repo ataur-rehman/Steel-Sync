@@ -2077,6 +2077,26 @@ export class DatabaseService {
   }
 
   /**
+   * T-IRON DATA HANDLER: Prepares T-Iron specific fields for database insertion
+   * Handles T-Iron calculation data with graceful fallbacks
+   */
+  private prepareTIronData(item: any): {
+    is_non_stock_item: number,
+    t_iron_pieces: number | null,
+    t_iron_length_per_piece: number | null,
+    t_iron_total_feet: number | null,
+    t_iron_unit: string | null
+  } {
+    return {
+      is_non_stock_item: item.is_non_stock_item ? 1 : 0,
+      t_iron_pieces: (item.t_iron_pieces !== undefined && item.t_iron_pieces !== null && !isNaN(Number(item.t_iron_pieces))) ? Number(item.t_iron_pieces) : null,
+      t_iron_length_per_piece: (item.t_iron_length_per_piece !== undefined && item.t_iron_length_per_piece !== null && !isNaN(Number(item.t_iron_length_per_piece))) ? Number(item.t_iron_length_per_piece) : null,
+      t_iron_total_feet: (item.t_iron_total_feet !== undefined && item.t_iron_total_feet !== null && !isNaN(Number(item.t_iron_total_feet))) ? Number(item.t_iron_total_feet) : null,
+      t_iron_unit: (item.t_iron_unit && typeof item.t_iron_unit === 'string') ? item.t_iron_unit : null
+    };
+  }
+
+  /**
    * CENTRALIZED SOLUTION: Ensure invoice_items table has proper schema
    * Uses table recreation instead of ALTER TABLE migrations
    */
@@ -2098,17 +2118,32 @@ export class DatabaseService {
       const hasPieces = tableInfo.some((col: any) => col.name === 'pieces');
       const hasMiscItem = tableInfo.some((col: any) => col.name === 'is_misc_item');
       const hasMiscDescription = tableInfo.some((col: any) => col.name === 'misc_description');
+      // Check for T-Iron fields
+      const hasTIronPieces = tableInfo.some((col: any) => col.name === 't_iron_pieces');
+      const hasTIronLengthPerPiece = tableInfo.some((col: any) => col.name === 't_iron_length_per_piece');
+      const hasTIronTotalFeet = tableInfo.some((col: any) => col.name === 't_iron_total_feet');
+      const hasTIronUnit = tableInfo.some((col: any) => col.name === 't_iron_unit');
+      const hasNonStockItem = tableInfo.some((col: any) => col.name === 'is_non_stock_item');
 
       console.log('🔍 [DEBUG] Schema check results:', {
         hasLength,
         hasPieces,
         hasMiscItem,
         hasMiscDescription,
+        hasTIronPieces,
+        hasTIronLengthPerPiece,
+        hasTIronTotalFeet,
+        hasTIronUnit,
+        hasNonStockItem,
         columnCount: tableInfo.length
       });
 
-      if (!hasLength || !hasPieces || !hasMiscItem || !hasMiscDescription || tableInfo.length === 0) {
-        console.log('🔄 [CENTRALIZED] Recreating invoice_items table with L/pcs and misc items support...');
+      const needsRecreation = !hasLength || !hasPieces || !hasMiscItem || !hasMiscDescription ||
+        !hasTIronPieces || !hasTIronLengthPerPiece || !hasTIronTotalFeet ||
+        !hasTIronUnit || !hasNonStockItem || tableInfo.length === 0;
+
+      if (needsRecreation) {
+        console.log('🔄 [CENTRALIZED] Recreating invoice_items table with L/pcs, misc items, and T-Iron support...');
 
         // Backup existing data if table exists
         let existingData: any[] = [];
@@ -3573,17 +3608,22 @@ export class DatabaseService {
       productName = product.name;
       console.log(`✅ Product found: ${product.name} (ID: ${product.id})`);
 
-      // Check stock for product items
-      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-      const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
+      // IMPORTANT: Skip stock checking for non-stock products (track_inventory = 0)
+      if (product.track_inventory === 0 || product.track_inventory === false) {
+        console.log(`📋 Non-stock product detected: ${product.name} - skipping stock validation`);
+      } else {
+        // Check stock for product items only if track_inventory is enabled
+        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+        const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
 
-      const availableStock = currentStockData.numericValue;
-      const soldQuantity = itemQuantityData.numericValue;
-      const newStock = availableStock - soldQuantity;
+        const availableStock = currentStockData.numericValue;
+        const soldQuantity = itemQuantityData.numericValue;
+        const newStock = availableStock - soldQuantity;
 
-      if (newStock < 0) {
-        console.error(`❌ Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
-        throw new Error(`Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+        if (newStock < 0) {
+          console.error(`❌ Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+          throw new Error(`Insufficient stock for ${product.name}. Available: ${availableStock}, Required: ${soldQuantity}`);
+        }
       }
     }
 
@@ -3594,16 +3634,20 @@ export class DatabaseService {
       // EMERGENCY FIX: Ensure L/pcs columns exist before insertion
       await this.ensureInvoiceItemsSchemaCompliance();
 
-      // Try comprehensive insert with length, pieces, and misc item support
+      // Try comprehensive insert with length, pieces, T-Iron fields, and misc item support
       try {
         const lpcsData = this.prepareLPcsData(item);
+        const tIronData = this.prepareTIronData(item);
         console.log(`🔍 [DEBUG] L/pcs data for insertion:`, lpcsData);
+        console.log(`🔍 [DEBUG] T-Iron data for insertion:`, tIronData);
+
         await this.dbConnection.execute(
           `INSERT INTO invoice_items (
           invoice_id, product_id, product_name, quantity, unit, unit_price, rate, 
           total_price, amount, length, pieces, is_misc_item, misc_description,
+          is_non_stock_item, t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet, t_iron_unit,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
             invoiceId,
             isMiscItem ? null : item.product_id,
@@ -3617,17 +3661,25 @@ export class DatabaseService {
             lpcsData.length, // length (centralized handling)
             lpcsData.pieces, // pieces (centralized handling)
             isMiscItem ? 1 : 0, // is_misc_item
-            isMiscItem ? (item.misc_description || item.product_name) : null // misc_description
+            isMiscItem ? (item.misc_description || item.product_name) : null, // misc_description
+            tIronData.is_non_stock_item, // is_non_stock_item
+            tIronData.t_iron_pieces, // t_iron_pieces
+            tIronData.t_iron_length_per_piece, // t_iron_length_per_piece
+            tIronData.t_iron_total_feet, // t_iron_total_feet
+            tIronData.t_iron_unit // t_iron_unit
           ]
         );
-        console.log(`✅ [CENTRALIZED] Invoice item inserted with L/pcs and misc support:`, {
+        console.log(`✅ [CENTRALIZED] Invoice item inserted with L/pcs, T-Iron, and misc support:`, {
           length: lpcsData.length,
           pieces: lpcsData.pieces,
+          tIronPieces: tIronData.t_iron_pieces,
+          tIronLengthPerPiece: tIronData.t_iron_length_per_piece,
+          tIronUnit: tIronData.t_iron_unit,
           isMiscItem,
           productName
         });
       } catch (columnError: any) {
-        console.warn(`⚠️ Length/pieces/misc columns not available, using fallback insert:`, columnError.message);
+        console.warn(`⚠️ T-Iron/Length/pieces/misc columns not available, using fallback insert:`, columnError.message);
 
         // Fallback to basic insert without length/pieces/misc
         await this.dbConnection.execute(
@@ -3676,8 +3728,8 @@ export class DatabaseService {
       throw new Error(`Failed to insert invoice item: ${errorMessage}`);
     }
 
-    // Update product stock (only for product items, not miscellaneous items)
-    if (!isMiscItem && product) {
+    // Update product stock (only for product items that track inventory)
+    if (!isMiscItem && product && (product.track_inventory === 1 || product.track_inventory === true)) {
       const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
       const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
       const newStock = currentStockData.numericValue - itemQuantityData.numericValue;
@@ -3762,6 +3814,8 @@ export class DatabaseService {
           'system' // created_by
         ]
       );
+    } else if (!isMiscItem && product && (product.track_inventory === 0 || product.track_inventory === false)) {
+      console.log(`📋 Non-stock product ${product.name} - skipping stock update and movement creation`);
     }
   }
 
@@ -4433,7 +4487,7 @@ export class DatabaseService {
       throw new Error(`Product "${product.name}" has no unit_type set. Please update the product first.`);
     }
 
-    const validUnitTypes = ['kg-grams', 'kg', 'piece', 'bag'];
+    const validUnitTypes = ['kg-grams', 'kg', 'piece', 'bag', 'meter', 'ton', 'foot'];
     if (!validUnitTypes.includes(product.unit_type)) {
       throw new Error(`Product "${product.name}" has invalid unit_type: ${product.unit_type}`);
     }
@@ -10535,7 +10589,7 @@ export class DatabaseService {
     if (typeof product.rate_per_unit !== 'number' || product.rate_per_unit <= 0) {
       throw new Error('Rate per unit must be a positive number');
     }
-    if (product.unit_type && !['kg-grams', 'kg', 'piece', 'bag', 'meter', 'ton'].includes(product.unit_type)) {
+    if (product.unit_type && !['kg-grams', 'kg', 'piece', 'bag', 'meter', 'ton', 'foot'].includes(product.unit_type)) {
       throw new Error('Invalid unit type');
     }
     if (product.status && !['active', 'inactive', 'discontinued'].includes(product.status)) {

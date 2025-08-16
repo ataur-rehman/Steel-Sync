@@ -175,6 +175,12 @@ export const DATABASE_SCHEMAS = {
       pieces REAL DEFAULT NULL,
       is_misc_item BOOLEAN DEFAULT 0,
       misc_description TEXT DEFAULT NULL,
+      -- T-Iron calculation fields
+      is_non_stock_item BOOLEAN DEFAULT 0,
+      t_iron_pieces INTEGER DEFAULT NULL,
+      t_iron_length_per_piece REAL DEFAULT NULL,
+      t_iron_total_feet REAL DEFAULT NULL,
+      t_iron_unit TEXT DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,

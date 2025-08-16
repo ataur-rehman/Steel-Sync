@@ -109,7 +109,7 @@ const StockReport: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const activityLogger = useActivityLogger();
-  
+
   // State management
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
@@ -119,7 +119,7 @@ const StockReport: React.FC = () => {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [movementsLoading, setMovementsLoading] = useState(false);
-  
+
   // UI State
   const [currentView, setCurrentView] = useState<'overview' | 'movements' | 'details'>('overview');
   const [selectedProduct, setSelectedProduct] = useState<StockItem | null>(null);
@@ -151,7 +151,7 @@ const StockReport: React.FC = () => {
 
   useEffect(() => {
     loadStockData();
-    
+
     // FIXED: Proper event bus integration with correct event names
     const handleStockUpdate = (data: any) => {
       console.log('📦 Stock report refreshing due to stock update:', data);
@@ -170,7 +170,7 @@ const StockReport: React.FC = () => {
       console.log('📦 Stock report refreshing due to stock adjustment:', data);
       loadStockData(); // Silent refresh
     };
-    
+
     const handleUIRefreshRequested = (data: any) => {
       console.log('📦 Stock report refreshing due to UI refresh request:', data);
       // CRITICAL FIX: Multiple refresh attempts to ensure data is updated
@@ -178,51 +178,51 @@ const StockReport: React.FC = () => {
       setTimeout(() => loadStockData(), 1000);
       setTimeout(() => loadStockData(), 2000);
     };
-    
+
     const handleProductsUpdated = (data: any) => {
       console.log('📦 Stock report refreshing due to products updated:', data);
       loadStockData(); // Silent refresh
     };
-    
+
     const handleForceProductReload = (data: any) => {
       console.log('📦 Stock report refreshing due to force product reload:', data);
       loadStockData(); // Silent refresh
     };
-    
+
     // Register event listeners with correct event names
     eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleStockUpdate);
     eventBus.on(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
     eventBus.on(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
     eventBus.on(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
-    
+
     // Listen for additional events emitted by stock receiving
     eventBus.on('UI_REFRESH_REQUESTED', handleUIRefreshRequested);
     eventBus.on('PRODUCTS_UPDATED', handleProductsUpdated);
     eventBus.on('FORCE_PRODUCT_RELOAD', handleForceProductReload);
     eventBus.on('PRODUCTS_CACHE_INVALIDATED', handleProductsUpdated);
     eventBus.on('COMPREHENSIVE_DATA_REFRESH', handleForceProductReload);
-    
+
     // Set up auto-refresh every 30 seconds as backup
     const intervalId = setInterval(() => {
       if (document.visibilityState === 'visible') {
         loadStockData(); // silent refresh
       }
     }, 30000);
-    
+
     return () => {
       // Clean up event listeners
       eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleStockUpdate);
       eventBus.off(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
       eventBus.off(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
       eventBus.off(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
-      
+
       // Clean up additional event listeners
       eventBus.off('UI_REFRESH_REQUESTED', handleUIRefreshRequested);
       eventBus.off('PRODUCTS_UPDATED', handleProductsUpdated);
       eventBus.off('FORCE_PRODUCT_RELOAD', handleForceProductReload);
       eventBus.off('PRODUCTS_CACHE_INVALIDATED', handleProductsUpdated);
       eventBus.off('COMPREHENSIVE_DATA_REFRESH', handleForceProductReload);
-      
+
       // Clean up interval
       clearInterval(intervalId);
     };
@@ -249,10 +249,10 @@ const StockReport: React.FC = () => {
   const refreshStockData = async () => {
     try {
       setRefreshing(true);
-      
+
       // CRITICAL FIX: Force cache bypass and multiple refresh attempts
       console.log('🔄 Manual refresh: Forcing comprehensive data reload...');
-      
+
       // Try clearing any potential browser/local storage caches
       try {
         localStorage.removeItem('product_cache');
@@ -260,26 +260,26 @@ const StockReport: React.FC = () => {
       } catch (e) {
         console.log('Storage cache clearing skipped');
       }
-      
+
       // Multiple refresh attempts with small delays
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           console.log(`🔄 Refresh attempt ${attempt}/3...`);
-          
+
           // Get fresh product data from database (bypass cache)
           const products = await db.getAllProducts();
           console.log(`✅ Retrieved ${products.length} products in attempt ${attempt}`);
-          
+
           // Process with latest movement data
           const stockData = await processStockData(products);
           console.log(`✅ Processed ${stockData.length} stock items in attempt ${attempt}`);
-          
+
           // Update summary with fresh calculations
           const summary = await calculateStockSummary(stockData);
-          
+
           setStockItems(stockData);
           setStockSummary(summary);
-          
+
           // Update selectedProduct if it exists
           if (selectedProduct) {
             const updatedSelectedProduct = stockData.find(item => item.id === selectedProduct.id);
@@ -289,22 +289,22 @@ const StockReport: React.FC = () => {
               setSelectedProduct(updatedSelectedProduct);
             }
           }
-          
+
           break; // Success, exit loop
-          
+
         } catch (error) {
           console.error(`❌ Refresh attempt ${attempt} failed:`, error);
           if (attempt === 3) throw error; // Re-throw on final attempt
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
         }
       }
-      
+
       // Also refresh recent movements
       await loadStockMovements();
-      
+
       console.log('✅ Manual stock data refresh completed successfully');
       toast.success('Stock data refreshed successfully!');
-      
+
     } catch (error) {
       console.error('Failed to refresh stock data:', error);
       toast.error('Failed to refresh stock data');
@@ -336,7 +336,7 @@ const StockReport: React.FC = () => {
     try {
       setLoading(true);
       console.log('🔄 Starting to load stock data...');
-      
+
       await db.initialize();
       console.log('✅ Database initialized successfully');
 
@@ -344,27 +344,27 @@ const StockReport: React.FC = () => {
       console.log('📦 Getting all products...');
       const products = await db.getAllProducts();
       console.log(`✅ Retrieved ${products.length} products:`, products);
-      
+
       // Get categories
       console.log('📁 Getting categories...');
       const categoryData = await db.getCategories();
       const categoryList = categoryData.map((cat: { category: string }) => cat.category);
       console.log(`✅ Retrieved ${categoryList.length} categories:`, categoryList);
-      
+
       // Process stock data with movement calculations
       console.log('⚙️ Processing stock data...');
       const stockData = await processStockData(products);
       console.log(`✅ Processed ${stockData.length} stock items`);
-      
+
       // Calculate summary with real movement data
       console.log('📊 Calculating stock summary...');
       const summary = await calculateStockSummary(stockData);
       console.log('✅ Summary calculated:', summary);
-      
+
       setStockItems(stockData);
       setCategories(categoryList);
       setStockSummary(summary);
-      
+
       // CRITICAL FIX: Update selectedProduct if it exists and stock has changed
       if (selectedProduct) {
         const updatedSelectedProduct = stockData.find(item => item.id === selectedProduct.id);
@@ -376,12 +376,12 @@ const StockReport: React.FC = () => {
           console.log(`⚠️ Selected product ${selectedProduct.id} not found in updated stock data`);
         }
       }
-      
+
       // Load recent stock movements
       console.log('📈 Loading stock movements...');
       await loadStockMovements();
       console.log('✅ Stock data loading completed successfully');
-      
+
     } catch (error) {
       console.error('❌ Failed to load stock data:', error);
       console.error('Error details:', {
@@ -397,30 +397,30 @@ const StockReport: React.FC = () => {
   const loadStockMovements = async (productId?: number) => {
     try {
       setMovementsLoading(true);
-      
+
       const movementFilters: any = {
         limit: 100,
         offset: 0
       };
-      
+
       if (productId) {
         movementFilters.product_id = productId;
       }
-      
+
       if (filters.from_date) {
         movementFilters.from_date = filters.from_date;
       }
-      
+
       if (filters.to_date) {
         movementFilters.to_date = filters.to_date;
       }
-      
+
       if (filters.movement_type) {
         movementFilters.movement_type = filters.movement_type;
       }
 
       const movements = await db.getStockMovements(movementFilters);
-      
+
       // CRITICAL FIX: Convert numeric quantities to proper unit format for display
       const convertedMovements = await Promise.all(movements.map(async (movement) => {
         // Get the product to determine its unit type
@@ -433,7 +433,7 @@ const StockReport: React.FC = () => {
         } catch (error) {
           console.warn(`Could not get unit type for product ${movement.product_id}, using default kg-grams`);
         }
-        
+
         // CRITICAL FIX: Handle new formatted quantity strings with signs
         const convertQuantity = (rawQuantity: number | string): string => {
           // Check if it's already a formatted string with sign (new format)
@@ -441,10 +441,10 @@ const StockReport: React.FC = () => {
             // Already formatted, return as is
             return rawQuantity;
           }
-          
+
           // Legacy numeric conversion for backward compatibility
           const numericValue = typeof rawQuantity === 'string' ? parseFloat(rawQuantity) : rawQuantity;
-          
+
           if (productUnitType === 'kg-grams') {
             // Convert from grams back to kg-grams format
             const kg = Math.floor(Math.abs(numericValue) / 1000);
@@ -466,7 +466,7 @@ const StockReport: React.FC = () => {
             return numericValue.toString();
           }
         };
-        
+
         return {
           ...movement,
           quantity: convertQuantity(movement.quantity),
@@ -475,9 +475,9 @@ const StockReport: React.FC = () => {
           unit_type: productUnitType as UnitType
         };
       }));
-      
+
       setStockMovements(convertedMovements);
-      
+
     } catch (error) {
       console.error('Failed to load stock movements:', error);
       toast.error('Failed to load stock movements');
@@ -491,7 +491,7 @@ const StockReport: React.FC = () => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
-    
+
     try {
       const recentMovements = await db.getStockMovements({
         from_date: thirtyDaysAgoStr,
@@ -505,13 +505,13 @@ const StockReport: React.FC = () => {
           // Use the current stock value as stored in database
           const currentStockData = parseUnit(product.current_stock);
           const minAlertData = parseUnit(product.min_stock_alert);
-          
+
           // Calculate stock value using total grams for accuracy
           // Always round to two decimals for all currency calculations
           const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
-          
+
           let status: 'in_stock' | 'low_stock' | 'out_of_stock';
-          
+
           if (currentStockData.numericValue === 0) {
             status = 'out_of_stock';
           } else if (currentStockData.numericValue <= minAlertData.numericValue) {
@@ -536,7 +536,7 @@ const StockReport: React.FC = () => {
             avgMonthlyUsage * 1.5, // 1.5 months of average usage
             10000 // Minimum reorder quantity (10kg in grams)
           );
-          
+
           // Convert reorder suggestion back to unit format
           const reorderKg = Math.floor(reorderSuggestionGrams / 1000);
           const reorderGrams = reorderSuggestionGrams % 1000;
@@ -562,12 +562,38 @@ const StockReport: React.FC = () => {
           };
         } catch (error) {
           console.error(`❌ Failed to process stock for ${product.name}:`, error);
-          
-          // Fallback to basic calculation
+
+          // Check if this is a non-stock product
+          const isNonStock = product.track_inventory === 0 || product.track_inventory === false;
+
+          if (isNonStock) {
+            // For non-stock products, show as service item
+            return {
+              id: product.id,
+              name: product.name,
+              category: product.category,
+              unit: product.unit,
+              unit_type: product.unit_type || 'foot',
+              rate_per_unit: product.rate_per_unit,
+              current_stock: 'N/A (Service)',
+              min_stock_alert: 'N/A',
+              stock_value: 0,
+              status: 'in_stock' as const, // Always available for service products
+              last_updated: product.updated_at || new Date().toISOString(),
+              movement_30_days: 0,
+              avg_monthly_usage: 0,
+              reorder_suggestion: 'N/A',
+              size: product.size,
+              grade: product.grade,
+              is_non_stock: true
+            };
+          }
+
+          // Fallback to basic calculation for stock products
           const currentStockData = parseUnit(product.current_stock);
           const minAlertData = parseUnit(product.min_stock_alert);
           const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
-          
+
           let status: 'in_stock' | 'low_stock' | 'out_of_stock';
           if (currentStockData.numericValue === 0) {
             status = 'out_of_stock';
@@ -593,13 +619,14 @@ const StockReport: React.FC = () => {
             avg_monthly_usage: 0,
             reorder_suggestion: '10-0',
             size: product.size,
-            grade: product.grade
+            grade: product.grade,
+            is_non_stock: false
           };
         }
       });
-      
+
       return processedProducts;
-      
+
     } catch (error) {
       console.error('Error calculating movement data:', error);
       // Fallback to basic calculation without movement data
@@ -607,12 +634,12 @@ const StockReport: React.FC = () => {
         // Parse current stock and min alert levels
         const currentStockData = parseUnit(product.current_stock);
         const minAlertData = parseUnit(product.min_stock_alert);
-        
+
         // Calculate stock value using total grams for accuracy
-  const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
-        
+        const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
+
         let status: 'in_stock' | 'low_stock' | 'out_of_stock';
-        
+
         if (currentStockData.numericValue === 0) {
           status = 'out_of_stock';
         } else if (currentStockData.numericValue <= minAlertData.numericValue) {
@@ -650,7 +677,7 @@ const StockReport: React.FC = () => {
   };
 
   const calculateStockSummary = async (items: StockItem[]): Promise<StockSummary> => {
-  const totalStockValue = Number(items.reduce((sum, item) => sum + item.stock_value, 0).toFixed(2));
+    const totalStockValue = Number(items.reduce((sum, item) => sum + item.stock_value, 0).toFixed(2));
     const inStockCount = items.filter(item => item.status === 'in_stock').length;
     const lowStockCount = items.filter(item => item.status === 'low_stock').length;
     const outOfStockCount = items.filter(item => item.status === 'out_of_stock').length;
@@ -665,14 +692,14 @@ const StockReport: React.FC = () => {
     try {
       // Get actual movement data from database
       const [todayMovements, weekMovements] = await Promise.all([
-        db.getStockMovements({ 
-          from_date: today, 
+        db.getStockMovements({
+          from_date: today,
           to_date: today,
-          limit: 1000 
+          limit: 1000
         }),
-        db.getStockMovements({ 
+        db.getStockMovements({
           from_date: weekAgoStr,
-          limit: 1000 
+          limit: 1000
         })
       ]);
 
@@ -735,7 +762,7 @@ const StockReport: React.FC = () => {
     // Sort stock items
     filteredStockItems.sort((a, b) => {
       let aValue: any, bValue: any;
-      
+
       switch (filters.sort_by) {
         case 'name':
           aValue = a.name.toLowerCase();
@@ -783,19 +810,19 @@ const StockReport: React.FC = () => {
     }
 
     if (filters.movement_type) {
-      filteredStockMovements = filteredStockMovements.filter(movement => 
+      filteredStockMovements = filteredStockMovements.filter(movement =>
         movement.movement_type === filters.movement_type
       );
     }
 
     if (filters.from_date) {
-      filteredStockMovements = filteredStockMovements.filter(movement => 
+      filteredStockMovements = filteredStockMovements.filter(movement =>
         movement.date >= filters.from_date
       );
     }
 
     if (filters.to_date) {
-      filteredStockMovements = filteredStockMovements.filter(movement => 
+      filteredStockMovements = filteredStockMovements.filter(movement =>
         movement.date <= filters.to_date
       );
     }
@@ -833,8 +860,8 @@ const StockReport: React.FC = () => {
       }
 
       // Convert to numeric value for the database (in total grams)
-      const adjustmentQuantityGrams = adjustment.adjustment_type === 'increase' 
-        ? quantityData.numericValue 
+      const adjustmentQuantityGrams = adjustment.adjustment_type === 'increase'
+        ? quantityData.numericValue
         : -quantityData.numericValue;
 
       // Enhanced stock adjustment with customer context if available
@@ -852,7 +879,7 @@ const StockReport: React.FC = () => {
         `Stock ${adjustmentType} successfully! ${selectedProduct.name}: ${adjustment.adjustment_type === 'increase' ? '+' : '-'}${quantityData.display}`,
         { duration: 5000 }
       );
-      
+
       // Reset form and reload data
       setShowAdjustment(false);
       setSelectedProduct(null);
@@ -863,10 +890,10 @@ const StockReport: React.FC = () => {
         reason: '',
         notes: ''
       });
-      
+
       // Refresh all stock data to show updated values
       await loadStockData();
-      
+
     } catch (error) {
       console.error('Error adjusting stock:', error);
       toast.error(`Failed to adjust stock: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -917,10 +944,10 @@ const StockReport: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     // Log activity
     await activityLogger.logReportExported('Stock Report', 'CSV');
-    
+
     toast.success('Stock report exported successfully');
   };
 
@@ -955,10 +982,10 @@ const StockReport: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     // Log activity
     await activityLogger.logReportExported('Stock Movements Report', 'CSV');
-    
+
     toast.success('Movements report exported successfully');
   };
 
@@ -989,9 +1016,9 @@ const StockReport: React.FC = () => {
   };
 
   const formatCurrency = (amount: number | undefined | null): string => {
-  const safeAmount = amount ?? 0;
-  // Always round to two decimals for all currency
-  return `Rs. ${Number(safeAmount).toFixed(2)}`;
+    const safeAmount = amount ?? 0;
+    // Always round to two decimals for all currency
+    return `Rs. ${Number(safeAmount).toFixed(2)}`;
   };
 
   const formatDate = (dateString: string): string => {
@@ -1034,32 +1061,30 @@ const StockReport: React.FC = () => {
             Complete inventory tracking with movement history
           </p>
         </div>
-        
+
         <div className="flex items-center space-x-3">
           {/* View Toggle */}
           <div className="flex bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setCurrentView('overview')}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                currentView === 'overview' 
-                  ? 'bg-white text-gray-900 shadow-sm' 
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${currentView === 'overview'
+                  ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               Overview
             </button>
             <button
               onClick={() => setCurrentView('movements')}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                currentView === 'movements' 
-                  ? 'bg-white text-gray-900 shadow-sm' 
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${currentView === 'movements'
+                  ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-600 hover:text-gray-900'
-              }`}
+                }`}
             >
               Movements
             </button>
           </div>
-          
+
           <button
             onClick={() => setShowFilters(!showFilters)}
             className="flex items-center px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
@@ -1067,7 +1092,7 @@ const StockReport: React.FC = () => {
             <Filter className="h-4 w-4 mr-2" />
             Filters
           </button>
-          
+
           <button
             onClick={currentView === 'overview' ? exportStockReport : exportMovementsReport}
             className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -1075,7 +1100,7 @@ const StockReport: React.FC = () => {
             <Download className="h-4 w-4 mr-2" />
             Export
           </button>
-          
+
           <button
             onClick={refreshStockData}
             disabled={refreshing}
@@ -1104,7 +1129,7 @@ const StockReport: React.FC = () => {
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
               </div>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
               <select
@@ -1118,7 +1143,7 @@ const StockReport: React.FC = () => {
                 ))}
               </select>
             </div>
-            
+
             {currentView === 'overview' ? (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Stock Status</label>
@@ -1148,7 +1173,7 @@ const StockReport: React.FC = () => {
                 </select>
               </div>
             )}
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
               <div className="grid grid-cols-2 gap-2">
@@ -1167,7 +1192,7 @@ const StockReport: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="mt-4 flex justify-end">
             <button
               onClick={clearFilters}
@@ -1191,7 +1216,7 @@ const StockReport: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center">
               <BarChart3 className="h-6 w-6 text-purple-600" />
@@ -1201,7 +1226,7 @@ const StockReport: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center">
               <CheckCircle className="h-6 w-6 text-green-600" />
@@ -1211,7 +1236,7 @@ const StockReport: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center">
               <AlertTriangle className="h-6 w-6 text-yellow-600" />
@@ -1221,7 +1246,7 @@ const StockReport: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center">
               <XCircle className="h-6 w-6 text-red-600" />
@@ -1231,7 +1256,7 @@ const StockReport: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-white p-4 rounded-lg shadow">
             <div className="flex items-center">
               <Activity className="h-6 w-6 text-indigo-600" />
@@ -1251,7 +1276,7 @@ const StockReport: React.FC = () => {
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">Current Stock Levels ({filteredItems.length} items)</h3>
           </div>
-          
+
           {loading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -1288,7 +1313,7 @@ const StockReport: React.FC = () => {
                   {filteredItems.map((item) => {
                     const statusInfo = getStatusInfo(item.status);
                     const StatusIcon = statusInfo.icon;
-                    
+
                     return (
                       <tr key={item.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4">
@@ -1299,34 +1324,34 @@ const StockReport: React.FC = () => {
                             </div>
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {item.category}
                           </span>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-semibold text-gray-900">
                             {formatUnitString(item.current_stock, item.unit_type)}
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {formatCurrency(item.rate_per_unit)}
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                           {formatCurrency(item.stock_value)}
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
                             <StatusIcon className="h-3 w-3 mr-1" />
                             {statusInfo.label}
                           </span>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           <div className="flex items-center space-x-2">
                             <button
@@ -1370,7 +1395,7 @@ const StockReport: React.FC = () => {
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold text-gray-900">Stock Movement History ({filteredMovements.length} movements)</h3>
           </div>
-          
+
           {movementsLoading ? (
             <div className="flex items-center justify-center h-32">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -1407,7 +1432,7 @@ const StockReport: React.FC = () => {
                   {filteredMovements.map((movement) => {
                     const movementInfo = getMovementTypeInfo(movement.movement_type);
                     const MovementIcon = movementInfo.icon;
-                    
+
                     return (
                       <tr key={movement.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -1418,7 +1443,7 @@ const StockReport: React.FC = () => {
                             {movement.time}
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4">
                           <div className="text-sm font-medium text-gray-900">
                             {movement.product_name}
@@ -1427,24 +1452,23 @@ const StockReport: React.FC = () => {
                             {movement.reason}
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${movementInfo.color}`}>
                             <MovementIcon className="h-3 w-3 mr-1" />
                             {movementInfo.label}
                           </span>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className={`text-sm font-semibold ${
-                            movement.movement_type === 'in' ? 'text-green-600' : 
-                            movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
-                          }`}>
+                          <div className={`text-sm font-semibold ${movement.movement_type === 'in' ? 'text-green-600' :
+                              movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
+                            }`}>
                             {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
                             {formatUnitString(movement.quantity, movement.unit_type || 'kg-grams')}
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">
                             {formatUnitString(movement.previous_stock, movement.unit_type || 'kg-grams')} → {formatUnitString(movement.new_stock, movement.unit_type || 'kg-grams')}
@@ -1453,7 +1477,7 @@ const StockReport: React.FC = () => {
                             Value: {formatCurrency(movement.total_value)}
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4">
                           <div className="space-y-1">
                             {movement.customer_name && (
@@ -1475,7 +1499,7 @@ const StockReport: React.FC = () => {
                             )}
                           </div>
                         </td>
-                        
+
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           <div className="flex items-center space-x-2">
                             {movement.customer_id && (
@@ -1497,8 +1521,8 @@ const StockReport: React.FC = () => {
                               </button>
                             )}
                             <button
-                              onClick={() => viewProductDetails({ 
-                                id: movement.product_id, 
+                              onClick={() => viewProductDetails({
+                                id: movement.product_id,
                                 name: movement.product_name,
                                 category: '',
                                 unit: '',
@@ -1554,7 +1578,7 @@ const StockReport: React.FC = () => {
                 ×
               </button>
             </div>
-            
+
             {/* Product Info */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
               <div className="bg-blue-50 p-4 rounded-lg">
@@ -1566,7 +1590,7 @@ const StockReport: React.FC = () => {
                   Value: {formatCurrency(selectedProduct.stock_value)}
                 </p>
               </div>
-              
+
               <div className="bg-yellow-50 p-4 rounded-lg">
                 <h4 className="font-medium text-yellow-900 mb-2">Alert Level</h4>
                 <p className="text-2xl font-bold text-yellow-600">
@@ -1576,7 +1600,7 @@ const StockReport: React.FC = () => {
                   Rate per Unit: {formatCurrency(selectedProduct.rate_per_unit)}
                 </p>
               </div>
-              
+
               <div className="bg-green-50 p-4 rounded-lg">
                 <h4 className="font-medium text-green-900 mb-2">Status</h4>
                 <div className="flex items-center">
@@ -1592,7 +1616,7 @@ const StockReport: React.FC = () => {
                 </p>
               </div>
             </div>
-            
+
             {/* Movement History for this Product */}
             <div>
               <h4 className="text-lg font-semibold text-gray-900 mb-4">Recent Movement History</h4>
@@ -1612,42 +1636,41 @@ const StockReport: React.FC = () => {
                       .filter(m => m.product_id === selectedProduct.id)
                       .slice(0, 10)
                       .map((movement) => (
-                      <tr key={movement.id}>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {formatDateTime(movement.date, movement.time)}
-                        </td>
-                        <td className="px-4 py-2">
-                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            getMovementTypeInfo(movement.movement_type).color
-                          }`}>
-                            {getMovementTypeInfo(movement.movement_type).label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-sm font-medium">
-                          {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
-                          {formatUnitString(movement.quantity, movement.unit_type || 'kg-grams')}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-900">
-                          {formatUnitString(movement.previous_stock, movement.unit_type || 'kg-grams')} → {formatUnitString(movement.new_stock, movement.unit_type || 'kg-grams')}
-                        </td>
-                        <td className="px-4 py-2 text-sm text-gray-500">
-                          {movement.customer_name && (
-                            <div className="flex items-center">
-                              <User className="h-3 w-3 mr-1" />
-                              {movement.customer_name}
-                            </div>
-                          )}
-                          {movement.reference_number && (
-                            <div className="text-xs">{movement.reference_number}</div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                        <tr key={movement.id}>
+                          <td className="px-4 py-2 text-sm text-gray-900">
+                            {formatDateTime(movement.date, movement.time)}
+                          </td>
+                          <td className="px-4 py-2">
+                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getMovementTypeInfo(movement.movement_type).color
+                              }`}>
+                              {getMovementTypeInfo(movement.movement_type).label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-sm font-medium">
+                            {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
+                            {formatUnitString(movement.quantity, movement.unit_type || 'kg-grams')}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900">
+                            {formatUnitString(movement.previous_stock, movement.unit_type || 'kg-grams')} → {formatUnitString(movement.new_stock, movement.unit_type || 'kg-grams')}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-500">
+                            {movement.customer_name && (
+                              <div className="flex items-center">
+                                <User className="h-3 w-3 mr-1" />
+                                {movement.customer_name}
+                              </div>
+                            )}
+                            {movement.reference_number && (
+                              <div className="text-xs">{movement.reference_number}</div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
             </div>
-            
+
             <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowProductDetails(false)}
@@ -1682,7 +1705,7 @@ const StockReport: React.FC = () => {
                 ×
               </button>
             </div>
-            
+
             <div className="mb-4 p-3 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800">
                 <strong>Product:</strong> {selectedProduct.name}
@@ -1691,7 +1714,7 @@ const StockReport: React.FC = () => {
                 <strong>Current Stock:</strong> {formatUnitString(selectedProduct.current_stock, selectedProduct.unit_type)}
               </p>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Adjustment Type</label>
@@ -1722,7 +1745,7 @@ const StockReport: React.FC = () => {
                   </label>
                 </div>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantity (Format: kg or kg-grams)</label>
                 <input
@@ -1738,7 +1761,7 @@ const StockReport: React.FC = () => {
                   </p>
                 )}
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
                 <select
@@ -1752,7 +1775,7 @@ const StockReport: React.FC = () => {
                   ))}
                 </select>
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
                 <textarea
@@ -1764,7 +1787,7 @@ const StockReport: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowAdjustment(false)}

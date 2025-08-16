@@ -58,6 +58,9 @@ export const CENTRALIZED_DATABASE_TABLES = {
       current_stock TEXT NOT NULL DEFAULT '0',
       stock_quantity REAL NOT NULL DEFAULT 0,
       min_stock_alert TEXT DEFAULT '0',
+      -- Non-stock product fields for T-Iron and similar products
+      length_per_piece REAL DEFAULT 0, -- For T-Iron: feet per piece
+      pieces_count INTEGER DEFAULT 0,  -- For T-Iron: number of pieces
       max_stock_level REAL DEFAULT 0,
       reorder_point REAL DEFAULT 0,
       cost_price REAL DEFAULT 0,
@@ -169,6 +172,13 @@ export const CENTRALIZED_DATABASE_TABLES = {
       notes TEXT,
       is_misc_item BOOLEAN DEFAULT 0,
       misc_description TEXT DEFAULT NULL,
+      -- T-Iron specific fields for non-stock calculation
+      is_non_stock_item BOOLEAN DEFAULT 0,
+      t_iron_pieces INTEGER DEFAULT NULL,
+      t_iron_length_per_piece REAL DEFAULT NULL,
+      t_iron_total_feet REAL DEFAULT NULL,
+      t_iron_unit TEXT DEFAULT NULL,
+      t_iron_rate_per_foot REAL DEFAULT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE,

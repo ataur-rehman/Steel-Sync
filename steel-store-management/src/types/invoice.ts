@@ -18,9 +18,11 @@ export interface Product {
   size_mm?: string;
   grade?: string;
   unit: string;
+  unit_type: string;
   rate_per_unit: number;
-  current_stock: number;
+  current_stock: number | string;
   min_stock_alert: number;
+  track_inventory: number; // 1 = track inventory, 0 = non-stock product
   created_at: string;
   updated_at: string;
 }
@@ -128,10 +130,10 @@ export const INVOICE_STATUSES = [
 export const formatCurrency = (amount: number | undefined | null): string => {
   const safeAmount = amount ?? 0;
   // Get currency from settings
-  const currency = localStorage.getItem('settings_general') 
+  const currency = localStorage.getItem('settings_general')
     ? JSON.parse(localStorage.getItem('settings_general') || '{}').currency || 'PKR'
     : 'PKR';
-  
+
   const localeMap: Record<string, string> = {
     'INR': 'en-IN',
     'PKR': 'en-PK',
@@ -142,9 +144,9 @@ export const formatCurrency = (amount: number | undefined | null): string => {
     'AED': 'ar-AE',
     'SAR': 'ar-SA'
   };
-  
+
   const locale = localeMap[currency] || 'en-US';
-  
+
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency: currency,
@@ -170,26 +172,26 @@ export const calculateInvoiceTotal = (items: InvoiceItem[]): number => {
 
 export const validateInvoiceItem = (item: InvoiceItem): string[] => {
   const errors: string[] = [];
-  
+
   if (!item.product_id) {
     errors.push('Product is required');
   }
-  
+
   if (!item.quantity || item.quantity <= 0) {
     errors.push('Quantity must be greater than 0');
   }
-  
+
   if (!item.rate || item.rate <= 0) {
     errors.push('Rate must be greater than 0');
   }
-  
+
   if (item.quantity && item.rate) {
     const expectedTotal = item.quantity * item.rate;
     if (Math.abs(expectedTotal - item.total) > 0.01) {
       errors.push('Total calculation is incorrect');
     }
   }
-  
+
   return errors;
 };
 

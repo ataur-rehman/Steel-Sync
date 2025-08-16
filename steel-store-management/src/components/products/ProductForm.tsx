@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { db } from '../../services/database';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
-import { 
-  validateUnit, 
-  UNIT_TYPES, 
-  getUnitTypeConfig, 
+import {
+  validateUnit,
+  UNIT_TYPES,
+  getUnitTypeConfig,
   type UnitType,
   parseUnit,
   formatUnitString
@@ -21,11 +21,11 @@ interface ProductFormProps {
 const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel }) => {
   const activityLogger = useActivityLogger();
   const [showOptional, setShowOptional] = useState(false);
-  
+
   // Helper function to get display value for editing - using parseUnit for consistency
   const getDisplayValue = (unitString: string | null | undefined, unitType: UnitType): string => {
     if (!unitString) return '';
-    
+
     try {
       const parsed = parseUnit(unitString, unitType);
       return parsed.raw; // Return the raw format for editing
@@ -34,13 +34,13 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
       return unitString?.toString() || '';
     }
   };
-  
+
   // Helper function to extract base name from concatenated name
   const extractBaseName = (fullName: string, size?: string, grade?: string): string => {
     if (!fullName) return '';
-    
+
     let baseName = fullName;
-    
+
     // Remove size part if it exists (try different formats)
     if (size) {
       const sizePatterns = [
@@ -50,7 +50,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         `•${size}`,
         `-${size}`
       ];
-      
+
       for (const pattern of sizePatterns) {
         if (baseName.includes(pattern)) {
           baseName = baseName.replace(pattern, '');
@@ -71,7 +71,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         ` - ${grade}`,
         ` ${grade}`
       ];
-      
+
       for (const pattern of gradePatterns) {
         if (baseName.includes(pattern)) {
           baseName = baseName.replace(pattern, '');
@@ -79,37 +79,38 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         }
       }
     }
-    
+
     // Clean up any remaining separators at the end
     baseName = baseName.replace(/\s*[•-]\s*$/, '').trim();
-    
+
     return baseName;
   };
 
   // Extract base name for editing to prevent double concatenation
   const baseName = product ? extractBaseName(product.name, product.size, product.grade) : '';
-  
+
   const [formData, setFormData] = useState({
     name: baseName || '',
-        category: product?.category || 'Steel Products',
-        unit_type: (product?.unit_type as UnitType) || 'kg-grams',
-        rate_per_unit: product?.rate_per_unit?.toString() || '',
-        current_stock: getDisplayValue(product?.current_stock, (product?.unit_type as UnitType) || 'kg-grams'),
-        min_stock_alert: getDisplayValue(product?.min_stock_alert, (product?.unit_type as UnitType) || 'kg-grams'),
+    category: product?.category || 'Steel Products',
+    unit_type: (product?.unit_type as UnitType) || 'kg-grams',
+    rate_per_unit: product?.rate_per_unit?.toString() || '',
+    current_stock: getDisplayValue(product?.current_stock, (product?.unit_type as UnitType) || 'kg-grams'),
+    min_stock_alert: getDisplayValue(product?.min_stock_alert, (product?.unit_type as UnitType) || 'kg-grams'),
+    track_inventory: product?.track_inventory !== undefined ? product.track_inventory : 1, // 1 = track stock, 0 = non-stock
     size: product?.size || '', // Optional size
     grade: product?.grade || '' // Optional grade
   });
-  
+
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
+
     // If unit_type is changing, reset stock fields to avoid format confusion
     if (name === 'unit_type') {
-      setFormData(prev => ({ 
-        ...prev, 
+      setFormData(prev => ({
+        ...prev,
         [name]: value as UnitType,
         current_stock: '',
         min_stock_alert: ''
@@ -117,7 +118,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
-    
+
     // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
@@ -130,11 +131,11 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
     if (!formData.name.trim()) {
       newErrors.name = 'Product name is required';
     }
-    
+
     if (!formData.rate_per_unit || parseFloat(formData.rate_per_unit) <= 0) {
       newErrors.rate_per_unit = 'Valid rate per unit is required';
     }
-    
+
     // Validate current stock using unitUtils
     if (formData.current_stock && formData.current_stock.trim()) {
       const stockValidation = validateUnit(formData.current_stock, formData.unit_type);
@@ -142,7 +143,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         newErrors.current_stock = stockValidation.error || `Invalid ${formData.unit_type} format for current stock`;
       }
     }
-    
+
     // Validate min stock alert using unitUtils
     if (formData.min_stock_alert && formData.min_stock_alert.trim()) {
       const alertValidation = validateUnit(formData.min_stock_alert, formData.unit_type);
@@ -157,7 +158,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -184,6 +185,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         rate_per_unit: parseCurrency(formData.rate_per_unit),
         current_stock: currentStockParsed.raw, // Use parsed raw format
         min_stock_alert: minStockParsed.raw, // Use parsed raw format
+        track_inventory: formData.track_inventory, // 1 = track stock, 0 = non-stock
         size: formData.size,
         grade: formData.grade
       };
@@ -192,28 +194,28 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
 
       if (product) {
         await db.updateProduct(product.id, productData);
-        
+
         // Log activity
         await activityLogger.logProductUpdated(product.id, fullName, productData);
-        
+
         toast.success('Product updated successfully!');
-        
+
         // Success - call onSuccess
         onSuccess();
       } else {
         const result = await db.createProduct(productData);
-        
+
         // Log activity
         await activityLogger.logProductCreated(result, fullName);
-        
+
         toast.success('Product added successfully!');
 
-      console.log('Product operation result:', result);
+        console.log('Product operation result:', result);
 
         if (result && result > 0) {
-        onSuccess();
-      } else {
-        throw new Error(`Failed to create product - no valid result returned`);
+          onSuccess();
+        } else {
+          throw new Error(`Failed to create product - no valid result returned`);
         }
       }
     } catch (error) {
@@ -245,14 +247,6 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
     } catch {
       return `${value} ${getUnitTypeConfig(unitType).symbol}`;
     }
-  };
-
-  // Helper function to generate full product name preview
-  const generateFullNamePreview = (): string => {
-    let fullName = formData.name;
-    if (formData.size) fullName += ` • ${formData.size}`;
-    if (formData.grade) fullName += ` • G${formData.grade}`;
-    return fullName;
   };
 
   return (
@@ -347,50 +341,84 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
           {errors.rate_per_unit && <p className="text-red-600 text-sm mt-1">{errors.rate_per_unit}</p>}
         </div>
 
-        {/* Stock Information */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="current-stock">
-              Current Stock Quantity
-            </label>
-            <input autoComplete="off"
-              id="current-stock"
-              type="text"
-              name="current_stock"
-              value={formData.current_stock}
-              onChange={handleChange}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-              placeholder={getUnitPlaceholder(formData.unit_type)}
-              disabled={loading}
-              aria-invalid={!!errors.current_stock}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Current stock: {renderCurrentValue(formData.current_stock, formData.unit_type)}
-            </p>
-            {errors.current_stock && <p className="text-red-600 text-sm mt-1">{errors.current_stock}</p>}
-          </div>
-          
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">
-              Low Stock Alert Level
-            </label>
-            <input autoComplete="off"
-              id="min-stock-alert"
-              type="text"
-              name="min_stock_alert"
-              value={formData.min_stock_alert}
-              onChange={handleChange}
-              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-              placeholder={getUnitPlaceholder(formData.unit_type)}
-              disabled={loading}
-              aria-invalid={!!errors.min_stock_alert}
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Alert below: {renderCurrentValue(formData.min_stock_alert, formData.unit_type)}
-            </p>
-            {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
-          </div>
+        {/* Product Type - Track Inventory */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">
+            Product Type <span className="text-red-500">*</span>
+          </label>
+          <select
+            name="track_inventory"
+            value={formData.track_inventory}
+            onChange={(e) => {
+              const isStock = parseInt(e.target.value);
+              setFormData(prev => ({
+                ...prev,
+                track_inventory: isStock,
+                // Clear stock fields for non-stock products
+                current_stock: isStock === 0 ? '0' : prev.current_stock,
+                min_stock_alert: isStock === 0 ? '0' : prev.min_stock_alert
+              }));
+            }}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+            disabled={loading}
+          >
+            <option value={1}>Stock Product (Track Inventory)</option>
+            <option value={0}>Non-Stock Product (Service/T-Iron)</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            {formData.track_inventory === 1
+              ? "📦 Stock product - inventory will be tracked"
+              : "🔧 Non-stock product - no inventory tracking (for T-Iron, services, etc.)"
+            }
+          </p>
         </div>
+
+        {/* Stock Information - Only for Stock Products */}
+        {formData.track_inventory === 1 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="current-stock">
+                Current Stock Quantity
+              </label>
+              <input autoComplete="off"
+                id="current-stock"
+                type="text"
+                name="current_stock"
+                value={formData.current_stock}
+                onChange={handleChange}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+                placeholder={getUnitPlaceholder(formData.unit_type)}
+                disabled={loading}
+                aria-invalid={!!errors.current_stock}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Current stock: {renderCurrentValue(formData.current_stock, formData.unit_type)}
+              </p>
+              {errors.current_stock && <p className="text-red-600 text-sm mt-1">{errors.current_stock}</p>}
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="min-stock-alert">
+                Low Stock Alert Level
+              </label>
+              <input autoComplete="off"
+                id="min-stock-alert"
+                type="text"
+                name="min_stock_alert"
+                value={formData.min_stock_alert}
+                onChange={handleChange}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
+                placeholder={getUnitPlaceholder(formData.unit_type)}
+                disabled={loading}
+                aria-invalid={!!errors.min_stock_alert}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Alert below: {renderCurrentValue(formData.min_stock_alert, formData.unit_type)}
+              </p>
+              {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
+            </div>
+          </div>
+        )}
 
         {/* Optional Fields: Size and Grade */}
         <div>

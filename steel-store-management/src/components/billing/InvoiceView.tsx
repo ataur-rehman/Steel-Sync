@@ -37,6 +37,12 @@ interface InvoiceItem {
   unit_type?: string;
   length?: number;
   pieces?: number;
+  // T-Iron calculation fields
+  t_iron_pieces?: number;
+  t_iron_length_per_piece?: number;
+  t_iron_total_feet?: number;
+  product_description?: string;
+  is_non_stock_item?: boolean;
 }
 
 export default function InvoiceView() {
@@ -79,7 +85,7 @@ export default function InvoiceView() {
 
       // Load invoice items
       const itemsData = await db.getInvoiceItems(invoiceId);
-      
+
       // Debug: Log the items data to check L/pcs values
       console.log('🔍 DEBUG: Invoice items data:', itemsData);
       if (itemsData && itemsData.length > 0) {
@@ -115,11 +121,11 @@ export default function InvoiceView() {
 
   const handleDelete = async () => {
     if (!invoice) return;
-    
+
     const confirmed = window.confirm(
       `Are you sure you want to delete Invoice #${formatInvoiceNumber(invoice.bill_number)}? This action cannot be undone.`
     );
-    
+
     if (confirmed) {
       try {
         await db.deleteInvoice(invoice.id);
@@ -155,8 +161,8 @@ export default function InvoiceView() {
   if (error || !invoice) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <SmartDetailHeader 
-          title="Invoice Not Found" 
+        <SmartDetailHeader
+          title="Invoice Not Found"
           subtitle={error || "The invoice you're looking for doesn't exist"}
           backToListPath="/billing/list"
           backToListLabel="Back to Invoices"
@@ -235,15 +241,14 @@ export default function InvoiceView() {
                 <div className="text-2xl font-bold">
                   {formatCurrency(invoice.grand_total)}
                 </div>
-                <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${
-                  invoice.payment_status === 'paid'
-                    ? 'bg-green-100 text-green-800'
-                    : invoice.payment_status === 'partially_paid'
+                <span className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${invoice.payment_status === 'paid'
+                  ? 'bg-green-100 text-green-800'
+                  : invoice.payment_status === 'partially_paid'
                     ? 'bg-orange-100 text-orange-800'
                     : 'bg-red-100 text-red-800'
-                }`}>
-                  {invoice.payment_status.replace('_', ' ').charAt(0).toUpperCase() + 
-                   invoice.payment_status.replace('_', ' ').slice(1)}
+                  }`}>
+                  {invoice.payment_status.replace('_', ' ').charAt(0).toUpperCase() +
+                    invoice.payment_status.replace('_', ' ').slice(1)}
                 </span>
               </div>
             </div>
@@ -297,12 +302,28 @@ export default function InvoiceView() {
                       <td className="py-3">
                         <div className="font-medium text-gray-900">
                           {item.product_name}
-                          {item.length && ` • ${item.length}/L`}
-                          {item.pieces && ` • ${item.pieces}/pcs`}
+                          {item.t_iron_pieces && item.t_iron_length_per_piece ? (
+                            <span className="text-sm text-blue-600 ml-2">
+                              ({item.t_iron_pieces}pcs × {item.t_iron_length_per_piece}ft × Rs.{item.unit_price}/ft)
+                            </span>
+                          ) : (
+                            <>
+                              {item.length && ` • ${item.length}/L`}
+                              {item.pieces && ` • ${item.pieces}/pcs`}
+                            </>
+                          )}
                         </div>
+                        {(item.is_non_stock_item ||
+                          item.product_name.toLowerCase().includes('t-iron') ||
+                          item.product_name.toLowerCase().includes('tiron') ||
+                          item.product_name.toLowerCase().includes('t iron')) && (
+                            <div className="text-xs text-green-600 mt-1">
+                              Non-Stock Item • Total: {item.t_iron_total_feet || item.quantity} ft
+                            </div>
+                          )}
                       </td>
                       <td className="py-3 text-right text-gray-900">
-                        {formatUnitString(item.quantity.toString(), (item.unit_type || 'piece') as any)}
+                        {item.t_iron_total_feet || formatUnitString(item.quantity.toString(), (item.unit_type || 'piece') as any)}
                       </td>
                       <td className="py-3 text-right text-gray-900">
                         {formatCurrency(item.unit_price)}
