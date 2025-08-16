@@ -1,8 +1,39 @@
 // PERMANENT RETURN SOLUTION - Enhanced Return System
-// This file contains the core table management for the return system
+// This file contains the core interfaces and table management for the return system
 
-// Import interfaces from the main enhanced return system
-import type { PermanentReturnData } from './enhanced-return-system';
+// Core return interfaces
+export interface PermanentReturnData {
+    customer_id: number;
+    customer_name?: string;
+    original_invoice_id: number;
+    original_invoice_number?: string;
+    items: Array<{
+        product_id: number;
+        product_name: string;
+        original_invoice_item_id: number;
+        original_quantity: number;
+        return_quantity: number;
+        unit_price: number;
+        total_price: number;
+        unit?: string;
+        reason?: string;
+    }>;
+    reason: string;
+    settlement_type: 'ledger' | 'cash';
+    notes?: string;
+    created_by?: string;
+}
+
+export interface InvoicePaymentStatus {
+    invoice_id: number;
+    total_amount: number;
+    paid_amount: number;
+    remaining_balance: number;
+    payment_status: string;
+    is_fully_paid: boolean;
+    is_partially_paid: boolean;
+    is_unpaid: boolean;
+}
 
 // Table creation schemas
 export const RETURN_TABLES_SCHEMA = {

@@ -9,6 +9,7 @@ import { PermanentDatabaseAbstractionLayer } from './permanent-database-abstract
 import { CENTRALIZED_DATABASE_TABLES } from './centralized-database-tables';
 import CentralizedRealtimeSolution from './centralized-realtime-solution';
 import { CriticalUnitStockMovementFixes } from './critical-unit-stock-movement-fixes';
+import { LedgerDiagnosticService } from './ledger-diagnostic';
 
 
 
@@ -9861,6 +9862,9 @@ export class DatabaseService {
     } else if (entry.reference_type === 'manual_transaction') {
       validReferenceType = 'other';
       console.log('🔧 [Ledger Entry] Mapped manual_transaction -> other for schema compliance');
+    } else if (entry.reference_type === 'return') {
+      validReferenceType = 'other';
+      console.log('🔧 [Ledger Entry] Mapped return -> other for schema compliance');
     }
 
     // Real database implementation - include payment channel information for filtering
@@ -10096,7 +10100,7 @@ export class DatabaseService {
     }
   }
 
-  // CRITICAL FIX: Simplified Return Management System that works with existing schema
+  // ENHANCED RETURN SYSTEM: Implements payment status aware return logic
   async createReturn(returnData: {
     customer_id: number;
     customer_name?: string;
@@ -10121,8 +10125,10 @@ export class DatabaseService {
     try {
       if (!this.isInitialized) await this.initialize();
 
-      // PERMANENT FIX: Ensure return tables exist
-      const { PermanentReturnTableManager, PermanentReturnValidator } = await import('./permanent-return-solution');
+      // ENHANCED: Ensure return tables exist and validate return data
+      const { PermanentReturnTableManager } = await import('./permanent-return-solution');
+      const { PermanentReturnValidator } = await import('./enhanced-return-system');
+
       const tableManager = new PermanentReturnTableManager(this.dbConnection);
       await tableManager.ensureReturnTablesExist();
 
@@ -10144,6 +10150,38 @@ export class DatabaseService {
       // Validate settlement type
       if (!['ledger', 'cash'].includes(returnData.settlement_type)) {
         throw new Error('Invalid settlement type. Must be "ledger" or "cash"');
+      }
+
+      // CRITICAL: Check invoice payment status BEFORE starting any transaction
+      const { InvoicePaymentStatusManager } = await import('./enhanced-return-system');
+      const paymentStatusManager = new InvoicePaymentStatusManager(this.dbConnection);
+
+      // Get invoice payment status
+      const paymentStatus = await paymentStatusManager.getInvoicePaymentStatus(returnData.original_invoice_id);
+      console.log(`💰 Invoice payment status check:`, paymentStatus);
+
+      // Determine settlement eligibility based on new business rules
+      const totalAmount = returnData.items.reduce((sum, item) => sum + item.total_price, 0);
+      const settlementEligibility = paymentStatusManager.determineSettlementEligibility(paymentStatus, totalAmount);
+      console.log(`🎯 Settlement eligibility:`, settlementEligibility);
+
+      // CRITICAL DIAGNOSTIC: Track the return creation process
+      LedgerDiagnosticService.logReturnCreationStart(returnData, settlementEligibility);
+
+      // BUSINESS RULE: Block returns for partially paid invoices BEFORE any processing
+      if (paymentStatus.is_partially_paid) {
+        throw new Error('Returns are not permitted for partially paid invoices. Please complete payment first or contact support.');
+      }
+
+      // BUSINESS RULE: Validate cash refund eligibility BEFORE processing
+      if (returnData.settlement_type === 'cash' && !settlementEligibility.allow_cash_refund) {
+        throw new Error(settlementEligibility.settlement_message);
+      }
+
+      // Get invoice details for further processing
+      const invoiceDetails = await this.getInvoiceDetails(returnData.original_invoice_id);
+      if (!invoiceDetails) {
+        throw new Error('Original invoice not found');
       }
 
       await this.dbConnection.execute('BEGIN TRANSACTION');
@@ -10192,16 +10230,9 @@ export class DatabaseService {
       const date = now.toISOString().split('T')[0];
       const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-      // Calculate totals
-      const totalAmount = returnData.items.reduce((sum, item) => sum + item.total_price, 0);
+      // Calculate additional totals for return record
       const totalQuantity = returnData.items.reduce((sum, item) => sum + item.return_quantity, 0);
       const totalItems = returnData.items.length;
-
-      // Get invoice details for validation
-      const invoiceDetails = await this.getInvoiceDetails(returnData.original_invoice_id);
-      if (!invoiceDetails) {
-        throw new Error('Original invoice not found');
-      }
 
       // Create return record using COMPLETE centralized schema
       const result = await this.dbConnection.execute(`
@@ -10314,18 +10345,9 @@ export class DatabaseService {
         }
       }
 
-      // ENHANCED: Check invoice payment status before processing settlement
-      const { InvoicePaymentStatusManager, InvoiceReturnUpdateManager } = await import('./permanent-return-solution');
-      const paymentStatusManager = new InvoicePaymentStatusManager(this.dbConnection);
+      // ENHANCED: Import invoice update manager and process settlement  
+      const { InvoiceReturnUpdateManager } = await import('./enhanced-return-system');
       const invoiceUpdateManager = new InvoiceReturnUpdateManager(this.dbConnection);
-
-      // Get invoice payment status
-      const paymentStatus = await paymentStatusManager.getInvoicePaymentStatus(returnData.original_invoice_id);
-      console.log(`💰 Invoice payment status:`, paymentStatus);
-
-      // Determine settlement eligibility
-      const settlementEligibility = paymentStatusManager.determineSettlementEligibility(paymentStatus, totalAmount);
-      console.log(`🎯 Settlement eligibility:`, settlementEligibility);
 
       // Process settlement based on payment status and type
       if (settlementEligibility.eligible_for_credit && settlementEligibility.credit_amount > 0) {
@@ -10348,7 +10370,7 @@ export class DatabaseService {
         );
       }
 
-      // Update original invoice to reflect the return
+      // ENHANCED: Update original invoice to reflect the return with proper entries
       await invoiceUpdateManager.updateInvoiceForReturn(returnData.original_invoice_id, returnData, returnId);
 
       // Mark return as completed
@@ -10380,7 +10402,7 @@ export class DatabaseService {
     }
   }
 
-  // Process return settlement (ledger credit or cash refund)
+  // Process return settlement (ledger credit or cash refund) with payment status awareness
   private async processReturnSettlement(
     returnId: number,
     settlementType: 'ledger' | 'cash',

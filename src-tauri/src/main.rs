@@ -36,7 +36,8 @@ async fn authenticate_user(username: String, password: String) -> Result<AuthRes
 fn main() {
     // For Tauri v2, we'll use a more direct approach to get app data directory
     // First, create the database in the expected location
-    let app_name = "com.itehadironstore.app";
+    // CRITICAL FIX: Use the correct app identifier from tauri.conf.json
+    let app_name = "com.itehadironstore.management";
     
     // Try to get the app data directory using environment variables
     let app_data_dir = if cfg!(target_os = "windows") {

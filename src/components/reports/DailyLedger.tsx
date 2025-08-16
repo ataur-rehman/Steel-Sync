@@ -527,6 +527,7 @@ const DailyLedger: React.FC = () => {
           'Invoice Payment',
           'Advance Payment',
           'Return Refund',
+          'Cash Refund', // 🔧 CRITICAL FIX: Include cash refunds from returns
           'Staff Salary',
           'Salary Payment',
           'Business Expense',
