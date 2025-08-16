@@ -10096,95 +10096,381 @@ export class DatabaseService {
     }
   }
 
-  // CRITICAL FIX: Return Management System
-  async createReturn(returnData: any): Promise<number> {
+  // CRITICAL FIX: Simplified Return Management System that works with existing schema
+  async createReturn(returnData: {
+    customer_id: number;
+    customer_name?: string;
+    original_invoice_id: number;
+    original_invoice_number?: string;
+    items: Array<{
+      product_id: number;
+      product_name: string;
+      original_invoice_item_id: number;
+      original_quantity: number;
+      return_quantity: number;
+      unit_price: number;
+      total_price: number;
+      unit?: string;
+      reason?: string;
+    }>;
+    reason: string;
+    settlement_type: 'ledger' | 'cash';
+    notes?: string;
+    created_by?: string;
+  }): Promise<number> {
     try {
       if (!this.isInitialized) await this.initialize();
 
-      // Validate input (basic)
-      if (!returnData.customer_id || !Array.isArray(returnData.items) || returnData.items.length === 0) {
-        throw new Error('Invalid return data');
+      // PERMANENT FIX: Ensure return tables exist
+      const { PermanentReturnTableManager, PermanentReturnValidator } = await import('./permanent-return-solution');
+      const tableManager = new PermanentReturnTableManager(this.dbConnection);
+      await tableManager.ensureReturnTablesExist();
+
+      // Validate return data to prevent NOT NULL constraint errors
+      const validation = PermanentReturnValidator.validateReturnData(returnData);
+      if (!validation.valid) {
+        throw new Error(`Return validation failed: ${validation.errors.join(', ')}`);
       }
 
-      const returnNumber = await this.generateReturnNumber();
+      // Validate input
+      if (!returnData.customer_id || !Array.isArray(returnData.items) || returnData.items.length === 0) {
+        throw new Error('Invalid return data: customer_id and items are required');
+      }
+
+      if (!returnData.original_invoice_id) {
+        throw new Error('Original invoice ID is required for returns');
+      }
+
+      // Validate settlement type
+      if (!['ledger', 'cash'].includes(returnData.settlement_type)) {
+        throw new Error('Invalid settlement type. Must be "ledger" or "cash"');
+      }
+
+      await this.dbConnection.execute('BEGIN TRANSACTION');
+
+      // Generate unique return number with retry logic
+      let returnNumber: string;
+      let attempt = 0;
+      const maxAttempts = 5;
+
+      do {
+        attempt++;
+        returnNumber = await this.generateReturnNumber();
+
+        // Check if this return number already exists in the current transaction context
+        try {
+          const existingReturn = await this.dbConnection.select(
+            'SELECT id FROM returns WHERE return_number = ?',
+            [returnNumber]
+          );
+
+          if (!existingReturn || existingReturn.length === 0) {
+            break; // Found unique number
+          }
+
+          if (attempt >= maxAttempts) {
+            // Use timestamp as ultimate fallback
+            const timestamp = Date.now().toString().slice(-8);
+            returnNumber = `RET-EMERGENCY-${timestamp}`;
+            console.log(`🆘 Using emergency return number: ${returnNumber}`);
+            break;
+          }
+
+          console.log(`⚠️ Attempt ${attempt}: Return number ${returnNumber} exists, retrying...`);
+          // Small delay to avoid rapid-fire collisions
+          await new Promise(resolve => setTimeout(resolve, 10));
+
+        } catch (error) {
+          console.error('Error checking return number uniqueness:', error);
+          break; // Use the generated number anyway
+        }
+      } while (attempt < maxAttempts);
+
+      console.log(`✅ Using return number: ${returnNumber} (attempt ${attempt})`);
+
       const now = new Date();
       const date = now.toISOString().split('T')[0];
       const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
 
-      // Insert return record
+      // Calculate totals
+      const totalAmount = returnData.items.reduce((sum, item) => sum + item.total_price, 0);
+      const totalQuantity = returnData.items.reduce((sum, item) => sum + item.return_quantity, 0);
+      const totalItems = returnData.items.length;
+
+      // Get invoice details for validation
+      const invoiceDetails = await this.getInvoiceDetails(returnData.original_invoice_id);
+      if (!invoiceDetails) {
+        throw new Error('Original invoice not found');
+      }
+
+      // Create return record using COMPLETE centralized schema
       const result = await this.dbConnection.execute(`
-        INSERT INTO returns (customer_id, customer_name, return_number, total_amount, notes, date, time, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO returns (
+          return_number, original_invoice_id, original_invoice_number,
+          customer_id, customer_name, return_type, reason,
+          total_items, total_quantity, subtotal, total_amount,
+          settlement_type, settlement_amount, settlement_processed,
+          status, date, time, notes, created_by, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `, [
-        returnData.customer_id,
-        returnData.customer_name || '',
         returnNumber,
-        returnData.total_amount || 0,
-        returnData.notes || '',
+        returnData.original_invoice_id,
+        returnData.original_invoice_number || invoiceDetails.invoice_number,
+        returnData.customer_id,
+        returnData.customer_name || invoiceDetails.customer_name,
+        'partial', // return_type
+        returnData.reason,
+        totalItems,
+        totalQuantity,
+        totalAmount, // subtotal same as total for simplicity
+        totalAmount,
+        returnData.settlement_type,
+        totalAmount, // settlement_amount
+        0, // settlement_processed (will be set to 1 after processing)
+        'pending', // status
         date,
         time,
+        returnData.notes || '',
         returnData.created_by || 'system'
       ]);
-      const returnId = result?.lastInsertId || 0;
 
-      // Insert return items and update stock
+      const returnId = result?.lastInsertId || 0;
+      if (!returnId) {
+        throw new Error('Failed to create return record');
+      }
+
+      // Process return items and stock updates
       for (const item of returnData.items) {
+        // Validate return quantity doesn't exceed original quantity
+        if (item.return_quantity > item.original_quantity) {
+          throw new Error(`Return quantity (${item.return_quantity}) cannot exceed original quantity (${item.original_quantity}) for ${item.product_name}`);
+        }
+
+        // Insert return item using COMPLETE centralized schema
         await this.dbConnection.execute(`
-          INSERT INTO return_items (return_id, product_id, product_name, quantity, unit_price, total_price)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO return_items (
+            return_id, original_invoice_item_id, product_id, product_name,
+            original_quantity, return_quantity, unit, unit_price, total_price,
+            reason, action, restocked, created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `, [
           returnId,
+          item.original_invoice_item_id,
           item.product_id,
           item.product_name,
-          item.quantity,
+          item.original_quantity,
+          item.return_quantity,
+          item.unit || 'piece',
           item.unit_price,
-          item.total_price
+          item.total_price,
+          item.reason || returnData.reason,
+          'refund', // Default action
+          1 // Mark as restocked
         ]);
 
-        // Update product stock (add back returned quantity)
+        // Get product details and update stock (only for stock products)
         const product = await this.getProduct(item.product_id);
-        const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-        const returnQtyData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-        const newStockValue = currentStockData.numericValue + returnQtyData.numericValue;
-        const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
-        await this.dbConnection.execute(
-          'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [newStockString, item.product_id]
-        );
+        if (product && (product.track_inventory === 1 || product.track_inventory === true)) {
+          const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+          const returnQtyData = parseUnit(item.return_quantity.toString(), product.unit_type || 'kg-grams');
+          const newStockValue = currentStockData.numericValue + returnQtyData.numericValue;
+          const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'kg-grams');
 
-        // Create stock movement record
-        await this.createStockMovement({
-          product_id: item.product_id,
-          product_name: item.product_name,
-          movement_type: 'in',
-          transaction_type: 'return',
-          quantity: returnQtyData.numericValue,
-          unit: product.unit_type || 'kg',
-          previous_stock: currentStockData.numericValue,
-          new_stock: newStockValue,
-          unit_cost: item.unit_price,
-          unit_price: item.unit_price,
-          total_cost: item.total_price,
-          total_value: item.total_price,
-          reason: 'Return from customer',
-          reference_type: 'return',
-          reference_id: returnId,
-          reference_number: returnNumber,
+          // Update product stock
+          await this.dbConnection.execute(
+            'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [newStockString, item.product_id]
+          );
+
+          // Create stock movement record
+          await this.createStockMovement({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            movement_type: 'in',
+            transaction_type: 'return',
+            quantity: item.return_quantity,
+            unit: product.unit_type || 'kg',
+            previous_stock: currentStockData.numericValue,
+            new_stock: newStockValue,
+            unit_cost: item.unit_price,
+            unit_price: item.unit_price,
+            total_cost: item.total_price,
+            total_value: item.total_price,
+            reason: `Return: ${returnData.reason}`,
+            reference_type: 'return',
+            reference_id: returnId,
+            reference_number: returnNumber,
+            customer_id: returnData.customer_id,
+            customer_name: returnData.customer_name || invoiceDetails.customer_name,
+            notes: returnData.notes || '',
+            date,
+            time,
+            created_by: returnData.created_by || 'system'
+          });
+        } else {
+          console.log(`📋 Non-stock product ${item.product_name} - skipping stock update`);
+        }
+      }
+
+      // ENHANCED: Check invoice payment status before processing settlement
+      const { InvoicePaymentStatusManager, InvoiceReturnUpdateManager } = await import('./permanent-return-solution');
+      const paymentStatusManager = new InvoicePaymentStatusManager(this.dbConnection);
+      const invoiceUpdateManager = new InvoiceReturnUpdateManager(this.dbConnection);
+
+      // Get invoice payment status
+      const paymentStatus = await paymentStatusManager.getInvoicePaymentStatus(returnData.original_invoice_id);
+      console.log(`💰 Invoice payment status:`, paymentStatus);
+
+      // Determine settlement eligibility
+      const settlementEligibility = paymentStatusManager.determineSettlementEligibility(paymentStatus, totalAmount);
+      console.log(`🎯 Settlement eligibility:`, settlementEligibility);
+
+      // Process settlement based on payment status and type
+      if (settlementEligibility.eligible_for_credit && settlementEligibility.credit_amount > 0) {
+        await this.processReturnSettlement(returnId, returnData.settlement_type, settlementEligibility.credit_amount, {
           customer_id: returnData.customer_id,
-          customer_name: returnData.customer_name,
-          notes: returnData.notes || '',
+          customer_name: returnData.customer_name || invoiceDetails.customer_name,
+          return_number: returnNumber,
           date,
           time,
           created_by: returnData.created_by || 'system'
         });
+        console.log(`✅ Settlement processed: Rs. ${settlementEligibility.credit_amount.toFixed(2)} (${settlementEligibility.reason})`);
+      } else {
+        console.log(`⚠️ No settlement processed: ${settlementEligibility.reason}`);
+
+        // Update return record to indicate no settlement
+        await this.dbConnection.execute(
+          'UPDATE returns SET settlement_amount = 0, settlement_processed = 1, notes = ? WHERE id = ?',
+          [`${settlementEligibility.reason} | Original notes: ${returnData.notes || ''}`, returnId]
+        );
       }
 
-      // Optionally update customer balance, ledger, etc.
+      // Update original invoice to reflect the return
+      await invoiceUpdateManager.updateInvoiceForReturn(returnData.original_invoice_id, returnData, returnId);
+
+      // Mark return as completed
+      await this.dbConnection.execute(
+        'UPDATE returns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        ['completed', returnId]
+      );
+
+      await this.dbConnection.execute('COMMIT');
+
+      console.log(`✅ Return ${returnNumber} created successfully with enhanced payment status logic`);
+      console.log(`📊 Payment Status: ${paymentStatus.is_fully_paid ? 'Fully Paid' : paymentStatus.is_partially_paid ? 'Partially Paid' : 'Unpaid'}`);
+      console.log(`💰 Credit Amount: Rs. ${settlementEligibility.credit_amount.toFixed(2)}`);
+      console.log(`📝 Reason: ${settlementEligibility.reason}`);
 
       return returnId;
-    } catch (error) {
+
+    } catch (error: any) {
+      await this.dbConnection.execute('ROLLBACK');
+
+      // Handle specific UNIQUE constraint error for return_number
+      if (error?.message?.includes('UNIQUE constraint failed: returns.return_number')) {
+        console.error('❌ Return number collision detected, this should not happen with our enhanced generation logic');
+        throw new Error('Return number generation failed due to unexpected collision. Please try again.');
+      }
+
       console.error('Error creating return:', error);
       throw error;
+    }
+  }
+
+  // Process return settlement (ledger credit or cash refund)
+  private async processReturnSettlement(
+    returnId: number,
+    settlementType: 'ledger' | 'cash',
+    amount: number,
+    details: {
+      customer_id: number;
+      customer_name: string;
+      return_number: string;
+      date: string;
+      time: string;
+      created_by: string;
+    }
+  ): Promise<void> {
+    try {
+      if (settlementType === 'ledger') {
+        // Add credit to customer ledger
+        const currentBalanceResult = await this.dbConnection.select(
+          'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
+          [details.customer_id]
+        );
+
+        let currentBalance = 0;
+        if (currentBalanceResult && currentBalanceResult.length > 0) {
+          currentBalance = currentBalanceResult[0].balance_after || 0;
+        } else {
+          // Fallback to customer's stored balance
+          const customer = await this.getCustomer(details.customer_id);
+          currentBalance = customer ? (customer.balance || 0) : 0;
+        }
+
+        const balanceAfterCredit = currentBalance + amount; // Add credit (increases customer's credit balance)
+
+        // Create customer ledger entry for return credit
+        await this.dbConnection.execute(`
+          INSERT INTO customer_ledger_entries (
+            customer_id, customer_name, entry_type, transaction_type,
+            amount, description, reference_id, reference_number,
+            balance_before, balance_after, date, time, created_by, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          details.customer_id,
+          details.customer_name,
+          'credit', // FIXED: Credit to customer (should be credit entry, not debit)
+          'return',
+          amount,
+          `Return Credit - ${details.return_number}`,
+          returnId,
+          details.return_number,
+          currentBalance,
+          balanceAfterCredit,
+          details.date,
+          details.time,
+          details.created_by,
+          `Return credit: Rs. ${amount.toFixed(2)} added to customer ledger`
+        ]);
+
+        // Update customer balance
+        await this.dbConnection.execute(
+          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [balanceAfterCredit, details.customer_id]
+        );
+
+        console.log(`✅ Added Rs. ${amount.toFixed(2)} credit to customer ledger`);
+
+      } else if (settlementType === 'cash') {
+        // Create cash ledger entry (outgoing expense)
+        await this.createLedgerEntry({
+          date: details.date,
+          time: details.time,
+          type: 'outgoing',
+          category: 'Cash Refund',
+          description: `Cash refund for return ${details.return_number}`,
+          amount: amount,
+          customer_id: details.customer_id,
+          customer_name: details.customer_name,
+          reference_id: returnId,
+          reference_type: 'return',
+          bill_number: details.return_number,
+          notes: `Cash refund: Rs. ${amount.toFixed(2)}`,
+          created_by: details.created_by,
+          payment_method: 'cash',
+          is_manual: false
+        });
+
+        console.log(`✅ Created cash refund ledger entry for Rs. ${amount.toFixed(2)}`);
+      }
+
+    } catch (error) {
+      console.error('Error processing return settlement:', error);
+      throw new Error(`Failed to process ${settlementType} settlement: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -10231,11 +10517,44 @@ export class DatabaseService {
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
       const prefix = `RET-${dateStr}`;
 
+      // Try up to 10 times to generate a unique number
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        // Get the count of returns for today to generate sequential number
+        const existingReturns = await this.dbConnection.select(
+          'SELECT COUNT(*) as count FROM returns WHERE return_number LIKE ?',
+          [`${prefix}-%`]
+        );
 
-      return `${prefix}-0001`;
+        const count = existingReturns?.[0]?.count || 0;
+        const nextNumber = count + attempt; // Add attempt to avoid conflicts
+        const paddedNumber = nextNumber.toString().padStart(4, '0');
+        const returnNumber = `${prefix}-${paddedNumber}`;
+
+        // Verify uniqueness
+        const existing = await this.dbConnection.select(
+          'SELECT id FROM returns WHERE return_number = ?',
+          [returnNumber]
+        );
+
+        if (!existing || existing.length === 0) {
+          console.log(`✅ Generated unique return number: ${returnNumber}`);
+          return returnNumber;
+        }
+
+        console.log(`⚠️ Return number ${returnNumber} already exists, trying next...`);
+      }
+
+      // If all attempts failed, use timestamp as fallback
+      const timestamp = now.getTime().toString().slice(-6);
+      const fallbackNumber = `${prefix}-${timestamp}`;
+      console.log(`🔄 Using timestamp-based return number: ${fallbackNumber}`);
+      return fallbackNumber;
+
     } catch (error) {
       console.error('Error generating return number:', error);
-      throw new Error('Failed to generate return number');
+      // Ultimate fallback with current timestamp
+      const timestamp = Date.now().toString().slice(-8);
+      return `RET-${timestamp}`;
     }
   }
 

@@ -15,23 +15,18 @@ import {
   DollarSign,
   Package,
   User,
-
   CreditCard,
-
   RefreshCw,
   AlertTriangle,
   CheckCircle,
   Clock,
-
   Phone,
-
   ArrowLeft,
-
   Printer,
   Copy,
-
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Undo2
 } from 'lucide-react';
 
 interface InvoiceDetailsProps {
@@ -63,6 +58,37 @@ interface InvoiceItem {
   is_non_stock_item?: boolean;
 }
 
+interface ReturnData {
+  customer_id: number;
+  customer_name?: string;
+  original_invoice_id: number;
+  original_invoice_number?: string;
+  items: Array<{
+    product_id: number;
+    product_name: string;
+    original_invoice_item_id: number;
+    original_quantity: number;
+    return_quantity: number;
+    unit_price: number;
+    total_price: number;
+    unit?: string;
+    reason?: string;
+  }>;
+  reason: string;
+  settlement_type: 'ledger' | 'cash';
+  notes?: string;
+  created_by?: string;
+}
+
+interface ReturnModalState {
+  isOpen: boolean;
+  item: InvoiceItem | null;
+  returnQuantity: string;
+  reason: string;
+  settlementType: 'ledger' | 'cash';
+  notes: string;
+}
+
 
 interface Product {
   id: number;
@@ -80,6 +106,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const [showAddItem, setShowAddItem] = useState(false);
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [expandedPayments, setExpandedPayments] = useState(false);
+
+  // Return functionality state
+  const [returnModal, setReturnModal] = useState<ReturnModalState>({
+    isOpen: false,
+    item: null,
+    returnQuantity: '',
+    reason: 'Customer Request',
+    settlementType: 'ledger',
+    notes: ''
+  });
 
   // Product selection for adding items
   const [products, setProducts] = useState<Product[]>([]);
@@ -351,6 +387,117 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     }
   };
 
+  // Return functionality handlers
+  const openReturnModal = (item: InvoiceItem) => {
+    if (item.is_misc_item) {
+      toast.error('Miscellaneous items cannot be returned');
+      return;
+    }
+
+    setReturnModal({
+      isOpen: true,
+      item,
+      returnQuantity: '1', // Default to 1
+      reason: 'Customer Request',
+      settlementType: 'ledger',
+      notes: ''
+    });
+  };
+
+  const closeReturnModal = () => {
+    setReturnModal({
+      isOpen: false,
+      item: null,
+      returnQuantity: '',
+      reason: 'Customer Request',
+      settlementType: 'ledger',
+      notes: ''
+    });
+  };
+
+  const validateReturnQuantity = (item: InvoiceItem, returnQty: string): { isValid: boolean; error?: string } => {
+    if (!returnQty || returnQty.trim() === '') {
+      return { isValid: false, error: 'Return quantity is required' };
+    }
+
+    const qty = parseFloat(returnQty);
+    if (isNaN(qty) || qty <= 0) {
+      return { isValid: false, error: 'Return quantity must be a positive number' };
+    }
+
+    if (qty > item.quantity) {
+      return { isValid: false, error: `Return quantity cannot exceed original quantity (${item.quantity})` };
+    }
+
+    return { isValid: true };
+  };
+
+  const processReturn = async () => {
+    if (!returnModal.item) return;
+
+    // Validate return quantity
+    const validation = validateReturnQuantity(returnModal.item, returnModal.returnQuantity);
+    if (!validation.isValid) {
+      toast.error(validation.error || 'Invalid return quantity');
+      return;
+    }
+
+    if (!returnModal.reason.trim()) {
+      toast.error('Return reason is required');
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const returnQuantity = parseFloat(returnModal.returnQuantity);
+      const totalPrice = returnQuantity * returnModal.item.unit_price;
+
+      const returnData: ReturnData = {
+        customer_id: invoice.customer_id,
+        customer_name: invoice.customer_name,
+        original_invoice_id: invoiceId,
+        original_invoice_number: invoice.invoice_number || invoice.bill_number,
+        items: [{
+          product_id: returnModal.item.product_id!,
+          product_name: returnModal.item.product_name,
+          original_invoice_item_id: returnModal.item.id,
+          original_quantity: returnModal.item.quantity,
+          return_quantity: returnQuantity,
+          unit_price: returnModal.item.unit_price,
+          total_price: totalPrice,
+          unit: returnModal.item.unit || 'piece',
+          reason: returnModal.reason
+        }],
+        reason: returnModal.reason,
+        settlement_type: returnModal.settlementType,
+        notes: returnModal.notes,
+        created_by: 'user'
+      };
+
+      await db.createReturn(returnData);
+
+      toast.success(
+        `Return processed successfully! ${returnModal.settlementType === 'ledger'
+          ? 'Credit added to customer ledger'
+          : 'Cash refund recorded'}`
+      );
+
+      closeReturnModal();
+      await loadInvoiceDetails();
+
+      if (onUpdate) {
+        onUpdate();
+      }
+
+    } catch (error: any) {
+      console.error('Return processing error:', error);
+      toast.error(error.message || 'Failed to process return');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleAddPayment = async () => {
     if (!newPayment.amount || parseFloat(newPayment.amount) <= 0) {
       toast.error('Please enter a valid payment amount');
@@ -470,40 +617,174 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         <head>
           <title>Invoice ${formatInvoiceNumber(invoice.bill_number)}</title>
           <style>
-            @page { size: 80mm auto; margin: 0; }
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: 'Courier New', monospace; font-size: 10px; line-height: 1.2; color: #000; width: 80mm; padding: 2mm; }
-            .header { text-align: center; margin-bottom: 3mm; border-bottom: 1px dashed #000; padding-bottom: 2mm; }
-            .store-name { font-size: 14px; font-weight: bold; margin-bottom: 1mm; }
-            .store-tagline { font-size: 8px; margin-bottom: 1mm; }
-            .store-address { font-size: 8px; margin-bottom: 1mm; }
-            .proprietor { font-size: 9px; font-weight: bold; }
-            .invoice-info { margin-bottom: 3mm; font-size: 9px; }
-            .invoice-row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
-            .customer-info { margin-bottom: 3mm; border-bottom: 1px dashed #000; padding-bottom: 2mm; }
-            .items-table { width: 100%; margin-bottom: 3mm; }
-            .items-header { border-bottom: 1px solid #000; padding-bottom: 1mm; margin-bottom: 1mm; font-weight: bold; font-size: 8px; }
-            .item-row { font-size: 8px; margin-bottom: 1mm; padding-bottom: 1mm; border-bottom: 1px dotted #ccc; }
-            .item-name { font-weight: bold; margin-bottom: 0.5mm; }
-            .item-details { display: flex; justify-content: space-between; }
-            .item-timestamp { font-size: 7px; color: #666; margin-bottom: 0.5mm; }
-            .totals { border-top: 1px solid #000; padding-top: 2mm; margin-top: 2mm; }
-            .total-row { display: flex; justify-content: space-between; margin-bottom: 1mm; }
-            .grand-total { font-weight: bold; font-size: 11px; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
-            .payment-info { margin-top: 3mm; border-top: 1px dashed #000; padding-top: 2mm; }
-            .payment-row { font-size: 8px; margin-bottom: 1mm; padding-bottom: 1mm; border-bottom: 1px dotted #ccc; }
-            .payment-timestamp { font-size: 7px; color: #666; }
-            .footer { text-align: center; margin-top: 5mm; border-top: 1px dashed #000; padding-top: 2mm; font-size: 8px; }
-            .status-paid { font-weight: bold; }
-            .status-partial { font-weight: bold; }
-            .status-pending { font-weight: bold; }
-            @media print { body { background: white; } .no-print { display: none; } }
+            @page { 
+              size: 80mm auto; 
+              margin: 2mm; 
+            }
+            * { 
+              margin: 0; 
+              padding: 0; 
+              box-sizing: border-box; 
+            }
+            body { 
+              font-family: 'Arial', 'Helvetica', sans-serif; 
+              font-size: 11px; 
+              line-height: 1.3; 
+              color: #000; 
+              width: 76mm; 
+              padding: 2mm; 
+              background: white;
+            }
+            .header { 
+              text-align: center; 
+              margin-bottom: 4mm; 
+              border-bottom: 2px solid #000; 
+              padding-bottom: 3mm; 
+            }
+            .store-name { 
+              font-size: 14px; 
+              font-weight: bold; 
+              margin-bottom: 2mm; 
+              letter-spacing: 0.3px;
+            }
+            .store-tagline { 
+              font-size: 9px; 
+              margin-bottom: 1mm; 
+              font-style: italic;
+            }
+            .store-address { 
+              font-size: 9px; 
+              margin-bottom: 1mm; 
+            }
+            .proprietor { 
+              font-size: 10px; 
+              font-weight: bold; 
+            }
+            .invoice-info { 
+              margin-bottom: 4mm; 
+              font-size: 10px; 
+              border-bottom: 1px dashed #000;
+              padding-bottom: 3mm;
+            }
+            .invoice-row { 
+              display: flex; 
+              justify-content: space-between; 
+              margin-bottom: 1.5mm; 
+            }
+            .customer-info { 
+              margin-bottom: 4mm; 
+              border-bottom: 1px dashed #000; 
+              padding-bottom: 3mm; 
+              font-size: 10px;
+            }
+            .customer-info div {
+              margin-bottom: 1mm;
+            }
+            .items-table { 
+              width: 100%; 
+              margin-bottom: 4mm; 
+            }
+            .items-header { 
+              border-bottom: 2px solid #000; 
+              padding-bottom: 2mm; 
+              margin-bottom: 2mm; 
+              font-weight: bold; 
+              font-size: 11px; 
+              text-align: center;
+            }
+            .item-row { 
+              font-size: 9px; 
+              margin-bottom: 2mm; 
+              padding-bottom: 2mm; 
+              border-bottom: 1px dotted #999; 
+            }
+            .item-name { 
+              font-weight: bold; 
+              margin-bottom: 1mm; 
+              font-size: 10px;
+            }
+            .item-details { 
+              display: flex; 
+              justify-content: space-between; 
+              font-size: 9px;
+            }
+            .item-timestamp { 
+              font-size: 8px; 
+              color: #666; 
+              margin-bottom: 1mm; 
+            }
+            .totals { 
+              border-top: 2px solid #000; 
+              padding-top: 3mm; 
+              margin-top: 3mm; 
+              font-size: 10px;
+            }
+            .total-row { 
+              display: flex; 
+              justify-content: space-between; 
+              margin-bottom: 1.5mm; 
+            }
+            .grand-total { 
+              font-weight: bold; 
+              font-size: 12px; 
+              border-top: 1px solid #000; 
+              padding-top: 2mm; 
+              margin-top: 2mm; 
+            }
+            .payment-info { 
+              margin-top: 4mm; 
+              border-top: 1px dashed #000; 
+              padding-top: 3mm; 
+              font-size: 9px;
+            }
+            .payment-row { 
+              font-size: 8px; 
+              margin-bottom: 1.5mm; 
+              padding-bottom: 1.5mm; 
+              border-bottom: 1px dotted #ccc; 
+            }
+            .payment-timestamp { 
+              font-size: 8px; 
+              color: #666; 
+            }
+            .footer { 
+              text-align: center; 
+              margin-top: 6mm; 
+              border-top: 1px dashed #000; 
+              padding-top: 3mm; 
+              font-size: 8px; 
+            }
+            .status-paid { 
+              font-weight: bold; 
+              color: #008000;
+            }
+            .status-partial { 
+              font-weight: bold; 
+              color: #ff8c00;
+            }
+            .status-pending { 
+              font-weight: bold; 
+              color: #dc3545;
+            }
+            @media print { 
+              body { 
+                background: white; 
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              } 
+              .no-print { 
+                display: none; 
+              } 
+              * {
+                font-size: inherit !important;
+              }
+            }
           </style>
         </head>
         <body>
           <div class="header">
             <div class="store-name">ITTEHAD IRON STORE</div>
-            <div class="store-tagline">(Rebar G60 G72.5 G80, T-Iron, Girders are available</div>
+            <div class="store-tagline">(Rebar G60 G72.5 G80, T-Iron, Girders are available)</div>
             <div class="store-address">Opposite Lakar Mandi Pull, GT Road, Chichawatni</div>
           </div>
           <div class="invoice-info">
@@ -901,13 +1182,28 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           <td className="px-4 py-3 text-sm">{formatCurrency(item.unit_price)}</td>
                           <td className="px-4 py-3 text-sm font-medium">{formatCurrency(item.total_price)}</td>
                           <td className="px-4 py-3">
-                            <button
-                              onClick={() => handleRemoveItem(item.id)}
-                              disabled={saving}
-                              className="p-1 text-red-600 hover:text-red-800 disabled:opacity-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
+                            <div className="flex items-center space-x-1">
+                              {/* Return button - only for non-misc items with product_id */}
+                              {!item.is_misc_item && item.product_id && (
+                                <button
+                                  onClick={() => openReturnModal(item)}
+                                  disabled={saving}
+                                  className="p-1 text-orange-600 hover:text-orange-800 disabled:opacity-50"
+                                  title="Return Item"
+                                >
+                                  <Undo2 className="h-4 w-4" />
+                                </button>
+                              )}
+                              {/* Remove button */}
+                              <button
+                                onClick={() => handleRemoveItem(item.id)}
+                                disabled={saving}
+                                className="p-1 text-red-600 hover:text-red-800 disabled:opacity-50"
+                                title="Remove Item"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1349,6 +1645,155 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     )}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Return Modal */}
+        {returnModal.isOpen && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+              <div className="border-b border-gray-200 px-6 py-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-900">Return Item</h3>
+                  <button
+                    onClick={closeReturnModal}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-6 py-4 space-y-4">
+                {/* Item Details */}
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <h4 className="font-medium text-gray-900">{returnModal.item?.product_name}</h4>
+                  <div className="text-sm text-gray-600 mt-1">
+                    <div>Unit Price: {formatCurrency(returnModal.item?.unit_price || 0)}</div>
+                    <div>Original Quantity: {returnModal.item?.quantity}</div>
+                    <div>Max Return: {returnModal.item?.quantity}</div>
+                  </div>
+                </div>
+
+                {/* Return Quantity */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Return Quantity *
+                  </label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    max={returnModal.item?.quantity || 1}
+                    step="0.01"
+                    value={returnModal.returnQuantity}
+                    onChange={(e) => setReturnModal(prev => ({ ...prev, returnQuantity: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enter quantity to return"
+                  />
+                </div>
+
+                {/* Return Reason */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Return Reason *
+                  </label>
+                  <select
+                    value={returnModal.reason}
+                    onChange={(e) => setReturnModal(prev => ({ ...prev, reason: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="Customer Request">Customer Request</option>
+                    <option value="Defective Item">Defective Item</option>
+                    <option value="Wrong Item">Wrong Item</option>
+                    <option value="Damaged">Damaged</option>
+                    <option value="Quality Issue">Quality Issue</option>
+                    <option value="Change of Mind">Change of Mind</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                {/* Settlement Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Settlement Method *
+                  </label>
+                  <div className="space-y-2">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="ledger"
+                        checked={returnModal.settlementType === 'ledger'}
+                        onChange={(e) => setReturnModal(prev => ({ ...prev, settlementType: e.target.value as 'ledger' | 'cash' }))}
+                        className="mr-3 text-blue-600"
+                      />
+                      <div>
+                        <div className="text-sm font-medium">Add to Customer Ledger</div>
+                        <div className="text-xs text-gray-500">Credit will be added to customer's account</div>
+                      </div>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="cash"
+                        checked={returnModal.settlementType === 'cash'}
+                        onChange={(e) => setReturnModal(prev => ({ ...prev, settlementType: e.target.value as 'ledger' | 'cash' }))}
+                        className="mr-3 text-blue-600"
+                      />
+                      <div>
+                        <div className="text-sm font-medium">Cash Refund</div>
+                        <div className="text-xs text-gray-500">Cash will be refunded to customer</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Notes (Optional)
+                  </label>
+                  <textarea
+                    value={returnModal.notes}
+                    onChange={(e) => setReturnModal(prev => ({ ...prev, notes: e.target.value }))}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Additional notes about the return..."
+                  />
+                </div>
+
+                {/* Return Total */}
+                {returnModal.returnQuantity && !isNaN(parseFloat(returnModal.returnQuantity)) && (
+                  <div className="bg-blue-50 rounded-lg p-3">
+                    <div className="text-sm font-medium text-blue-900">
+                      Return Total: {formatCurrency(parseFloat(returnModal.returnQuantity) * (returnModal.item?.unit_price || 0))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-gray-200 px-6 py-4 flex justify-end space-x-3">
+                <button
+                  onClick={closeReturnModal}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={processReturn}
+                  disabled={saving || !returnModal.returnQuantity || !returnModal.reason}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? (
+                    <div className="flex items-center space-x-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Processing...</span>
+                    </div>
+                  ) : (
+                    'Process Return'
+                  )}
+                </button>
               </div>
             </div>
           </div>

@@ -33,11 +33,11 @@ export interface AllSettings {
 
 class SettingsService {
   private readonly STORAGE_PREFIX = 'settings_';
-  
+
   // Default settings
   private readonly defaultSettings: AllSettings = {
     general: {
-      companyName: 'Itehad Iron Store',
+      companyName: 'Ittehad Iron Store',
       dateFormat: 'DD/MM/YYYY',
       language: 'en'
     },
@@ -129,7 +129,7 @@ class SettingsService {
     const day = String(date.getDate()).padStart(2, '0');
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const year = date.getFullYear();
-    
+
     switch (settings.dateFormat) {
       case 'MM/DD/YYYY':
         return `${month}/${day}/${year}`;
@@ -144,27 +144,27 @@ class SettingsService {
   validatePassword(password: string, settings: SecuritySettings): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
     const policy = settings.passwordPolicy;
-    
+
     if (password.length < policy.minLength) {
       errors.push(`Password must be at least ${policy.minLength} characters long`);
     }
-    
+
     if (policy.requireUppercase && !/[A-Z]/.test(password)) {
       errors.push('Password must contain uppercase letters');
     }
-    
+
     if (policy.requireLowercase && !/[a-z]/.test(password)) {
       errors.push('Password must contain lowercase letters');
     }
-    
+
     if (policy.requireNumbers && !/\d/.test(password)) {
       errors.push('Password must contain numbers');
     }
-    
+
     if (policy.requireSpecialChars && !/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
       errors.push('Password must contain special characters');
     }
-    
+
     return {
       valid: errors.length === 0,
       errors
@@ -174,18 +174,18 @@ class SettingsService {
   // Calculate next backup time
   calculateNextBackupTime(settings: BackupSettings): Date | null {
     if (!settings.enableAutoBackup) return null;
-    
+
     const now = new Date();
     const [hours, minutes] = settings.backupTime.split(':').map(Number);
-    
+
     let scheduledTime = new Date();
     scheduledTime.setHours(hours, minutes, 0, 0);
-    
+
     // If the scheduled time has passed today, schedule for tomorrow
     if (scheduledTime < now) {
       scheduledTime.setDate(scheduledTime.getDate() + 1);
     }
-    
+
     return scheduledTime;
   }
 
@@ -199,17 +199,17 @@ class SettingsService {
   importSettings(settingsJson: string): boolean {
     try {
       const settings = JSON.parse(settingsJson);
-      
+
       // Validate settings structure
       const requiredCategories = ['general', 'security', 'backup'];
-      const hasAllCategories = requiredCategories.every(category => 
+      const hasAllCategories = requiredCategories.every(category =>
         settings[category] && typeof settings[category] === 'object'
       );
-      
+
       if (!hasAllCategories) {
         throw new Error('Invalid settings format');
       }
-      
+
       // Save imported settings
       return this.saveAllSettings(settings);
     } catch (error) {

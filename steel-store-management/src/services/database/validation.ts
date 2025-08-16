@@ -31,7 +31,7 @@ export async function validateEnhancedDatabase(): Promise<{
     const enhanced = EnhancedDatabaseService.getInstance();
     if (enhanced) {
       details.push('✅ Enhanced Database Service instance available');
-      
+
       try {
         await enhanced.initialize();
         details.push('✅ Enhanced Database Service initialized successfully');
@@ -83,10 +83,10 @@ export async function validateEnhancedDatabase(): Promise<{
       const health = await enhanced.healthCheck();
       if (health && typeof health.healthy === 'boolean') {
         details.push(`✅ Health check working - Status: ${health.healthy ? 'Healthy' : 'Unhealthy'}`);
-        
+
         if (health.components) {
           Object.entries(health.components).forEach(([component, status]) => {
-            const componentStatus = status as { healthy: boolean; details?: any };
+            const componentStatus = status as unknown as { healthy: boolean; details?: any };
             details.push(`  - ${component}: ${componentStatus.healthy ? '✅ Healthy' : '❌ Unhealthy'}`);
           });
         }
@@ -108,7 +108,7 @@ export async function validateEnhancedDatabase(): Promise<{
       ]);
       const duration = Date.now() - start;
       details.push(`✅ Concurrent operations completed in ${duration}ms`);
-      
+
       if (duration < 2000) {
         details.push('✅ Performance within acceptable range');
       } else {
@@ -174,7 +174,7 @@ export async function validateEnhancedDatabase(): Promise<{
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Validation failed with critical error:', errorMessage);
     errors.push(`Critical error: ${errorMessage}`);
-    
+
     return {
       success: false,
       details,

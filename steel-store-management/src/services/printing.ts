@@ -2,8 +2,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { formatInvoiceNumber } from '../utils/numberFormatting';
 
 export class PrintingService {
-  async printInvoice(invoice: any) {
-    const html = this.generateInvoiceHTML(invoice);
+  async printInvoice(invoice: any, printerType: '80mm' | 'A4' = 'A4') {
+    const html = printerType === '80mm'
+      ? this.generateThermalInvoiceHTML(invoice)
+      : this.generateInvoiceHTML(invoice);
     return await invoke('print_document', { html, type: 'invoice' });
   }
 
@@ -11,9 +13,232 @@ export class PrintingService {
     return await invoke('print_document', { html: '', type: 'report' });
   }
 
+  private generateThermalInvoiceHTML(invoice: any): string {
+    const company = {
+      name: 'Ittehad Iron Store',
+      address: 'Opposite Lakar Mandi Pull, GT Road, Chichawatni',
+      phone: '+92 300 0000000'
+    };
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          @page { 
+            size: 80mm auto; 
+            margin: 2mm; 
+          }
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            line-height: 1.4;
+            color: #000;
+            width: 76mm;
+            padding: 2mm;
+            background: white;
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 4mm;
+            border-bottom: 2px solid #000;
+            padding-bottom: 3mm;
+          }
+          .company-name {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 2mm;
+            letter-spacing: 0.3px;
+          }
+          .company-details {
+            font-size: 9px;
+            margin-bottom: 1mm;
+          }
+          .invoice-details {
+            margin-bottom: 4mm;
+            font-size: 10px;
+            border-bottom: 1px dashed #000;
+            padding-bottom: 3mm;
+          }
+          .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1.5mm;
+          }
+          .customer-section {
+            margin-bottom: 4mm;
+            border-bottom: 1px dashed #000;
+            padding-bottom: 3mm;
+            font-size: 10px;
+          }
+          .customer-section div {
+            margin-bottom: 1mm;
+          }
+          .items-section {
+            margin-bottom: 4mm;
+          }
+          .items-header {
+            font-weight: bold;
+            font-size: 11px;
+            text-align: center;
+            border-bottom: 2px solid #000;
+            padding-bottom: 2mm;
+            margin-bottom: 2mm;
+          }
+          .item {
+            margin-bottom: 2mm;
+            padding-bottom: 2mm;
+            border-bottom: 1px dotted #999;
+            font-size: 9px;
+          }
+          .item-name {
+            font-weight: bold;
+            font-size: 10px;
+            margin-bottom: 1mm;
+          }
+          .item-calculation {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+          }
+          .totals-section {
+            border-top: 2px solid #000;
+            padding-top: 3mm;
+            margin-top: 3mm;
+            font-size: 10px;
+          }
+          .total-line {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1.5mm;
+          }
+          .grand-total {
+            font-weight: bold;
+            font-size: 12px;
+            border-top: 1px solid #000;
+            padding-top: 2mm;
+            margin-top: 2mm;
+          }
+          .payment-section {
+            margin-top: 4mm;
+            border-top: 1px dashed #000;
+            padding-top: 3mm;
+            font-size: 9px;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 6mm;
+            border-top: 1px dashed #000;
+            padding-top: 3mm;
+            font-size: 8px;
+          }
+          @media print {
+            body {
+              background: white;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+            * {
+              font-size: inherit !important;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div class="company-name">${company.name}</div>
+          <div class="company-details">${company.address}</div>
+          <div class="company-details">${company.phone}</div>
+        </div>
+
+        <div class="invoice-details">
+          <div class="detail-row">
+            <span>Invoice#:</span>
+            <span><strong>${this.formatInvoiceNumber(invoice.bill_number)}</strong></span>
+          </div>
+          <div class="detail-row">
+            <span>Date:</span>
+            <span>${this.formatDate(invoice.created_at)}</span>
+          </div>
+          <div class="detail-row">
+            <span>Status:</span>
+            <span><strong>${invoice.status.toUpperCase()}</strong></span>
+          </div>
+        </div>
+
+        <div class="customer-section">
+          <div><strong>Customer:</strong> ${invoice.customer_name}</div>
+          ${invoice.customer_phone ? `<div><strong>Phone:</strong> ${invoice.customer_phone}</div>` : ''}
+          ${invoice.customer_address ? `<div><strong>Address:</strong> ${invoice.customer_address}</div>` : ''}
+        </div>
+
+        <div class="items-section">
+          <div class="items-header">ITEMS</div>
+          ${(invoice.items as Array<{
+      product_name: string;
+      unit?: string;
+      quantity: number;
+      unit_price: number;
+      total_price: number;
+    }>).map((item) => `
+            <div class="item">
+              <div class="item-name">${item.product_name}</div>
+              <div class="item-calculation">
+                <span>${item.quantity} × ${this.formatCurrency(item.unit_price)}</span>
+                <span><strong>${this.formatCurrency(item.total_price)}</strong></span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="totals-section">
+          <div class="total-line">
+            <span>Subtotal:</span>
+            <span>${this.formatCurrency(invoice.subtotal)}</span>
+          </div>
+          ${invoice.discount > 0 ? `
+            <div class="total-line">
+              <span>Discount:</span>
+              <span>-${this.formatCurrency(invoice.discount)}</span>
+            </div>
+          ` : ''}
+          <div class="total-line grand-total">
+            <span>TOTAL:</span>
+            <span>${this.formatCurrency(invoice.grand_total)}</span>
+          </div>
+        </div>
+
+        <div class="payment-section">
+          <div class="total-line">
+            <span>Paid:</span>
+            <span>${this.formatCurrency(invoice.payment_received || 0)}</span>
+          </div>
+          ${invoice.remaining_balance > 0 ? `
+            <div class="total-line">
+              <span><strong>Balance Due:</strong></span>
+              <span><strong>${this.formatCurrency(invoice.remaining_balance)}</strong></span>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="footer">
+          <div>Thank you for your business!</div>
+          <div>Generated: ${this.formatDate(new Date().toISOString())}</div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
   private generateInvoiceHTML(invoice: any): string {
     const company = {
-      name: 'Itehad Iron Store',
+      name: 'Ittehad Iron Store',
       address: 'Main Market, City',
       phone: '+92 300 0000000'
     };
@@ -156,14 +381,14 @@ export class PrintingService {
             </div>
             <div class="invoice-info">
               <div class="invoice-number">Invoice: ${formatInvoiceNumber(invoice.bill_number)}</div>
-              <div>Date: ${new Date(invoice.created_at).toLocaleDateString('en-PK', { 
-                year: 'numeric', 
-                month: 'short', 
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true
-              })}</div>
+              <div>Date: ${new Date(invoice.created_at).toLocaleDateString('en-PK', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    })}</div>
               <div>Status: ${invoice.status.toUpperCase()}</div>
             </div>
           </div>
@@ -180,12 +405,12 @@ export class PrintingService {
             </thead>
             <tbody>
               ${(invoice.items as Array<{
-                product_name: string;
-                unit: string;
-                quantity: number;
-                rate: number;
-                total: number;
-              }>).map((item) => `
+      product_name: string;
+      unit: string;
+      quantity: number;
+      rate: number;
+      total: number;
+    }>).map((item) => `
                 <tr>
                   <td>${item.product_name}</td>
                   <td class="text-center">${item.unit}</td>
@@ -245,6 +470,21 @@ export class PrintingService {
 
   private formatCurrency(amount: number): string {
     return `Rs. ${amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+  }
+
+  private formatInvoiceNumber(billNumber: number): string {
+    return formatInvoiceNumber(billNumber.toString());
+  }
+
+  private formatDate(dateString: string): string {
+    return new Date(dateString).toLocaleDateString('en-PK', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
   }
 }
 

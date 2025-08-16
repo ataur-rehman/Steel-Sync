@@ -22,7 +22,6 @@ import {
   Truck,
   CreditCard
 } from 'lucide-react';
-import { useRoleAccess } from '../../hooks/useRoleAccess';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -32,7 +31,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [companyName, setCompanyName] = useState('Itehad Iron Store');
+  const [companyName, setCompanyName] = useState('Ittehad Iron Store');
 
   // Add error handling for useAuth
   let user, logout;
@@ -51,7 +50,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   }
 
   const { navigateTo, getCurrentTab } = useNavigation();
-  const { isAdmin } = useRoleAccess();
   const location = useLocation();
   const navigate = useNavigate();
 

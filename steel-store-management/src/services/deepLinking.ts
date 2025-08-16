@@ -56,12 +56,12 @@ export class DeepLinkingService {
     };
 
     let url = baseUrls[type as keyof typeof baseUrls] || '/';
-    
+
     if (params) {
       const searchParams = new URLSearchParams(params);
       url += `?${searchParams.toString()}`;
     }
-    
+
     return url;
   }
 
@@ -90,7 +90,7 @@ export class DeepLinkingService {
     const customer = await db.getCustomer(Number(customerId));
     const ledgerData = await db.getCustomerLedger(customerId, {});
     const stockMovements = await db.getStockMovements({ customer_id: customerId });
-    
+
     const entity: LinkableEntity = {
       id: customer.id,
       type: 'customer',
@@ -109,7 +109,22 @@ export class DeepLinkingService {
     const addedProducts = new Set<number>();
 
     // Add unique invoices
- 
+    const addedInvoices = new Set<number>();
+    ledgerData.transactions.forEach((transaction: any) => {
+      if (transaction.type === 'invoice' && transaction.reference_id && !addedInvoices.has(transaction.reference_id)) {
+        addedInvoices.add(transaction.reference_id);
+        relatedEntities.push({
+          id: transaction.reference_id,
+          type: 'invoice',
+          displayName: transaction.description || `Invoice #${transaction.reference_id}`,
+          url: this.getEntityUrl('invoice', transaction.reference_id),
+          metadata: {
+            amount: transaction.debit_amount,
+            date: transaction.date
+          }
+        });
+      }
+    });
 
     // Add unique products from stock movements
     stockMovements.forEach(movement => {
@@ -123,7 +138,7 @@ export class DeepLinkingService {
           metadata: {
             totalQuantity: stockMovements
               .filter(m => m.product_id === movement.product_id)
-              .reduce((sum, m) => sum + m.quantity, 0)
+              .reduce((sum, m) => sum + (typeof m.quantity === 'number' ? m.quantity : parseFloat(m.quantity) || 0), 0)
           }
         });
       }
@@ -151,7 +166,7 @@ export class DeepLinkingService {
   private static async getProductContext(productId: number): Promise<TraceabilityContext> {
     const product = await db.getProduct(productId);
     const stockMovements = await db.getStockMovements({ product_id: productId });
-    
+
     const entity: LinkableEntity = {
       id: product.id,
       type: 'product',
@@ -214,11 +229,11 @@ export class DeepLinkingService {
   private static async getInvoiceContext(invoiceId: number): Promise<TraceabilityContext> {
     const invoice = await db.getInvoiceDetails(invoiceId);
     const customer = await db.getCustomer(invoice.customer_id);
-    const stockMovements = await db.getStockMovements({ 
-      reference_type: 'invoice', 
-      reference_id: invoiceId 
+    const stockMovements = await db.getStockMovements({
+      reference_type: 'invoice',
+      reference_id: invoiceId
     });
-    
+
     const entity: LinkableEntity = {
       id: invoice.id,
       type: 'invoice',
@@ -300,7 +315,7 @@ export class DeepLinkingService {
    * Generate timeline for customer with all activities
    */
   private static async generateCustomerTimeline(
-    _customerId: number, 
+    _customerId: number,
     ledgerData: any,
     stockMovements: any[]
   ): Promise<TimelineEvent[]> {
@@ -312,10 +327,10 @@ export class DeepLinkingService {
         timeline.push({
           id: `invoice-${transaction.reference_id}`,
           date: transaction.date,
-          time: new Date(transaction.created_at).toLocaleTimeString('en-PK', { 
-            hour: '2-digit', 
+          time: new Date(transaction.created_at).toLocaleTimeString('en-PK', {
+            hour: '2-digit',
             minute: '2-digit',
-            hour12: true 
+            hour12: true
           }),
           type: 'sale',
           description: `Invoice ${transaction.reference_number} created`,
@@ -333,10 +348,10 @@ export class DeepLinkingService {
         timeline.push({
           id: `payment-${transaction.reference_id}`,
           date: transaction.date,
-          time: new Date(transaction.created_at).toLocaleTimeString('en-PK', { 
-            hour: '2-digit', 
+          time: new Date(transaction.created_at).toLocaleTimeString('en-PK', {
+            hour: '2-digit',
             minute: '2-digit',
-            hour12: true 
+            hour12: true
           }),
           type: 'payment',
           description: `Payment received`,
@@ -405,8 +420,8 @@ export class DeepLinkingService {
         id: `movement-${movement.id}`,
         date: movement.date,
         time: movement.time,
-        type: movement.movement_type === 'out' ? 'sale' : 
-              movement.movement_type === 'return' ? 'return' : 'stock_change',
+        type: movement.movement_type === 'out' ? 'sale' :
+          movement.movement_type === 'return' ? 'return' : 'stock_change',
         description,
         quantity: movement.quantity,
         amount: movement.total_value,
@@ -446,10 +461,10 @@ export class DeepLinkingService {
     timeline.push({
       id: `created-${invoice.id}`,
       date: new Date(invoice.created_at).toISOString().split('T')[0],
-      time: new Date(invoice.created_at).toLocaleTimeString('en-PK', { 
-        hour: '2-digit', 
+      time: new Date(invoice.created_at).toLocaleTimeString('en-PK', {
+        hour: '2-digit',
         minute: '2-digit',
-        hour12: true 
+        hour12: true
       }),
       type: 'sale',
       description: `Invoice created for ${invoice.customer_name}`,
@@ -468,10 +483,10 @@ export class DeepLinkingService {
       timeline.push({
         id: `payment-${invoice.id}`,
         date: new Date(invoice.created_at).toISOString().split('T')[0],
-        time: new Date(invoice.created_at).toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
+        time: new Date(invoice.created_at).toLocaleTimeString('en-PK', {
+          hour: '2-digit',
           minute: '2-digit',
-          hour12: true 
+          hour12: true
         }),
         type: 'payment',
         description: `Payment received via ${invoice.payment_method}`,
@@ -600,7 +615,7 @@ export class DeepLinkingService {
 
     // Parse path and add appropriate breadcrumbs
     const segments = path.split('/').filter(s => s);
-    
+
     if (segments[0] === 'reports') {
       breadcrumbs.push({
         id: 0,
@@ -671,7 +686,7 @@ export class DeepLinkingService {
       for (const customer of customers) {
         const ledger = await db.getCustomerLedger(customer.id, {});
         const calculatedBalance = (ledger.summary?.totalInvoiceAmount || 0) - (ledger.summary?.totalPaymentAmount || 0);
-        
+
         if (Math.abs(customer.balance - calculatedBalance) > 0.01) {
           issues.push(`Customer ${customer.name} balance mismatch: DB=${customer.balance}, Calculated=${calculatedBalance}`);
         }
@@ -683,8 +698,10 @@ export class DeepLinkingService {
         const movements = await db.getStockMovements({ product_id: product.id });
         if (movements.length > 0) {
           const lastMovement = movements[0]; // Already sorted by date desc
-          if (Math.abs(product.stock_quantity - lastMovement.new_stock) > 0.01) {
-            issues.push(`Product ${product.name} stock mismatch: DB=${product.stock_quantity}, Last Movement=${lastMovement.new_stock}`);
+          const productStock = typeof product.stock_quantity === 'number' ? product.stock_quantity : parseFloat(product.stock_quantity) || 0;
+          const lastMovementStock = typeof lastMovement.new_stock === 'number' ? lastMovement.new_stock : parseFloat(lastMovement.new_stock) || 0;
+          if (Math.abs(productStock - lastMovementStock) > 0.01) {
+            issues.push(`Product ${product.name} stock mismatch: DB=${productStock}, Last Movement=${lastMovementStock}`);
           }
         }
       }
@@ -696,7 +713,7 @@ export class DeepLinkingService {
         if (details.items) {
           const calculatedTotal = details.items.reduce((sum: number, item: any) => sum + item.total_price, 0);
           const afterDiscount = calculatedTotal - ((calculatedTotal * (details.discount || 0)) / 100);
-          
+
           if (Math.abs(details.grand_total - afterDiscount) > 0.01) {
             issues.push(`Invoice ${invoice.bill_number} total mismatch: DB=${details.grand_total}, Calculated=${afterDiscount}`);
           }
@@ -729,10 +746,10 @@ export class DeepLinkingService {
       case 'customer':
         const ledger = await db.getCustomerLedger(entityId, {});
         const stockMovements = await db.getStockMovements({ customer_id: entityId });
-        
+
         // Add all ledger entries as changes
         ledger.transactions.forEach(() => {
-     
+
         });
 
         // Add stock movements as related changes
@@ -749,7 +766,7 @@ export class DeepLinkingService {
 
       case 'product':
         const movements = await db.getStockMovements({ product_id: entityId });
-        
+
         movements.forEach(movement => {
           changes.push({
             date: movement.date,
@@ -767,11 +784,11 @@ export class DeepLinkingService {
 
       case 'invoice':
         const invoice = await db.getInvoiceDetails(entityId);
-        const invoiceMovements = await db.getStockMovements({ 
-          reference_type: 'invoice', 
-          reference_id: entityId 
+        const invoiceMovements = await db.getStockMovements({
+          reference_type: 'invoice',
+          reference_id: entityId
         });
-        
+
         // Add invoice creation
         changes.push({
           date: invoice.created_at,

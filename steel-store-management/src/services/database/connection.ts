@@ -95,14 +95,14 @@ export class DatabaseConnectionManager {
       // 🔒 PRODUCTION FIX: Use ONLY the single enforced database path
       const dbInfo = await getSingleDatabasePath();
       const dbPath = dbInfo.url; // Use the URL format for Database.load()
-      
+
       // Validate this is the correct single database path
       validateSingleDatabasePath(dbInfo.path); // Validate using the path
 
       console.log(`🔒 Database connection manager connecting to SINGLE database: ${dbPath}`);
       this.database = await this.DatabasePlugin.default.load(dbPath);
       console.log(`✅ Database connection manager connected to SINGLE database successfully: ${dbPath}`);
-      
+
     } catch (error) {
       console.error('🚨 CRITICAL: Single database connection failed:', error);
       throw error;
@@ -196,6 +196,67 @@ export class DatabaseConnectionManager {
   }
 
   /**
+   * Execute a database query with metrics tracking
+   */
+  public async executeQuery(query: string, params: any[] = []): Promise<any> {
+    if (!this.isConnected || !this.database) {
+      throw new Error('Database not connected. Call connect() first.');
+    }
+
+    const startTime = Date.now();
+
+    try {
+      this.metrics.totalQueries++;
+
+      let result;
+      if (query.trim().toLowerCase().startsWith('select')) {
+        result = await this.database.select(query, params);
+      } else {
+        result = await this.database.execute(query, params);
+      }
+
+      const queryTime = Date.now() - startTime;
+      this.updateQueryMetrics(queryTime);
+
+      return result;
+    } catch (error) {
+      this.metrics.connectionErrors++;
+      throw error;
+    }
+  }
+
+  /**
+   * Get connection information including metrics
+   */
+  public getConnectionInfo(): {
+    isConnected: boolean;
+    connectionAttempts: number;
+    lastError: Error | null;
+    metrics: DatabaseMetrics;
+  } {
+    return {
+      isConnected: this.isConnected,
+      connectionAttempts: this.connectionAttempts,
+      lastError: this.lastConnectionError,
+      metrics: this.getMetrics()
+    };
+  }
+
+  /**
+   * Update query performance metrics
+   */
+  private updateQueryMetrics(queryTime: number): void {
+    // Update average query time
+    const totalTime = this.metrics.averageQueryTime * (this.metrics.totalQueries - 1);
+    this.metrics.averageQueryTime = (totalTime + queryTime) / this.metrics.totalQueries;
+
+    // Track slow queries (> 100ms)
+    if (queryTime > 100) {
+      this.metrics.slowQueries++;
+    }
+  }
+
+  /**
    * Disconnect from database
    */
   public async disconnect(): Promise<void> {
@@ -220,7 +281,7 @@ export class DatabaseConnectionManager {
       if (!this.isConnected || !this.database) {
         return false;
       }
-      
+
       await this.database.execute('SELECT 1');
       return true;
     } catch (error) {

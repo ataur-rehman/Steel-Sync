@@ -10,7 +10,6 @@ import { CENTRALIZED_DATABASE_TABLES, CentralizedTableManager, TABLE_CREATION_OR
 export class PermanentDatabaseAbstractionLayer {
   private dbConnection: any;
   private centralizedManager: CentralizedTableManager;
-  private isInitialized: boolean = false;
 
   constructor(dbConnection: any) {
     this.dbConnection = dbConnection;
@@ -24,14 +23,13 @@ export class PermanentDatabaseAbstractionLayer {
   async initialize(): Promise<boolean> {
     try {
       console.log('🔄 [PERMANENT] Initializing TRUE permanent solution - centralized schema only...');
-      
+
       // Ensure all tables exist using centralized definitions ONLY
       await this.ensureAllTablesUseCentralizedSchema();
-      
+
       // Create performance indexes
       await this.ensureIndexesExist();
-      
-      this.isInitialized = true;
+
       console.log('✅ [PERMANENT] Database now uses centralized schema exclusively');
       return true;
     } catch (error) {
@@ -46,7 +44,7 @@ export class PermanentDatabaseAbstractionLayer {
    */
   private async ensureAllTablesUseCentralizedSchema(): Promise<void> {
     console.log('🏗️ [PERMANENT] Ensuring database uses centralized schema definitions...');
-    
+
     for (const tableName of TABLE_CREATION_ORDER) {
       const tableSQL = CENTRALIZED_DATABASE_TABLES[tableName as keyof typeof CENTRALIZED_DATABASE_TABLES];
       if (tableSQL) {
@@ -68,7 +66,7 @@ export class PermanentDatabaseAbstractionLayer {
    */
   private async ensureIndexesExist(): Promise<void> {
     console.log('📊 [PERMANENT] Creating performance indexes from centralized definitions...');
-    
+
     for (const indexSQL of PERFORMANCE_INDEXES) {
       try {
         await this.dbConnection.execute(indexSQL);
@@ -85,15 +83,15 @@ export class PermanentDatabaseAbstractionLayer {
   async safeExecute(sql: string, params?: any[]): Promise<any> {
     // Block any schema modification attempts that bypass centralized system
     const upperSQL = sql.toUpperCase().trim();
-    
-    if (upperSQL.includes('ALTER TABLE') || 
-        upperSQL.includes('DROP TABLE') ||
-        (upperSQL.includes('CREATE TABLE') && !upperSQL.includes('IF NOT EXISTS'))) {
-      
+
+    if (upperSQL.includes('ALTER TABLE') ||
+      upperSQL.includes('DROP TABLE') ||
+      (upperSQL.includes('CREATE TABLE') && !upperSQL.includes('IF NOT EXISTS'))) {
+
       console.warn('🚫 [PERMANENT] Schema modification blocked - use centralized schema only:', sql.substring(0, 100));
       return { success: true, blocked: true, reason: 'Schema modification prevented - use centralized schema' };
     }
-    
+
     // Allow all other operations using centralized schema
     return await this.dbConnection.execute(sql, params);
   }
@@ -116,5 +114,5 @@ export class PermanentDatabaseAbstractionLayer {
     };
   }
 
-  
+
 }

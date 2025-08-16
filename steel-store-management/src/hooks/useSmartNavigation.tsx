@@ -1,4 +1,4 @@
-import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useCallback, useMemo } from 'react';
 
 export interface NavigationItem {
@@ -17,12 +17,10 @@ export interface SmartNavigationOptions {
 export function useSmartNavigation(options: SmartNavigationOptions = {}) {
   const navigate = useNavigate();
   const location = useLocation();
-  const params = useParams();
-  
+
   const {
     fallbackPath = '/dashboard',
     enableBrowserBack = true,
-    maxHistoryDepth = 10
   } = options;
 
   // Get navigation history from sessionStorage
@@ -47,13 +45,13 @@ export function useSmartNavigation(options: SmartNavigationOptions = {}) {
   // Enhanced go back functionality
   const goBack = useCallback((customFallback?: string) => {
     const history = getNavigationHistory();
-    
+
     if (history.length > 1) {
       // Remove current page and go to previous
       const updatedHistory = history.slice(0, -1);
       saveNavigationHistory(updatedHistory);
       const previousPage = updatedHistory[updatedHistory.length - 1];
-      
+
       if (previousPage) {
         navigate(previousPage.path, { replace: true });
         return;
@@ -71,7 +69,7 @@ export function useSmartNavigation(options: SmartNavigationOptions = {}) {
   // Navigate to a new page and update history
   const navigateTo = useCallback((path: string, options?: { replace?: boolean; label?: string; fromComponent?: string }) => {
     const { replace = false } = options || {};
-    
+
     navigate(path, { replace });
   }, [navigate]);
 
@@ -81,11 +79,11 @@ export function useSmartNavigation(options: SmartNavigationOptions = {}) {
       navigate(listPath);
       return;
     }
-    
+
     // Smart detection of list path
     const currentPath = location.pathname;
     let smartListPath = '/dashboard';
-    
+
     if (currentPath.includes('/customers/')) smartListPath = '/customers';
     else if (currentPath.includes('/vendors/')) smartListPath = '/vendors';
     else if (currentPath.includes('/products/')) smartListPath = '/products';
@@ -93,7 +91,7 @@ export function useSmartNavigation(options: SmartNavigationOptions = {}) {
     else if (currentPath.includes('/stock/receiving/')) smartListPath = '/stock/receiving';
     else if (currentPath.includes('/stock/')) smartListPath = '/stock';
     else if (currentPath.includes('/reports/')) smartListPath = '/reports';
-    
+
     navigate(smartListPath);
   }, [navigate, location.pathname]);
 
@@ -131,10 +129,10 @@ export function useSmartNavigation(options: SmartNavigationOptions = {}) {
     ];
 
     let currentPath = '';
-    
+
     for (let i = 0; i < pathSegments.length; i++) {
       currentPath += `/${pathSegments[i]}`;
-      
+
       if (currentPath !== '/dashboard') {
         crumbs.push({
           path: currentPath,

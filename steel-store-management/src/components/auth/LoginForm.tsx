@@ -10,7 +10,7 @@ const LoginForm: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!username || !password) {
       toast.error('Please enter both username and password');
       return;
@@ -20,7 +20,7 @@ const LoginForm: React.FC = () => {
 
     try {
       const success = await login(username, password);
-      
+
       if (success) {
         toast.success('Login successful!');
       } else {
@@ -43,13 +43,13 @@ const LoginForm: React.FC = () => {
             <span className="text-2xl font-bold text-white">🏪</span>
           </div>
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
-            Itehad Iron Store
+            Ittehad Iron Store
           </h1>
           <p className="mt-2 text-sm text-gray-500">
             Sign in to your account to continue
           </p>
         </div>
-        
+
         {/* Login Card */}
         <div className="card p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -98,13 +98,13 @@ const LoginForm: React.FC = () => {
             </button>
           </form>
         </div>
-        
-  
+
+
 
         {/* Footer */}
         <div className="mt-8 text-center">
           <p className="text-xs text-gray-500">
-            © 2024 Itehad Iron Store. All rights reserved.
+            © 2024 Ittehad Iron Store. All rights reserved.
           </p>
         </div>
       </div>

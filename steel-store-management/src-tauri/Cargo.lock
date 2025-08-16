@@ -1982,11 +1982,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "itehad-iron-store"
+name = "itoa"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
+
+[[package]]
+name = "ittehad-iron-store"
 version = "1.0.0"
 dependencies = [
  "log",
  "rusqlite",
+ "serde",
  "serde_json",
  "tauri",
  "tauri-build",
@@ -1996,12 +2003,6 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-sql",
 ]
-
-[[package]]
-name = "itoa"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
 name = "javascriptcore-rs"

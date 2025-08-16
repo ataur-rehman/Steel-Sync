@@ -13,9 +13,9 @@ import { DatabaseQueryCache } from './cache';
 import { DatabaseConfigManager } from './config';
 
 // Import types
-import type { 
-  QueryOptions, 
-  DatabaseMetrics 
+import type {
+  QueryOptions,
+  DatabaseMetrics
 } from './types';
 
 /**
@@ -45,7 +45,7 @@ export class EnhancedDatabaseService {
   // State management
   private isInitialized = false;
   private isInitializing = false;
-  
+
   // Event system for UI reactivity (decoupled from UI)
   private eventListeners = new Map<string, Set<(data: any) => void>>();
 
@@ -70,7 +70,7 @@ export class EnhancedDatabaseService {
    */
   public async initialize(): Promise<boolean> {
     if (this.isInitialized) return true;
-    
+
     if (this.isInitializing) {
       // Wait for ongoing initialization
       while (this.isInitializing) {
@@ -85,29 +85,29 @@ export class EnhancedDatabaseService {
     try {
       // Step 1: Establish connection
       const database = await this.connectionManager.connect();
-      
+
       // Step 2: Initialize schema manager
       this.schemaManager = new DatabaseSchemaManager(database);
       await this.schemaManager.initialize();
-      
+
       // Step 3: Apply any pending migrations
       if (await this.schemaManager.needsMigration()) {
         console.log('📋 Applying database migrations...');
         await this.schemaManager.applyMigrations();
       }
-      
+
       // Step 4: Initialize transaction manager
       this.transactionManager = new DatabaseTransactionManager(database);
-      
+
       // Step 5: Warm cache with frequently accessed data
       await this.warmCache();
-      
+
       // Step 6: Mark as initialized
       this.isInitialized = true;
       console.log('✅ Enhanced database initialization completed successfully!');
-      
+
       // Emit initialization event
-      this.emit('DATABASE_READY', { 
+      this.emit('DATABASE_READY', {
         timestamp: new Date().toISOString(),
         metrics: this.connectionManager.getConnectionInfo().metrics
       });
@@ -208,10 +208,10 @@ export class EnhancedDatabaseService {
       }
 
       const customers = await this.connectionManager.executeQuery(query, params);
-      
+
       // Cache for 30 seconds
       this.queryCache.set(cacheKey, customers, 30000);
-      
+
       return Array.isArray(customers) ? customers : [];
     } catch (error) {
       console.error('Error getting customers:', error);
@@ -271,9 +271,9 @@ export class EnhancedDatabaseService {
    * Fetch products from database and cache result
    */
   private async fetchAndCacheProducts(
-    cacheKey: string, 
-    search?: string, 
-    category?: string, 
+    cacheKey: string,
+    search?: string,
+    category?: string,
     options: QueryOptions = {}
   ): Promise<any[]> {
     try {
@@ -299,10 +299,10 @@ export class EnhancedDatabaseService {
       }
 
       const products = await this.connectionManager.executeQuery(query, params);
-      
+
       // Cache for 30 seconds
       this.queryCache.set(cacheKey, products, 30000);
-      
+
       return Array.isArray(products) ? products : [];
     } catch (error) {
       console.error('Error getting products:', error);
@@ -462,10 +462,10 @@ export class EnhancedDatabaseService {
 
       const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
       const availableStock = currentStockData.numericValue;
-      
+
       const requiredQuantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
       const requiredStock = requiredQuantityData.numericValue;
-      
+
       if (availableStock < requiredStock) {
         const availableDisplay = formatUnitString(availableStock.toString(), product.unit_type || 'kg-grams');
         const requiredDisplay = formatUnitString(requiredStock.toString(), product.unit_type || 'kg-grams');
@@ -519,12 +519,12 @@ export class EnhancedDatabaseService {
   private async generateBillNumber(): Promise<string> {
     const today = new Date();
     const dateStr = today.toISOString().split('T')[0].replace(/-/g, '');
-    
+
     const result = await this.connectionManager.executeQuery(
       `SELECT COUNT(*) as count FROM invoices WHERE date = ?`,
       [today.toISOString().split('T')[0]]
     );
-    
+
     const dailyCount = (Array.isArray(result) && result.length > 0 && result[0]?.count || 0) + 1;
     return `INV-${dateStr}-${dailyCount.toString().padStart(4, '0')}`;
   }
@@ -594,7 +594,7 @@ export class EnhancedDatabaseService {
     const cacheMetrics = this.queryCache.getMetrics();
 
     return {
-      ...connectionHealth,
+      connection: connectionHealth,
       cache: cacheMetrics,
       isInitialized: this.isInitialized
     };

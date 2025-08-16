@@ -24,25 +24,10 @@ export class EnhancedDatabaseService {
   private database: any = null;
   private isInitialized = false;
   private isInitializing = false;
-  
-  private config: DatabaseConfig;
+
   private static instance: EnhancedDatabaseService | null = null;
 
-  private constructor(config: DatabaseConfig = {}) {
-    this.config = {
-      enableCaching: true,
-      enableEvents: true,
-      cacheConfig: {
-        maxSize: 100,
-        maxMemoryMB: 50,
-        defaultTtl: 300000, // 5 minutes
-      },
-      transactionConfig: {
-        maxRetries: 3,
-        timeout: 30000,
-      },
-      ...config
-    };
+  private constructor(_config: DatabaseConfig = {}) {
   }
 
   /**
@@ -71,15 +56,15 @@ export class EnhancedDatabaseService {
 
     try {
       console.log('🔧 Initializing Enhanced Database Service with single database enforcement...');
-      
+
       // Connect to SINGLE database using enforcer
       await this.initializeSingleDatabase();
-      
+
       this.isInitialized = true;
       this.isInitializing = false;
-      
+
       console.log('✅ Enhanced Database Service initialized successfully with single database');
-      
+
     } catch (error) {
       this.isInitializing = false;
       console.error('❌ Enhanced Database Service initialization failed:', error);
@@ -97,20 +82,20 @@ export class EnhancedDatabaseService {
 
       // Import SQL plugin
       const Database = await import('@tauri-apps/plugin-sql');
-      
+
       // 🔒 PRODUCTION FIX: Import single database enforcer
       const { getSingleDatabasePath, validateSingleDatabasePath } = await import('../single-database-enforcer');
 
       // 🔒 PRODUCTION FIX: Use ONLY the single enforced database path
       const dbInfo = await getSingleDatabasePath();
       const dbUrl = dbInfo.url; // Use the URL format for Database.load()
-      
+
       // Validate this is the correct single database path
       validateSingleDatabasePath(dbInfo.path); // Validate using the path
 
       console.log(`🔒 Enhanced service connecting to SINGLE database: ${dbUrl}`);
       this.database = await Database.default.load(dbUrl);
-      
+
       // Test connection
       await this.database.execute('SELECT 1');
       console.log(`✅ Enhanced service connected to SINGLE database successfully: ${dbUrl}`);
@@ -158,7 +143,7 @@ export class EnhancedDatabaseService {
   private async waitForTauriReady(): Promise<void> {
     const maxWait = 30000; // 30 seconds
     const startTime = Date.now();
-    
+
     return new Promise((resolve, reject) => {
       const check = () => {
         if (typeof window !== 'undefined' && (window as any).__TAURI__) {
@@ -179,7 +164,7 @@ export class EnhancedDatabaseService {
   private async waitForInitialization(): Promise<void> {
     const maxWait = 30000; // 30 seconds
     const startTime = Date.now();
-    
+
     return new Promise((resolve, reject) => {
       const check = () => {
         if (this.isInitialized) {
@@ -254,9 +239,9 @@ export class EnhancedDatabaseService {
     try {
       this.isInitialized = false;
       this.database = null;
-      
+
       console.log('🔌 Enhanced Database Service shut down successfully');
-      
+
     } catch (error) {
       console.error('Error during Enhanced Database Service shutdown:', error);
     }

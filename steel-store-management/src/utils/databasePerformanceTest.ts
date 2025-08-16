@@ -38,10 +38,10 @@ export class DatabasePerformanceTestRunner {
     products: any[];
     invoices: any[];
   } = {
-    customers: [],
-    products: [],
-    invoices: []
-  };
+      customers: [],
+      products: [],
+      invoices: []
+    };
 
   constructor() {
     this.db = DatabaseService.getInstance();
@@ -52,18 +52,18 @@ export class DatabasePerformanceTestRunner {
    */
   async runCompleteTestSuite(): Promise<PerformanceTestSuite> {
     console.log('🚀 Starting comprehensive database performance test suite...');
-    
+
     const startTime = Date.now();
     const results: PerformanceTestResult[] = [];
-    
+
     try {
       // Initialize database
       await this.db.initialize();
-      
+
       // Generate test data
       console.log('📊 Generating test data...');
       await this.generateTestData();
-      
+
       // Run individual performance tests
       const tests = [
         () => this.testOptimizedCustomerQueries(),
@@ -77,7 +77,7 @@ export class DatabasePerformanceTestRunner {
         () => this.testFinancialSummaryPerformance(),
         () => this.testLotStockPerformance()
       ];
-      
+
       for (const test of tests) {
         try {
           const result = await test();
@@ -97,14 +97,14 @@ export class DatabasePerformanceTestRunner {
           console.error(`❌ Test failed:`, error);
         }
       }
-      
+
       // Calculate summary
       const totalDuration = Date.now() - startTime;
       const testsPassed = results.filter(r => r.success).length;
       const testsFailed = results.filter(r => !r.success).length;
-      
+
       const summary = this.calculateSummary(results);
-      
+
       const testSuite: PerformanceTestSuite = {
         suiteName: 'Database Performance Test Suite',
         totalDuration,
@@ -114,10 +114,10 @@ export class DatabasePerformanceTestRunner {
         results,
         summary
       };
-      
+
       this.printTestSuiteReport(testSuite);
       return testSuite;
-      
+
     } catch (error) {
       console.error('❌ Performance test suite failed:', error);
       throw error;
@@ -131,7 +131,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Optimized Customer Queries';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       // Test various customer query scenarios
       const scenarios = [
@@ -140,7 +140,7 @@ export class DatabasePerformanceTestRunner {
         { search: undefined, limit: 100, offset: 50 },
         { search: 'Customer', limit: 20, offset: 0 }
       ];
-      
+
       for (const scenario of scenarios) {
         const result = await this.db.getCustomersOptimized({
           search: scenario.search,
@@ -151,10 +151,10 @@ export class DatabasePerformanceTestRunner {
         });
         recordsProcessed += result.customers.length;
       }
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -183,7 +183,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Optimized Product Queries';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       const scenarios = [
         { search: undefined, category: undefined, limit: 50 },
@@ -191,7 +191,7 @@ export class DatabasePerformanceTestRunner {
         { search: undefined, category: 'Rod', limit: 30 },
         { search: 'Iron', category: 'Bar', limit: 20 }
       ];
-      
+
       for (const scenario of scenarios) {
         const result = await this.db.getProductsOptimized({
           search: scenario.search,
@@ -202,10 +202,10 @@ export class DatabasePerformanceTestRunner {
         });
         recordsProcessed += result.products.length;
       }
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -234,7 +234,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Optimized Invoice Queries';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       const scenarios = [
         { status: undefined, limit: 50, includeItems: false },
@@ -242,7 +242,7 @@ export class DatabasePerformanceTestRunner {
         { status: 'paid', limit: 30, includePayments: true },
         { search: 'I00001', limit: 20, includeItems: true, includePayments: true }
       ];
-      
+
       for (const scenario of scenarios) {
         const result = await this.db.getInvoicesOptimized({
           status: scenario.status,
@@ -253,10 +253,10 @@ export class DatabasePerformanceTestRunner {
         });
         recordsProcessed += result.invoices.length;
       }
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -285,7 +285,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Bulk Operations Performance';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       // Generate test data for bulk operations
       const bulkCustomers = Array.from({ length: 100 }, (_, i) => ({
@@ -294,11 +294,11 @@ export class DatabasePerformanceTestRunner {
         address: `Address ${i + 1}`,
         balance: 0
       }));
-      
+
       // Test bulk customer creation
       const result = await this.db.executeBulkOperation(
         async (batch: any[]) => {
-          for (const customer of batch) {
+          for (const { } of batch) {
             // Simulate bulk insert operation
             await new Promise(resolve => setTimeout(resolve, 1));
           }
@@ -306,12 +306,12 @@ export class DatabasePerformanceTestRunner {
         bulkCustomers,
         { batchSize: 20 }
       );
-      
+
       recordsProcessed = result.success;
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -340,7 +340,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Concurrent Query Performance';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       // Execute multiple queries concurrently
       const concurrentQueries = [
@@ -350,9 +350,9 @@ export class DatabasePerformanceTestRunner {
         this.db.getFinancialSummaryOptimized({ includeDetails: false }),
         this.db.getLotBasedStockOptimized({ limit: 25 })
       ];
-      
+
       const results = await Promise.all(concurrentQueries);
-      
+
       recordsProcessed = results.reduce((total, result) => {
         if ('customers' in result) return total + result.customers.length;
         if ('products' in result) return total + result.products.length;
@@ -360,10 +360,10 @@ export class DatabasePerformanceTestRunner {
         if ('lots' in result) return total + result.lots.length;
         return total + 1; // For summary queries
       }, 0);
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -392,27 +392,27 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Cache Performance Test';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       // Run the same query multiple times to test cache
       const queryOptions = { limit: 50, includeBalance: true };
-      
+
       // First run (cache miss)
       await this.db.getCustomersOptimized(queryOptions);
       recordsProcessed += 50;
-      
+
       // Subsequent runs (should hit cache)
       for (let i = 0; i < 5; i++) {
         await this.db.getCustomersOptimized(queryOptions);
         recordsProcessed += 50;
       }
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       // Get cache metrics
       const metrics = this.db.getSystemMetrics();
-      
+
       return {
         testName,
         duration,
@@ -442,7 +442,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Pagination Performance';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       // Test pagination with various page sizes and offsets
       const paginationTests = [
@@ -451,7 +451,7 @@ export class DatabasePerformanceTestRunner {
         { limit: 50, offset: 100 },
         { limit: 100, offset: 200 }
       ];
-      
+
       for (const test of paginationTests) {
         const result = await this.db.getCustomersOptimized({
           limit: test.limit,
@@ -459,10 +459,10 @@ export class DatabasePerformanceTestRunner {
         });
         recordsProcessed += result.customers.length;
       }
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -491,7 +491,7 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Complex Join Queries';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       // Test queries with complex joins
       const result1 = await this.db.getInvoicesOptimized({
@@ -500,17 +500,17 @@ export class DatabasePerformanceTestRunner {
         includePayments: true
       });
       recordsProcessed += result1.invoices.length;
-      
+
       const result2 = await this.db.getCustomersOptimized({
         limit: 25,
         includeBalance: true,
         includeStats: true
       });
       recordsProcessed += result2.customers.length;
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -539,19 +539,19 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Financial Summary Performance';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       const result = await this.db.getFinancialSummaryOptimized({
         includeDetails: true
       });
-      
-      recordsProcessed = result.trends.dailySales.length + 
-                       result.trends.topCustomers.length + 
-                       result.trends.topProducts.length + 1; // +1 for summary
-      
+
+      recordsProcessed = result.trends.dailySales.length +
+        result.trends.topCustomers.length +
+        result.trends.topProducts.length + 1; // +1 for summary
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -580,18 +580,18 @@ export class DatabasePerformanceTestRunner {
     const testName = 'Lot Stock Performance';
     const startTime = Date.now();
     let recordsProcessed = 0;
-    
+
     try {
       const result = await this.db.getLotBasedStockOptimized({
         limit: 50,
         includeExpired: true
       });
-      
+
       recordsProcessed = result.lots.length;
-      
+
       const duration = Date.now() - startTime;
       const recordsPerSecond = (recordsProcessed / duration) * 1000;
-      
+
       return {
         testName,
         duration,
@@ -625,14 +625,14 @@ export class DatabasePerformanceTestRunner {
       phone: `0300-${(1000000 + i).toString()}`,
       balance: Math.random() * 10000
     }));
-    
+
     this.testData.products = Array.from({ length: 500 }, (_, i) => ({
       id: i + 1,
       name: `Test Product ${i + 1}`,
       category: `Category ${(i % 10) + 1}`,
       rate_per_unit: Math.random() * 1000
     }));
-    
+
     this.testData.invoices = Array.from({ length: 2000 }, (_, i) => ({
       id: i + 1,
       bill_number: `I${(i + 1).toString().padStart(5, '0')}`,
@@ -656,23 +656,23 @@ export class DatabasePerformanceTestRunner {
    */
   private calculateSummary(results: PerformanceTestResult[]): PerformanceTestSuite['summary'] {
     const successfulResults = results.filter(r => r.success);
-    
+
     const totalRecordsProcessed = successfulResults.reduce((sum, r) => sum + r.recordsProcessed, 0);
-    const averageRecordsPerSecond = successfulResults.length > 0 
+    const averageRecordsPerSecond = successfulResults.length > 0
       ? successfulResults.reduce((sum, r) => sum + r.recordsPerSecond, 0) / successfulResults.length
       : 0;
-    
+
     const cacheResults = successfulResults.filter(r => r.cacheHitRate !== undefined);
     const overallCacheHitRate = cacheResults.length > 0
       ? cacheResults.reduce((sum, r) => sum + (r.cacheHitRate || 0), 0) / cacheResults.length
       : 0;
-    
+
     const avgMemory = successfulResults.length > 0
       ? successfulResults.reduce((sum, r) => sum + r.memoryUsage, 0) / successfulResults.length
       : 0;
-    
+
     const memoryEfficiency = avgMemory < 50 ? 'Excellent' : avgMemory < 100 ? 'Good' : 'Poor';
-    
+
     return {
       averageRecordsPerSecond,
       totalRecordsProcessed,
@@ -688,20 +688,20 @@ export class DatabasePerformanceTestRunner {
     console.log('\n' + '='.repeat(80));
     console.log('📊 DATABASE PERFORMANCE TEST SUITE REPORT');
     console.log('='.repeat(80));
-    
+
     console.log(`\n🎯 OVERALL RESULTS:`);
     console.log(`   Suite: ${suite.suiteName}`);
     console.log(`   Duration: ${(suite.totalDuration / 1000).toFixed(2)}s`);
     console.log(`   Tests Run: ${suite.testsRun}`);
     console.log(`   Passed: ${suite.testsPassed} ✅`);
     console.log(`   Failed: ${suite.testsFailed} ${suite.testsFailed > 0 ? '❌' : '✅'}`);
-    
+
     console.log(`\n📈 PERFORMANCE SUMMARY:`);
     console.log(`   Average Records/Second: ${suite.summary.averageRecordsPerSecond.toFixed(2)}`);
     console.log(`   Total Records Processed: ${suite.summary.totalRecordsProcessed.toLocaleString()}`);
     console.log(`   Cache Hit Rate: ${suite.summary.overallCacheHitRate.toFixed(1)}%`);
     console.log(`   Memory Efficiency: ${suite.summary.memoryEfficiency}`);
-    
+
     console.log(`\n📋 DETAILED TEST RESULTS:`);
     suite.results.forEach((result, index) => {
       const status = result.success ? '✅' : '❌';
@@ -717,9 +717,9 @@ export class DatabasePerformanceTestRunner {
         console.log(`      Error: ${result.error}`);
       }
     });
-    
+
     console.log('\n' + '='.repeat(80));
-    
+
     // Performance recommendations
     console.log('\n💡 PERFORMANCE RECOMMENDATIONS:');
     if (suite.summary.averageRecordsPerSecond < 100) {
@@ -737,7 +737,7 @@ export class DatabasePerformanceTestRunner {
     if (suite.summary.averageRecordsPerSecond > 500 && suite.summary.overallCacheHitRate > 80) {
       console.log('   🎉 Excellent performance! Database is well optimized for production');
     }
-    
+
     console.log('\n✅ Performance test suite completed successfully!');
   }
 }

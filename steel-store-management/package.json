@@ -1,7 +1,7 @@
 {
-  "name": "itehad-iron-store",
-  "description": "Itehad Iron Store Management System",
-  "productName": "Itehad Iron Store",
+  "name": "ittehad-iron-store",
+  "description": "Ittehad Iron Store Management System",
+  "productName": "Ittehad Iron Store",
   "private": true,
   "version": "1.0.0",
   "type": "module",

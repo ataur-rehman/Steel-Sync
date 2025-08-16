@@ -1,5 +1,5 @@
 // hooks/useDetailView.ts
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useStableCallback } from './useStableCallback';
 
 interface DetailViewOptions<T> {
@@ -32,7 +32,7 @@ export function useDetailView<T>({
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
-  
+
   // Track the current request to prevent race conditions
   const currentRequestRef = useRef<string | number | null>(null);
   const mountedRef = useRef(true);
@@ -46,7 +46,7 @@ export function useDetailView<T>({
 
     try {
       setError(null);
-      
+
       // Only show loading if we don't have any data yet
       if (data === null) {
         setLoading(true);
@@ -54,9 +54,9 @@ export function useDetailView<T>({
 
       currentRequestRef.current = loadId;
       console.log(`🔄 Loading detail view data for ID: ${loadId}`);
-      
+
       const result = await loadData(loadId);
-      
+
       // Only update state if this is still the current request and component is mounted
       if (currentRequestRef.current === loadId && mountedRef.current) {
         setData(result);
@@ -93,7 +93,7 @@ export function useDetailView<T>({
         setData(null);
         setError(null);
       }
-      
+
       stableLoadData(id);
     } else {
       // Clear data when no ID is provided
@@ -135,7 +135,7 @@ export function useMultipleDetailLoads<T extends Record<string, any>>(
   const [data, setData] = useState<Partial<T>>({});
   const [loading, setLoading] = useState(true);
   const [errors, setErrors] = useState<Record<string, Error>>({});
-  
+
   const mountedRef = useRef(true);
 
   const loadAllData = useStableCallback(async () => {
@@ -156,7 +156,7 @@ export function useMultipleDetailLoads<T extends Record<string, any>>(
       });
 
       const results = await Promise.all(promises);
-      
+
       if (mountedRef.current) {
         const newData: Partial<T> = {};
         const newErrors: Record<string, Error> = {};

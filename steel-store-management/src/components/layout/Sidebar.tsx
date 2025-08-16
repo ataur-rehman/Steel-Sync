@@ -52,7 +52,7 @@ export default function Sidebar() {
   return (
     <div className="bg-gray-900 text-white w-64 flex flex-col">
       <div className="p-4">
-        <h1 className="text-xl font-bold">Steel Store</h1>
+        <h1 className="text-xl font-bold">Ittehad Iron Store</h1>
         <p className="text-xs text-gray-400 mt-1">
           Role: <span className="capitalize font-medium">{userRole}</span>
         </p>

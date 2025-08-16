@@ -24,11 +24,17 @@ interface ReturnItem {
   id: string;
   product_id: number;
   product_name: string;
-  quantity_returned: number;
-  rate_per_unit: number; // Updated field name
-  return_amount: number;
+  original_invoice_item_id: number;
+  original_quantity: number;
+  return_quantity: number;
+  quantity_returned: number; // Keep for backward compatibility
+  rate_per_unit: number; // Keep for display
+  unit_price: number;
+  total_price: number;
+  return_amount: number; // Keep for display
   condition: 'good' | 'damaged' | 'defective';
   reason: string;
+  unit?: string;
 }
 
 interface Return {
@@ -193,8 +199,13 @@ const Returns: React.FC = () => {
               id: 'ret-item-1',
               product_id: 1,
               product_name: 'Steel Rod 10mm',
+              original_invoice_item_id: 1,
+              original_quantity: 20,
+              return_quantity: 10,
               quantity_returned: 10,
               rate_per_unit: 150,
+              unit_price: 150,
+              total_price: 1500,
               return_amount: 1500,
               condition: 'defective',
               reason: 'Manufacturing defect'
@@ -238,13 +249,13 @@ const Returns: React.FC = () => {
 
     // Date range filter
     if (filters.from_date) {
-      filtered = filtered.filter(ret => 
+      filtered = filtered.filter(ret =>
         new Date(ret.return_date) >= new Date(filters.from_date)
       );
     }
 
     if (filters.to_date) {
-      filtered = filtered.filter(ret => 
+      filtered = filtered.filter(ret =>
         new Date(ret.return_date) <= new Date(filters.to_date + 'T23:59:59')
       );
     }
@@ -280,15 +291,15 @@ const Returns: React.FC = () => {
       if (newStatus === 'processed') {
         // Show loading state
         setLoading(true);
-        
+
         // Process the return through database service
         console.log(`🔄 Processing return ID: ${returnId}`);
         await db.processReturn(returnId);
-        
+
         // Reload all data to reflect changes
         console.log('🔄 Reloading data after return processing...');
         await loadData();
-        
+
         // Show detailed success message
         toast.success(
           'Return processed successfully! 🎉\n' +
@@ -298,10 +309,10 @@ const Returns: React.FC = () => {
           'Please check the respective reports to see the changes.',
           { duration: 5000 }
         );
-        
+
         // Log success for debugging
         console.log('✅ Return processed and data refreshed successfully');
-        
+
       } else {
         // For other status updates, just update the status locally
         const updatedReturns = returns.map(ret =>
@@ -312,7 +323,7 @@ const Returns: React.FC = () => {
         setReturns(updatedReturns);
         toast.success(`Return ${newStatus} successfully`);
       }
-      
+
       // Update the selected return in the modal
       if (selectedReturn && selectedReturn.id === returnId) {
         const updatedReturn = returns.find(r => r.id === returnId);
@@ -320,7 +331,7 @@ const Returns: React.FC = () => {
           setSelectedReturn(updatedReturn);
         }
       }
-      
+
     } catch (error) {
       console.error('Error updating return status:', error);
       toast.error(`Failed to ${newStatus} return: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -383,29 +394,34 @@ const Returns: React.FC = () => {
       if (itemsToReturn.length === 0) {
         // Use real product data for the placeholder item
         const defaultProduct = products.length > 0 ? products[0] : null;
-        
+
         if (!defaultProduct) {
           toast.error('No products available. Please add products first.');
           return;
         }
-        
+
         // Create a realistic item using actual product data
         const defaultQuantity = 1;
         const itemReturnAmount = defaultQuantity * defaultProduct.rate_per_unit;
-        
+
         itemsToReturn = [
           {
             id: 'placeholder-item-1',
             product_id: defaultProduct.id,
             product_name: defaultProduct.name,
+            original_invoice_item_id: 1,
+            original_quantity: defaultQuantity + 5,
+            return_quantity: defaultQuantity,
             quantity_returned: defaultQuantity,
             rate_per_unit: defaultProduct.rate_per_unit,
+            unit_price: defaultProduct.rate_per_unit,
+            total_price: itemReturnAmount,
             return_amount: itemReturnAmount,
             condition: 'good' as const,
             reason: newReturn.reason
           }
         ];
-        
+
         console.log(`📦 Using default product for return: ${defaultProduct.name} - Rs. ${defaultProduct.rate_per_unit} per ${defaultProduct.unit}`);
       }
 
@@ -424,26 +440,33 @@ const Returns: React.FC = () => {
         refund_method: newReturn.refund_method,
         items: itemsToReturn
       });
-      
+
       const returnId = await db.createReturn({
         customer_id: newReturn.customer_id,
         customer_name: customerName,
-        invoice_id: newReturn.invoice_id,
-        invoice_number: newReturn.invoice_id ? 
+        original_invoice_id: newReturn.invoice_id || 0,
+        original_invoice_number: newReturn.invoice_id ?
           invoices.find(inv => inv.id === newReturn.invoice_id)?.bill_number : undefined,
-        return_date: new Date().toISOString(),
-        total_return_amount: totalReturnAmount,
-        refund_method: newReturn.refund_method as any,
-        refund_amount: totalReturnAmount, // For now, refund equals return amount
         reason: newReturn.reason,
+        settlement_type: newReturn.refund_method === 'cash' ? 'cash' : 'ledger',
         notes: newReturn.notes,
-        items: itemsToReturn
+        items: itemsToReturn.map(item => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          original_invoice_item_id: item.original_invoice_item_id,
+          original_quantity: item.original_quantity,
+          return_quantity: item.return_quantity,
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          unit: item.unit,
+          reason: item.reason
+        }))
       });
 
       console.log(`✅ Return created successfully with ID: ${returnId}`);
       toast.success(`Return created successfully! Return ID: ${returnId}`);
       setShowNewReturn(false);
-      
+
       // Reset form and additional state
       setNewReturn({
         customer_id: null,
@@ -459,7 +482,7 @@ const Returns: React.FC = () => {
 
       // Reload data
       await loadData();
-      
+
     } catch (error) {
       console.error('Error creating return:', error);
       toast.error('Failed to create return');
@@ -481,7 +504,7 @@ const Returns: React.FC = () => {
 
     // Check if item already exists in return
     const existingItemIndex = newReturn.items.findIndex(item => item.product_id === selectedProductId);
-    
+
     if (existingItemIndex >= 0) {
       // Update existing item
       const updatedItems = [...newReturn.items];
@@ -489,7 +512,7 @@ const Returns: React.FC = () => {
       existingItem.quantity_returned += returnQuantity;
       existingItem.return_amount = existingItem.quantity_returned * existingItem.rate_per_unit;
       existingItem.condition = itemCondition;
-      
+
       setNewReturn(prev => ({ ...prev, items: updatedItems }));
       toast.success(`Updated ${selectedProduct.name} quantity to ${existingItem.quantity_returned}`);
     } else {
@@ -498,8 +521,13 @@ const Returns: React.FC = () => {
         id: `return-item-${Date.now()}`,
         product_id: selectedProductId,
         product_name: selectedProduct.name,
+        original_invoice_item_id: 1, // Default value, would need proper invoice lookup
+        original_quantity: returnQuantity + 1, // Assume more was originally sold
+        return_quantity: returnQuantity,
         quantity_returned: returnQuantity,
         rate_per_unit: selectedProduct.rate_per_unit,
+        unit_price: selectedProduct.rate_per_unit,
+        total_price: returnQuantity * selectedProduct.rate_per_unit,
         return_amount: returnQuantity * selectedProduct.rate_per_unit,
         condition: itemCondition,
         reason: newReturn.reason || 'Return request'
@@ -526,7 +554,7 @@ const Returns: React.FC = () => {
   const updateItemCondition = (itemId: string, condition: 'good' | 'damaged' | 'defective') => {
     setNewReturn(prev => ({
       ...prev,
-      items: prev.items.map(item => 
+      items: prev.items.map(item =>
         item.id === itemId ? { ...item, condition } : item
       )
     }));
@@ -542,7 +570,7 @@ const Returns: React.FC = () => {
             Manage product returns and refund processing
           </p>
         </div>
-        
+
         <div className="flex items-center space-x-3">
           <button
             onClick={() => setShowFilters(!showFilters)}
@@ -551,7 +579,7 @@ const Returns: React.FC = () => {
             <Filter className="h-4 w-4 mr-2" />
             Filters
           </button>
-          
+
           <button
             onClick={() => setShowNewReturn(true)}
             className="flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
@@ -559,7 +587,7 @@ const Returns: React.FC = () => {
             <Plus className="h-4 w-4 mr-2" />
             New Return
           </button>
-          
+
           <button
             onClick={loadData}
             disabled={loading}
@@ -593,9 +621,9 @@ const Returns: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">Customer</label>
               <select
                 value={filters.customer_id || ''}
-                onChange={(e) => setFilters(prev => ({ 
-                  ...prev, 
-                  customer_id: e.target.value ? parseInt(e.target.value) : null 
+                onChange={(e) => setFilters(prev => ({
+                  ...prev,
+                  customer_id: e.target.value ? parseInt(e.target.value) : null
                 }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
@@ -658,7 +686,7 @@ const Returns: React.FC = () => {
               />
             </div>
           </div>
-          
+
           <div className="mt-4 flex justify-end">
             <button
               onClick={clearFilters}
@@ -681,7 +709,7 @@ const Returns: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <DollarSign className="h-8 w-8 text-red-600" />
@@ -693,7 +721,7 @@ const Returns: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <Clock className="h-8 w-8 text-yellow-600" />
@@ -703,7 +731,7 @@ const Returns: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <CheckCircle className="h-8 w-8 text-green-600" />
@@ -722,7 +750,7 @@ const Returns: React.FC = () => {
             Returns List ({filteredReturns.length} returns)
           </h3>
         </div>
-        
+
         {loading ? (
           <div className="flex items-center justify-center h-32">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -756,7 +784,7 @@ const Returns: React.FC = () => {
                 {filteredReturns.map((returnItem) => {
                   const statusInfo = getStatusInfo(returnItem.status);
                   const StatusIcon = statusInfo.icon;
-                  
+
                   return (
                     <tr key={returnItem.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4">
@@ -774,7 +802,7 @@ const Returns: React.FC = () => {
                           )}
                         </div>
                       </td>
-                      
+
                       <td className="px-6 py-4">
                         <div className="flex items-center">
                           <User className="h-4 w-4 text-gray-400 mr-2" />
@@ -783,7 +811,7 @@ const Returns: React.FC = () => {
                           </div>
                         </div>
                       </td>
-                      
+
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-semibold text-red-600">
                           {formatCurrency(returnItem.total_return_amount)}
@@ -792,20 +820,20 @@ const Returns: React.FC = () => {
                           {returnItem.items.length} item{returnItem.items.length > 1 ? 's' : ''}
                         </div>
                       </td>
-                      
+
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                           {returnItem.refund_method && typeof returnItem.refund_method === 'string' ? returnItem.refund_method.replace('_', ' ') : 'N/A'}
                         </span>
                       </td>
-                      
+
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
                           <StatusIcon className="h-3 w-3 mr-1" />
                           {statusInfo.label}
                         </span>
                       </td>
-                      
+
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex items-center space-x-2">
                           <button
@@ -815,7 +843,7 @@ const Returns: React.FC = () => {
                             <Eye className="h-4 w-4 mr-1" />
                             View
                           </button>
-                          
+
                           {returnItem.status === 'pending' && (
                             <div className="flex space-x-1">
                               <button
@@ -832,7 +860,7 @@ const Returns: React.FC = () => {
                               </button>
                             </div>
                           )}
-                          
+
                           {returnItem.status === 'approved' && (
                             <button
                               onClick={() => updateReturnStatus(returnItem.id, 'processed')}
@@ -902,15 +930,14 @@ const Returns: React.FC = () => {
                     )}
                   </div>
                 </div>
-                
+
                 <div>
                   <h4 className="font-medium text-gray-900 mb-2">Customer Information</h4>
                   <div className="space-y-1 text-sm">
                     <p><span className="text-gray-600">Customer:</span> {selectedReturn.customer_name}</p>
-                    <p><span className="text-gray-600">Status:</span> 
-                      <span className={`ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        getStatusInfo(selectedReturn.status).color
-                      }`}>
+                    <p><span className="text-gray-600">Status:</span>
+                      <span className={`ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusInfo(selectedReturn.status).color
+                        }`}>
                         {getStatusInfo(selectedReturn.status).label}
                       </span>
                     </p>
@@ -950,11 +977,10 @@ const Returns: React.FC = () => {
                             {formatCurrency(item.return_amount)}
                           </td>
                           <td className="px-4 py-2">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              item.condition === 'good' ? 'bg-green-100 text-green-800' :
-                              item.condition === 'damaged' ? 'bg-yellow-100 text-yellow-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.condition === 'good' ? 'bg-green-100 text-green-800' :
+                                item.condition === 'damaged' ? 'bg-yellow-100 text-yellow-800' :
+                                  'bg-red-100 text-red-800'
+                              }`}>
                               {item.condition}
                             </span>
                           </td>
@@ -982,7 +1008,7 @@ const Returns: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Refund Method:</span>
@@ -994,7 +1020,7 @@ const Returns: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                
+
                 {selectedReturn.notes && (
                   <div className="mt-4 pt-4 border-t">
                     <p className="text-gray-600 text-sm">
@@ -1012,7 +1038,7 @@ const Returns: React.FC = () => {
                 >
                   Close
                 </button>
-                
+
                 {selectedReturn.status === 'pending' && (
                   <div className="flex space-x-2">
                     <button
@@ -1035,7 +1061,7 @@ const Returns: React.FC = () => {
                     </button>
                   </div>
                 )}
-                
+
                 {selectedReturn.status === 'approved' && (
                   <button
                     onClick={() => {
@@ -1073,9 +1099,9 @@ const Returns: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Customer</label>
                   <select
                     value={newReturn.customer_id || ''}
-                    onChange={(e) => setNewReturn(prev => ({ 
-                      ...prev, 
-                      customer_id: e.target.value ? parseInt(e.target.value) : null 
+                    onChange={(e) => setNewReturn(prev => ({
+                      ...prev,
+                      customer_id: e.target.value ? parseInt(e.target.value) : null
                     }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
@@ -1087,14 +1113,14 @@ const Returns: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Original Invoice (Optional)</label>
                   <select
                     value={newReturn.invoice_id || ''}
-                    onChange={(e) => setNewReturn(prev => ({ 
-                      ...prev, 
-                      invoice_id: e.target.value ? parseInt(e.target.value) : null 
+                    onChange={(e) => setNewReturn(prev => ({
+                      ...prev,
+                      invoice_id: e.target.value ? parseInt(e.target.value) : null
                     }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
@@ -1125,7 +1151,7 @@ const Returns: React.FC = () => {
                     ))}
                   </select>
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Refund Method</label>
                   <select
@@ -1155,7 +1181,7 @@ const Returns: React.FC = () => {
               {/* Item Selection Section */}
               <div className="border-t pt-4">
                 <h4 className="font-medium text-gray-900 mb-4">Add Items to Return</h4>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
@@ -1172,7 +1198,7 @@ const Returns: React.FC = () => {
                       ))}
                     </select>
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
                     <input
@@ -1183,7 +1209,7 @@ const Returns: React.FC = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Condition</label>
                     <select
@@ -1196,7 +1222,7 @@ const Returns: React.FC = () => {
                       <option value="defective">Defective</option>
                     </select>
                   </div>
-                  
+
                   <div className="flex items-end">
                     <button
                       type="button"
@@ -1221,11 +1247,10 @@ const Returns: React.FC = () => {
                               <span className="text-sm font-semibold">{formatCurrency(item.return_amount)}</span>
                             </div>
                             <div className="text-sm text-gray-600">
-                              Qty: {item.quantity_returned} × Rs. {item.rate_per_unit} | 
-                              Condition: <span className={`font-medium ${
-                                item.condition === 'good' ? 'text-green-600' :
-                                item.condition === 'damaged' ? 'text-yellow-600' : 'text-red-600'
-                              }`}>{item.condition}</span>
+                              Qty: {item.quantity_returned} × Rs. {item.rate_per_unit} |
+                              Condition: <span className={`font-medium ${item.condition === 'good' ? 'text-green-600' :
+                                  item.condition === 'damaged' ? 'text-yellow-600' : 'text-red-600'
+                                }`}>{item.condition}</span>
                             </div>
                           </div>
                           <div className="flex items-center space-x-2 ml-4">
@@ -1248,7 +1273,7 @@ const Returns: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                    
+
                     <div className="mt-3 p-3 bg-blue-50 rounded-lg">
                       <div className="flex justify-between items-center">
                         <span className="font-medium text-blue-900">Total Return Amount:</span>
@@ -1264,7 +1289,7 @@ const Returns: React.FC = () => {
               {newReturn.items.length === 0 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <p className="text-sm text-yellow-800">
-                    <strong>No items added yet.</strong> You can add specific items above, or create the return without items. 
+                    <strong>No items added yet.</strong> You can add specific items above, or create the return without items.
                     If no items are specified, a default item will be created using the first available product.
                   </p>
                 </div>

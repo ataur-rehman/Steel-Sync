@@ -7,10 +7,30 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 use tauri_plugin_sql::{Builder, Migration, MigrationKind};
 
+#[derive(serde::Serialize)]
+struct AuthResult {
+    success: bool,
+    role: String,
+    id: String,
+}
+
 #[tauri::command]
-async fn authenticate_user(username: String, password: String) -> Result<bool, String> {
+async fn authenticate_user(username: String, password: String) -> Result<AuthResult, String> {
     println!("Authentication attempt: {} / {}", username, password);
-    Ok(username == "admin" && password == "admin123")
+    
+    if username == "admin" && password == "admin123" {
+        Ok(AuthResult {
+            success: true,
+            role: "admin".to_string(),
+            id: "1".to_string(),
+        })
+    } else {
+        Ok(AuthResult {
+            success: false,
+            role: "worker".to_string(),
+            id: "0".to_string(),
+        })
+    }
 }
 
 fn main() {

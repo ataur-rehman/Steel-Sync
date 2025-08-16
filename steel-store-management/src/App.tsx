@@ -47,12 +47,12 @@ function LoginForm() {
   const [username, setUsername] = React.useState('admin');
   const [password, setPassword] = React.useState('admin123');
   const [loading, setLoading] = React.useState(false);
-  const [companyName, setCompanyName] = React.useState('Itehad Iron Store');
+  const [companyName, setCompanyName] = React.useState('Ittehad Iron Store');
 
   // Load company name from settings
   React.useEffect(() => {
     const generalSettings = settingsService.getSettings('general');
-    setCompanyName(generalSettings.companyName || 'Itehad Iron Store');
+    setCompanyName(generalSettings.companyName || 'Ittehad Iron Store');
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

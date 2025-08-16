@@ -6,8 +6,8 @@
  */
 
 import { DatabaseService } from '../database';
-import { EnhancedDatabaseService } from '../database/enhanced-service';
-import { dbEventManager } from '../database/event-manager';
+import { EnhancedDatabaseService } from './enhanced-service';
+import { dbEventManager } from './event-manager';
 
 export class DatabaseValidator {
   private db: DatabaseService;
@@ -117,7 +117,7 @@ export class DatabaseValidator {
       await this.enhancedDb.initialize();
       const health = await this.enhancedDb.healthCheck();
       const passed = health.healthy;
-      this.addResult('Enhanced Service Initialization', passed, 
+      this.addResult('Enhanced Service Initialization', passed,
         passed ? undefined : `Health check failed: ${JSON.stringify(health.components)}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -140,9 +140,9 @@ export class DatabaseValidator {
       // Store test data in cache
       cacheManager.setCached('test_key', { test: 'data' }, 5000);
       const retrieved = cacheManager.getCached('test_key');
-      
+
       const passed = retrieved && retrieved.test === 'data';
-      this.addResult('Caching System', passed, 
+      this.addResult('Caching System', passed,
         passed ? undefined : 'Cache storage/retrieval failed');
     } catch (error) {
       this.addResult('Caching System', false, `Cache test error: ${this.getErrorMessage(error)}`);
@@ -156,7 +156,7 @@ export class DatabaseValidator {
     try {
       let eventReceived = false;
       const testEvent = 'test.validation';
-      
+
       // Subscribe to test event
       const subscriptionId = dbEventManager.on(testEvent, () => {
         eventReceived = true;
@@ -174,7 +174,7 @@ export class DatabaseValidator {
       // Cleanup
       dbEventManager.off(subscriptionId);
 
-      this.addResult('Event System', eventReceived, 
+      this.addResult('Event System', eventReceived,
         eventReceived ? undefined : 'Event emission/reception failed');
     } catch (error) {
       this.addResult('Event System', false, `Event test error: ${this.getErrorMessage(error)}`);
@@ -259,7 +259,7 @@ export class DatabaseValidator {
     try {
       const health = await this.enhancedDb.healthCheck();
       const hasComponents = Object.keys(health.components).length > 0;
-      
+
       this.addResult('Health Checks', hasComponents,
         hasComponents ? undefined : 'No health components found');
     } catch (error) {
@@ -298,7 +298,7 @@ export class DatabaseValidator {
     console.log('\n⚡ Running Performance Benchmark...\n');
 
     const recommendations: string[] = [];
-    
+
     // Test query performance
     const queryTimes: number[] = [];
     for (let i = 0; i < 10; i++) {
@@ -324,7 +324,7 @@ export class DatabaseValidator {
     if (cacheHitRate < 50) {
       recommendations.push('Cache hit rate is low, consider increasing cache TTL or size');
     }
-    if (stats.transactions?.activeTransactions > 5) {
+    if ((stats.transactions?.activeTransactions || 0) > 5) {
       recommendations.push('High number of active transactions, monitor for potential deadlocks');
     }
 
