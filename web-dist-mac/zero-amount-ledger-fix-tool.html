@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zero-Amount Ledger Entries Fix - Critical Issue Resolution</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .alert-critical {
+            background: linear-gradient(135deg, #ff416c, #ff4757);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .alert-warning {
+            background: linear-gradient(135deg, #fdcb6e, #e17055);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .tool-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 5px solid #6c5ce7;
+        }
+        
+        .button {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(108, 92, 231, 0.4);
+        }
+        
+        .button.danger {
+            background: linear-gradient(135deg, #e17055, #d63031);
+        }
+        
+        .button.success {
+            background: linear-gradient(135deg, #00b894, #00cec9);
+        }
+        
+        .input-group {
+            margin: 10px 0;
+        }
+        
+        .input-group input {
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            width: 200px;
+            font-size: 16px;
+        }
+        
+        .output-box {
+            background: #2d3436;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #74b9ff, #0984e3);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .problem-indicator {
+            background: linear-gradient(135deg, #ff7675, #d63031);
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚨 ZERO-AMOUNT LEDGER ENTRIES - CRITICAL FIX</h1>
+        
+        <div class="alert-critical">
+            <h2>🔥 CRITICAL PRODUCTION ISSUE IDENTIFIED</h2>
+            <p><strong>Problem:</strong> Fully paid invoices create zero-amount ledger entries, causing Balance Summary discrepancies</p>
+            <p><strong>Impact:</strong> Balance Summary shows incorrect totals (missing fully paid invoice amounts)</p>
+            <p><strong>Urgency:</strong> Must fix existing data AND prevent future occurrences</p>
+        </div>
+        
+        <div class="tool-section">
+            <h3>🎯 Customer Zero-Amount Analysis</h3>
+            <div class="input-group">
+                <label>Customer ID:</label>
+                <input type="number" id="customerId" placeholder="Enter Customer ID" value="1">
+                <button class="button" onclick="checkZeroAmountIssues()">Check Issues</button>
+                <button class="button success" onclick="fixZeroAmountIssues()">Fix Issues</button>
+                <button class="button danger" onclick="quickFixZeroAmount()">Quick Fix</button>
+            </div>
+        </div>
+        
+        <div class="stats-grid" id="statsContainer">
+            <!-- Stats will be populated dynamically -->
+        </div>
+        
+        <div class="tool-section">
+            <h3>🔍 System-Wide Analysis</h3>
+            <button class="button" onclick="findAllZeroAmountCustomers()">Find All Affected Customers</button>
+            <button class="button" onclick="getZeroAmountStatistics()">Get Global Statistics</button>
+            <button class="button danger" onclick="batchFixAllCustomers()">Batch Fix All Customers</button>
+        </div>
+        
+        <div class="tool-section">
+            <h3>✅ Verification & Testing</h3>
+            <button class="button" onclick="verifyCustomerIntegrity()">Verify Customer Data</button>
+            <button class="button" onclick="runComprehensiveDiagnostic()">Run Full Diagnostic</button>
+            <button class="button success" onclick="validateSystemHealth()">Validate System Health</button>
+        </div>
+        
+        <div id="output" class="output-box">
+Ready to analyze zero-amount ledger entries...
+Click "Check Issues" to begin analysis.
+        </div>
+    </div>
+
+    <script>
+        let db;
+        let currentCustomerId = 1;
+        
+        async function initDB() {
+            if (!db) {
+                const { DatabaseService } = await import('/src/services/database.ts');
+                db = new DatabaseService();
+            }
+        }
+        
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : '📋';
+            output.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function updateStats(stats) {
+            const container = document.getElementById('statsContainer');
+            container.innerHTML = `
+                <div class="stat-card ${stats.zeroAmountCount > 0 ? 'problem-indicator' : ''}">
+                    <h3>Zero-Amount Entries</h3>
+                    <div style="font-size: 2em;">${stats.zeroAmountCount || 0}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Balance Summary</h3>
+                    <div>Debits: ${stats.balanceDebits || 0}</div>
+                    <div>Credits: ${stats.balanceCredits || 0}</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Financial Summary</h3>
+                    <div>Invoiced: ${stats.totalInvoiced || 0}</div>
+                    <div>Paid: ${stats.totalPaid || 0}</div>
+                </div>
+                <div class="stat-card ${Math.abs((stats.balanceDebits || 0) - (stats.totalInvoiced || 0)) > 0.01 ? 'problem-indicator' : ''}">
+                    <h3>Discrepancy</h3>
+                    <div>${Math.abs((stats.balanceDebits || 0) - (stats.totalInvoiced || 0)).toFixed(2)}</div>
+                </div>
+            `;
+        }
+        
+        async function checkZeroAmountIssues() {
+            await initDB();
+            currentCustomerId = parseInt(document.getElementById('customerId').value) || 1;
+            
+            try {
+                log(`🔍 Checking Customer ${currentCustomerId} for zero-amount issues...`);
+                
+                // Check for zero-amount entries
+                const zeroAmountEntries = await db.safeSelect(`
+                    SELECT 
+                        id, 
+                        description, 
+                        amount, 
+                        notes,
+                        date
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ? 
+                      AND amount = 0 
+                      AND (notes LIKE '%FULL PAYMENT TRANSACTION%' OR notes LIKE '%Fully Paid%')
+                    ORDER BY date DESC
+                `, [currentCustomerId]);
+                
+                if (zeroAmountEntries.length === 0) {
+                    log(`✅ No zero-amount entries found for Customer ${currentCustomerId}`, 'success');
+                } else {
+                    log(`🚨 Found ${zeroAmountEntries.length} problematic zero-amount entries:`, 'error');
+                    zeroAmountEntries.forEach(entry => {
+                        log(`   ID: ${entry.id}, Description: ${entry.description}, Date: ${entry.date}`, 'warning');
+                    });
+                }
+                
+                // Get balance summary
+                const balanceSummary = await db.safeSelect(`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+                        COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END), 0) as total_credits
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                `, [currentCustomerId]);
+                
+                // Get financial summary  
+                const financialSummary = await db.safeSelect(`
+                    SELECT 
+                        COALESCE(SUM(i.grand_total), 0) as total_invoiced,
+                        COALESCE(SUM(p.amount), 0) as total_paid
+                    FROM invoices i
+                    LEFT JOIN payments p ON i.id = p.invoice_id
+                    WHERE i.customer_id = ?
+                `, [currentCustomerId]);
+                
+                const stats = {
+                    zeroAmountCount: zeroAmountEntries.length,
+                    balanceDebits: balanceSummary[0]?.total_debits || 0,
+                    balanceCredits: balanceSummary[0]?.total_credits || 0,
+                    totalInvoiced: financialSummary[0]?.total_invoiced || 0,
+                    totalPaid: financialSummary[0]?.total_paid || 0
+                };
+                
+                updateStats(stats);
+                
+                const discrepancy = Math.abs(stats.balanceDebits - stats.totalInvoiced);
+                if (discrepancy > 0.01) {
+                    log(`⚠️ DISCREPANCY DETECTED: Balance Summary (${stats.balanceDebits}) vs Financial Summary (${stats.totalInvoiced}) = ${discrepancy.toFixed(2)}`, 'error');
+                } else {
+                    log(`✅ Balance and Financial summaries match perfectly`, 'success');
+                }
+                
+            } catch (error) {
+                log(`❌ Error checking zero-amount issues: ${error.message}`, 'error');
+            }
+        }
+        
+        async function fixZeroAmountIssues() {
+            await initDB();
+            currentCustomerId = parseInt(document.getElementById('customerId').value) || 1;
+            
+            try {
+                log(`🔧 Starting zero-amount fix for Customer ${currentCustomerId}...`);
+                
+                // Find zero-amount entries with invoice information
+                const zeroAmountEntries = await db.safeSelect(`
+                    SELECT 
+                        l.id,
+                        l.description,
+                        l.notes,
+                        l.date,
+                        i.id as invoice_id,
+                        i.grand_total
+                    FROM customer_ledger_entries l
+                    LEFT JOIN invoices i ON (l.notes LIKE '%' || i.invoice_number || '%' OR l.description LIKE '%' || i.invoice_number || '%')
+                    WHERE l.customer_id = ? 
+                      AND l.amount = 0 
+                      AND l.notes LIKE '%FULL PAYMENT TRANSACTION%'
+                `, [currentCustomerId]);
+                
+                if (zeroAmountEntries.length === 0) {
+                    log(`✅ No zero-amount entries to fix`, 'success');
+                    return;
+                }
+                
+                log(`🔧 Processing ${zeroAmountEntries.length} zero-amount entries...`);
+                
+                for (const entry of zeroAmountEntries) {
+                    log(`Processing entry ID ${entry.id}: ${entry.description}`);
+                    
+                    // Extract amounts from notes if possible
+                    const invoiceMatch = entry.notes.match(/Invoice Rs\.?(\d+\.?\d*)/);
+                    const paymentMatch = entry.notes.match(/Payment Rs\.?(\d+\.?\d*)/);
+                    
+                    const invoiceAmount = invoiceMatch ? parseFloat(invoiceMatch[1]) : entry.grand_total;
+                    const paymentAmount = paymentMatch ? parseFloat(paymentMatch[1]) : entry.grand_total;
+                    
+                    if (invoiceAmount && paymentAmount) {
+                        log(`   → Invoice: Rs.${invoiceAmount}, Payment: Rs.${paymentAmount}`);
+                        
+                        // Delete the zero-amount entry
+                        await db.execute(`DELETE FROM customer_ledger_entries WHERE id = ?`, [entry.id]);
+                        
+                        // Create proper debit entry for invoice
+                        await db.execute(`
+                            INSERT INTO customer_ledger_entries 
+                            (customer_id, amount, type, transaction_type, description, notes, date, created_at)
+                            VALUES (?, ?, 'debit', 'invoice', ?, ?, ?, datetime('now'))
+                        `, [
+                            currentCustomerId,
+                            invoiceAmount,
+                            entry.description.replace(' - Fully Paid', ''),
+                            `Invoice amount Rs.${invoiceAmount}`,
+                            entry.date
+                        ]);
+                        
+                        // Create proper credit entry for payment
+                        await db.execute(`
+                            INSERT INTO customer_ledger_entries 
+                            (customer_id, amount, type, transaction_type, description, notes, date, created_at)
+                            VALUES (?, ?, 'credit', 'payment', ?, ?, ?, datetime('now'))
+                        `, [
+                            currentCustomerId,
+                            paymentAmount,
+                            `Payment for ${entry.description.replace(' - Fully Paid', '')}`,
+                            `Payment amount Rs.${paymentAmount}`,
+                            entry.date
+                        ]);
+                        
+                        log(`   ✅ Fixed: Created debit (Rs.${invoiceAmount}) and credit (Rs.${paymentAmount}) entries`, 'success');
+                    } else {
+                        log(`   ⚠️ Could not extract amounts for entry ${entry.id}`, 'warning');
+                    }
+                }
+                
+                log(`🎉 Zero-amount fix completed! Re-running analysis...`, 'success');
+                
+                // Re-run analysis to show results
+                await checkZeroAmountIssues();
+                
+            } catch (error) {
+                log(`❌ Error fixing zero-amount issues: ${error.message}`, 'error');
+            }
+        }
+        
+        async function quickFixZeroAmount() {
+            await initDB();
+            currentCustomerId = parseInt(document.getElementById('customerId').value) || 1;
+            
+            if (confirm(`Are you sure you want to quick-fix zero-amount entries for Customer ${currentCustomerId}?`)) {
+                log(`⚡ Quick-fixing Customer ${currentCustomerId}...`);
+                await fixZeroAmountIssues();
+            }
+        }
+        
+        async function findAllZeroAmountCustomers() {
+            await initDB();
+            
+            try {
+                log(`🔍 Finding all customers with zero-amount issues...`);
+                
+                const affectedCustomers = await db.safeSelect(`
+                    SELECT 
+                        l.customer_id,
+                        c.name,
+                        COUNT(*) as zero_amount_count
+                    FROM customer_ledger_entries l
+                    JOIN customers c ON l.customer_id = c.id
+                    WHERE l.amount = 0 
+                      AND l.notes LIKE '%FULL PAYMENT TRANSACTION%'
+                    GROUP BY l.customer_id, c.name
+                    ORDER BY zero_amount_count DESC
+                `);
+                
+                if (affectedCustomers.length === 0) {
+                    log(`✅ No customers found with zero-amount issues`, 'success');
+                } else {
+                    log(`🚨 Found ${affectedCustomers.length} customers with zero-amount issues:`, 'warning');
+                    affectedCustomers.forEach(customer => {
+                        log(`   Customer ${customer.customer_id} (${customer.name}): ${customer.zero_amount_count} entries`);
+                    });
+                }
+                
+            } catch (error) {
+                log(`❌ Error finding affected customers: ${error.message}`, 'error');
+            }
+        }
+        
+        async function getZeroAmountStatistics() {
+            await initDB();
+            
+            try {
+                log(`📊 Getting zero-amount statistics...`);
+                
+                const stats = await db.safeSelect(`
+                    SELECT 
+                        COUNT(*) as total_zero_entries,
+                        COUNT(DISTINCT customer_id) as affected_customers,
+                        MIN(date) as earliest_date,
+                        MAX(date) as latest_date
+                    FROM customer_ledger_entries
+                    WHERE amount = 0 
+                      AND notes LIKE '%FULL PAYMENT TRANSACTION%'
+                `);
+                
+                const stat = stats[0];
+                log(`📈 System-wide Zero-Amount Statistics:`);
+                log(`   Total Zero-Amount Entries: ${stat.total_zero_entries}`);
+                log(`   Affected Customers: ${stat.affected_customers}`);
+                log(`   Date Range: ${stat.earliest_date} to ${stat.latest_date}`);
+                
+            } catch (error) {
+                log(`❌ Error getting statistics: ${error.message}`, 'error');
+            }
+        }
+        
+        async function batchFixAllCustomers() {
+            await initDB();
+            
+            if (confirm('⚠️ This will fix zero-amount entries for ALL customers. Are you sure?')) {
+                try {
+                    log(`🚀 Starting batch fix for all customers...`);
+                    
+                    const affectedCustomers = await db.safeSelect(`
+                        SELECT DISTINCT customer_id 
+                        FROM customer_ledger_entries 
+                        WHERE amount = 0 
+                          AND notes LIKE '%FULL PAYMENT TRANSACTION%'
+                    `);
+                    
+                    log(`Found ${affectedCustomers.length} customers to fix...`);
+                    
+                    for (const customer of affectedCustomers) {
+                        log(`Fixing Customer ${customer.customer_id}...`);
+                        document.getElementById('customerId').value = customer.customer_id;
+                        await fixZeroAmountIssues();
+                    }
+                    
+                    log(`🎉 Batch fix completed for all customers!`, 'success');
+                    
+                } catch (error) {
+                    log(`❌ Error in batch fix: ${error.message}`, 'error');
+                }
+            }
+        }
+        
+        async function verifyCustomerIntegrity() {
+            await checkZeroAmountIssues();
+        }
+        
+        async function runComprehensiveDiagnostic() {
+            await checkZeroAmountIssues();
+            await findAllZeroAmountCustomers();
+            await getZeroAmountStatistics();
+        }
+        
+        async function validateSystemHealth() {
+            await initDB();
+            
+            try {
+                log(`🏥 Running system health validation...`);
+                
+                // Check for any remaining zero-amount issues
+                const totalZeroEntries = await db.safeSelect(`
+                    SELECT COUNT(*) as count
+                    FROM customer_ledger_entries
+                    WHERE amount = 0 
+                      AND notes LIKE '%FULL PAYMENT TRANSACTION%'
+                `);
+                
+                const zeroCount = totalZeroEntries[0].count;
+                
+                if (zeroCount === 0) {
+                    log(`✅ SYSTEM HEALTH: No zero-amount entries found`, 'success');
+                    log(`✅ Zero-amount ledger entries issue has been resolved`, 'success');
+                } else {
+                    log(`⚠️ SYSTEM HEALTH: ${zeroCount} zero-amount entries still exist`, 'warning');
+                    log(`❌ Zero-amount issue requires attention`, 'error');
+                }
+                
+                // Check for data consistency
+                log(`🔍 Checking overall data consistency...`);
+                
+                const consistencyCheck = await db.safeSelect(`
+                    SELECT 
+                        c.id,
+                        c.name,
+                        COALESCE(SUM(CASE WHEN l.type = 'debit' THEN l.amount ELSE 0 END), 0) as ledger_debits,
+                        COALESCE(SUM(i.grand_total), 0) as invoice_total,
+                        ABS(COALESCE(SUM(CASE WHEN l.type = 'debit' THEN l.amount ELSE 0 END), 0) - COALESCE(SUM(i.grand_total), 0)) as discrepancy
+                    FROM customers c
+                    LEFT JOIN customer_ledger_entries l ON c.id = l.customer_id
+                    LEFT JOIN invoices i ON c.id = i.customer_id
+                    GROUP BY c.id, c.name
+                    HAVING discrepancy > 0.01
+                    ORDER BY discrepancy DESC
+                    LIMIT 10
+                `);
+                
+                if (consistencyCheck.length === 0) {
+                    log(`✅ DATA CONSISTENCY: All customers have matching ledger and invoice totals`, 'success');
+                } else {
+                    log(`⚠️ DATA CONSISTENCY: ${consistencyCheck.length} customers have discrepancies`, 'warning');
+                    consistencyCheck.forEach(customer => {
+                        log(`   Customer ${customer.id} (${customer.name}): Discrepancy Rs.${customer.discrepancy.toFixed(2)}`);
+                    });
+                }
+                
+            } catch (error) {
+                log(`❌ Error in system health validation: ${error.message}`, 'error');
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Zero-Amount Ledger Fix Tool loaded successfully');
+            log('Click "Check Issues" to analyze a customer for zero-amount problems');
+        });
+    </script>
+</body>
+</html>

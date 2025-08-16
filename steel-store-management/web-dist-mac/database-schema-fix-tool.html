@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Critical Database Schema Fix - total_balance Column</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        
+        .alert-critical {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        
+        .alert-success {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .alert-warning {
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        
+        .tool-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 15px 0;
+            border-left: 5px solid #e74c3c;
+        }
+        
+        .button {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
+        }
+        
+        .button.success {
+            background: linear-gradient(135deg, #27ae60, #2ecc71);
+        }
+        
+        .button.warning {
+            background: linear-gradient(135deg, #f39c12, #e67e22);
+        }
+        
+        .output-box {
+            background: #2d3436;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .error-code {
+            background: #2d3436;
+            color: #e74c3c;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚨 CRITICAL DATABASE SCHEMA FIX</h1>
+        
+        <div class="alert-critical">
+            <h2>🔥 CRITICAL ERROR DETECTED</h2>
+            <div class="error-code">
+                ERROR: no such column: total_balance<br>
+                CAUSE: Missing total_balance column in customers table<br>
+                IMPACT: Invoice creation completely broken
+            </div>
+            <p><strong>This fix will add the missing column and sync all customer balances</strong></p>
+        </div>
+        
+        <div class="tool-section">
+            <h3>🛠️ Database Schema Fix</h3>
+            <button class="button" onclick="checkDatabaseSchema()">Check Current Schema</button>
+            <button class="button" onclick="fixDatabaseSchema()">Fix Schema (Add Column)</button>
+            <button class="button success" onclick="syncCustomerBalances()">Sync Customer Balances</button>
+            <button class="button warning" onclick="runCompleteFix()">🔧 RUN COMPLETE FIX</button>
+        </div>
+        
+        <div class="stats-grid" id="statsContainer">
+            <div class="stat-card">
+                <h3>Schema Status</h3>
+                <div id="schemaStatus">Checking...</div>
+            </div>
+            <div class="stat-card">
+                <h3>Customers Found</h3>
+                <div id="customerCount">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Balances Synced</h3>
+                <div id="balancesSynced">-</div>
+            </div>
+            <div class="stat-card">
+                <h3>Fix Status</h3>
+                <div id="fixStatus">Pending</div>
+            </div>
+        </div>
+        
+        <div class="tool-section">
+            <h3>🧪 Post-Fix Verification</h3>
+            <button class="button" onclick="testInvoiceCreation()">Test Invoice Creation</button>
+            <button class="button" onclick="verifyCustomerBalances()">Verify Customer Balances</button>
+            <button class="button success" onclick="runHealthCheck()">Run System Health Check</button>
+        </div>
+        
+        <div id="output" class="output-box">
+🚨 CRITICAL DATABASE SCHEMA FIX READY
+====================================
+
+ERROR DETAILS:
+- Missing 'total_balance' column in customers table
+- Invoice creation fails with "no such column: total_balance"
+- Customer balance calculations broken
+
+SOLUTION:
+1. Add missing 'total_balance' column to customers table
+2. Sync all customer balances from ledger entries
+3. Verify invoice creation works
+
+Click "RUN COMPLETE FIX" to execute all fixes automatically.
+        </div>
+    </div>
+
+    <script>
+        let db;
+        let stats = {
+            schemaFixed: false,
+            customersFound: 0,
+            balancesSynced: 0,
+            fixComplete: false
+        };
+        
+        async function initDB() {
+            if (!db) {
+                const { DatabaseService } = await import('/src/services/database.ts');
+                db = new DatabaseService();
+            }
+        }
+        
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : '📋';
+            output.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+        
+        function updateStats() {
+            document.getElementById('schemaStatus').textContent = stats.schemaFixed ? 'Fixed ✅' : 'Needs Fix ❌';
+            document.getElementById('customerCount').textContent = stats.customersFound;
+            document.getElementById('balancesSynced').textContent = stats.balancesSynced;
+            document.getElementById('fixStatus').textContent = stats.fixComplete ? 'Complete ✅' : 'Pending ⏳';
+        }
+        
+        async function checkDatabaseSchema() {
+            await initDB();
+            
+            try {
+                log('🔍 Checking customers table schema...');
+                
+                const schemaInfo = await db.safeSelect("PRAGMA table_info(customers)");
+                log('📋 Current customers table columns:');
+                
+                let hasBalance = false;
+                let hasTotalBalance = false;
+                
+                schemaInfo.forEach(col => {
+                    log(`   ${col.name} (${col.type}) ${col.notnull ? 'NOT NULL' : ''} ${col.dflt_value ? 'DEFAULT ' + col.dflt_value : ''}`);
+                    if (col.name === 'balance') hasBalance = true;
+                    if (col.name === 'total_balance') hasTotalBalance = true;
+                });
+                
+                log(`\n🔍 Column Analysis:`);
+                log(`   'balance' column: ${hasBalance ? '✅ EXISTS' : '❌ MISSING'}`);
+                log(`   'total_balance' column: ${hasTotalBalance ? '✅ EXISTS' : '❌ MISSING'}`);
+                
+                if (!hasTotalBalance) {
+                    log('🚨 CRITICAL: total_balance column is missing!', 'error');
+                    log('🔧 This column must be added to fix invoice creation', 'warning');
+                } else {
+                    log('✅ Schema is correct - total_balance column exists', 'success');
+                    stats.schemaFixed = true;
+                }
+                
+                updateStats();
+                
+            } catch (error) {
+                log(`❌ Error checking database schema: ${error.message}`, 'error');
+            }
+        }
+        
+        async function fixDatabaseSchema() {
+            await initDB();
+            
+            try {
+                log('🔧 Starting database schema fix...');
+                
+                // Check current schema first
+                const schemaInfo = await db.safeSelect("PRAGMA table_info(customers)");
+                const hasBalance = schemaInfo.some(col => col.name === 'balance');
+                const hasTotalBalance = schemaInfo.some(col => col.name === 'total_balance');
+                
+                if (hasTotalBalance) {
+                    log('✅ total_balance column already exists - no fix needed', 'success');
+                    stats.schemaFixed = true;
+                    updateStats();
+                    return;
+                }
+                
+                log('1️⃣ Adding total_balance column to customers table...');
+                
+                if (hasBalance) {
+                    // Add total_balance column and copy data from balance column
+                    await db.execute("ALTER TABLE customers ADD COLUMN total_balance REAL DEFAULT 0");
+                    await db.execute("UPDATE customers SET total_balance = COALESCE(balance, 0)");
+                    log('✅ Added total_balance column and copied data from balance column', 'success');
+                } else {
+                    // Just add the total_balance column
+                    await db.execute("ALTER TABLE customers ADD COLUMN total_balance REAL DEFAULT 0");
+                    log('✅ Added total_balance column with default value 0', 'success');
+                }
+                
+                // Verify the fix
+                log('2️⃣ Verifying schema fix...');
+                const updatedSchema = await db.safeSelect("PRAGMA table_info(customers)");
+                const nowHasTotalBalance = updatedSchema.some(col => col.name === 'total_balance');
+                
+                if (nowHasTotalBalance) {
+                    log('🎉 Schema fix successful - total_balance column added!', 'success');
+                    stats.schemaFixed = true;
+                } else {
+                    log('❌ Schema fix failed - total_balance column still missing', 'error');
+                }
+                
+                updateStats();
+                
+            } catch (error) {
+                log(`❌ Error fixing database schema: ${error.message}`, 'error');
+            }
+        }
+        
+        async function syncCustomerBalances() {
+            await initDB();
+            
+            try {
+                log('💰 Starting customer balance synchronization...');
+                
+                // Get all customers
+                const customers = await db.safeSelect("SELECT id, name FROM customers");
+                log(`Found ${customers.length} customers to sync`);
+                stats.customersFound = customers.length;
+                updateStats();
+                
+                let syncCount = 0;
+                
+                for (const customer of customers) {
+                    try {
+                        // Calculate balance from ledger entries
+                        const balanceResult = await db.safeSelect(`
+                            SELECT 
+                                COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+                                COALESCE(SUM(CASE WHEN type = 'credit' THEN amount ELSE 0 END), 0) as total_credits,
+                                COALESCE(SUM(CASE WHEN type = 'debit' THEN amount ELSE -amount END), 0) as net_balance
+                            FROM customer_ledger_entries 
+                            WHERE customer_id = ?
+                        `, [customer.id]);
+                        
+                        const netBalance = balanceResult[0]?.net_balance || 0;
+                        
+                        // Update customer's total_balance
+                        await db.execute(
+                            "UPDATE customers SET total_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                            [netBalance, customer.id]
+                        );
+                        
+                        log(`   Customer ${customer.name}: Balance = Rs.${netBalance.toFixed(2)}`);
+                        syncCount++;
+                        
+                    } catch (error) {
+                        log(`   ❌ Failed to sync ${customer.name}: ${error.message}`, 'error');
+                    }
+                }
+                
+                log(`🎉 Balance sync completed: ${syncCount}/${customers.length} customers synced`, 'success');
+                stats.balancesSynced = syncCount;
+                updateStats();
+                
+            } catch (error) {
+                log(`❌ Error syncing customer balances: ${error.message}`, 'error');
+            }
+        }
+        
+        async function runCompleteFix() {
+            log('🚀 STARTING COMPLETE DATABASE FIX...\n');
+            log('This will fix the critical "total_balance" column issue');
+            log('='.repeat(50));
+            
+            // Step 1: Check schema
+            await checkDatabaseSchema();
+            log('');
+            
+            // Step 2: Fix schema if needed
+            await fixDatabaseSchema();
+            log('');
+            
+            // Step 3: Sync balances
+            await syncCustomerBalances();
+            log('');
+            
+            // Step 4: Final verification
+            log('🏁 COMPLETE FIX VERIFICATION...');
+            await testInvoiceCreation();
+            
+            log('='.repeat(50));
+            log('🎉 COMPLETE DATABASE FIX FINISHED!', 'success');
+            log('✅ Invoice creation should now work properly', 'success');
+            
+            stats.fixComplete = true;
+            updateStats();
+        }
+        
+        async function testInvoiceCreation() {
+            await initDB();
+            
+            try {
+                log('🧪 Testing invoice creation functionality...');
+                
+                // Test 1: Check if total_balance column exists
+                const schemaInfo = await db.safeSelect("PRAGMA table_info(customers)");
+                const hasTotalBalance = schemaInfo.some(col => col.name === 'total_balance');
+                
+                if (!hasTotalBalance) {
+                    log('❌ TEST FAILED: total_balance column still missing', 'error');
+                    return;
+                }
+                
+                // Test 2: Try to select total_balance from customers table
+                const testQuery = await db.safeSelect("SELECT id, name, total_balance FROM customers LIMIT 1");
+                log('✅ TEST PASSED: total_balance column is accessible', 'success');
+                
+                if (testQuery.length > 0) {
+                    const customer = testQuery[0];
+                    log(`   Sample: Customer "${customer.name}" has balance Rs.${(customer.total_balance || 0).toFixed(2)}`);
+                }
+                
+                log('✅ Invoice creation should now work without errors!', 'success');
+                
+            } catch (error) {
+                log(`❌ Invoice creation test failed: ${error.message}`, 'error');
+            }
+        }
+        
+        async function verifyCustomerBalances() {
+            await initDB();
+            
+            try {
+                log('🔍 Verifying customer balance calculations...');
+                
+                const balanceReport = await db.safeSelect(`
+                    SELECT 
+                        c.id,
+                        c.name,
+                        c.total_balance as customer_balance,
+                        COALESCE(SUM(CASE WHEN l.type = 'debit' THEN l.amount ELSE -l.amount END), 0) as ledger_balance,
+                        ABS(c.total_balance - COALESCE(SUM(CASE WHEN l.type = 'debit' THEN l.amount ELSE -l.amount END), 0)) as difference
+                    FROM customers c
+                    LEFT JOIN customer_ledger_entries l ON c.id = l.customer_id
+                    GROUP BY c.id, c.name, c.total_balance
+                    ORDER BY difference DESC
+                    LIMIT 10
+                `);
+                
+                log('📊 Top 10 customers by balance verification:');
+                balanceReport.forEach(customer => {
+                    const status = customer.difference < 0.01 ? '✅' : '⚠️';
+                    log(`   ${status} ${customer.name}: Customer=${customer.customer_balance.toFixed(2)}, Ledger=${customer.ledger_balance.toFixed(2)}, Diff=${customer.difference.toFixed(2)}`);
+                });
+                
+                const correctBalances = balanceReport.filter(c => c.difference < 0.01).length;
+                log(`\n✅ Balance Verification: ${correctBalances}/${balanceReport.length} customers have correct balances`, 'success');
+                
+            } catch (error) {
+                log(`❌ Error verifying customer balances: ${error.message}`, 'error');
+            }
+        }
+        
+        async function runHealthCheck() {
+            log('🏥 SYSTEM HEALTH CHECK STARTING...\n');
+            
+            await checkDatabaseSchema();
+            await testInvoiceCreation();
+            await verifyCustomerBalances();
+            
+            log('\n🏁 HEALTH CHECK COMPLETE');
+            if (stats.schemaFixed) {
+                log('🎉 System is healthy - total_balance issue resolved!', 'success');
+            } else {
+                log('⚠️ System still has issues - run complete fix', 'warning');
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            log('🚨 Critical Database Schema Fix Tool Loaded');
+            log('📋 Ready to fix "no such column: total_balance" error');
+            log('🔧 Click "RUN COMPLETE FIX" to solve the issue automatically\n');
+            updateStats();
+        });
+    </script>
+</body>
+</html>

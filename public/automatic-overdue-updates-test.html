@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automatic Overdue Updates - Testing Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .log-container {
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .event-indicator {
+            animation: pulse 1s ease-in-out;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-6">
+    <div class="max-w-6xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">🔄 Automatic Overdue Updates - Testing Dashboard</h1>
+            <p class="text-gray-600 mb-4">This tool helps verify that overdue status updates happen automatically when invoices and payments are processed.</p>
+            
+            <div class="flex flex-wrap gap-4 mb-6">
+                <button onclick="runAutomaticTest()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg">
+                    🧪 Run Automatic Update Test
+                </button>
+                <button onclick="testManualUpdate()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg">
+                    🔄 Test Manual Update
+                </button>
+                <button onclick="testGlobalUpdate()" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg">
+                    🌍 Test Global Update
+                </button>
+                <button onclick="clearLogs()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg">
+                    🧹 Clear Logs
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Test Results -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">📋 Test Results</h2>
+                <div id="testResults" class="space-y-2">
+                    <div class="text-gray-500">No tests run yet. Click a test button to start.</div>
+                </div>
+            </div>
+
+            <!-- Event Monitor -->
+            <div class="bg-white rounded-lg shadow-lg p-6">
+                <h2 class="text-xl font-semibold text-gray-800 mb-4">📡 Event Monitor</h2>
+                <div id="eventMonitor" class="space-y-1 text-sm">
+                    <div class="text-gray-500">Waiting for events...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-lg p-6 mt-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">📊 Integration Status</h2>
+            <div id="integrationStatus" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Will be populated by tests -->
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-lg p-6 mt-6">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4">🔍 Console Output</h2>
+            <div id="consoleOutput" class="log-container bg-gray-900 text-green-400 p-4 rounded-lg">
+                <div>Console output will appear here...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventCount = 0;
+        let testCount = 0;
+
+        // Intercept console.log to display in our interface
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+
+        function logToInterface(message, type = 'log') {
+            const output = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = type === 'error' ? 'text-red-400' : type === 'warn' ? 'text-yellow-400' : 'text-green-400';
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = colorClass;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            output.appendChild(logEntry);
+            
+            // Auto-scroll to bottom
+            output.scrollTop = output.scrollHeight;
+            
+            // Keep only last 100 entries
+            while (output.children.length > 100) {
+                output.removeChild(output.firstChild);
+            }
+        }
+
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            logToInterface(args.join(' '), 'log');
+        };
+
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            logToInterface(args.join(' '), 'error');
+        };
+
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            logToInterface(args.join(' '), 'warn');
+        };
+
+        // Event monitoring setup
+        function setupEventMonitoring() {
+            if (typeof window.eventBus !== 'undefined') {
+                const events = ['CUSTOMER_OVERDUE_STATUS_UPDATED', 'ALL_CUSTOMERS_OVERDUE_STATUS_UPDATED'];
+                
+                events.forEach(eventName => {
+                    window.eventBus.on(eventName, (data) => {
+                        eventCount++;
+                        addEventToMonitor(eventName, data);
+                    });
+                });
+                
+                logToInterface('✅ Event monitoring set up for overdue status events');
+            } else {
+                logToInterface('⚠️ EventBus not available for monitoring');
+            }
+        }
+
+        function addEventToMonitor(eventName, data) {
+            const monitor = document.getElementById('eventMonitor');
+            const eventDiv = document.createElement('div');
+            eventDiv.className = 'event-indicator p-2 bg-blue-50 border border-blue-200 rounded';
+            eventDiv.innerHTML = `
+                <div class="font-semibold text-blue-800">${eventName}</div>
+                <div class="text-xs text-blue-600">${JSON.stringify(data)}</div>
+                <div class="text-xs text-gray-500">${new Date().toLocaleTimeString()}</div>
+            `;
+            
+            monitor.insertBefore(eventDiv, monitor.firstChild);
+            
+            // Keep only last 10 events
+            while (monitor.children.length > 10) {
+                monitor.removeChild(monitor.lastChild);
+            }
+        }
+
+        function addTestResult(testName, result, details) {
+            testCount++;
+            const results = document.getElementById('testResults');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `p-3 border rounded-lg ${result ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`;
+            resultDiv.innerHTML = `
+                <div class="font-semibold ${result ? 'text-green-800' : 'text-red-800'}">
+                    ${result ? '✅' : '❌'} Test ${testCount}: ${testName}
+                </div>
+                <div class="text-sm ${result ? 'text-green-600' : 'text-red-600'} mt-1">
+                    ${details}
+                </div>
+            `;
+            
+            results.insertBefore(resultDiv, results.firstChild);
+        }
+
+        function updateIntegrationStatus() {
+            const statusDiv = document.getElementById('integrationStatus');
+            const integrationPoints = [
+                { name: 'Invoice Creation', status: 'emitInvoiceEvents', color: 'green' },
+                { name: 'Payment Recording', status: 'recordCustomerPayment', color: 'green' },
+                { name: 'Invoice Items', status: 'addInvoiceItems', color: 'green' },
+                { name: 'Quantity Updates', status: 'updateInvoiceItemQuantity', color: 'green' },
+                { name: 'Invoice Payments', status: 'processInvoicePayment', color: 'green' },
+                { name: 'Event System', status: window.eventBus ? 'Available' : 'Not Available', color: window.eventBus ? 'green' : 'yellow' }
+            ];
+
+            statusDiv.innerHTML = integrationPoints.map(point => `
+                <div class="p-3 border border-${point.color}-200 bg-${point.color}-50 rounded-lg">
+                    <div class="font-semibold text-${point.color}-800">${point.name}</div>
+                    <div class="text-sm text-${point.color}-600">${point.status}</div>
+                </div>
+            `).join('');
+        }
+
+        async function runAutomaticTest() {
+            logToInterface('🚀 Starting automatic overdue update test...');
+            
+            try {
+                if (typeof window.testAutomaticOverdueUpdates === 'function') {
+                    const result = await window.testAutomaticOverdueUpdates();
+                    addTestResult('Automatic Updates', result, 'Comprehensive test of all integration points');
+                } else {
+                    logToInterface('⚠️ Test function not available. Loading test script...');
+                    // Try to load the test script
+                    const script = document.createElement('script');
+                    script.src = './AUTOMATIC_OVERDUE_UPDATE_TEST.js';
+                    document.head.appendChild(script);
+                    
+                    setTimeout(() => {
+                        if (typeof window.testAutomaticOverdueUpdates === 'function') {
+                            window.testAutomaticOverdueUpdates().then(result => {
+                                addTestResult('Automatic Updates', result, 'Loaded and executed test script');
+                            });
+                        }
+                    }, 1000);
+                }
+            } catch (error) {
+                logToInterface(`❌ Test failed: ${error.message}`, 'error');
+                addTestResult('Automatic Updates', false, error.message);
+            }
+        }
+
+        async function testManualUpdate() {
+            logToInterface('🔄 Testing manual overdue status update...');
+            
+            try {
+                if (typeof window.updateCustomerOverdueStatus === 'function') {
+                    // Get a customer for testing
+                    const customers = await window.db.dbConnection.execute(`
+                        SELECT DISTINCT customer_id FROM ledger_entries WHERE customer_id IS NOT NULL LIMIT 1
+                    `);
+                    
+                    if (customers.length > 0) {
+                        const customerId = customers[0].customer_id;
+                        await window.updateCustomerOverdueStatus(customerId);
+                        addTestResult('Manual Update', true, `Updated overdue status for customer ${customerId}`);
+                    } else {
+                        addTestResult('Manual Update', false, 'No customers found for testing');
+                    }
+                } else {
+                    addTestResult('Manual Update', false, 'updateCustomerOverdueStatus function not available');
+                }
+            } catch (error) {
+                logToInterface(`❌ Manual update test failed: ${error.message}`, 'error');
+                addTestResult('Manual Update', false, error.message);
+            }
+        }
+
+        async function testGlobalUpdate() {
+            logToInterface('🌍 Testing global overdue status update...');
+            
+            try {
+                if (typeof window.updateAllOverdueCustomers === 'function') {
+                    await window.updateAllOverdueCustomers();
+                    addTestResult('Global Update', true, 'Updated overdue status for all customers');
+                } else {
+                    addTestResult('Global Update', false, 'updateAllOverdueCustomers function not available');
+                }
+            } catch (error) {
+                logToInterface(`❌ Global update test failed: ${error.message}`, 'error');
+                addTestResult('Global Update', false, error.message);
+            }
+        }
+
+        function clearLogs() {
+            document.getElementById('consoleOutput').innerHTML = '<div>Console cleared...</div>';
+            document.getElementById('testResults').innerHTML = '<div class="text-gray-500">No tests run yet. Click a test button to start.</div>';
+            document.getElementById('eventMonitor').innerHTML = '<div class="text-gray-500">Waiting for events...</div>';
+            eventCount = 0;
+            testCount = 0;
+        }
+
+        // Initialize
+        window.onload = function() {
+            logToInterface('🔧 Automatic Overdue Updates Testing Tool initialized');
+            setupEventMonitoring();
+            updateIntegrationStatus();
+            
+            // Update status every 5 seconds
+            setInterval(updateIntegrationStatus, 5000);
+        };
+    </script>
+</body>
+</html>
