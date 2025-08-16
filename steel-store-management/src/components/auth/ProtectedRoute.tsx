@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
 import { useAuth } from '../../hooks/useAuth';
 import type { ModulePermissions, PermissionLevel, RolePermissions } from '../../hooks/useRoleAccess';
-import { Shield, AlertTriangle, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -25,7 +25,7 @@ interface AccessDeniedProps {
   userRole: string | null;
 }
 
-const AccessDeniedPage: React.FC<AccessDeniedProps> = ({  }) => {
+const AccessDeniedPage: React.FC<AccessDeniedProps> = ({ }) => {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -42,25 +42,25 @@ const AccessDeniedPage: React.FC<AccessDeniedProps> = ({  }) => {
         </p>
       </div>
 
-        <div className="mt-6">  
-            {/* Actions */}
-            <div className="flex justify-center mt-4 space-x-3">
-              <button
-              onClick={() => window.history.back()}
-              className="flex-1 max-w-xs rounded-md border border-gray-300 bg-white py-2 px-3 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-              Go Back
-              </button>
-              <button
-              onClick={() => window.location.href = '/'}
-              className="flex-1 max-w-xs rounded-md border border-transparent bg-blue-600 py-2 px-3 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-              Dashboard
-              </button>
-            </div>
-          
-          </div>
-          </div>
+      <div className="mt-6">
+        {/* Actions */}
+        <div className="flex justify-center mt-4 space-x-3">
+          <button
+            onClick={() => window.history.back()}
+            className="flex-1 max-w-xs rounded-md border border-gray-300 bg-white py-2 px-3 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Go Back
+          </button>
+          <button
+            onClick={() => window.location.href = '/'}
+            className="flex-1 max-w-xs rounded-md border border-transparent bg-blue-600 py-2 px-3 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            Dashboard
+          </button>
+        </div>
+
+      </div>
+    </div>
   );
 };
 
@@ -109,12 +109,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   if (!hasAccess) {
     if (showAccessDenied) {
-      const restrictedMessage = module 
+      const restrictedMessage = module
         ? `This page requires ${level} access to ${module}. Your current access level: ${modulePermissions[module] || 'none'}`
         : `You don't have the required permission: ${requiredPermission || feature}`;
-        
+
       return (
-        <AccessDeniedPage 
+        <AccessDeniedPage
           feature={module ? `${module} (${level})` : feature}
           message={restrictedMessage}
           userRole={user?.role || 'Unknown'}
@@ -129,25 +129,25 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 };
 
 // Convenience components for common permission checks
-export const AdminOnly: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({ 
-  children, 
-  fallback = null 
+export const AdminOnly: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({
+  children,
+  fallback = null
 }) => {
   const { isAdmin } = useRoleAccess();
   return isAdmin ? <>{children}</> : <>{fallback}</>;
 };
 
-export const ManagerOrAdmin: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({ 
-  children, 
-  fallback = null 
+export const ManagerOrAdmin: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({
+  children,
+  fallback = null
 }) => {
   const { isManager, isAdmin } = useRoleAccess();
   return (isManager || isAdmin) ? <>{children}</> : <>{fallback}</>;
 };
 
-export const WorkerOnly: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({ 
-  children, 
-  fallback = null 
+export const WorkerOnly: React.FC<{ children: React.ReactNode; fallback?: React.ReactNode }> = ({
+  children,
+  fallback = null
 }) => {
   const { isWorker } = useRoleAccess();
   return isWorker ? <>{children}</> : <>{fallback}</>;
@@ -161,42 +161,42 @@ export const ConditionalRender: React.FC<{
   requireAll?: boolean;
   feature?: string;
   fallback?: React.ReactNode;
-}> = ({ 
-  children, 
-  permission, 
-  permissions = [], 
-  requireAll = false, 
-  feature, 
-  fallback = null 
+}> = ({
+  children,
+  permission,
+  permissions = [],
+  requireAll = false,
+  feature,
+  fallback = null
 }) => {
-  const { permissions: userPermissions } = useRoleAccess();
+    const { permissions: userPermissions } = useRoleAccess();
 
-  let hasAccess = true;
+    let hasAccess = true;
 
-  if (permission) {
-    hasAccess = userPermissions[permission];
-  } else if (permissions.length > 0) {
-    hasAccess = requireAll 
-      ? permissions.every(perm => userPermissions[perm])
-      : permissions.some(perm => userPermissions[perm]);
-  } else if (feature) {
-    // Feature-based access checking
-    const featurePermissions: Record<string, (keyof RolePermissions)[]> = {
-      'staff-management': ['manage_staff'],
-      'financial-reports': ['view_financials', 'view_reports'],
-      'system-admin': ['system_admin'],
-      'product-management': ['manage_products'],
-      'customer-management': ['manage_customers'],
-      'vendor-management': ['manage_vendors'],
-      'invoice-creation': ['create_invoice'],
-      'payment-processing': ['process_payments']
-    };
-    
-    const requiredPermissions = featurePermissions[feature];
-    hasAccess = requiredPermissions ? requiredPermissions.some(perm => userPermissions[perm]) : true;
-  }
+    if (permission) {
+      hasAccess = userPermissions[permission];
+    } else if (permissions.length > 0) {
+      hasAccess = requireAll
+        ? permissions.every(perm => userPermissions[perm])
+        : permissions.some(perm => userPermissions[perm]);
+    } else if (feature) {
+      // Feature-based access checking
+      const featurePermissions: Record<string, (keyof RolePermissions)[]> = {
+        'staff-management': ['manage_staff'],
+        'financial-reports': ['view_financials', 'view_reports'],
+        'system-admin': ['system_admin'],
+        'product-management': ['manage_products'],
+        'customer-management': ['manage_customers'],
+        'vendor-management': ['manage_vendors'],
+        'invoice-creation': ['create_invoice'],
+        'payment-processing': ['process_payments']
+      };
 
-  return hasAccess ? <>{children}</> : <>{fallback}</>;
-};
+      const requiredPermissions = featurePermissions[feature];
+      hasAccess = requiredPermissions ? requiredPermissions.some(perm => userPermissions[perm]) : true;
+    }
+
+    return hasAccess ? <>{children}</> : <>{fallback}</>;
+  };
 
 export default ProtectedRoute;

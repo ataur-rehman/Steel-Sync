@@ -495,9 +495,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         </head>
         <body>
           <div class="header">
-            <div class="store-name">ITEHAD IRON STORE</div>
-            <div class="store-tagline">(T-Iron, girders, rebar, gates, doors are available)</div>
-            <div class="store-address">Opposite Lakar Mandi Bridge, GT Road, Chichawatni</div>
+            <div class="store-name">ITTEHAD IRON STORE</div>
+            <div class="store-tagline">(Rebar G60 G72.5 G80, T-Iron, Girders are available</div>
+            <div class="store-address">Opposite Lakar Mandi Pull, GT Road, Chichawatni</div>
           </div>
           <div class="invoice-info">
             <div class="invoice-row">
@@ -523,7 +523,6 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             ${invoice.items?.map((item: any) => `
               <div class="item-row">
                 <div class="item-name">${item.product_name}${item.length ? ` • ${item.length}/L` : ''}${item.pieces ? ` • ${item.pieces}/pcs` : ''}</div>
-                ${item.created_at ? `<div class="item-timestamp">Added: ${formatDateTime(item.created_at)}</div>` : ''}
                 ${item.updated_at && item.updated_at !== item.created_at ? `<div class="item-timestamp">Updated: ${formatDateTime(item.updated_at)}</div>` : ''}
                 <div class="item-details">
                   <span>${item.quantity} x ${formatCurrency(item.unit_price)}</span>
@@ -578,14 +577,12 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     <span>${payment.payment_method?.replace('_', ' ').toUpperCase()}</span>
                     <span>${formatCurrency(payment.amount)}</span>
                   </div>
-                  <div class="payment-timestamp">${formatDateTime(payment.created_at || payment.date)}</div>
-                  ${payment.reference ? `<div class="payment-timestamp">Ref: ${payment.reference}</div>` : ''}
-                </div>
+                
               `).join('')}
             </div>
           ` : ''}
           <div class="footer">
-            <div>Thank you for your business!</div>
+            <div>Thank you for business with us!</div>
             <div>Generated: ${formatDateTime(new Date().toISOString())}</div>
           </div>
         </body>

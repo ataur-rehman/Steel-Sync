@@ -11,6 +11,10 @@ export interface Customer {
   address?: string;
   cnic?: string;
   total_balance: number;
+  balance?: number; // Outstanding balance from customer_ledger_entries
+  outstanding?: number; // Alias for balance from optimized query
+  total_invoiced?: number; // Total amount invoiced
+  total_paid?: number; // Total amount paid
   created_at: string;
   updated_at: string;
 }

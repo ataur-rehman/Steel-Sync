@@ -25,18 +25,15 @@ import PaymentChannelDetail from './components/payment/PaymentChannelDetail';
 import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
 import DataIntegrityManager from './components/admin/DataIntegrityManager';
 import StaffManagement from './components/staff/StaffManagement';
-import ActivityLogger from './components/admin/ActivityLogger';
+
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
-import NotificationsPage from './components/notifications/NotificationsPage';
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 
 import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
-import RoleManagementComplete from './components/admin/RoleManagementComplete';
-import PermissionManagementSimple from './components/admin/PermissionManagementSimple';
-import ActivityLoggerProfessional from './components/admin/ActivityLoggerProfessional';
+
 import PaymentChannelDebug from './components/debug/PaymentChannelDebug';
 
 import toast from 'react-hot-toast';
@@ -61,7 +58,7 @@ function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
       const success = await login(username, password);
       if (success) {
@@ -83,10 +80,10 @@ function LoginForm() {
           <h2 className="text-3xl font-bold text-gray-900 mb-2">{companyName}</h2>
           <p className="text-gray-600">Complete Business Management with Full Traceability</p>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-<label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Username</label>
             <input
               type="text"
               placeholder="Enter your username"
@@ -98,7 +95,7 @@ function LoginForm() {
           </div>
 
           <div>
-<label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
             <input
               type="password"
               placeholder="Enter your password"
@@ -124,25 +121,25 @@ function LoginForm() {
             )}
           </button>
         </form>
-        
+
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-        <p className="text-xs text-gray-600 text-center mb-2">Test Credentials:</p>
-        <div className="text-xs text-gray-500 space-y-1">
+          <p className="text-xs text-gray-600 text-center mb-2">Test Credentials:</p>
+          <div className="text-xs text-gray-500 space-y-1">
             <p><strong>Username:</strong> admin</p>
             <p><strong>Password:</strong> admin123</p>
           </div>
         </div>
-        
-      
+
+
       </div>
-          </div>
+    </div>
   );
 }
 
 function AppContent() {
   const { user, loading } = useAuth();
   const [showEventMonitor, setShowEventMonitor] = React.useState(false);
-  
+
   // Show event monitor in development mode with Ctrl+Shift+E
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -151,7 +148,7 @@ function AppContent() {
         setShowEventMonitor(true);
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
@@ -160,8 +157,8 @@ function AppContent() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-<p className="text-gray-600">Initializing Deep Linking System...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Initializing Deep Linking System...</p>
         </div>
       </div>
     );
@@ -175,8 +172,8 @@ function AppContent() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-<p className="text-gray-600">Initializing Deep Linking System...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Initializing Deep Linking System...</p>
         </div>
       </div>
     );
@@ -201,331 +198,283 @@ function AppContent() {
                 <Activity className="h-5 w-5" />
               </button>
             )}
-            
+
             <Routes>
-            {/* Dashboard - Enhanced with drill-down capabilities */}
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            
-            {/* Products Management */}
-            <Route path="/products" element={
-              <ProtectedRoute module="products" level="view">
-                <ProductList />
-              </ProtectedRoute>
-            } />
-            
-            
-            {/* Customer Management with Deep Linking */}
-            <Route path="/customers" element={
-              <ProtectedRoute module="customers" level="view">
-                <CustomerList />
-              </ProtectedRoute>
-            } />
-            <Route path="/customers/new" element={
-              <ProtectedRoute module="customers" level="edit">
-                <div className="p-6">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Add New Customer</h2>
-                  <p className="text-gray-600">Customer creation form will be implemented here.</p>
-                </div>
-              </ProtectedRoute>
-            } />
-            <Route path="/customers/:id" element={
-              <ProtectedRoute module="customers" level="view">
-                <CustomerLedger />
-              </ProtectedRoute>
-            } />
-            <Route path="/customers/:id/edit" element={
-              <ProtectedRoute module="customers" level="edit">
-                <CustomerLedger />
-              </ProtectedRoute>
-            } />
-            <Route path="/customers/:id/ledger" element={
-              <ProtectedRoute module="customers" level="view">
-                <CustomerLedger />
-              </ProtectedRoute>
-            } />
-            
-            {/* Billing System with Full Traceability */}
-            <Route path="/billing/new" element={
-              <ProtectedRoute module="sales" level="edit">
-                <InvoiceForm />
-              </ProtectedRoute>
-            } />
-            <Route path="/billing/list" element={
-              <ProtectedRoute module="reports" level="view">
-                <InvoiceList />
-              </ProtectedRoute>
-            } />
-            <Route path="/billing/view/:id" element={
-              <ProtectedRoute module="sales" level="view">
-                <InvoiceDetailsPage />
-              </ProtectedRoute>
-            } />
-            
-           
-<Route path="/stock/receiving/:id/add-payment" element={
-  <ProtectedRoute module="inventory" level="edit">
-    <StockReceivingPayment />
-  </ProtectedRoute>
-} />
+              {/* Dashboard - Enhanced with drill-down capabilities */}
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/dashboard" element={<Dashboard />} />
 
-            {/* Returns with Original Invoice Linking */}
-            <Route path="/returns" element={<Returns />} />
-            <Route path="/returns/new" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Process Return</h2>
-                <p className="text-gray-600">Return processing form will be implemented here.</p>
-              </div>
-            } />
-            <Route path="/returns/:id" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Return Details</h2>
-                <p className="text-gray-600">Return details with original invoice & customer links will be implemented here.</p>
-              </div>
-            } />
-            
-            {/* Reports with Drill-down Capabilities */}
-            <Route path="/reports/daily" element={
-              <ProtectedRoute module="reports" level="view">
-                <DailyLedger />
-              </ProtectedRoute>
-            } />
-            <Route path="/reports/stock" element={
-              <ProtectedRoute module="reports" level="view">
-                <StockReport />
-              </ProtectedRoute>
-            } />
-        
-            {/* Enhanced Customer Management */}
-           
-            
-            {/* Payment Channel Management */}
-            <Route path="/payment-channels" element={
-              <ProtectedRoute module="payments" level="view">
-                <PaymentChannelManagement />
-              </ProtectedRoute>
-            } />
-            <Route path="/payment-channels/:id" element={
-              <ProtectedRoute module="payments" level="view">
-                <PaymentChannelDetail />
-              </ProtectedRoute>
-            } />
-            <Route path="/payment/channels" element={
-              <ProtectedRoute module="payments" level="view">
-                <PaymentChannelManagement />
-              </ProtectedRoute>
-            } />
-            <Route path="/payment/channels/:id" element={
-              <ProtectedRoute module="payments" level="view">
-                <PaymentChannelDetailView />
-              </ProtectedRoute>
-            } />
-            
-            {/* Staff Management - Professional Version */}
-            <Route path="/staff" element={
-              <ProtectedRoute module="user_management" level="view">
-                <StaffManagement />
-              </ProtectedRoute>
-            } />
-            
-            {/* Activity Logger - NEW REDESIGNED VERSION */}
-            <Route path="/audit" element={
-              <ProtectedRoute module="audit" level="view">
-                <ActivityLoggerProfessional />
-              </ProtectedRoute>
-            } />
-            
-            {/* Legacy Activity Logger - OLD VERSION */}
-            <Route path="/audit/legacy" element={
-              <ProtectedRoute module="audit" level="view">
-                <ActivityLogger />
-              </ProtectedRoute>
-            } />
-            
-            {/* Role Management System - NEW COMPLETE VERSION */}
-            <Route path="/admin/roles" element={
-              <ProtectedRoute module="user_management" level="full">
-                <RoleManagementComplete />
-              </ProtectedRoute>
-            } />
-            
-         
-            
-            {/* Role Management System (Admin Only) */}
-            <Route path="/admin/users" element={
-              <ProtectedRoute module="user_management" level="full">
-                <RoleManagementComplete />
-              </ProtectedRoute>
-            } />
-            
-            {/* Permission Management (Admin Only) */}
-            <Route path="/admin/permissions" element={
-              <ProtectedRoute module="user_management" level="full">
-                <PermissionManagementSimple />
-              </ProtectedRoute>
-            } />
-            
-            {/* Activity Logger Redesigned (Admin Only) */}
-            <Route path="/admin/activity" element={
-              <ProtectedRoute module="audit" level="view">
-                <ActivityLoggerProfessional />
-              </ProtectedRoute>
-            } />
-            
-            {/* Data Integrity Manager (Admin Only) */}
-            <Route path="/admin/data-integrity" element={
-              <ProtectedRoute module="audit" level="view">
-                <DataIntegrityManager />
-              </ProtectedRoute>
-            } />
-            
-            {/* Business Finance Dashboard */}
-            <Route path="/finance" element={
-              <ProtectedRoute module="reports" level="view">
-                <BusinessFinanceDashboard />
-              </ProtectedRoute>
-            } />
-            
-            {/* Product Movement Details */}
+              {/* Products Management */}
+              <Route path="/products" element={
+                <ProtectedRoute module="products" level="view">
+                  <ProductList />
+                </ProtectedRoute>
+              } />
 
-            <Route path="/stock/receiving/:id" element={
-              <ProtectedRoute module="inventory" level="view">
-                <StockReceivingDetail />
-              </ProtectedRoute>
-            } />
-            {/* Stock Management */}
-            <Route path="/stock/receiving" element={
-              <ProtectedRoute module="inventory" level="view">
-                <StockReceivingList />
-              </ProtectedRoute>
-            } />
-            <Route path="/stock/receiving/new" element={
-              <ProtectedRoute module="inventory" level="edit">
-                <StockReceivingNew />
-              </ProtectedRoute>
-            } />
-            
-            {/* Vendor Management */}
-            <Route path="/vendors" element={
-              <ProtectedRoute module="vendors" level="view">
-                <VendorManagement />
-              </ProtectedRoute>
-            } />
-            <Route path="/vendors/:id" element={
-              <ProtectedRoute module="vendors" level="view">
-                <VendorDetail />
-              </ProtectedRoute>
-            } />
-            <Route path="/vendors/edit/:id" element={
-              <ProtectedRoute module="vendors" level="edit">
-                <div className="p-6">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Vendor</h2>
-                  <p className="text-gray-600">Vendor edit form will be implemented here.</p>
-                </div>
-              </ProtectedRoute>
-            } />
-        
-            
-            {/* Activity Timeline */}
-            <Route path="/activity" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Activity Timeline</h2>
-                <p className="text-gray-600">Global activity timeline with entity links will be implemented here.</p>
-              </div>
-            } />
-            
-            {/* Notifications Center */}
-            <Route path="/notifications" element={<NotificationsPage />} />
-            
-            {/* Settings */}
 
-            
-            {/* Backwards compatibility for notification settings */}
-
-            
-            {/* Notification Test (for development) */}
-            <Route path="/settings/notifications/test" element={
-              <div className="p-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Notification Test</h2>
-                <div className="space-y-4">
-                  <button
-                    onClick={() => {
-                      import('./services/notifications').then(({ notificationService }) => {
-                        notificationService.createNotification({
-                          id: 'test-notification',
-                          type: 'system_alert',
-                          category: 'system',
-                          title: 'Test Notification',
-                          message: 'This is a test notification to verify the system is working correctly.',
-                          priority: 'medium',
-                          actionUrl: '/dashboard',
-                          actionText: 'Go to Dashboard'
-                        });
-                      });
-                    }}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                  >
-                    Create Test Notification
-                  </button>
-                  <button
-                    onClick={() => {
-                      import('./services/notifications').then(({ notificationService }) => {
-                        notificationService.notifyProductLowStock('test-product', 'Test Product', 2, 5);
-                      });
-                    }}
-                    className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700"
-                  >
-                    Test Low Stock Alert
-                  </button>
-                  <button
-                    onClick={() => {
-                      import('./services/notifications').then(({ notificationService }) => {
-                        notificationService.notifyCustomerHighBalance('test-customer', 'Test Customer', 75000);
-                      });
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-                  >
-                    Test High Balance Alert
-                  </button>
-                </div>
-              </div>
-            } />
-            
-            {/* Database Debug Tools */}
-
-            
-            {/* Database Initialization (Public Access) */}
-            <Route path="/init-db" element={
-              <div className="min-h-screen bg-gray-50 p-6">
-                <div className="max-w-4xl mx-auto">
-                  <div className="mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900">Database Initialization</h1>
-                    <p className="text-gray-600">Initialize the database tables for the Steel Store Management System</p>
+              {/* Customer Management with Deep Linking */}
+              <Route path="/customers" element={
+                <ProtectedRoute module="customers" level="view">
+                  <CustomerList />
+                </ProtectedRoute>
+              } />
+              <Route path="/customers/new" element={
+                <ProtectedRoute module="customers" level="edit">
+                  <div className="p-6">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-4">Add New Customer</h2>
+                    <p className="text-gray-600">Customer creation form will be implemented here.</p>
                   </div>
-                  <DatabaseInitPanel />
+                </ProtectedRoute>
+              } />
+              <Route path="/customers/:id" element={
+                <ProtectedRoute module="customers" level="view">
+                  <CustomerLedger />
+                </ProtectedRoute>
+              } />
+              <Route path="/customers/:id/edit" element={
+                <ProtectedRoute module="customers" level="edit">
+                  <CustomerLedger />
+                </ProtectedRoute>
+              } />
+              <Route path="/customers/:id/ledger" element={
+                <ProtectedRoute module="customers" level="view">
+                  <CustomerLedger />
+                </ProtectedRoute>
+              } />
+
+              {/* Billing System with Full Traceability */}
+              <Route path="/billing/new" element={
+                <ProtectedRoute module="sales" level="edit">
+                  <InvoiceForm />
+                </ProtectedRoute>
+              } />
+              <Route path="/billing/list" element={
+                <ProtectedRoute module="reports" level="view">
+                  <InvoiceList />
+                </ProtectedRoute>
+              } />
+              <Route path="/billing/view/:id" element={
+                <ProtectedRoute module="sales" level="view">
+                  <InvoiceDetailsPage />
+                </ProtectedRoute>
+              } />
+
+
+              <Route path="/stock/receiving/:id/add-payment" element={
+                <ProtectedRoute module="inventory" level="edit">
+                  <StockReceivingPayment />
+                </ProtectedRoute>
+              } />
+
+              {/* Returns with Original Invoice Linking */}
+              <Route path="/returns" element={<Returns />} />
+              <Route path="/returns/new" element={
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Process Return</h2>
+                  <p className="text-gray-600">Return processing form will be implemented here.</p>
                 </div>
-              </div>
-            } />
-            
-            {/* Debug Routes for Development */}
-            {import.meta.env.DEV && (
-              <Route path="/debug/payment-channels" element={<PaymentChannelDebug />} />
-            )}
-            
-            {/* Catch-all redirect */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </AppLayout>
-      </NavigationProvider>
-    </Router>
-    
-    {/* Real-Time Event Monitor for Development */}
-    {import.meta.env.DEV && (
-      <RealTimeEventMonitor 
-        isOpen={showEventMonitor} 
-        onClose={() => setShowEventMonitor(false)} 
-      />
-    )}
+              } />
+              <Route path="/returns/:id" element={
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Return Details</h2>
+                  <p className="text-gray-600">Return details with original invoice & customer links will be implemented here.</p>
+                </div>
+              } />
+
+              {/* Reports with Drill-down Capabilities */}
+              <Route path="/reports/daily" element={
+                <ProtectedRoute module="reports" level="view">
+                  <DailyLedger />
+                </ProtectedRoute>
+              } />
+              <Route path="/reports/stock" element={
+                <ProtectedRoute module="reports" level="view">
+                  <StockReport />
+                </ProtectedRoute>
+              } />
+
+              {/* Enhanced Customer Management */}
+
+
+              {/* Payment Channel Management */}
+              <Route path="/payment-channels" element={
+                <ProtectedRoute module="payments" level="view">
+                  <PaymentChannelManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/payment-channels/:id" element={
+                <ProtectedRoute module="payments" level="view">
+                  <PaymentChannelDetail />
+                </ProtectedRoute>
+              } />
+              <Route path="/payment/channels" element={
+                <ProtectedRoute module="payments" level="view">
+                  <PaymentChannelManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/payment/channels/:id" element={
+                <ProtectedRoute module="payments" level="view">
+                  <PaymentChannelDetailView />
+                </ProtectedRoute>
+              } />
+
+              {/* Staff Management - Professional Version */}
+              <Route path="/staff" element={
+                <ProtectedRoute module="user_management" level="view">
+                  <StaffManagement />
+                </ProtectedRoute>
+              } />
+
+
+
+              {/* Data Integrity Manager (Admin Only) */}
+              <Route path="/admin/data-integrity" element={
+                <ProtectedRoute module="audit" level="view">
+                  <DataIntegrityManager />
+                </ProtectedRoute>
+              } />
+
+              {/* Business Finance Dashboard */}
+              <Route path="/finance" element={
+                <ProtectedRoute module="reports" level="view">
+                  <BusinessFinanceDashboard />
+                </ProtectedRoute>
+              } />
+
+              {/* Product Movement Details */}
+
+              <Route path="/stock/receiving/:id" element={
+                <ProtectedRoute module="inventory" level="view">
+                  <StockReceivingDetail />
+                </ProtectedRoute>
+              } />
+              {/* Stock Management */}
+              <Route path="/stock/receiving" element={
+                <ProtectedRoute module="inventory" level="view">
+                  <StockReceivingList />
+                </ProtectedRoute>
+              } />
+              <Route path="/stock/receiving/new" element={
+                <ProtectedRoute module="inventory" level="edit">
+                  <StockReceivingNew />
+                </ProtectedRoute>
+              } />
+
+              {/* Vendor Management */}
+              <Route path="/vendors" element={
+                <ProtectedRoute module="vendors" level="view">
+                  <VendorManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="/vendors/:id" element={
+                <ProtectedRoute module="vendors" level="view">
+                  <VendorDetail />
+                </ProtectedRoute>
+              } />
+              <Route path="/vendors/edit/:id" element={
+                <ProtectedRoute module="vendors" level="edit">
+                  <div className="p-6">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Vendor</h2>
+                    <p className="text-gray-600">Vendor edit form will be implemented here.</p>
+                  </div>
+                </ProtectedRoute>
+              } />
+
+
+              {/* Activity Timeline */}
+              <Route path="/activity" element={
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Activity Timeline</h2>
+                  <p className="text-gray-600">Global activity timeline with entity links will be implemented here.</p>
+                </div>
+              } />
+
+
+
+
+              {/* Notification Test (for development) */}
+              <Route path="/settings/notifications/test" element={
+                <div className="p-6">
+                  <h2 className="text-2xl font-bold text-gray-900 mb-4">Notification Test</h2>
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => {
+                        import('./services/notifications').then(({ notificationService }) => {
+                          notificationService.createNotification({
+                            id: 'test-notification',
+                            type: 'system_alert',
+                            category: 'system',
+                            title: 'Test Notification',
+                            message: 'This is a test notification to verify the system is working correctly.',
+                            priority: 'medium',
+                            actionUrl: '/dashboard',
+                            actionText: 'Go to Dashboard'
+                          });
+                        });
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Create Test Notification
+                    </button>
+                    <button
+                      onClick={() => {
+                        import('./services/notifications').then(({ notificationService }) => {
+                          notificationService.notifyProductLowStock('test-product', 'Test Product', 2, 5);
+                        });
+                      }}
+                      className="px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700"
+                    >
+                      Test Low Stock Alert
+                    </button>
+                    <button
+                      onClick={() => {
+                        import('./services/notifications').then(({ notificationService }) => {
+                          notificationService.notifyCustomerHighBalance('test-customer', 'Test Customer', 75000);
+                        });
+                      }}
+                      className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+                    >
+                      Test High Balance Alert
+                    </button>
+                  </div>
+                </div>
+              } />
+
+              {/* Database Debug Tools */}
+
+
+              {/* Database Initialization (Public Access) */}
+              <Route path="/init-db" element={
+                <div className="min-h-screen bg-gray-50 p-6">
+                  <div className="max-w-4xl mx-auto">
+                    <div className="mb-6">
+                      <h1 className="text-3xl font-bold text-gray-900">Database Initialization</h1>
+                      <p className="text-gray-600">Initialize the database tables for the Steel Store Management System</p>
+                    </div>
+                    <DatabaseInitPanel />
+                  </div>
+                </div>
+              } />
+
+              {/* Debug Routes for Development */}
+              {import.meta.env.DEV && (
+                <Route path="/debug/payment-channels" element={<PaymentChannelDebug />} />
+              )}
+
+              {/* Catch-all redirect */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </AppLayout>
+        </NavigationProvider>
+      </Router>
+
+      {/* Real-Time Event Monitor for Development */}
+      {import.meta.env.DEV && (
+        <RealTimeEventMonitor
+          isOpen={showEventMonitor}
+          onClose={() => setShowEventMonitor(false)}
+        />
+      )}
     </>
   );
 }
@@ -544,7 +493,7 @@ function App() {
     }>
       <SafeAuthProvider>
         <AppContent />
-        <Toaster 
+        <Toaster
           position="top-right"
           toastOptions={{
             duration: 4000,

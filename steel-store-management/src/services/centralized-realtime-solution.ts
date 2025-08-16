@@ -41,11 +41,13 @@ export class CentralizedRealtimeSolution {
     if (!this.db.createStockReceiving) return;
 
 
-    this.db.createStockReceiving = async (receivingData: any) => {
+    this.db.createStockReceiving = async (receivingData: any, inTransaction = false) => {
       console.log('🔄 [PERMANENT FIX] Enhanced stock receiving with real-time updates');
 
       try {
-        await this.db.dbConnection.execute('BEGIN TRANSACTION');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('BEGIN TRANSACTION');
+        }
 
 
         // Ensure receiving_number is always set with proper uniqueness check
@@ -230,7 +232,9 @@ export class CentralizedRealtimeSolution {
           }
         }
 
-        await this.db.dbConnection.execute('COMMIT');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('COMMIT');
+        }
 
         // PERMANENT FIX: Emit comprehensive real-time events
         this.emitStockReceivingEvents(finalReceivingId, receivingData);
@@ -239,7 +243,9 @@ export class CentralizedRealtimeSolution {
         return finalReceivingId;
 
       } catch (error) {
-        await this.db.dbConnection.execute('ROLLBACK');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('ROLLBACK');
+        }
         console.error('❌ [PERMANENT FIX] Stock receiving failed:', error);
         throw error;
       }
@@ -252,11 +258,13 @@ export class CentralizedRealtimeSolution {
   private fixInvoiceDetailBalanceUpdates(): void {
     if (!this.db.addInvoiceItems) return;
 
-    this.db.addInvoiceItems = async (invoiceId: number, items: any[]) => {
+    this.db.addInvoiceItems = async (invoiceId: number, items: any[], inTransaction = false) => {
       console.log('🔄 [PERMANENT FIX] Enhanced invoice items with proper balance updates');
 
       try {
-        await this.db.dbConnection.execute('BEGIN TRANSACTION');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('BEGIN TRANSACTION');
+        }
 
         // Get invoice and customer data BEFORE changes
         const invoiceBefore = await this.db.getInvoiceDetails(invoiceId);
@@ -382,62 +390,69 @@ export class CentralizedRealtimeSolution {
           WHERE id = ?
         `, [newTotal, newTotal, newRemaining, invoiceId]);
 
-        // CRITICAL FIX: Create customer ledger entry for added items
-        console.log('🔍 [CENTRALIZED] Creating customer ledger entry for added items...');
-        const now = new Date();
-        const date = now.toISOString().split('T')[0];
-        const time = now.toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
+        // CRITICAL FIX: Create customer ledger entry for added items ONLY when NOT in invoice creation
+        // During invoice creation, the createInvoiceLedgerEntries method handles this
+        if (!inTransaction) {
+          console.log('🔍 [CENTRALIZED] Creating customer ledger entry for added items...');
+          const now = new Date();
+          const date = now.toISOString().split('T')[0];
+          const time = now.toLocaleTimeString('en-PK', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          });
 
-        // Get current customer balance from customer_ledger_entries
-        const currentBalanceResult = await this.db.dbConnection.select(
-          'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
-          [invoiceBefore.customer_id]
-        );
+          // Get current customer balance from customer_ledger_entries
+          const currentBalanceResult = await this.db.dbConnection.select(
+            'SELECT balance_after FROM customer_ledger_entries WHERE customer_id = ? ORDER BY date DESC, created_at DESC LIMIT 1',
+            [invoiceBefore.customer_id]
+          );
 
-        const balanceBefore = currentBalanceResult?.[0]?.balance_after || 0;
-        const balanceAfter = balanceBefore + totalAddition;
+          const balanceBefore = currentBalanceResult?.[0]?.balance_after || 0;
+          const balanceAfter = balanceBefore + totalAddition;
 
-        await this.db.dbConnection.execute(`
-          INSERT INTO customer_ledger_entries (
-            customer_id, customer_name, entry_type, transaction_type, amount, description,
-            reference_id, reference_number, balance_before, balance_after, 
-            date, time, created_by, notes, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        `, [
-          invoiceBefore.customer_id,
-          customerBefore.name,
-          'debit', // entry_type for invoice items (increases customer balance)
-          'invoice', // transaction_type
-          totalAddition,
-          `Items added to Invoice ${invoiceBefore.bill_number}`,
-          invoiceId,
-          invoiceBefore.bill_number,
-          balanceBefore,
-          balanceAfter,
-          date,
-          time,
-          'system',
-          `Added ${items.length} items totaling Rs.${totalAddition.toFixed(1)}`
-        ]);
+          await this.db.dbConnection.execute(`
+            INSERT INTO customer_ledger_entries (
+              customer_id, customer_name, entry_type, transaction_type, amount, description,
+              reference_id, reference_number, balance_before, balance_after, 
+              date, time, created_by, notes, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `, [
+            invoiceBefore.customer_id,
+            customerBefore.name,
+            'debit', // entry_type for invoice items (increases customer balance)
+            'invoice', // transaction_type
+            totalAddition,
+            `Items added to Invoice ${invoiceBefore.bill_number}`,
+            invoiceId,
+            invoiceBefore.bill_number,
+            balanceBefore,
+            balanceAfter,
+            date,
+            time,
+            'system',
+            `Added ${items.length} items totaling Rs.${totalAddition.toFixed(1)}`
+          ]);
 
-        console.log('✅ [CENTRALIZED] Customer ledger entry created for added items');
-        console.log(`   - Amount: Rs.${totalAddition.toFixed(1)} (Debit)`);
-        console.log(`   - Balance: Rs.${balanceBefore.toFixed(1)} → Rs.${balanceAfter.toFixed(1)}`);
+          console.log('✅ [CENTRALIZED] Customer ledger entry created for added items');
+          console.log(`   - Amount: Rs.${totalAddition.toFixed(1)} (Debit)`);
+          console.log(`   - Balance: Rs.${balanceBefore.toFixed(1)} → Rs.${balanceAfter.toFixed(1)}`);
 
-        // Update customer balance in customers table to match ledger
-        await this.db.dbConnection.execute(
-          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [balanceAfter, invoiceBefore.customer_id]
-        );
+          // Update customer balance in customers table to match ledger
+          await this.db.dbConnection.execute(
+            'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [balanceAfter, invoiceBefore.customer_id]
+          );
+        } else {
+          console.log('⏭️ [CENTRALIZED] Skipping customer ledger entry - in transaction (invoice creation)');
+        }
 
         // CRITICAL: Update customer ledger entry for the invoice
         await this.updateInvoiceLedgerEntry(invoiceId, newTotal, newRemaining, invoiceBefore);
 
-        await this.db.dbConnection.execute('COMMIT');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('COMMIT');
+        }
 
         // Emit comprehensive events
         this.emitInvoiceItemsEvents(invoiceId, invoiceBefore.customer_id, items, totalAddition);
@@ -445,7 +460,9 @@ export class CentralizedRealtimeSolution {
         console.log('✅ [PERMANENT FIX] Invoice items added with proper balance updates');
 
       } catch (error) {
-        await this.db.dbConnection.execute('ROLLBACK');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('ROLLBACK');
+        }
         console.error('❌ [PERMANENT FIX] Invoice items addition failed:', error);
         throw error;
       }
@@ -458,11 +475,13 @@ export class CentralizedRealtimeSolution {
   private fixPaymentDirectionInDailyLedger(): void {
     if (!this.db.addInvoicePayment) return;
 
-    this.db.addInvoicePayment = async (invoiceId: number, paymentData: any) => {
+    this.db.addInvoicePayment = async (invoiceId: number, paymentData: any, inTransaction = false, skipCustomerLedger = false) => {
       console.log('🔄 [PERMANENT FIX] Enhanced payment with correct direction');
 
       try {
-        await this.db.dbConnection.execute('BEGIN TRANSACTION');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('BEGIN TRANSACTION');
+        }
 
         const invoice = await this.db.getInvoiceDetails(invoiceId);
         const customer = await this.db.getCustomer(invoice.customer_id);
@@ -563,27 +582,31 @@ export class CentralizedRealtimeSolution {
           'system'
         ]);
 
-        // Create customer ledger entry
-        await this.db.dbConnection.execute(`
-          INSERT INTO customer_ledger_entries (
-            customer_id, customer_name, entry_type, transaction_type, amount, description,
-            reference_type, reference_id, date, time, created_by
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          invoice.customer_id,
-          customer.name,
-          'credit', // Credit entry reduces customer balance
-          'payment',
-          paymentData.amount,
-          `Payment for Invoice ${invoice.bill_number}`,
-          'payment',
-          finalPaymentId,
-          currentDate,
-          currentTime,
-          'system'
-        ]);
+        // Create customer ledger entry only if not skipped
+        if (!skipCustomerLedger) {
+          await this.db.dbConnection.execute(`
+            INSERT INTO customer_ledger_entries (
+              customer_id, customer_name, entry_type, transaction_type, amount, description,
+              reference_type, reference_id, date, time, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
+            invoice.customer_id,
+            customer.name,
+            'credit', // Credit entry reduces customer balance
+            'payment',
+            paymentData.amount,
+            `Payment for Invoice ${invoice.bill_number}`,
+            'payment',
+            finalPaymentId,
+            currentDate,
+            currentTime,
+            'system'
+          ]);
+        }
 
-        await this.db.dbConnection.execute('COMMIT');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('COMMIT');
+        }
 
         // Emit comprehensive events
         this.emitPaymentEvents(invoiceId, invoice.customer_id, paymentData.amount, finalPaymentId);
@@ -592,7 +615,9 @@ export class CentralizedRealtimeSolution {
         return finalPaymentId;
 
       } catch (error) {
-        await this.db.dbConnection.execute('ROLLBACK');
+        if (!inTransaction) {
+          await this.db.dbConnection.execute('ROLLBACK');
+        }
         console.error('❌ [PERMANENT FIX] Payment processing failed:', error);
         throw error;
       }

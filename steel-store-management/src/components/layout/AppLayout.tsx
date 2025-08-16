@@ -33,7 +33,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [companyName, setCompanyName] = useState('Itehad Iron Store');
-  
+
   // Add error handling for useAuth
   let user, logout;
   try {
@@ -49,7 +49,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       window.location.reload();
     };
   }
-  
+
   const { navigateTo, getCurrentTab } = useNavigation();
   const { isAdmin } = useRoleAccess();
   const location = useLocation();
@@ -82,10 +82,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   // Mock notifications for now
   const notifications: any[] = [];
   const unreadCount = 0;
-  const markAsRead = (_id: string) => {};
-  const dismissNotification = (_id: string) => {};
-  const markAllAsRead = () => {};
-  const clearAllNotifications = () => {};
+  const markAsRead = (_id: string) => { };
+  const dismissNotification = (_id: string) => { };
+  const markAllAsRead = () => { };
+  const clearAllNotifications = () => { };
 
   // Load company name from settings
   useEffect(() => {
@@ -93,18 +93,18 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       const generalSettings = settingsService.getSettings('general');
       setCompanyName(generalSettings.companyName || 'Itehad Iron Store');
     };
-    
+
     loadCompanyName();
-    
+
     // Listen for settings changes
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'settings_general') {
         loadCompanyName();
       }
     };
-    
+
     window.addEventListener('storage', handleStorageChange);
-    
+
     return () => {
       window.removeEventListener('storage', handleStorageChange);
     };
@@ -122,34 +122,30 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const navigation: NavigationItem[] = [
     // Core
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, category: 'core' },
-    
+
     // Inventory & Products
     { name: 'Products', href: '/products', icon: Package, category: 'inventory' },
     { name: 'Stock Receiving', href: '/stock/receiving', icon: Truck, category: 'inventory' },
-    
+
     // Sales & Billing
     { name: 'New Invoice', href: '/billing/new', icon: FileText, category: 'sales' },
     { name: 'Invoice List', href: '/billing/list', icon: FileText, category: 'sales' },
-    
+
     // Relations
     { name: 'Customers', href: '/customers', icon: Users, category: 'relations' },
     { name: 'Vendors', href: '/vendors', icon: Truck, category: 'relations' },
-    
+
     // Reports
     { name: 'Stock Report', href: '/reports/stock', icon: Package, category: 'reports' },
     { name: 'Daily Ledger', href: '/reports/daily', icon: Activity, category: 'reports' },
-    
+
     // Management
     { name: 'Staff Management', href: '/staff', icon: Users, category: 'management' },
-    { name: 'Activity Logger', href: '/audit', icon: Activity, category: 'management' },
+
     { name: 'Payment Channels', href: '/payment/channels', icon: CreditCard, category: 'management' },
     { name: 'Business Finance', href: '/finance', icon: BarChart3, category: 'management' },
-    
-    // Admin (only if admin)
-    ...(isAdmin ? [
-      { name: 'Role Management', href: '/admin/roles', icon: Settings, category: 'admin' },
-      { name: 'Notifications', href: '/notifications', icon: Bell, category: 'admin' },
-    ] : [])
+
+
   ];
 
   // Category labels for grouping
@@ -167,7 +163,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     const date = new Date(dateString);
     const now = new Date();
     const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
-    
+
     if (diffInMinutes < 1) return 'Just now';
     if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
     if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
@@ -206,11 +202,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const Sidebar = () => {
     const groupedNav = getNavigationByCategory();
-    
+
     return (
-      <div className={`flex flex-col bg-gray-800 h-screen transition-all duration-300 ${
-        sidebarCollapsed ? 'w-16' : 'w-64'
-      }`}>
+      <div className={`flex flex-col bg-gray-800 h-screen transition-all duration-300 ${sidebarCollapsed ? 'w-16' : 'w-64'
+        }`}>
         {/* Fixed Header with Collapse Button */}
         <div className="flex items-center justify-between h-16 px-4 bg-gray-900 flex-shrink-0 border-b border-gray-700">
           {!sidebarCollapsed && (
@@ -224,10 +219,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <Menu className="h-5 w-5" />
           </button>
         </div>
-        
+
         {/* Simple Navigation List */}
         <nav className="flex-1 px-2 py-2 overflow-hidden min-h-0">
-          
+
           {Object.entries(groupedNav).map(([category, items]) => (
             <div key={category} className="mb-0.5">
               {/* Category Label */}
@@ -236,18 +231,17 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                   {categoryLabels[category as keyof typeof categoryLabels]}
                 </div>
               )}
-              
+
               {/* Navigation Items */}
               <div className="space-y-0.5">
                 {items.map((item) => (
                   <button
                     key={item.name}
                     onClick={() => navigateTo(item.href)}
-                    className={`flex items-center w-full px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 group ${
-                      isNavigationItemActive(item)
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-gray-300 hover:text-white hover:bg-gray-700'
-                    }`}
+                    className={`flex items-center w-full px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 group ${isNavigationItemActive(item)
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                      }`}
                     title={sidebarCollapsed ? item.name : ''}
                   >
                     <item.icon className="h-5 w-5 flex-shrink-0 group-hover:scale-110 transition-transform" />
@@ -267,7 +261,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             </div>
           ))}
         </nav>
-        
+
         {/* Bottom spacing */}
         <div className="flex-shrink-0 h-2"></div>
       </div>
@@ -292,7 +286,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         </div>
       </div>
-      
+
       <div className="max-h-96 overflow-y-auto">
         {notifications.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
@@ -306,9 +300,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               return (
                 <div
                   key={notification.id}
-                  className={`p-4 hover:bg-gray-50 cursor-pointer ${
-                    !notification.read ? 'bg-blue-50' : ''
-                  }`}
+                  className={`p-4 hover:bg-gray-50 cursor-pointer ${!notification.read ? 'bg-blue-50' : ''
+                    }`}
                   onClick={() => markAsRead(notification.id)}
                 >
                   <div className="flex items-start space-x-3">
@@ -340,7 +333,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         )}
       </div>
-      
+
       {notifications.length > 0 && (
         <div className="p-4 border-t border-gray-200">
           <button
@@ -357,16 +350,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
       {/* Desktop Sidebar - always fixed with proper height */}
-      <div className={`hidden lg:block fixed inset-y-0 left-0 z-50 bg-gray-800 border-r border-gray-700 h-screen shadow-lg transition-all duration-300 ${
-        sidebarCollapsed ? 'w-16' : 'w-64'
-      }`}>
+      <div className={`hidden lg:block fixed inset-y-0 left-0 z-50 bg-gray-800 border-r border-gray-700 h-screen shadow-lg transition-all duration-300 ${sidebarCollapsed ? 'w-16' : 'w-64'
+        }`}>
         <Sidebar />
       </div>
 
       {/* Mobile Sidebar - slides in from left */}
-      <div className={`lg:hidden fixed inset-y-0 left-0 z-50 bg-gray-800 border-r border-gray-700 h-screen shadow-lg transform transition-transform duration-300 ease-in-out w-64 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`}>
+      <div className={`lg:hidden fixed inset-y-0 left-0 z-50 bg-gray-800 border-r border-gray-700 h-screen shadow-lg transform transition-transform duration-300 ease-in-out w-64 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}>
         {/* Mobile sidebar header with close button */}
         <div className="flex items-center justify-between h-16 px-4 bg-gray-900 border-b border-gray-700">
           <h1 className="text-white text-lg font-semibold truncate">{companyName}</h1>
@@ -378,10 +369,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <X className="h-5 w-5" />
           </button>
         </div>
-        
+
         {/* Mobile navigation */}
         <nav className="flex-1 px-2 py-2 overflow-hidden min-h-0">
-          
+
           {Object.entries(getNavigationByCategory()).map(([category, items]) => (
             <div key={category} className="mb-0.5">
               {/* Category Label */}
@@ -390,7 +381,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                   {categoryLabels[category as keyof typeof categoryLabels]}
                 </div>
               )}
-              
+
               {/* Navigation Items */}
               <div className="space-y-0.5">
                 {items.map((item) => (
@@ -400,11 +391,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                       navigateTo(item.href);
                       setSidebarOpen(false);
                     }}
-                    className={`flex items-center w-full px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 group ${
-                      isNavigationItemActive(item)
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'text-gray-300 hover:text-white hover:bg-gray-700'
-                    }`}
+                    className={`flex items-center w-full px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 group ${isNavigationItemActive(item)
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                      }`}
                   >
                     <item.icon className="h-5 w-5 flex-shrink-0 group-hover:scale-110 transition-transform" />
                     <span className="ml-3 truncate">{item.name}</span>
@@ -419,23 +409,22 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             </div>
           ))}
         </nav>
-        
+
         {/* Mobile footer - no user info, logout is in header */}
         <div className="flex-shrink-0 h-2"></div>
       </div>
 
       {/* Sidebar backdrop for mobile only */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 transition-opacity lg:hidden z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Main content with dynamic left margin for desktop, full width on mobile */}
-      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${
-        sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'
-      }`}>
+      <div className={`flex-1 flex flex-col overflow-hidden transition-all duration-300 ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'
+        }`}>
         {/* Mobile top bar */}
         <div className="lg:hidden bg-white border-b border-gray-200 px-4 py-2 flex items-center justify-between shadow-sm">
           <button
@@ -470,9 +459,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         </div>
 
         {/* Desktop header - fixed with dynamic positioning */}
-        <header className={`hidden lg:flex fixed top-0 right-0 bg-white shadow-sm border-b border-gray-200 px-8 py-3 items-center justify-end z-40 transition-all duration-300 ${
-          sidebarCollapsed ? 'left-16' : 'left-64'
-        }`}>
+        <header className={`hidden lg:flex fixed top-0 right-0 bg-white shadow-sm border-b border-gray-200 px-8 py-3 items-center justify-end z-40 transition-all duration-300 ${sidebarCollapsed ? 'left-16' : 'left-64'
+          }`}>
           <div className="flex items-center space-x-4">
             <div className="relative">
               <button
