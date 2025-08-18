@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Ledger Diagnostic Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+        }
+
+        .result {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+        }
+
+        .error {
+            border-left-color: #dc3545;
+            background: #fff5f5;
+        }
+
+        .success {
+            border-left-color: #28a745;
+            background: #f0fff4;
+        }
+
+        .warning {
+            border-left-color: #ffc107;
+            background: #fffdf0;
+        }
+
+        pre {
+            background: #f1f1f1;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+
+        input {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-size: 12px;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+
+        .highlight {
+            background: #fff3cd;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 Daily Ledger Diagnostic Tool</h1>
+
+        <div class="card">
+            <h3>Database Investigation</h3>
+            <input type="date" id="testDate" value="2025-08-18">
+            <input type="number" id="customerId" placeholder="Customer ID (optional)">
+            <button class="btn" onclick="checkDailyLedger()">Check Daily Ledger Entries</button>
+            <button class="btn" onclick="checkRawLedgerEntries()">Check Raw Ledger Table</button>
+            <button class="btn" onclick="checkLedgerStructure()">Check Table Structure</button>
+            <button class="btn" onclick="testSpecificEntry()">Test Specific Entry (ID 12)</button>
+            <button class="btn" onclick="debugCustomerFiltering()">Debug Customer Filtering</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        import { DatabaseManager } from './js/database.js';
+
+        window.db = new DatabaseManager();
+        await window.db.initialize();
+
+        window.checkDailyLedger = async function () {
+            const date = document.getElementById('testDate').value;
+            const customerIdInput = document.getElementById('customerId').value;
+            const customerId = customerIdInput ? parseInt(customerIdInput) : null;
+
+            addResult(`🔍 Checking getDailyLedgerEntries for date: ${date}, customer: ${customerId || 'all'}`, 'info');
+
+            try {
+                const result = await window.db.getDailyLedgerEntries(date, { customer_id: customerId });
+                addResult(`✅ getDailyLedgerEntries returned ${result.entries?.length || 0} entries`, 'success');
+
+                if (result.entries && result.entries.length > 0) {
+                    displayTable('Daily Ledger Entries', result.entries);
+                } else {
+                    addResult(`⚠️ No entries found using getDailyLedgerEntries method`, 'warning');
+                }
+
+                if (result.summary) {
+                    addResult(`📊 Summary: Opening: ${result.summary.opening_balance}, Closing: ${result.summary.closing_balance}`, 'info');
+                }
+
+            } catch (error) {
+                addResult(`❌ Error with getDailyLedgerEntries: ${error.message}`, 'error');
+                console.error('getDailyLedgerEntries error:', error);
+            }
+        };
+
+        window.checkRawLedgerEntries = async function () {
+            const date = document.getElementById('testDate').value;
+
+            addResult(`🔍 Checking raw ledger_entries table for date: ${date}`, 'info');
+
+            try {
+                // Check ledger_entries table directly
+                const rawEntries = await window.db.executeRawQuery(
+                    'SELECT * FROM ledger_entries WHERE date = ? ORDER BY time ASC',
+                    [date]
+                );
+
+                addResult(`✅ Raw ledger_entries query returned ${rawEntries.length} entries`, 'success');
+
+                if (rawEntries.length > 0) {
+                    displayTable('Raw Ledger Entries', rawEntries);
+                } else {
+                    addResult(`⚠️ No entries found in ledger_entries table for ${date}`, 'warning');
+                }
+
+                // Also check if there are entries with similar dates
+                const similarEntries = await window.db.executeRawQuery(
+                    'SELECT date, COUNT(*) as count FROM ledger_entries WHERE date LIKE ? GROUP BY date ORDER BY date DESC LIMIT 10',
+                    [`%${date.substr(-5)}%`] // Match month-day
+                );
+
+                if (similarEntries.length > 0) {
+                    addResult(`📅 Similar dates found:`, 'info');
+                    displayTable('Similar Dates', similarEntries);
+                }
+
+            } catch (error) {
+                addResult(`❌ Error with raw query: ${error.message}`, 'error');
+                console.error('Raw query error:', error);
+            }
+        };
+
+        window.checkLedgerStructure = async function () {
+            addResult(`🔍 Checking ledger_entries table structure`, 'info');
+
+            try {
+                const structure = await window.db.executeRawQuery("PRAGMA table_info(ledger_entries)");
+                addResult(`✅ Table structure retrieved`, 'success');
+                displayTable('Ledger Entries Table Structure', structure);
+
+                // Check if running_balance column exists
+                const hasRunningBalance = structure.some(col => col.name === 'running_balance');
+                if (hasRunningBalance) {
+                    addResult(`✅ running_balance column exists`, 'success');
+                } else {
+                    addResult(`❌ running_balance column MISSING - this could be the issue!`, 'error');
+                }
+
+            } catch (error) {
+                addResult(`❌ Error checking structure: ${error.message}`, 'error');
+            }
+        };
+
+        window.testSpecificEntry = async function () {
+            addResult(`🔍 Looking for specific entry with ID 12`, 'info');
+
+            try {
+                const entry = await window.db.executeRawQuery('SELECT * FROM ledger_entries WHERE id = ?', [12]);
+
+                if (entry.length > 0) {
+                    addResult(`✅ Found entry with ID 12`, 'success');
+                    displayTable('Entry ID 12', entry);
+
+                    // Test if getDailyLedgerEntries finds this entry
+                    const entryDate = entry[0].date;
+                    const customerId = entry[0].customer_id;
+
+                    addResult(`🔍 Testing if getDailyLedgerEntries finds this entry (date: ${entryDate}, customer: ${customerId})`, 'info');
+
+                    const result = await window.db.getDailyLedgerEntries(entryDate, { customer_id: customerId });
+                    const foundInMethod = result.entries?.some(e => e.id === 12);
+
+                    if (foundInMethod) {
+                        addResult(`✅ Entry ID 12 IS found by getDailyLedgerEntries`, 'success');
+                    } else {
+                        addResult(`❌ Entry ID 12 is NOT found by getDailyLedgerEntries - this is the bug!`, 'error');
+
+                        // Try without customer filter
+                        const resultAllCustomers = await window.db.getDailyLedgerEntries(entryDate, { customer_id: null });
+                        const foundWithoutCustomerFilter = resultAllCustomers.entries?.some(e => e.id === 12);
+
+                        if (foundWithoutCustomerFilter) {
+                            addResult(`🔍 Entry IS found when customer_id filter is removed`, 'warning');
+                        } else {
+                            addResult(`🔍 Entry is NOT found even without customer filter`, 'error');
+                        }
+                    }
+
+                } else {
+                    addResult(`⚠️ No entry found with ID 12`, 'warning');
+                }
+
+            } catch (error) {
+                addResult(`❌ Error testing specific entry: ${error.message}`, 'error');
+            }
+        };
+
+        function addResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong>: ${message}`;
+            resultsDiv.appendChild(div);
+            resultsDiv.scrollTop = resultsDiv.scrollHeight;
+        }
+
+        function displayTable(title, data) {
+            if (!data || data.length === 0) return;
+
+            const resultsDiv = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = 'result';
+
+            const headers = Object.keys(data[0]);
+            let tableHtml = `<h4>${title}</h4><table><thead><tr>`;
+            headers.forEach(header => {
+                tableHtml += `<th>${header}</th>`;
+            });
+            tableHtml += `</tr></thead><tbody>`;
+
+            data.forEach((row, index) => {
+                const isHighlight = row.id === 12; // Highlight the specific entry we're looking for
+                tableHtml += `<tr ${isHighlight ? 'class="highlight"' : ''}>`;
+                headers.forEach(header => {
+                    let value = row[header];
+                    if (value === null || value === undefined) {
+                        value = '<em>null</em>';
+                    }
+                    tableHtml += `<td>${value}</td>`;
+                });
+                tableHtml += `</tr>`;
+            });
+
+            tableHtml += `</tbody></table>`;
+            div.innerHTML = tableHtml;
+            resultsDiv.appendChild(div);
+        }
+
+        window.debugCustomerFiltering = async function () {
+            const date = document.getElementById('testDate').value;
+
+            addResult(`🔍 Debugging customer filtering for ${date}`, 'info');
+
+            try {
+                // Test with no customer filter
+                addResult(`📋 Test 1: No customer filter (customer_id: null)`, 'info');
+                const allCustomers = await window.db.getDailyLedgerEntries(date, { customer_id: null });
+                addResult(`✅ No filter: ${allCustomers.entries?.length || 0} entries`, allCustomers.entries?.length > 0 ? 'success' : 'warning');
+
+                if (allCustomers.entries) {
+                    const entry12 = allCustomers.entries.find(e => e.id === 12);
+                    if (entry12) {
+                        addResult(`✅ Entry ID 12 FOUND with no customer filter`, 'success');
+                        displayTable('Entry 12 Details', [entry12]);
+                    } else {
+                        addResult(`❌ Entry ID 12 NOT found even with no customer filter`, 'error');
+                    }
+                }
+
+                // Test with customer 4 filter (entry 12 has customer_id = 4)
+                addResult(`📋 Test 2: Customer 4 filter (customer_id: 4)`, 'info');
+                const customer4 = await window.db.getDailyLedgerEntries(date, { customer_id: 4 });
+                addResult(`✅ Customer 4 filter: ${customer4.entries?.length || 0} entries`, customer4.entries?.length > 0 ? 'success' : 'warning');
+
+                if (customer4.entries) {
+                    const entry12 = customer4.entries.find(e => e.id === 12);
+                    if (entry12) {
+                        addResult(`✅ Entry ID 12 FOUND with customer 4 filter`, 'success');
+                    } else {
+                        addResult(`❌ Entry ID 12 NOT found with customer 4 filter`, 'error');
+                    }
+                }
+
+                // Test direct query to verify entry exists
+                addResult(`📋 Test 3: Direct database query for entry 12`, 'info');
+                const directQuery = await window.db.executeRawQuery('SELECT * FROM ledger_entries WHERE id = ?', [12]);
+                if (directQuery.length > 0) {
+                    addResult(`✅ Entry 12 exists in database`, 'success');
+                    const entry = directQuery[0];
+                    addResult(`📊 Entry 12 details: customer_id=${entry.customer_id}, date=${entry.date}, time=${entry.time}`, 'info');
+                    displayTable('Direct Query Entry 12', directQuery);
+
+                    // Test exact query match
+                    addResult(`📋 Test 4: Exact query match test`, 'info');
+                    const exactQuery = await window.db.executeRawQuery(
+                        'SELECT * FROM ledger_entries WHERE date = ? AND customer_id = ? ORDER BY time ASC',
+                        [entry.date, entry.customer_id]
+                    );
+                    addResult(`✅ Exact query returned ${exactQuery.length} entries`, exactQuery.length > 0 ? 'success' : 'error');
+
+                    if (exactQuery.length > 0) {
+                        const foundEntry12 = exactQuery.find(e => e.id === 12);
+                        if (foundEntry12) {
+                            addResult(`✅ Entry 12 found in exact query match`, 'success');
+                        } else {
+                            addResult(`❌ Entry 12 NOT found in exact query match - this suggests a data type or filtering issue`, 'error');
+                        }
+                    }
+                } else {
+                    addResult(`❌ Entry 12 does NOT exist in database`, 'error');
+                }
+
+                // Test time ordering
+                addResult(`📋 Test 5: Time ordering test`, 'info');
+                const timeOrderQuery = await window.db.executeRawQuery(
+                    'SELECT id, time, description FROM ledger_entries WHERE date = ? ORDER BY time ASC',
+                    [date]
+                );
+                addResult(`📊 Time-ordered entries for ${date}:`, 'info');
+                displayTable('Time-Ordered Entries', timeOrderQuery);
+
+            } catch (error) {
+                addResult(`❌ Error in customer filtering debug: ${error.message}`, 'error');
+                console.error('Customer filtering debug error:', error);
+            }
+        };
+
+        // Initialize
+        addResult('🚀 Daily Ledger Diagnostic Tool initialized', 'success');
+        addResult('📋 Use the buttons above to investigate the daily ledger issue', 'info');
+    </script>
+</body>
+
+</html>

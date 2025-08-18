@@ -196,6 +196,14 @@ const InvoiceForm: React.FC = () => {
     }
   }>({});
 
+  // Credit preview state
+  const [creditPreview, setCreditPreview] = useState<{
+    availableCredit: number;
+    willUseCredit: number;
+    remainingCredit: number;
+    outstandingAfterCredit: number;
+  } | null>(null);
+
   // Initialize data - YOUR ORIGINAL FUNCTION
   useEffect(() => {
     loadInitialData();
@@ -240,19 +248,11 @@ const InvoiceForm: React.FC = () => {
     }
   }, [location.state, customers]);
 
-  // Update stock preview when items change - YOUR ORIGINAL
+  // Update stock preview and credit preview when items change
   useEffect(() => {
     updateStockPreview();
-    // If selected customer has credit, update payment_amount when items change
-    if (selectedCustomer && selectedCustomer.balance < 0 && formData.items.length > 0) {
-      const credit = Math.abs(selectedCustomer.balance);
-      const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
-      setFormData(prev => ({
-        ...prev,
-        payment_amount: Math.min(credit, grandTotal)
-      }));
-    }
-  }, [formData.items, products]);
+    updateCreditPreview();
+  }, [formData.items, formData.payment_amount, selectedCustomer, products]);
 
   // Guest Mode: Automatically set payment amount to full total when items change
   useEffect(() => {
@@ -367,6 +367,36 @@ const InvoiceForm: React.FC = () => {
     setShowStockWarning(previews.some(p => p.status === 'insufficient' || p.status === 'low'));
   };
 
+  // Credit preview calculation with proper precision handling
+  const updateCreditPreview = () => {
+    if (!selectedCustomer || isGuestMode || selectedCustomer.balance >= 0) {
+      setCreditPreview(null);
+      return;
+    }
+
+    // Use currency utilities for precise calculations
+    const availableCredit = roundCurrency(Math.abs(selectedCustomer.balance));
+    const grandTotal = roundCurrency(formData.items.reduce((sum, item) => sum + item.total_price, 0));
+    const discountAmount = roundCurrency((grandTotal * formData.discount) / 100);
+    const finalTotal = subtractCurrency(grandTotal, discountAmount);
+    const outstandingAmount = roundCurrency(Math.max(0, subtractCurrency(finalTotal, formData.payment_amount)));
+
+    if (outstandingAmount > 0) {
+      const willUseCredit = roundCurrency(Math.min(availableCredit, outstandingAmount));
+      const remainingCredit = subtractCurrency(availableCredit, willUseCredit);
+      const outstandingAfterCredit = subtractCurrency(outstandingAmount, willUseCredit);
+
+      setCreditPreview({
+        availableCredit,
+        willUseCredit,
+        remainingCredit,
+        outstandingAfterCredit
+      });
+    } else {
+      setCreditPreview(null);
+    }
+  };
+
   // Customer search and selection - YOUR ORIGINAL LOGIC
   const handleCustomerSearch = useCallback((query: string) => {
     setCustomerSearch(query);
@@ -385,19 +415,8 @@ const InvoiceForm: React.FC = () => {
 
   const selectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
-    // If customer has credit (negative balance), pre-fill payment_amount with credit up to invoice total
-    setFormData(prev => {
-      let payment_amount = prev.payment_amount;
-      if (customer.balance < 0) {
-        const credit = Math.abs(customer.balance);
-        let grandTotal = 0;
-        if (prev.items.length > 0) {
-          grandTotal = prev.items.reduce((sum, item) => sum + item.total_price, 0);
-        }
-        payment_amount = Math.min(credit, grandTotal || payment_amount);
-      }
-      return { ...prev, customer_id: customer.id, payment_amount };
-    });
+    // DO NOT auto-apply credit - just set customer and let credit preview handle the logic
+    setFormData(prev => ({ ...prev, customer_id: customer.id }));
     setCustomerSearch(customer.name);
     setShowCustomerDropdown(false);
     setErrors(prev => ({ ...prev, customer_id: '' }));
@@ -593,14 +612,19 @@ const InvoiceForm: React.FC = () => {
     const subtotal = formData.items.reduce((sum, item) => addCurrency(sum, getItemTotal(item)), 0);
     const discountAmount = calculateDiscount(subtotal, formData.discount);
     const grandTotal = subtractCurrency(subtotal, discountAmount);
-    const remainingBalance = subtractCurrency(grandTotal, formData.payment_amount);
+
+    // CRITICAL FIX: Account for credit when calculating remaining balance
+    const creditToApply = creditPreview?.willUseCredit || 0;
+    const totalPayments = addCurrency(formData.payment_amount, creditToApply);
+    const remainingBalance = subtractCurrency(grandTotal, totalPayments);
+
     return {
       subtotal: roundCurrency(subtotal),
       discountAmount: roundCurrency(discountAmount),
       grandTotal: roundCurrency(grandTotal),
       remainingBalance: roundCurrency(remainingBalance)
     };
-  }, [formData.items, formData.discount, formData.payment_amount, nonStockCalculation]);
+  }, [formData.items, formData.discount, formData.payment_amount, nonStockCalculation, creditPreview]);
 
   // YOUR ORIGINAL ADD PRODUCT FUNCTION
   const addProduct = (product: Product) => {
@@ -1139,12 +1163,9 @@ const InvoiceForm: React.FC = () => {
 
         customer_name = selectedCustomer?.name || '';
 
-        if (selectedCustomer && selectedCustomer.balance < 0) {
-          // Apply credit for regular customers
-          const credit = Math.abs(selectedCustomer.balance);
-          const grandTotal = formData.items.reduce((sum, item) => sum + item.total_price, 0);
-          payment_amount = Math.min(credit, grandTotal);
-        }
+        // DO NOT auto-apply credit during invoice creation
+        // Credit will be applied post-invoice creation if payment < total
+        payment_amount = formData.payment_amount;
       }
 
       const invoiceData = {
@@ -1190,10 +1211,34 @@ const InvoiceForm: React.FC = () => {
         });
       });
 
-      console.log('Creating invoice:', invoiceData);
+      // 🔥 ENHANCED INVOICE DATA: Include credit application during invoice creation
+      const enhancedInvoiceData = {
+        ...invoiceData,
+        // Add credit application if available and needed
+        applyCredit: (!isGuestMode && selectedCustomer && selectedCustomer.balance < 0 && creditPreview && creditPreview.willUseCredit > 0)
+          ? creditPreview.willUseCredit
+          : undefined
+      };
 
-      // Create invoice - the database will handle all retries internally
-      const result = await db.createInvoice(invoiceData);
+      console.log('Creating invoice with integrated credit application:', enhancedInvoiceData);
+
+      // Create invoice - the database will handle credit application internally during creation
+      const result = await db.createInvoice(enhancedInvoiceData);
+
+      // 🎉 SUCCESS: Credit is now applied during invoice creation, no post-processing needed!
+      if (!isGuestMode && selectedCustomer && selectedCustomer.balance < 0 && creditPreview && creditPreview.willUseCredit > 0) {
+        console.log('✅ Customer credit applied during invoice creation:', {
+          invoiceId: result.id,
+          creditApplied: creditPreview.willUseCredit,
+          invoiceTotal: result.grand_total,
+          totalPaid: result.payment_amount
+        });
+
+        toast.success(`Invoice created! Credit applied: Rs. ${creditPreview.willUseCredit.toFixed(2)} from customer balance`, {
+          duration: 4000,
+          icon: '💳'
+        });
+      }
 
       // Log activity
       try {
@@ -2178,6 +2223,39 @@ const InvoiceForm: React.FC = () => {
                   <p className="text-xs text-red-600 mt-1">{errors.payment_amount}</p>
                 )}
               </div>
+
+              {/* Credit Preview */}
+              {creditPreview && (
+                <div className="p-3 rounded-lg border border-blue-200 bg-blue-50">
+                  <div className="flex items-center mb-2">
+                    <DollarSign className="h-4 w-4 mr-1 text-blue-600" />
+                    <span className="font-medium text-blue-700 text-sm">Credit Preview</span>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Available Credit:</span>
+                      <span className="font-medium text-blue-600">Rs. {creditPreview.availableCredit.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Will Use:</span>
+                      <span className="font-medium text-green-600">Rs. {creditPreview.willUseCredit.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Remaining Credit:</span>
+                      <span className="font-medium text-blue-600">Rs. {creditPreview.remainingCredit.toFixed(2)}</span>
+                    </div>
+                    {creditPreview.outstandingAfterCredit > 0 && (
+                      <div className="flex justify-between pt-1 border-t border-blue-300">
+                        <span className="text-gray-600">Outstanding After Credit:</span>
+                        <span className="font-medium text-orange-600">Rs. {creditPreview.outstandingAfterCredit.toFixed(2)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-xs text-blue-600 mt-2 italic">
+                    Credit will be applied automatically after invoice creation
+                  </div>
+                </div>
+              )}
 
               {/* Balance Display */}
               <div className={`p-3 rounded-lg border ${calculations.remainingBalance > 0

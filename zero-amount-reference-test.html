@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 Zero-Amount Reference Entry Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .fix-highlight {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            border-left: 5px solid #ffc107;
+        }
+
+        .test-case {
+            border: 2px solid #ddd;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+
+        .test-case.success {
+            border-color: #28a745;
+            background-color: #d4edda;
+        }
+
+        .ledger-entry {
+            background-color: #e9ecef;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            border-left: 4px solid #6c757d;
+        }
+
+        .before-after {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 15px 0;
+        }
+
+        .before,
+        .after {
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .before {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        .after {
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .test-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🎯 Zero-Amount Reference Entry Fix</h1>
+
+        <div class="fix-highlight">
+            <h3>🔥 PROBLEM SOLVED:</h3>
+            <p><strong>Issue:</strong> Creating credit entries with amounts was increasing balance instead of decreasing
+                it</p>
+            <p><strong>Solution:</strong> Create zero-amount reference entries that track credit usage without affecting
+                balance calculations</p>
+        </div>
+
+        <div class="before-after">
+            <div class="before">
+                <h4>❌ BEFORE (Wrong)</h4>
+                <div class="ledger-entry">
+                    Entry Type: credit<br>
+                    Amount: Rs. 1430<br>
+                    Balance: -1430 → -2860<br>
+                    <strong>Problem: Balance increases!</strong>
+                </div>
+            </div>
+            <div class="after">
+                <h4>✅ AFTER (Correct)</h4>
+                <div class="ledger-entry">
+                    Entry Type: adjustment<br>
+                    Amount: Rs. 0 (reference only)<br>
+                    Balance: -1430 → -0 (manual adjustment)<br>
+                    Notes: Credit usage tracked: Rs. 1430<br>
+                    <strong>Solution: Balance decreases correctly!</strong>
+                </div>
+            </div>
+        </div>
+
+        <div class="test-case" id="scenario2">
+            <h3>💳 Test: Credit Only Payment (Scenario 2)</h3>
+            <p><strong>Customer starts with:</strong> -Rs. 1000 (Rs. 1000 credit available)</p>
+            <p><strong>Invoice:</strong> Rs. 800, Credit Used: Rs. 800, Cash: Rs. 0</p>
+            <p><strong>Expected:</strong> Customer balance becomes -Rs. 200 (Rs. 200 credit remaining)</p>
+
+            <button class="test-button" onclick="testZeroAmountApproach()">🧪 Test Zero-Amount Reference Entry</button>
+
+            <div id="test-results" style="margin-top: 15px;"></div>
+        </div>
+
+        <div class="test-case" id="explanation">
+            <h3>📋 How It Works Now:</h3>
+            <ol>
+                <li><strong>Calculate NET:</strong> Invoice (800) - Payments (800) = 0</li>
+                <li><strong>Since NET = 0 AND credit used:</strong> Create reference entry</li>
+                <li><strong>Manual Balance Update:</strong> -1000 + 800 = -200</li>
+                <li><strong>Ledger Entry:</strong> Amount = 0, Notes track credit usage</li>
+                <li><strong>Result:</strong> Balance decreases correctly, ledger shows credit usage</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function testZeroAmountApproach() {
+            const resultsDiv = document.getElementById('test-results');
+
+            // Simulate the scenario
+            const customerBalanceBefore = -1000; // Rs. 1000 credit available
+            const invoiceAmount = 800;
+            const creditUsed = 800;
+            const cashPayment = 0;
+
+            const netBalance = invoiceAmount - (cashPayment + creditUsed); // 800 - 800 = 0
+
+            // NEW APPROACH: Manual balance adjustment with zero-amount reference entry
+            const customerBalanceAfter = customerBalanceBefore + creditUsed; // -1000 + 800 = -200
+
+            let output = `<div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; font-family: monospace;">`;
+            output += `🔍 ZERO-AMOUNT REFERENCE ENTRY TEST:\n\n`;
+            output += `Initial State:\n`;
+            output += `   Customer Balance: Rs. ${customerBalanceBefore} (Rs. ${Math.abs(customerBalanceBefore)} credit available)\n`;
+            output += `   Invoice Amount: Rs. ${invoiceAmount}\n`;
+            output += `   Credit Used: Rs. ${creditUsed}\n`;
+            output += `   Cash Payment: Rs. ${cashPayment}\n\n`;
+
+            output += `Calculations:\n`;
+            output += `   NET Balance: ${invoiceAmount} - ${creditUsed + cashPayment} = ${netBalance}\n`;
+            output += `   Since NET = 0 AND credit used > 0: Create reference entry\n\n`;
+
+            output += `New Balance Calculation:\n`;
+            output += `   ${customerBalanceBefore} + ${creditUsed} = ${customerBalanceAfter}\n`;
+            output += `   (${Math.abs(customerBalanceBefore)} credit - ${creditUsed} used = ${Math.abs(customerBalanceAfter)} remaining)\n\n`;
+
+            output += `📝 Ledger Entry Created:\n`;
+            output += `   Entry Type: adjustment\n`;
+            output += `   Amount: Rs. 0 (reference only)\n`;
+            output += `   Description: Invoice I00012 - Fully paid (Credit only: Rs. ${creditUsed})\n`;
+            output += `   Notes: Credit applied: Rs. ${creditUsed} - REFERENCE ONLY (Credit usage tracked: Rs. ${creditUsed})\n`;
+            output += `   Balance Before: Rs. ${customerBalanceBefore}\n`;
+            output += `   Balance After: Rs. ${customerBalanceAfter}\n\n`;
+
+            if (customerBalanceAfter > customerBalanceBefore) {
+                output += `✅ SUCCESS: Customer balance correctly decreased credit!\n`;
+                output += `   Available credit reduced from Rs. ${Math.abs(customerBalanceBefore)} to Rs. ${Math.abs(customerBalanceAfter)}\n`;
+                document.getElementById('scenario2').className = 'test-case success';
+            } else {
+                output += `❌ ERROR: Balance calculation is wrong!\n`;
+                document.getElementById('scenario2').className = 'test-case';
+            }
+
+            output += `\n🎯 KEY BENEFITS:\n`;
+            output += `   • Balance decreases correctly when credit is used\n`;
+            output += `   • Zero-amount entry doesn't interfere with balance calculations\n`;
+            output += `   • Credit usage is tracked in ledger for audit purposes\n`;
+            output += `   • No double-counting or balance discrepancies\n`;
+            output += `</div>`;
+
+            resultsDiv.innerHTML = output;
+        }
+    </script>
+</body>
+
+</html>

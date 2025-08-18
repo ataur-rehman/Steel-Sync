@@ -319,32 +319,22 @@ const DailyLedger: React.FC = () => {
         });
       });
 
-      console.log(`🧹 [DailyLedger] Deduplication: ${allEntries.length} → ${uniqueEntries.length} entries`);
+      console.log(`🧹 [DailyLedger] Basic deduplication: ${allEntries.length} → ${uniqueEntries.length} entries`);
 
-      // ADDITIONAL AGGRESSIVE DEDUPLICATION: Handle cases where same payment appears with different payment methods
-      const finalEntries = uniqueEntries.filter((entry, index, self) => {
-        return index === self.findIndex(e => {
-          // Same customer payment on same date with same amount should be considered duplicate
-          // regardless of payment method differences
-          if (e.type === 'incoming' && entry.type === 'incoming' &&
-            e.customer_id === entry.customer_id &&
-            e.amount === entry.amount &&
-            e.date === entry.date &&
-            e.category === entry.category &&
-            // Same customer name (handle cases where customer_id might be null)
-            e.customer_name === entry.customer_name &&
-            // Within reasonable time window (30 minutes for payment method variations)
-            Math.abs(
-              new Date(`${e.date} ${e.time}`).getTime() -
-              new Date(`${entry.date} ${entry.time}`).getTime()
-            ) < 1800000) { // 30 minutes
-            return true;
-          }
-          return e === entry; // Keep if it's the exact same entry
-        });
+      // PRODUCTION APPROACH: Only remove entries with identical IDs (true duplicates)
+      // Keep ALL legitimate entries regardless of similar data
+      const seenIds = new Set();
+      const finalEntries = uniqueEntries.filter(entry => {
+        if (entry.id && seenIds.has(entry.id)) {
+          console.log(`�️ [DailyLedger] Removed duplicate ID: ${entry.id}`);
+          return false;
+        }
+        if (entry.id) seenIds.add(entry.id);
+        return true;
       });
 
-      console.log(`🔥 [DailyLedger] Final aggressive deduplication: ${uniqueEntries.length} → ${finalEntries.length} entries`);
+      console.log(`✅ [DailyLedger] Final entries: ${finalEntries.length} (no content-based deduplication)`);
+      console.log(`� [DailyLedger] All entry IDs:`, finalEntries.map(e => e.id).filter(id => id != null));
 
       // FIXED: Apply customer and payment channel filters if selected
       let filteredEntries = finalEntries;

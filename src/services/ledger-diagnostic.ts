@@ -56,7 +56,7 @@ export class LedgerDiagnosticService {
      * Track ledger entry success
      * CRITICAL: Call this in createLedgerEntry after successful INSERT
      */
-    static logLedgerEntrySuccess(entryData: any, insertResult: any) {
+    static logLedgerEntrySuccess(_entryData: any, insertResult: any) {
         console.log('\n✅ [LEDGER DIAGNOSTIC] Ledger entry created successfully');
         console.log(`🆔 Insert ID: ${insertResult?.lastInsertId || 'Unknown'}`);
         console.log(`📊 Changes: ${insertResult?.changes || 'Unknown'}`);
@@ -109,7 +109,7 @@ export class LedgerDiagnosticService {
                 console.log('✅ [LEDGER DIAGNOSTIC] Ledger entry found!');
                 console.log(`📊 Found ${ledgerEntries.length} matching entry(ies)`);
 
-                ledgerEntries.forEach((entry, index) => {
+                ledgerEntries.forEach((entry: any, index: number) => {
                     console.log(`\n📋 Entry ${index + 1}:`);
                     console.log(`   🆔 ID: ${entry.id}`);
                     console.log(`   📅 Date: ${entry.date} ${entry.time}`);
@@ -134,7 +134,7 @@ export class LedgerDiagnosticService {
 
                 if (anyEntries && anyEntries.length > 0) {
                     console.log(`⚠️  Found ${anyEntries.length} OTHER entry(ies) for this return:`);
-                    anyEntries.forEach((entry, index) => {
+                    anyEntries.forEach((entry: any, index: number) => {
                         console.log(`   ${index + 1}. ${entry.type} ${entry.category} Rs.${entry.amount} (${entry.reference_type})`);
                     });
                 } else {
@@ -167,7 +167,7 @@ export class LedgerDiagnosticService {
             console.log(`🔒 Locking Mode: ${JSON.stringify(lockInfo)}`);
 
         } catch (error) {
-            console.log(`❌ [TRANSACTION DIAGNOSTIC] Error checking transaction state: ${error.message}`);
+            console.log(`❌ [TRANSACTION DIAGNOSTIC] Error checking transaction state: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 

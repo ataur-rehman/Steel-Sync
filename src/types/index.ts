@@ -86,6 +86,11 @@ export interface InvoiceCreationData {
   payment_amount?: number;
   payment_method?: string;
   notes?: string;
+  date?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  customer_address?: string;
+  applyCredit?: number; // Amount of customer credit to apply
 }
 
 export interface Payment {

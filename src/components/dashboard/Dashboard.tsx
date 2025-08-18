@@ -6,6 +6,7 @@ import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import { initializeDashboardRealTimeUpdates } from '../../services/dashboardRealTimeUpdater';
 import { enhanceDatabaseWithRealTimeEvents, setupPeriodicDashboardRefresh } from '../../services/databaseEventEnhancer';
 import { eventBus } from '../../utils/eventBus';
@@ -140,25 +141,31 @@ export default function Dashboard() {
       loadDashboardData();
     },
     [
-      'INVOICE_CREATED',
-      'INVOICE_UPDATED', 
-      'INVOICE_DELETED',
-      'PAYMENT_RECORDED',
-      'CUSTOMER_CREATED',
-      'CUSTOMER_UPDATED',
-      'CUSTOMER_BALANCE_UPDATED',
-      'STOCK_UPDATED',
-      'STOCK_ADJUSTMENT_MADE'
+      BUSINESS_EVENTS.INVOICE_CREATED,
+      BUSINESS_EVENTS.INVOICE_UPDATED,
+      BUSINESS_EVENTS.INVOICE_DELETED,
+      BUSINESS_EVENTS.PAYMENT_RECORDED,
+      BUSINESS_EVENTS.CUSTOMER_CREATED,
+      BUSINESS_EVENTS.CUSTOMER_UPDATED,
+      BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED,
+      BUSINESS_EVENTS.STOCK_UPDATED,
+      BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE
     ]
   );
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (retryCount = 0) => {
     try {
       setLoading(true);
-      
-      // Check if database is initialized
+
+      // Check if database is initialized with retry logic
       if (!initialized) {
         console.log('🔄 Dashboard: Database not initialized yet, waiting...');
+        if (retryCount < 3) {
+          setTimeout(() => loadDashboardData(retryCount + 1), 1000);
+        } else {
+          console.warn('⚠️ Dashboard: Database initialization timeout, using default data');
+          setLoading(false);
+        }
         return;
       }
 
@@ -324,18 +331,17 @@ export default function Dashboard() {
                       <p className="text-sm font-semibold text-gray-900">
                         {formatCurrency(invoice.grand_total)}
                       </p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full mt-1 ${
-                        invoice.status === 'paid' || invoice.payment_status === 'paid'
-                          ? 'text-green-600 bg-green-100'
-                          : invoice.status === 'partially_paid' || invoice.payment_status === 'partially_paid'
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full mt-1 ${invoice.status === 'paid' || invoice.payment_status === 'paid'
+                        ? 'text-green-600 bg-green-100'
+                        : invoice.status === 'partially_paid' || invoice.payment_status === 'partially_paid'
                           ? 'text-orange-600 bg-orange-100'
                           : 'text-red-600 bg-red-100'
-                      }`}>
-                        {invoice.status ? 
+                        }`}>
+                        {invoice.status ?
                           invoice.status.replace('_', ' ').charAt(0).toUpperCase() + invoice.status.replace('_', ' ').slice(1)
-                          : invoice.payment_status ? 
-                          invoice.payment_status.replace('_', ' ').charAt(0).toUpperCase() + invoice.payment_status.replace('_', ' ').slice(1)
-                          : 'Pending'
+                          : invoice.payment_status ?
+                            invoice.payment_status.replace('_', ' ').charAt(0).toUpperCase() + invoice.payment_status.replace('_', ' ').slice(1)
+                            : 'Pending'
                         }
                       </span>
                     </div>

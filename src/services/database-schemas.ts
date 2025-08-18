@@ -226,6 +226,7 @@ export const DATABASE_SCHEMAS = {
       category TEXT NOT NULL,
       description TEXT NOT NULL,
       amount REAL NOT NULL CHECK (amount > 0),
+      running_balance REAL DEFAULT 0,
       customer_id INTEGER,
       customer_name TEXT,
       product_id INTEGER,

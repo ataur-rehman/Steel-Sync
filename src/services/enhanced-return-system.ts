@@ -281,7 +281,7 @@ export class InvoiceReturnUpdateManager {
                 `, [
                     invoiceData.customer_id,
                     invoiceId,
-                    'return_credit',
+                    'return', // Use 'return' as it's a valid transaction type
                     `Return credit for invoice - Return Amount: Rs. ${totalReturnAmount}`,
                     0, // debit
                     totalReturnAmount, // credit (reduces customer's debt)
@@ -297,7 +297,7 @@ export class InvoiceReturnUpdateManager {
                 `, [
                     invoiceData.customer_id,
                     invoiceId,
-                    'return_credit',
+                    'return', // Use 'return' as it's a valid transaction type
                     `Return credit for invoice - Return Amount: Rs. ${totalReturnAmount}`,
                     0, // debit
                     totalReturnAmount, // credit (reduces customer's debt)

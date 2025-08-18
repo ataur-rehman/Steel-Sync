@@ -9,6 +9,7 @@ import Modal from '../common/Modal';
 import CustomerForm from './CustomerForm';
 import { formatCurrency } from '../../utils/calculations';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import ConfirmationModal from '../common/ConfirmationModal';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
 export default function CustomerList() {
@@ -22,13 +23,13 @@ export default function CustomerList() {
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [balanceFilter, setBalanceFilter] = useState<'all' | 'clear' | 'outstanding'>('all');
-  
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(24);
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'balance'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  
+
   // Delete confirmation state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
@@ -56,10 +57,10 @@ export default function CustomerList() {
       loadCustomers();
     },
     [
-      'CUSTOMER_CREATED',
-      'CUSTOMER_UPDATED', 
-      'CUSTOMER_DELETED',
-      'CUSTOMER_BALANCE_UPDATED'
+      BUSINESS_EVENTS.CUSTOMER_CREATED,      // Using the actual event constants
+      BUSINESS_EVENTS.CUSTOMER_UPDATED,      // Instead of raw strings
+      BUSINESS_EVENTS.CUSTOMER_DELETED,
+      BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED
     ],
     [] // No dependencies to avoid unnecessary re-subscriptions
   );
@@ -89,10 +90,10 @@ export default function CustomerList() {
     try {
       console.log(`🗑️ Attempting to delete customer: ${customerToDelete.name} (ID: ${customerToDelete.id})`);
       await db.deleteCustomer(customerToDelete.id);
-      
+
       // Log activity
       await activityLogger.logCustomerDeleted(customerToDelete.id, customerToDelete.name);
-      
+
       toast.success('Customer deleted successfully');
       setShowDeleteModal(false);
       setCustomerToDelete(null);
@@ -124,7 +125,7 @@ export default function CustomerList() {
   const handleCustomerAdded = async () => {
     setShowModal(false);
     setSelectedCustomer(null);
-    
+
     try {
       await loadCustomers();
     } catch (error) {
@@ -132,19 +133,19 @@ export default function CustomerList() {
       toast.error('Failed to refresh customer list');
     }
   };
-  
+
   // Filter and sort customers with client-side search
   const filteredCustomers = useMemo(() => {
     let filtered = customers.filter(customer => {
       // Search filter (client-side for better performance)
       if (debouncedSearchQuery) {
         const searchLower = debouncedSearchQuery.toLowerCase();
-        const matchesSearch = 
+        const matchesSearch =
           customer.name?.toLowerCase().includes(searchLower) ||
           customer.phone?.toLowerCase().includes(searchLower) ||
           customer.cnic?.toLowerCase().includes(searchLower) ||
           customer.address?.toLowerCase().includes(searchLower);
-        
+
         if (!matchesSearch) return false;
       }
 
@@ -157,7 +158,7 @@ export default function CustomerList() {
     // Sort customers
     filtered.sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortBy) {
         case 'name':
           comparison = a.name.localeCompare(b.name);
@@ -171,7 +172,7 @@ export default function CustomerList() {
         default:
           comparison = 0;
       }
-      
+
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
@@ -209,7 +210,7 @@ export default function CustomerList() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customers</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Manage your customer database 
+            Manage your customer database
             <span className="font-medium text-gray-700">
               {totalItems > 0 && (
                 <span> - Showing {startIndex + 1}-{endIndex} of {totalItems} customers</span>
@@ -316,11 +317,11 @@ export default function CustomerList() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              
+
               <span className="text-sm text-gray-700">
                 Page {currentPage} of {totalPages}
               </span>
-              
+
               <button
                 onClick={() => handlePageChange(currentPage + 1)}
                 disabled={currentPage === totalPages}
@@ -341,14 +342,14 @@ export default function CustomerList() {
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</th>
-          
+
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-100">
-           
+
             {paginatedCustomers.length === 0 ? (
               <tr>
                 <td colSpan={7} className="px-6 py-12 text-center">
@@ -360,12 +361,12 @@ export default function CustomerList() {
                 </td>
               </tr>
             ) : (
-                paginatedCustomers.map((customer) => {
+              paginatedCustomers.map((customer) => {
                 const hasBalance = customer.total_balance > 0;
-                const balanceStatus = hasBalance 
+                const balanceStatus = hasBalance
                   ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
                   : { status: 'Clear', color: 'text-green-600 bg-green-100' };
-                
+
                 return (
                   <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -381,7 +382,7 @@ export default function CustomerList() {
                         {customer.address}
                       </div>
                     </td>
-                   
+
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       <span className={hasBalance ? 'text-red-600 font-semibold' : 'text-gray-700'}>
                         {formatCurrency(customer.total_balance)}
@@ -402,12 +403,12 @@ export default function CustomerList() {
                             } catch (error) {
                               console.error('Failed to log customer ledger access activity:', error);
                             }
-                            
+
                             console.log('🚀 [CustomerList] Navigating to Customer Ledger for:', {
                               customerId: customer.id,
                               customerName: customer.name
                             });
-                            
+
                             navigateToDetail(`/customers/${customer.id}`, {
                               title: `${customer.name} - Customer Ledger`,
                               state: { customerId: customer.id, customerName: customer.name }
