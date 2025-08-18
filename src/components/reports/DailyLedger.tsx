@@ -273,58 +273,15 @@ const DailyLedger: React.FC = () => {
       // Generate system entries from database
       const systemEntries = await generateSystemEntries(date);
 
-      // Combine and deduplicate with enhanced logic
+      // Combine all entries - NO COMPLEX DEDUPLICATION
       const allEntries = [...storedEntries, ...systemEntries];
 
-      // ENHANCED DEDUPLICATION: Remove duplicates based on multiple criteria
-      const uniqueEntries = allEntries.filter((entry, index, self) => {
-        return index === self.findIndex(e => {
-          // 1. Exact ID match
-          if (e.id === entry.id) return true;
-
-          // 2. Same transaction from different sources (this is the key fix)
-          // Check if entries represent the same real-world transaction
-          const isSameTransaction = (
-            e.amount === entry.amount &&
-            e.date === entry.date &&
-            e.type === entry.type &&
-            e.customer_id === entry.customer_id &&
-            // Allow small time differences (within 5 minutes)
-            Math.abs(
-              new Date(`${e.date} ${e.time}`).getTime() -
-              new Date(`${entry.date} ${entry.time}`).getTime()
-            ) < 300000 && // 5 minutes in milliseconds
-            (
-              // Same bill/reference number
-              (e.bill_number && entry.bill_number && e.bill_number === entry.bill_number) ||
-              // Same reference ID and type
-              (e.reference_id && entry.reference_id && e.reference_id === entry.reference_id && e.reference_type === entry.reference_type) ||
-              // Same payment details for customer payments (relaxed payment method matching)
-              (e.customer_id && entry.customer_id && e.customer_id === entry.customer_id &&
-                // Don't require exact payment method match - same customer, amount, date is enough
-                e.description === entry.description) ||
-              // Same transaction based on customer name and amount (for cases where customer_id might differ)
-              (e.customer_name && entry.customer_name &&
-                e.customer_name === entry.customer_name &&
-                e.description === entry.description)
-            )
-          );
-
-          if (isSameTransaction) {
-            // Keep the more detailed entry (system entries have more metadata)
-            return !entry.is_manual; // Keep system entry over manual if they're the same transaction
-          }
-
-          return false;
-        });
-      });
-
-      console.log(`🧹 [DailyLedger] Basic deduplication: ${allEntries.length} → ${uniqueEntries.length} entries`);
+      console.log(`📊 [DailyLedger] Combined entries: ${allEntries.length} total (no content-based filtering)`);
 
       // PRODUCTION APPROACH: Only remove entries with identical IDs (true duplicates)
       // Keep ALL legitimate entries regardless of similar data
       const seenIds = new Set();
-      const finalEntries = uniqueEntries.filter(entry => {
+      const finalEntries = allEntries.filter(entry => {
         if (entry.id && seenIds.has(entry.id)) {
           console.log(`�️ [DailyLedger] Removed duplicate ID: ${entry.id}`);
           return false;

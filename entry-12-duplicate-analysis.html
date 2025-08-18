@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Entry 12 Duplicate Analysis</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+        }
+
+        .section {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .warning {
+            color: orange;
+        }
+
+        .info {
+            color: blue;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            overflow-x: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .highlight {
+            background-color: yellow;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🎯 Entry ID 12 Duplicate Analysis</h1>
+
+    <div class="section">
+        <h2>Controls</h2>
+        <button onclick="findEntry12()">Find Entry 12 Details</button>
+        <button onclick="findDuplicatesOfEntry12()">Find Potential Duplicates</button>
+        <button onclick="simulateDeduplication()">Simulate Deduplication Process</button>
+        <button onclick="findPaymentReceivedEntries()">Show All Payment Received Entries</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script type="module">
+        let db;
+
+        async function initializeDB() {
+            try {
+                const module = await import('./src/services/database.ts');
+                db = new module.DatabaseService();
+                await db.initialize();
+                console.log('✅ Database initialized');
+            } catch (error) {
+                console.error('❌ Failed to initialize database:', error);
+                document.getElementById('results').innerHTML = `<div class="error">Failed to initialize: ${error.message}</div>`;
+            }
+        }
+
+        window.findEntry12 = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>🎯 Entry ID 12 Details</h2>';
+
+            try {
+                const entry12 = await db.executeRawQuery('SELECT * FROM ledger_entries WHERE id = 12');
+
+                if (entry12.length > 0) {
+                    const entry = entry12[0];
+                    results.innerHTML += '<h3>✅ Entry 12 Found:</h3>';
+                    results.innerHTML += `
+                        <table>
+                            <tr><th>Field</th><th>Value</th></tr>
+                            <tr><td>ID</td><td class="highlight">${entry.id}</td></tr>
+                            <tr><td>Date</td><td>${entry.date}</td></tr>
+                            <tr><td>Time</td><td>${entry.time}</td></tr>
+                            <tr><td>Type</td><td>${entry.type}</td></tr>
+                            <tr><td>Category</td><td class="highlight">${entry.category}</td></tr>
+                            <tr><td>Description</td><td>${entry.description}</td></tr>
+                            <tr><td>Amount</td><td class="highlight">${entry.amount}</td></tr>
+                            <tr><td>Customer ID</td><td>${entry.customer_id}</td></tr>
+                            <tr><td>Customer Name</td><td>${entry.customer_name}</td></tr>
+                            <tr><td>Reference ID</td><td>${entry.reference_id}</td></tr>
+                            <tr><td>Reference Type</td><td>${entry.reference_type}</td></tr>
+                            <tr><td>Bill Number</td><td>${entry.bill_number}</td></tr>
+                            <tr><td>Is Manual</td><td>${entry.is_manual}</td></tr>
+                            <tr><td>Payment Method</td><td>${entry.payment_method}</td></tr>
+                            <tr><td>Created At</td><td>${entry.created_at}</td></tr>
+                        </table>
+                    `;
+
+                    // Store the entry for other functions
+                    window.entry12Data = entry;
+
+                } else {
+                    results.innerHTML += '<h3>❌ Entry 12 Not Found</h3>';
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+            }
+        };
+
+        window.findDuplicatesOfEntry12 = async function () {
+            if (!window.entry12Data) {
+                await findEntry12();
+            }
+
+            if (!window.entry12Data) {
+                document.getElementById('results').innerHTML += '<p class="error">Entry 12 not found, cannot search for duplicates</p>';
+                return;
+            }
+
+            const entry = window.entry12Data;
+            const results = document.getElementById('results');
+            results.innerHTML += '<h2>🔍 Searching for Potential Duplicates of Entry 12</h2>';
+
+            try {
+                // Search 1: Exact matches (excluding ID)
+                const exactMatches = await db.executeRawQuery(`
+                    SELECT * FROM ledger_entries 
+                    WHERE id != 12
+                    AND date = ? AND amount = ? AND customer_id = ? AND reference_id = ?
+                    ORDER BY id
+                `, [entry.date, entry.amount, entry.customer_id, entry.reference_id]);
+
+                results.innerHTML += '<h3>🎯 Exact Matches (same date, amount, customer_id, reference_id):</h3>';
+                if (exactMatches.length > 0) {
+                    results.innerHTML += `<p class="warning">Found ${exactMatches.length} exact matches!</p>`;
+                    results.innerHTML += '<table><tr><th>ID</th><th>Date</th><th>Time</th><th>Category</th><th>Amount</th><th>Customer</th><th>Reference</th></tr>';
+                    exactMatches.forEach(match => {
+                        results.innerHTML += `<tr>
+                            <td class="highlight">${match.id}</td>
+                            <td>${match.date}</td>
+                            <td>${match.time}</td>
+                            <td>${match.category}</td>
+                            <td>${match.amount}</td>
+                            <td>${match.customer_name}</td>
+                            <td>${match.reference_id}</td>
+                        </tr>`;
+                    });
+                    results.innerHTML += '</table>';
+                } else {
+                    results.innerHTML += '<p class="success">No exact matches found</p>';
+                }
+
+                // Search 2: Similar entries (same customer, amount, date within time window)
+                const similarEntries = await db.executeRawQuery(`
+                    SELECT * FROM ledger_entries 
+                    WHERE id != 12
+                    AND date = ? AND amount = ? AND customer_id = ?
+                    ORDER BY time
+                `, [entry.date, entry.amount, entry.customer_id]);
+
+                results.innerHTML += '<h3>⚠️ Similar Entries (same date, amount, customer):</h3>';
+                if (similarEntries.length > 0) {
+                    results.innerHTML += `<p class="warning">Found ${similarEntries.length} similar entries!</p>`;
+                    results.innerHTML += '<table><tr><th>ID</th><th>Time</th><th>Category</th><th>Description</th><th>Reference ID</th><th>Reference Type</th></tr>';
+                    similarEntries.forEach(match => {
+                        // Calculate time difference
+                        const entry12Time = new Date(`${entry.date} ${entry.time}`);
+                        const matchTime = new Date(`${match.date} ${match.time}`);
+                        const timeDiff = Math.abs(entry12Time.getTime() - matchTime.getTime()) / (1000 * 60); // minutes
+
+                        const withinTimeWindow = timeDiff < 5 ? 'class="error"' : '';
+
+                        results.innerHTML += `<tr ${withinTimeWindow}>
+                            <td>${match.id}</td>
+                            <td>${match.time} (${timeDiff.toFixed(1)} min diff)</td>
+                            <td>${match.category}</td>
+                            <td>${match.description}</td>
+                            <td>${match.reference_id}</td>
+                            <td>${match.reference_type}</td>
+                        </tr>`;
+                    });
+                    results.innerHTML += '</table>';
+                    results.innerHTML += '<p class="info">Red rows = within 5-minute window (would be considered duplicates)</p>';
+                } else {
+                    results.innerHTML += '<p class="success">No similar entries found</p>';
+                }
+
+                // Search 3: Same bill number
+                if (entry.bill_number) {
+                    const sameBillEntries = await db.executeRawQuery(`
+                        SELECT * FROM ledger_entries 
+                        WHERE id != 12 AND bill_number = ?
+                        ORDER BY id
+                    `, [entry.bill_number]);
+
+                    results.innerHTML += '<h3>📄 Same Bill Number Entries:</h3>';
+                    if (sameBillEntries.length > 0) {
+                        results.innerHTML += `<p class="warning">Found ${sameBillEntries.length} entries with same bill number!</p>`;
+                        results.innerHTML += '<pre>' + JSON.stringify(sameBillEntries, null, 2) + '</pre>';
+                    } else {
+                        results.innerHTML += '<p class="success">No entries with same bill number</p>';
+                    }
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+            }
+        };
+
+        window.simulateDeduplication = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML += '<h2>🧪 Simulating Deduplication Process</h2>';
+
+            try {
+                // Get today's date entries
+                const today = new Date().toISOString().split('T')[0];
+                const allEntries = await db.executeRawQuery(`
+                    SELECT id, date, time, type, category, description, amount, customer_id, customer_name,
+                           reference_id, reference_type, bill_number, is_manual
+                    FROM ledger_entries 
+                    WHERE date = ?
+                    ORDER BY id
+                `, [today]);
+
+                results.innerHTML += `<p class="info">Total entries for ${today}: ${allEntries.length}</p>`;
+
+                // Simulate the exact deduplication logic from the code
+                const uniqueEntries = allEntries.filter((entry, index, self) => {
+                    return index === self.findIndex(e => {
+                        // 1. Exact ID match
+                        if (e.id === entry.id) return true;
+
+                        // 2. Same transaction detection
+                        const isSameTransaction = (
+                            e.amount === entry.amount &&
+                            e.date === entry.date &&
+                            e.type === entry.type &&
+                            e.customer_id === entry.customer_id &&
+                            // Time difference within 5 minutes
+                            Math.abs(
+                                new Date(`${e.date} ${e.time}`).getTime() -
+                                new Date(`${entry.date} ${entry.time}`).getTime()
+                            ) < 300000 && // 5 minutes
+                            (
+                                // Same bill/reference number
+                                (e.bill_number && entry.bill_number && e.bill_number === entry.bill_number) ||
+                                // Same reference ID and type
+                                (e.reference_id && entry.reference_id && e.reference_id === entry.reference_id && e.reference_type === entry.reference_type) ||
+                                // Same payment details for customer payments
+                                (e.customer_id && entry.customer_id && e.customer_id === entry.customer_id &&
+                                    e.description === entry.description) ||
+                                // Same transaction based on customer name and amount
+                                (e.customer_name && entry.customer_name &&
+                                    e.customer_name === entry.customer_name &&
+                                    e.description === entry.description)
+                            )
+                        );
+
+                        if (isSameTransaction) {
+                            // Keep system entry over manual
+                            return !entry.is_manual;
+                        }
+
+                        return false;
+                    });
+                });
+
+                results.innerHTML += `<p class="warning">After basic deduplication: ${uniqueEntries.length} entries</p>`;
+
+                // Show removed entries
+                const removedEntries = allEntries.filter(entry => !uniqueEntries.includes(entry));
+                if (removedEntries.length > 0) {
+                    results.innerHTML += '<h3>🗑️ Removed by Deduplication:</h3>';
+                    results.innerHTML += '<table><tr><th>ID</th><th>Category</th><th>Amount</th><th>Customer</th><th>Description</th></tr>';
+                    removedEntries.forEach(entry => {
+                        const isEntry12 = entry.id === 12 ? 'class="error"' : '';
+                        results.innerHTML += `<tr ${isEntry12}>
+                            <td>${entry.id}</td>
+                            <td>${entry.category}</td>
+                            <td>${entry.amount}</td>
+                            <td>${entry.customer_name}</td>
+                            <td>${entry.description}</td>
+                        </tr>`;
+                    });
+                    results.innerHTML += '</table>';
+
+                    if (removedEntries.find(e => e.id === 12)) {
+                        results.innerHTML += '<p class="error">❌ Entry 12 WAS REMOVED by deduplication!</p>';
+                    } else {
+                        results.innerHTML += '<p class="success">✅ Entry 12 survived deduplication</p>';
+                    }
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+            }
+        };
+
+        window.findPaymentReceivedEntries = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML += '<h2>💰 All "Payment Received" Entries</h2>';
+
+            try {
+                const paymentEntries = await db.executeRawQuery(`
+                    SELECT id, date, time, amount, customer_id, customer_name, 
+                           reference_id, bill_number, description
+                    FROM ledger_entries 
+                    WHERE category = 'Payment Received'
+                    ORDER BY date DESC, id DESC
+                    LIMIT 50
+                `);
+
+                results.innerHTML += `<p class="info">Found ${paymentEntries.length} "Payment Received" entries (last 50)</p>`;
+
+                if (paymentEntries.length > 0) {
+                    results.innerHTML += '<table><tr><th>ID</th><th>Date</th><th>Time</th><th>Amount</th><th>Customer</th><th>Bill#</th><th>Description</th></tr>';
+                    paymentEntries.forEach(entry => {
+                        const isEntry12 = entry.id === 12 ? 'class="highlight"' : '';
+                        results.innerHTML += `<tr ${isEntry12}>
+                            <td>${entry.id}</td>
+                            <td>${entry.date}</td>
+                            <td>${entry.time}</td>
+                            <td>${entry.amount}</td>
+                            <td>${entry.customer_name}</td>
+                            <td>${entry.bill_number}</td>
+                            <td>${entry.description}</td>
+                        </tr>`;
+                    });
+                    results.innerHTML += '</table>';
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+            }
+        };
+
+        // Initialize when page loads
+        initializeDB();
+    </script>
+</body>
+
+</html>

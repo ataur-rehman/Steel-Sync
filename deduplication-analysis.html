@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Deduplication Analysis Tool</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+        }
+
+        .section {
+            margin: 20px 0;
+            padding: 10px;
+            border: 1px solid #ccc;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .warning {
+            color: orange;
+        }
+
+        .info {
+            color: blue;
+        }
+
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            overflow-x: auto;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔍 Daily Ledger Deduplication Analysis</h1>
+
+    <div class="section">
+        <h2>Controls</h2>
+        <input type="date" id="analysisDate" />
+        <button onclick="analyzeDeduplication()">Analyze Deduplication Process</button>
+        <button onclick="showRawSources()">Show Raw Data Sources</button>
+        <button onclick="findEntry12()">Find Entry ID 12</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script type="module">
+        let db;
+
+        async function initializeDB() {
+            try {
+                // Import database service
+                const module = await import('./src/services/database.ts');
+                db = new module.DatabaseService();
+                await db.initialize();
+                console.log('✅ Database initialized');
+
+                // Set today's date
+                document.getElementById('analysisDate').value = new Date().toISOString().split('T')[0];
+
+            } catch (error) {
+                console.error('❌ Failed to initialize database:', error);
+                document.getElementById('results').innerHTML = `<div class="error">Failed to initialize: ${error.message}</div>`;
+            }
+        }
+
+        window.analyzeDeduplication = async function () {
+            const date = document.getElementById('analysisDate').value;
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>🔄 Analyzing Deduplication Process...</h2>';
+
+            try {
+                // Step 1: Get data from all sources
+                results.innerHTML += '<h3>📊 Step 1: Raw Data Sources</h3>';
+
+                // Source 1: ledger_entries table
+                const ledgerEntries = await db.executeRawQuery(`
+                    SELECT id, date, time, type, category, description, amount, customer_id, customer_name, 
+                           reference_id, reference_type, bill_number, is_manual, created_at
+                    FROM ledger_entries 
+                    WHERE date = ? 
+                    ORDER BY id
+                `, [date]);
+
+                results.innerHTML += `<p class="info">📋 ledger_entries table: ${ledgerEntries.length} entries</p>`;
+
+                // Source 2: vendor_payments table
+                const vendorPayments = await db.executeRawQuery(`
+                    SELECT id, date, amount, vendor_name, payment_channel_name, created_at
+                    FROM vendor_payments 
+                    WHERE date = ? AND amount > 0
+                `, [date]);
+
+                results.innerHTML += `<p class="info">💰 vendor_payments table: ${vendorPayments.length} entries</p>`;
+
+                // Source 3: localStorage (simulate)
+                const storedEntries = JSON.parse(localStorage.getItem(`daily_ledger_${date}`) || '[]');
+                results.innerHTML += `<p class="info">💾 localStorage: ${storedEntries.length} entries</p>`;
+
+                // Step 2: Show what gets filtered from ledger_entries
+                results.innerHTML += '<h3>🔍 Step 2: Ledger Entries Filtering</h3>';
+
+                const includedCategories = [
+                    'Payment Received', 'Customer Payment', 'Invoice Payment', 'Advance Payment',
+                    'Return Refund', 'Cash Refund', 'Staff Salary', 'Salary Payment',
+                    'Business Expense', 'Manual Income', 'Manual Expense', 'Office Rent',
+                    'Utilities Bill', 'Transportation', 'Raw Materials', 'Equipment Purchase',
+                    'Marketing Expense', 'Professional Services', 'Bank Charges',
+                    'Other Income', 'Other Expense'
+                ];
+
+                const includedEntries = ledgerEntries.filter(entry => {
+                    if (entry.is_manual) return true;
+                    if (['Sale Invoice', 'Invoice', 'Sale'].includes(entry.category)) return false;
+                    if (entry.description?.includes('Products sold') || entry.description?.includes('Invoice amount:')) return false;
+                    return includedCategories.includes(entry.category);
+                });
+
+                const excludedEntries = ledgerEntries.filter(entry => !includedEntries.includes(entry));
+
+                results.innerHTML += `<p class="success">✅ Included entries: ${includedEntries.length}</p>`;
+                results.innerHTML += `<p class="warning">⚠️ Excluded entries: ${excludedEntries.length}</p>`;
+
+                if (excludedEntries.length > 0) {
+                    results.innerHTML += '<h4>Excluded Entries:</h4>';
+                    results.innerHTML += '<table><tr><th>ID</th><th>Category</th><th>Description</th><th>Amount</th></tr>';
+                    excludedEntries.forEach(entry => {
+                        results.innerHTML += `<tr><td>${entry.id}</td><td>${entry.category}</td><td>${entry.description}</td><td>${entry.amount}</td></tr>`;
+                    });
+                    results.innerHTML += '</table>';
+                }
+
+                // Step 3: Check if Entry 12 exists and where
+                results.innerHTML += '<h3>🎯 Step 3: Entry ID 12 Analysis</h3>';
+
+                const entry12InLedger = ledgerEntries.find(e => e.id === 12);
+                const entry12Included = includedEntries.find(e => e.id === 12);
+
+                if (entry12InLedger) {
+                    results.innerHTML += `<p class="info">📋 Entry 12 found in ledger_entries table</p>`;
+                    results.innerHTML += `<pre>${JSON.stringify(entry12InLedger, null, 2)}</pre>`;
+
+                    if (entry12Included) {
+                        results.innerHTML += `<p class="success">✅ Entry 12 passed filtering (will be included)</p>`;
+                    } else {
+                        results.innerHTML += `<p class="error">❌ Entry 12 was filtered out (excluded)</p>`;
+
+                        // Show why it was excluded
+                        if (entry12InLedger.category === 'Sale Invoice' || entry12InLedger.category === 'Invoice' || entry12InLedger.category === 'Sale') {
+                            results.innerHTML += `<p class="warning">Reason: Category "${entry12InLedger.category}" is excluded</p>`;
+                        } else if (entry12InLedger.description?.includes('Products sold') || entry12InLedger.description?.includes('Invoice amount:')) {
+                            results.innerHTML += `<p class="warning">Reason: Description contains excluded keywords</p>`;
+                        } else if (!includedCategories.includes(entry12InLedger.category)) {
+                            results.innerHTML += `<p class="warning">Reason: Category "${entry12InLedger.category}" not in included list</p>`;
+                        }
+                    }
+                } else {
+                    results.innerHTML += `<p class="warning">⚠️ Entry 12 not found in ledger_entries table for date ${date}</p>`;
+
+                    // Check if it exists for any date
+                    const entry12Any = await db.executeRawQuery('SELECT * FROM ledger_entries WHERE id = 12');
+                    if (entry12Any.length > 0) {
+                        results.innerHTML += `<p class="info">📅 Entry 12 exists but for date: ${entry12Any[0].date}</p>`;
+                        results.innerHTML += `<pre>${JSON.stringify(entry12Any[0], null, 2)}</pre>`;
+                    } else {
+                        results.innerHTML += `<p class="error">❌ Entry 12 does not exist in database at all</p>`;
+                    }
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+                console.error('Analysis error:', error);
+            }
+        };
+
+        window.showRawSources = async function () {
+            const date = document.getElementById('analysisDate').value;
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>📊 Raw Data Sources</h2>';
+
+            try {
+                // Show all raw sources with their data
+                const ledgerEntries = await db.executeRawQuery(`
+                    SELECT * FROM ledger_entries WHERE date = ? ORDER BY id
+                `, [date]);
+
+                const vendorPayments = await db.executeRawQuery(`
+                    SELECT * FROM vendor_payments WHERE date = ? ORDER BY id
+                `, [date]);
+
+                results.innerHTML += '<h3>📋 ledger_entries Table</h3>';
+                if (ledgerEntries.length > 0) {
+                    results.innerHTML += `<p>Count: ${ledgerEntries.length}</p>`;
+                    results.innerHTML += `<pre>${JSON.stringify(ledgerEntries, null, 2)}</pre>`;
+                } else {
+                    results.innerHTML += '<p class="warning">No entries found</p>';
+                }
+
+                results.innerHTML += '<h3>💰 vendor_payments Table</h3>';
+                if (vendorPayments.length > 0) {
+                    results.innerHTML += `<p>Count: ${vendorPayments.length}</p>`;
+                    results.innerHTML += `<pre>${JSON.stringify(vendorPayments, null, 2)}</pre>`;
+                } else {
+                    results.innerHTML += '<p class="warning">No entries found</p>';
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+            }
+        };
+
+        window.findEntry12 = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>🎯 Finding Entry ID 12</h2>';
+
+            try {
+                const entry12 = await db.executeRawQuery('SELECT * FROM ledger_entries WHERE id = 12');
+
+                if (entry12.length > 0) {
+                    results.innerHTML += '<h3>✅ Entry 12 Found:</h3>';
+                    results.innerHTML += `<pre>${JSON.stringify(entry12[0], null, 2)}</pre>`;
+
+                    // Find similar entries
+                    const similar = await db.executeRawQuery(`
+                        SELECT * FROM ledger_entries 
+                        WHERE (customer_id = ? OR customer_name = ?) 
+                        AND amount = ? 
+                        AND date = ?
+                        ORDER BY id
+                    `, [
+                        entry12[0].customer_id,
+                        entry12[0].customer_name,
+                        entry12[0].amount,
+                        entry12[0].date
+                    ]);
+
+                    results.innerHTML += '<h3>🔍 Similar Entries (Same Customer/Amount/Date):</h3>';
+                    results.innerHTML += `<pre>${JSON.stringify(similar, null, 2)}</pre>`;
+
+                } else {
+                    results.innerHTML += '<h3>❌ Entry 12 Not Found</h3>';
+
+                    // Check latest entries
+                    const latestEntries = await db.executeRawQuery('SELECT * FROM ledger_entries ORDER BY id DESC LIMIT 20');
+                    results.innerHTML += '<h3>📊 Latest 20 Entries:</h3>';
+                    results.innerHTML += `<pre>${JSON.stringify(latestEntries, null, 2)}</pre>`;
+                }
+
+            } catch (error) {
+                results.innerHTML += `<div class="error">Error: ${error.message}</div>`;
+            }
+        };
+
+        // Initialize when page loads
+        initializeDB();
+    </script>
+</body>
+
+</html>
