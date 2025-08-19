@@ -10,11 +10,11 @@
 
 export const CENTRALIZED_DATABASE_TABLES = {
 
-  // ===================================================================
-  // CORE BUSINESS TABLES
-  // ===================================================================
+    // ===================================================================
+    // CORE BUSINESS TABLES
+    // ===================================================================
 
-  customers: `
+    customers: `
     CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       customer_code TEXT UNIQUE NOT NULL,
@@ -40,7 +40,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  products: `
+    products: `
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -94,7 +94,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  invoices: `
+    invoices: `
     CREATE TABLE IF NOT EXISTS invoices (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       bill_number TEXT UNIQUE NOT NULL,
@@ -146,7 +146,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT
     )`,
 
-  invoice_items: `
+    invoice_items: `
     CREATE TABLE IF NOT EXISTS invoice_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       invoice_id INTEGER NOT NULL,
@@ -185,11 +185,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
     )`,
 
-  // ===================================================================
-  // INVENTORY MANAGEMENT TABLES
-  // ===================================================================
+    // ===================================================================
+    // INVENTORY MANAGEMENT TABLES
+    // ===================================================================
 
-  stock_movements: `
+    stock_movements: `
     CREATE TABLE IF NOT EXISTS stock_movements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
@@ -231,7 +231,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
     )`,
 
-  stock_receiving: `
+    stock_receiving: `
     CREATE TABLE IF NOT EXISTS stock_receiving (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       receiving_number TEXT UNIQUE NOT NULL,
@@ -275,7 +275,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  stock_receiving_items: `
+    stock_receiving_items: `
     CREATE TABLE IF NOT EXISTS stock_receiving_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       receiving_id INTEGER NOT NULL,
@@ -298,11 +298,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
     )`,
 
-  // ===================================================================
-  // FINANCIAL MANAGEMENT TABLES
-  // ===================================================================
+    // ===================================================================
+    // FINANCIAL MANAGEMENT TABLES
+    // ===================================================================
 
-  payments: `
+    payments: `
     CREATE TABLE IF NOT EXISTS payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payment_number TEXT UNIQUE,
@@ -349,7 +349,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  ledger_entries: `
+    ledger_entries: `
     CREATE TABLE IF NOT EXISTS ledger_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       entry_number TEXT UNIQUE,
@@ -403,7 +403,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  customer_ledger_entries: `
+    customer_ledger_entries: `
     CREATE TABLE IF NOT EXISTS customer_ledger_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       customer_id INTEGER NOT NULL,
@@ -435,7 +435,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT
     )`,
 
-  payment_channels: `
+    payment_channels: `
     CREATE TABLE IF NOT EXISTS payment_channels (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -478,7 +478,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  payment_channel_daily_ledgers: `
+    payment_channel_daily_ledgers: `
     CREATE TABLE IF NOT EXISTS payment_channel_daily_ledgers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payment_channel_id INTEGER NOT NULL,
@@ -499,11 +499,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE CASCADE
     )`,
 
-  // ===================================================================
-  // VENDOR MANAGEMENT TABLES
-  // ===================================================================
+    // ===================================================================
+    // VENDOR MANAGEMENT TABLES
+    // ===================================================================
 
-  vendors: `
+    vendors: `
     CREATE TABLE IF NOT EXISTS vendors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       vendor_code TEXT UNIQUE NOT NULL DEFAULT ('VND-' || SUBSTR(UPPER(HEX(RANDOMBLOB(4))), 1, 8)), -- Fixed: Constraint resolved with auto-generation
@@ -546,7 +546,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  vendor_payments: `
+    vendor_payments: `
     CREATE TABLE IF NOT EXISTS vendor_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payment_number TEXT UNIQUE NOT NULL,
@@ -579,7 +579,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (receiving_id) REFERENCES stock_receiving(id) ON DELETE SET NULL
     )`,
 
-  vendor_ledger_entries: `
+    vendor_ledger_entries: `
     CREATE TABLE IF NOT EXISTS vendor_ledger_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       vendor_id INTEGER NOT NULL,
@@ -604,11 +604,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE RESTRICT
     )`,
 
-  // ===================================================================
-  // STAFF MANAGEMENT TABLES
-  // ===================================================================
+    // ===================================================================
+    // STAFF MANAGEMENT TABLES
+    // ===================================================================
 
-  staff_management: `
+    staff_management: `
     CREATE TABLE IF NOT EXISTS staff_management (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_code TEXT UNIQUE NOT NULL,
@@ -658,7 +658,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  staff: `
+    staff: `
     CREATE TABLE IF NOT EXISTS staff (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_code TEXT UNIQUE NOT NULL,
@@ -682,7 +682,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  staff_sessions: `
+    staff_sessions: `
     CREATE TABLE IF NOT EXISTS staff_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_id INTEGER NOT NULL,
@@ -700,7 +700,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE
     )`,
 
-  staff_activities: `
+    staff_activities: `
     CREATE TABLE IF NOT EXISTS staff_activities (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_id INTEGER NOT NULL,
@@ -718,7 +718,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE CASCADE
     )`,
 
-  salary_payments: `
+    salary_payments: `
     CREATE TABLE IF NOT EXISTS salary_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payment_number TEXT UNIQUE NOT NULL,
@@ -755,7 +755,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE RESTRICT
     )`,
 
-  salary_adjustments: `
+    salary_adjustments: `
     CREATE TABLE IF NOT EXISTS salary_adjustments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_id INTEGER NOT NULL,
@@ -777,7 +777,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE RESTRICT
     )`,
 
-  staff_ledger_entries: `
+    staff_ledger_entries: `
     CREATE TABLE IF NOT EXISTS staff_ledger_entries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       staff_id INTEGER NOT NULL,
@@ -800,11 +800,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (staff_id) REFERENCES staff_management(id) ON DELETE RESTRICT
     )`,
 
-  // ===================================================================
-  // BUSINESS FINANCE TABLES
-  // ===================================================================
+    // ===================================================================
+    // BUSINESS FINANCE TABLES
+    // ===================================================================
 
-  business_expenses: `
+    business_expenses: `
     CREATE TABLE IF NOT EXISTS business_expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       expense_number TEXT UNIQUE NOT NULL,
@@ -840,7 +840,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  business_income: `
+    business_income: `
     CREATE TABLE IF NOT EXISTS business_income (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       income_number TEXT UNIQUE NOT NULL,
@@ -874,11 +874,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  // ===================================================================
-  // RETURNS & REFUNDS TABLES
-  // ===================================================================
+    // ===================================================================
+    // RETURNS & REFUNDS TABLES
+    // ===================================================================
 
-  returns: `
+    returns: `
     CREATE TABLE IF NOT EXISTS returns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       return_number TEXT UNIQUE NOT NULL,
@@ -915,7 +915,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT
     )`,
 
-  return_items: `
+    return_items: `
     CREATE TABLE IF NOT EXISTS return_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       return_id INTEGER NOT NULL,
@@ -938,11 +938,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
     )`,
 
-  // ===================================================================
-  // SYSTEM & AUDIT TABLES
-  // ===================================================================
+    // ===================================================================
+    // SYSTEM & AUDIT TABLES
+    // ===================================================================
 
-  audit_logs: `
+    audit_logs: `
     CREATE TABLE IF NOT EXISTS audit_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
@@ -971,7 +971,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  notifications: `
+    notifications: `
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       recipient_type TEXT NOT NULL CHECK (recipient_type IN ('system', 'admin', 'staff', 'customer')),
@@ -996,7 +996,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  settings: `
+    settings: `
     CREATE TABLE IF NOT EXISTS settings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       category TEXT NOT NULL,
@@ -1015,7 +1015,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       UNIQUE(category, key)
     )`,
 
-  app_metadata: `
+    app_metadata: `
     CREATE TABLE IF NOT EXISTS app_metadata (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       key TEXT UNIQUE NOT NULL,
@@ -1025,11 +1025,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  // ===================================================================
-  // ADDITIONAL BUSINESS TABLES
-  // ===================================================================
+    // ===================================================================
+    // ADDITIONAL BUSINESS TABLES
+    // ===================================================================
 
-  invoice_payments: `
+    invoice_payments: `
     CREATE TABLE IF NOT EXISTS invoice_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       invoice_id INTEGER NOT NULL,
@@ -1051,7 +1051,7 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
     )`,
 
-  payment_methods: `
+    payment_methods: `
     CREATE TABLE IF NOT EXISTS payment_methods (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
@@ -1064,11 +1064,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
-  // ===================================================================
-  // ENHANCED PAYMENTS TABLE (for complex payment tracking)
-  // ===================================================================
+    // ===================================================================
+    // ENHANCED PAYMENTS TABLE (for complex payment tracking)
+    // ===================================================================
 
-  enhanced_payments: `
+    enhanced_payments: `
     CREATE TABLE IF NOT EXISTS enhanced_payments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payment_number TEXT UNIQUE NOT NULL,
@@ -1117,11 +1117,11 @@ export const CENTRALIZED_DATABASE_TABLES = {
       FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE SET NULL
     )`,
 
-  // ===================================================================
-  // FIFO PAYMENT ALLOCATION SYSTEM
-  // Production-grade table for tracking invoice payment allocations
-  // ===================================================================
-  invoice_payment_allocations: `
+    // ===================================================================
+    // FIFO PAYMENT ALLOCATION SYSTEM
+    // Production-grade table for tracking invoice payment allocations
+    // ===================================================================
+    invoice_payment_allocations: `
     CREATE TABLE IF NOT EXISTS invoice_payment_allocations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       payment_id INTEGER NOT NULL,
@@ -1156,59 +1156,59 @@ export const CENTRALIZED_DATABASE_TABLES = {
  * These indexes optimize query performance for frequently accessed data
  */
 export const PERFORMANCE_INDEXES = [
-  // Customer indexes
-  'CREATE INDEX IF NOT EXISTS idx_customers_customer_code ON customers(customer_code)',
-  'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
-  'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
-  'CREATE INDEX IF NOT EXISTS idx_customers_active ON customers(is_active)',
+    // Customer indexes
+    'CREATE INDEX IF NOT EXISTS idx_customers_customer_code ON customers(customer_code)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
+    'CREATE INDEX IF NOT EXISTS idx_customers_active ON customers(is_active)',
 
-  // Invoice payment allocations indexes (FIFO system)
-  'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_payment_id ON invoice_payment_allocations(payment_id)',
-  'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_invoice_id ON invoice_payment_allocations(invoice_id)',
-  'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_customer_id ON invoice_payment_allocations(customer_id)',
-  'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_date ON invoice_payment_allocations(allocation_date)',
-  'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_order ON invoice_payment_allocations(allocation_order)',
+    // Invoice payment allocations indexes (FIFO system)
+    'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_payment_id ON invoice_payment_allocations(payment_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_invoice_id ON invoice_payment_allocations(invoice_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_customer_id ON invoice_payment_allocations(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_date ON invoice_payment_allocations(allocation_date)',
+    'CREATE INDEX IF NOT EXISTS idx_invoice_payment_allocations_order ON invoice_payment_allocations(allocation_order)',
 
-  // Product indexes
-  'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
-  'CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)',
-  'CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)',
-  'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
-  'CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active)',
+    // Product indexes
+    'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
+    'CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)',
+    'CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)',
+    'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
+    'CREATE INDEX IF NOT EXISTS idx_products_active ON products(is_active)',
 
-  // Invoice indexes
-  'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)',
-  'CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date)',
-  'CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)',
-  'CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date)',
+    // Invoice indexes
+    'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)',
+    'CREATE INDEX IF NOT EXISTS idx_invoices_due_date ON invoices(due_date)',
 
-  // Payment indexes
-  'CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)',
-  'CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date)',
-  'CREATE INDEX IF NOT EXISTS idx_payments_channel ON payments(payment_channel_id)',
-  'CREATE INDEX IF NOT EXISTS idx_payments_method ON payments(payment_method)',
+    // Payment indexes
+    'CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_channel ON payments(payment_channel)',
+    'CREATE INDEX IF NOT EXISTS idx_payments_method ON payments(payment_method)',
 
-  // Stock movement indexes
-  'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)',
-  'CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)',
-  'CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)',
+    // Stock movement indexes
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_movements_type ON stock_movements(movement_type)',
 
-  // Staff indexes
-  'CREATE INDEX IF NOT EXISTS idx_staff_staff_code ON staff(staff_code)',
-  'CREATE INDEX IF NOT EXISTS idx_staff_email ON staff(email)',
-  'CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(is_active)',
+    // Staff indexes
+    'CREATE INDEX IF NOT EXISTS idx_staff_username ON staff(username)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_email ON staff(email)',
+    'CREATE INDEX IF NOT EXISTS idx_staff_active ON staff(is_active)',
 
-  // Vendor indexes
-  'CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name)',
-  'CREATE INDEX IF NOT EXISTS idx_vendors_active ON vendors(is_active)',
+    // Vendor indexes
+    'CREATE INDEX IF NOT EXISTS idx_vendors_name ON vendors(name)',
+    'CREATE INDEX IF NOT EXISTS idx_vendors_active ON vendors(is_active)',
 
-  // Settings indexes
-  'CREATE INDEX IF NOT EXISTS idx_settings_category_key ON settings(category, key)',
+    // Settings indexes
+    'CREATE INDEX IF NOT EXISTS idx_settings_category_key ON settings(category, key)',
 
-  // Stock receiving indexes
-  'CREATE INDEX IF NOT EXISTS idx_stock_receiving_vendor_id ON stock_receiving(vendor_id)',
-  'CREATE INDEX IF NOT EXISTS idx_stock_receiving_date ON stock_receiving(received_date)',
-  'CREATE INDEX IF NOT EXISTS idx_stock_receiving_status ON stock_receiving(status)'
+    // Stock receiving indexes
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_vendor_id ON stock_receiving(vendor_id)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_date ON stock_receiving(received_date)',
+    'CREATE INDEX IF NOT EXISTS idx_stock_receiving_status ON stock_receiving(status)'
 ];
 
 /**
@@ -1216,231 +1216,231 @@ export const PERFORMANCE_INDEXES = [
  * Tables must be created in this order to respect foreign key constraints
  */
 export const TABLE_CREATION_ORDER = [
-  'customers',
-  'products',
-  'vendors',
-  'payment_channels',
-  'payment_methods',
-  'staff_management',
-  'staff',
-  'invoices',
-  'invoice_items',
-  'stock_movements',
-  'stock_receiving',
-  'stock_receiving_items',
-  'payments',
-  'enhanced_payments',
-  'ledger_entries',
-  'customer_ledger_entries',
-  'vendor_payments',
-  'vendor_ledger_entries',
-  'payment_channel_daily_ledgers',
-  'business_expenses',
-  'business_income',
-  'returns',
-  'return_items',
-  'staff_sessions',
-  'staff_activities',
-  'salary_payments',
-  'salary_adjustments',
-  'staff_ledger_entries',
-  'invoice_payments',
-  'invoice_payment_allocations',
-  'audit_logs',
-  'notifications',
-  'settings',
-  'app_metadata'
+    'customers',
+    'products',
+    'vendors',
+    'payment_channels',
+    'payment_methods',
+    'staff_management',
+    'staff',
+    'invoices',
+    'invoice_items',
+    'stock_movements',
+    'stock_receiving',
+    'stock_receiving_items',
+    'payments',
+    'enhanced_payments',
+    'ledger_entries',
+    'customer_ledger_entries',
+    'vendor_payments',
+    'vendor_ledger_entries',
+    'payment_channel_daily_ledgers',
+    'business_expenses',
+    'business_income',
+    'returns',
+    'return_items',
+    'staff_sessions',
+    'staff_activities',
+    'salary_payments',
+    'salary_adjustments',
+    'staff_ledger_entries',
+    'invoice_payments',
+    'invoice_payment_allocations',
+    'audit_logs',
+    'notifications',
+    'settings',
+    'app_metadata'
 ];
 
 /**
  * UTILITY FUNCTIONS FOR TABLE MANAGEMENT
  */
 export class CentralizedTableManager {
-  private dbConnection: any;
+    private dbConnection: any;
 
-  constructor(dbConnection: any) {
-    this.dbConnection = dbConnection;
-  }
+    constructor(dbConnection: any) {
+        this.dbConnection = dbConnection;
+    }
 
-  /**
-   * Create all tables in the correct order
-   */
-  async createAllTables(): Promise<void> {
-    console.log('🏗️ Creating all tables from centralized definitions...');
+    /**
+     * Create all tables in the correct order
+     */
+    async createAllTables(): Promise<void> {
+        console.log('🏗️ Creating all tables from centralized definitions...');
 
-    for (const tableName of TABLE_CREATION_ORDER) {
-      const tableSQL = CENTRALIZED_DATABASE_TABLES[tableName as keyof typeof CENTRALIZED_DATABASE_TABLES];
-      if (tableSQL) {
+        for (const tableName of TABLE_CREATION_ORDER) {
+            const tableSQL = CENTRALIZED_DATABASE_TABLES[tableName as keyof typeof CENTRALIZED_DATABASE_TABLES];
+            if (tableSQL) {
+                try {
+                    await this.dbConnection.execute(tableSQL);
+                    console.log(`✅ Created table: ${tableName}`);
+                } catch (error) {
+                    console.error(`❌ Failed to create table ${tableName}:`, error);
+                    throw error;
+                }
+            }
+        }
+
+        console.log('✅ All tables created successfully');
+    }
+
+    /**
+     * Create all performance indexes
+     */
+    async createAllIndexes(): Promise<void> {
+        console.log('📊 Creating performance indexes...');
+
+        for (const indexSQL of PERFORMANCE_INDEXES) {
+            try {
+                await this.dbConnection.execute(indexSQL);
+            } catch (error) {
+                // Indexes may already exist, log but don't fail
+                console.warn('⚠️ Index creation warning:', error);
+            }
+        }
+
+        console.log('✅ All indexes created successfully');
+    }
+
+    /**
+     * CENTRALIZED SCHEMA ENFORCEMENT: NO ALTER TABLE - Only log schema mismatches
+     * Following user instructions: No migrations, no ALTER TABLE, no table creation in database.ts
+     */
+    async enforceSchemaConsistency(): Promise<void> {
+        console.log('🔧 [CENTRALIZED] Schema consistency check (NO ALTER TABLE per user instructions)...');
+
         try {
-          await this.dbConnection.execute(tableSQL);
-          console.log(`✅ Created table: ${tableName}`);
+            // ONLY log schema information - NO modifications
+            const stockReceivingSchema = await this.dbConnection.select(`PRAGMA table_info(stock_receiving)`);
+            const stockReceivingColumns = stockReceivingSchema.map((col: any) => col.name);
+            console.log('📋 [CENTRALIZED] stock_receiving columns:', stockReceivingColumns);
+
+            const invoiceItemsSchema = await this.dbConnection.select(`PRAGMA table_info(invoice_items)`);
+            const invoiceItemsColumns = invoiceItemsSchema.map((col: any) => col.name);
+            console.log('📋 [CENTRALIZED] invoice_items columns:', invoiceItemsColumns);
+
+            const paymentsSchema = await this.dbConnection.select(`PRAGMA table_info(payments)`);
+            const paymentsColumns = paymentsSchema.map((col: any) => col.name);
+            console.log('📋 [CENTRALIZED] payments columns:', paymentsColumns);
+
+            const stockReceivingItemsSchema = await this.dbConnection.select(`PRAGMA table_info(stock_receiving_items)`);
+            const stockItemsColumns = stockReceivingItemsSchema.map((col: any) => col.name);
+            console.log('📋 [CENTRALIZED] stock_receiving_items columns:', stockItemsColumns);
+
+        } catch (schemaError) {
+            console.error('❌ [CENTRALIZED] Schema check failed:', schemaError);
+        }
+
+        console.log('✅ [CENTRALIZED] Schema consistency check completed (NO MODIFICATIONS per user instructions)');
+    }
+
+    /**
+     * Drop all tables (use with extreme caution!)
+     */
+    async dropAllTables(): Promise<void> {
+        console.log('🗑️ WARNING: Dropping all tables...');
+
+        // Disable foreign key constraints temporarily
+        await this.dbConnection.execute('PRAGMA foreign_keys = OFF');
+
+        const reversedOrder = [...TABLE_CREATION_ORDER].reverse();
+
+        for (const tableName of reversedOrder) {
+            try {
+                await this.dbConnection.execute(`DROP TABLE IF EXISTS ${tableName}`);
+                console.log(`🗑️ Dropped table: ${tableName}`);
+            } catch (error) {
+                console.error(`❌ Failed to drop table ${tableName}:`, error);
+            }
+        }
+
+        // Re-enable foreign key constraints
+        await this.dbConnection.execute('PRAGMA foreign_keys = ON');
+
+        console.log('✅ All tables dropped successfully');
+    }
+
+    /**
+     * Recreate all tables (drops and creates fresh)
+     */
+    async recreateAllTables(): Promise<void> {
+        console.log('🔄 Recreating all tables...');
+
+        await this.dropAllTables();
+        await this.createAllTables();
+        await this.createAllIndexes();
+
+        console.log('✅ All tables recreated successfully');
+    }
+
+    /**
+     * Validate table structure
+     */
+    async validateTableStructure(tableName: string): Promise<{
+        exists: boolean;
+        columns: string[];
+        missingColumns: string[];
+        issues: string[];
+    }> {
+        const result = {
+            exists: false,
+            columns: [] as string[],
+            missingColumns: [] as string[],
+            issues: [] as string[]
+        };
+
+        try {
+            const tableInfo = await this.dbConnection.select(`PRAGMA table_info(${tableName})`);
+
+            if (tableInfo.length > 0) {
+                result.exists = true;
+                result.columns = tableInfo.map((col: any) => col.name);
+
+                // Extract expected columns from centralized definition
+                const tableSQL = CENTRALIZED_DATABASE_TABLES[tableName as keyof typeof CENTRALIZED_DATABASE_TABLES];
+                if (tableSQL) {
+                    const expectedColumns = this.extractColumnsFromSQL(tableSQL);
+                    result.missingColumns = expectedColumns.filter(col => !result.columns.includes(col));
+
+                    if (result.missingColumns.length > 0) {
+                        result.issues.push(`Missing columns: ${result.missingColumns.join(', ')}`);
+                    }
+                }
+            } else {
+                result.issues.push('Table does not exist');
+            }
         } catch (error) {
-          console.error(`❌ Failed to create table ${tableName}:`, error);
-          throw error;
+            result.issues.push(`Validation error: ${error}`);
         }
-      }
+
+        return result;
     }
 
-    console.log('✅ All tables created successfully');
-  }
+    /**
+     * Extract column names from SQL CREATE TABLE statement
+     */
+    private extractColumnsFromSQL(sql: string): string[] {
+        const columns: string[] = [];
+        const lines = sql.split('\n');
 
-  /**
-   * Create all performance indexes
-   */
-  async createAllIndexes(): Promise<void> {
-    console.log('📊 Creating performance indexes...');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.toUpperCase().startsWith('CREATE') &&
+                !trimmed.toUpperCase().startsWith('FOREIGN') &&
+                !trimmed.startsWith('PRIMARY') &&
+                !trimmed.startsWith('UNIQUE') &&
+                !trimmed.startsWith('CHECK') &&
+                !trimmed.startsWith(')')) {
 
-    for (const indexSQL of PERFORMANCE_INDEXES) {
-      try {
-        await this.dbConnection.execute(indexSQL);
-      } catch (error) {
-        // Indexes may already exist, log but don't fail
-        console.warn('⚠️ Index creation warning:', error);
-      }
-    }
-
-    console.log('✅ All indexes created successfully');
-  }
-
-  /**
-   * CENTRALIZED SCHEMA ENFORCEMENT: NO ALTER TABLE - Only log schema mismatches
-   * Following user instructions: No migrations, no ALTER TABLE, no table creation in database.ts
-   */
-  async enforceSchemaConsistency(): Promise<void> {
-    console.log('🔧 [CENTRALIZED] Schema consistency check (NO ALTER TABLE per user instructions)...');
-
-    try {
-      // ONLY log schema information - NO modifications
-      const stockReceivingSchema = await this.dbConnection.select(`PRAGMA table_info(stock_receiving)`);
-      const stockReceivingColumns = stockReceivingSchema.map((col: any) => col.name);
-      console.log('📋 [CENTRALIZED] stock_receiving columns:', stockReceivingColumns);
-
-      const invoiceItemsSchema = await this.dbConnection.select(`PRAGMA table_info(invoice_items)`);
-      const invoiceItemsColumns = invoiceItemsSchema.map((col: any) => col.name);
-      console.log('📋 [CENTRALIZED] invoice_items columns:', invoiceItemsColumns);
-
-      const paymentsSchema = await this.dbConnection.select(`PRAGMA table_info(payments)`);
-      const paymentsColumns = paymentsSchema.map((col: any) => col.name);
-      console.log('📋 [CENTRALIZED] payments columns:', paymentsColumns);
-
-      const stockReceivingItemsSchema = await this.dbConnection.select(`PRAGMA table_info(stock_receiving_items)`);
-      const stockItemsColumns = stockReceivingItemsSchema.map((col: any) => col.name);
-      console.log('📋 [CENTRALIZED] stock_receiving_items columns:', stockItemsColumns);
-
-    } catch (schemaError) {
-      console.error('❌ [CENTRALIZED] Schema check failed:', schemaError);
-    }
-
-    console.log('✅ [CENTRALIZED] Schema consistency check completed (NO MODIFICATIONS per user instructions)');
-  }
-
-  /**
-   * Drop all tables (use with extreme caution!)
-   */
-  async dropAllTables(): Promise<void> {
-    console.log('🗑️ WARNING: Dropping all tables...');
-
-    // Disable foreign key constraints temporarily
-    await this.dbConnection.execute('PRAGMA foreign_keys = OFF');
-
-    const reversedOrder = [...TABLE_CREATION_ORDER].reverse();
-
-    for (const tableName of reversedOrder) {
-      try {
-        await this.dbConnection.execute(`DROP TABLE IF EXISTS ${tableName}`);
-        console.log(`🗑️ Dropped table: ${tableName}`);
-      } catch (error) {
-        console.error(`❌ Failed to drop table ${tableName}:`, error);
-      }
-    }
-
-    // Re-enable foreign key constraints
-    await this.dbConnection.execute('PRAGMA foreign_keys = ON');
-
-    console.log('✅ All tables dropped successfully');
-  }
-
-  /**
-   * Recreate all tables (drops and creates fresh)
-   */
-  async recreateAllTables(): Promise<void> {
-    console.log('🔄 Recreating all tables...');
-
-    await this.dropAllTables();
-    await this.createAllTables();
-    await this.createAllIndexes();
-
-    console.log('✅ All tables recreated successfully');
-  }
-
-  /**
-   * Validate table structure
-   */
-  async validateTableStructure(tableName: string): Promise<{
-    exists: boolean;
-    columns: string[];
-    missingColumns: string[];
-    issues: string[];
-  }> {
-    const result = {
-      exists: false,
-      columns: [] as string[],
-      missingColumns: [] as string[],
-      issues: [] as string[]
-    };
-
-    try {
-      const tableInfo = await this.dbConnection.select(`PRAGMA table_info(${tableName})`);
-
-      if (tableInfo.length > 0) {
-        result.exists = true;
-        result.columns = tableInfo.map((col: any) => col.name);
-
-        // Extract expected columns from centralized definition
-        const tableSQL = CENTRALIZED_DATABASE_TABLES[tableName as keyof typeof CENTRALIZED_DATABASE_TABLES];
-        if (tableSQL) {
-          const expectedColumns = this.extractColumnsFromSQL(tableSQL);
-          result.missingColumns = expectedColumns.filter(col => !result.columns.includes(col));
-
-          if (result.missingColumns.length > 0) {
-            result.issues.push(`Missing columns: ${result.missingColumns.join(', ')}`);
-          }
+                const columnMatch = trimmed.match(/^(\w+)/);
+                if (columnMatch) {
+                    columns.push(columnMatch[1]);
+                }
+            }
         }
-      } else {
-        result.issues.push('Table does not exist');
-      }
-    } catch (error) {
-      result.issues.push(`Validation error: ${error}`);
+
+        return columns;
     }
-
-    return result;
-  }
-
-  /**
-   * Extract column names from SQL CREATE TABLE statement
-   */
-  private extractColumnsFromSQL(sql: string): string[] {
-    const columns: string[] = [];
-    const lines = sql.split('\n');
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.toUpperCase().startsWith('CREATE') &&
-        !trimmed.toUpperCase().startsWith('FOREIGN') &&
-        !trimmed.startsWith('PRIMARY') &&
-        !trimmed.startsWith('UNIQUE') &&
-        !trimmed.startsWith('CHECK') &&
-        !trimmed.startsWith(')')) {
-
-        const columnMatch = trimmed.match(/^(\w+)/);
-        if (columnMatch) {
-          columns.push(columnMatch[1]);
-        }
-      }
-    }
-
-    return columns;
-  }
 }
 
 /**
@@ -1448,7 +1448,7 @@ export class CentralizedTableManager {
  * These triggers ensure payment status is always correct automatically
  */
 export const PERMANENT_DATABASE_TRIGGERS = [
-  `CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_insert
+    `CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_insert
     AFTER INSERT ON vendor_payments
     WHEN NEW.receiving_id IS NOT NULL
     BEGIN
@@ -1468,7 +1468,7 @@ export const PERMANENT_DATABASE_TRIGGERS = [
       WHERE id = NEW.receiving_id;
     END;`,
 
-  `CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_update
+    `CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_update
     AFTER UPDATE ON vendor_payments
     WHEN NEW.receiving_id IS NOT NULL OR OLD.receiving_id IS NOT NULL
     BEGIN
@@ -1505,7 +1505,7 @@ export const PERMANENT_DATABASE_TRIGGERS = [
       WHERE id = NEW.receiving_id;
     END;`,
 
-  `CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_delete
+    `CREATE TRIGGER IF NOT EXISTS update_stock_receiving_payment_status_on_delete
     AFTER DELETE ON vendor_payments
     WHEN OLD.receiving_id IS NOT NULL
     BEGIN

@@ -18,6 +18,7 @@ import InvoiceDetailsPage from './components/billing/InvoiceDetailsPage';
 import DailyLedger from './components/reports/DailyLedger';
 import CustomerLedger from './components/reports/CustomerLedger';
 import StockReport from './components/reports/StockReport';
+import RootCauseAnalysis from './components/RootCauseAnalysis';
 import StockReceivingList from './components/stock/StockReceivingList';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
@@ -290,6 +291,13 @@ function AppContent() {
               <Route path="/reports/stock" element={
                 <ProtectedRoute module="reports" level="view">
                   <StockReport />
+                </ProtectedRoute>
+              } />
+
+              {/* Balance Diagnostic Tool */}
+              <Route path="/debug/balance" element={
+                <ProtectedRoute module="reports" level="view">
+                  <RootCauseAnalysis />
                 </ProtectedRoute>
               } />
 

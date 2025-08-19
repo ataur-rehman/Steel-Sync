@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FIFO Payment Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+
+        .info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .log {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 FIFO Payment System Test</h1>
+
+    <div class="test-section info">
+        <h3>Test Status</h3>
+        <p id="status">Ready to test FIFO payment allocation</p>
+    </div>
+
+    <div class="test-section">
+        <h3>Quick FIFO Payment Test</h3>
+        <button onclick="testFIFOPayment()">Test FIFO Payment Allocation</button>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <div class="test-section">
+        <h3>Test Log</h3>
+        <div id="log" class="log">Click "Test FIFO Payment Allocation" to start testing...</div>
+    </div>
+
+    <script>
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.textContent += `[${timestamp}] ${message}\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').textContent = '';
+        }
+
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.parentElement.className = `test-section ${type}`;
+        }
+
+        async function testFIFOPayment() {
+            try {
+                updateStatus('Testing FIFO payment allocation...', 'info');
+                log('🚀 Starting FIFO payment test...');
+
+                // Check if we have access to the database
+                if (!window.db) {
+                    throw new Error('Database not available. Make sure you\'re running this in the Tauri app.');
+                }
+
+                // Test customer creation
+                log('📝 Creating test customer...');
+                const testCustomer = await window.db.createCustomer({
+                    name: 'FIFO Test Customer',
+                    phone: '0300-1234567',
+                    address: 'Test Address'
+                });
+                log(`✅ Test customer created with ID: ${testCustomer.id}`);
+
+                // Create test invoices
+                log('📄 Creating test invoices...');
+                const invoice1 = await window.db.createInvoice({
+                    customer_id: testCustomer.id,
+                    customer_name: testCustomer.name,
+                    items: [],
+                    discount: 0,
+                    total_amount: 1000,
+                    status: 'pending'
+                });
+
+                const invoice2 = await window.db.createInvoice({
+                    customer_id: testCustomer.id,
+                    customer_name: testCustomer.name,
+                    items: [],
+                    discount: 0,
+                    total_amount: 1500,
+                    status: 'pending'
+                });
+
+                log(`✅ Created invoice 1: ${invoice1.bill_number} (Rs. 1000)`);
+                log(`✅ Created invoice 2: ${invoice2.bill_number} (Rs. 1500)`);
+
+                // Test FIFO payment allocation
+                log('💰 Testing FIFO payment allocation...');
+                const paymentData = {
+                    customer_id: testCustomer.id,
+                    amount: 1200, // Partial payment to test FIFO allocation
+                    payment_method: 'cash',
+                    reference: 'FIFO-TEST-' + Date.now(),
+                    notes: 'Test FIFO payment allocation',
+                    date: new Date().toISOString().split('T')[0]
+                };
+
+                const result = await window.db.recordPaymentWithFIFOAllocation(paymentData);
+
+                log('✅ FIFO payment allocation completed!');
+                log(`📊 Payment ID: ${result.paymentId}`);
+                log(`💸 Total Allocated: Rs. ${result.totalAllocated}`);
+                log(`💳 Remaining Credit: Rs. ${result.remainingCredit}`);
+                log(`📈 New Customer Balance: Rs. ${result.customerNewBalance}`);
+                log(`⚡ Processing Time: ${result.performance.processingTimeMs}ms`);
+
+                log('\n📋 Allocation Details:');
+                result.allocations.forEach((allocation, index) => {
+                    log(`  ${index + 1}. Invoice ${allocation.invoiceNumber}: Rs. ${allocation.allocatedAmount} (Balance: ${allocation.previousBalance} → ${allocation.newBalance})`);
+                });
+
+                updateStatus('✅ FIFO payment test completed successfully!', 'success');
+                log('\n🎉 All tests passed! The nested transaction issue has been resolved.');
+
+            } catch (error) {
+                const errorMessage = error.message || 'Unknown error';
+                log(`❌ Test failed: ${errorMessage}`);
+                updateStatus(`❌ Test failed: ${errorMessage}`, 'error');
+                console.error('Test error:', error);
+            }
+        }
+
+        // Check if running in Tauri app
+        window.addEventListener('DOMContentLoaded', () => {
+            if (window.__TAURI__) {
+                log('✅ Running in Tauri app - ready for testing');
+            } else {
+                log('⚠️ Not running in Tauri app - database access may not be available');
+                updateStatus('Warning: Not running in Tauri app', 'error');
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -311,7 +311,7 @@ export class CustomerBalanceManager {
             const result = await this.dbConnection.select(`
         SELECT COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END), 0) as balance
         FROM customer_ledger_entries 
-        WHERE customer_id = ?
+        WHERE customer_id = ? AND entry_type IN ('debit', 'credit')
       `, [customerId]);
 
             const balance = parseFloat(result[0]?.balance || 0);

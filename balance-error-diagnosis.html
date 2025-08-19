@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>🔍 Balance Calculation Error Diagnosis</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+
+        .warning {
+            color: orange;
+            font-weight: bold;
+        }
+
+        .info {
+            color: blue;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .wrong {
+            background-color: #ffebee;
+        }
+
+        .correct {
+            background-color: #e8f5e8;
+        }
+
+        .critical {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+        }
+
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            background: #007bff;
+            color: white;
+        }
+
+        .ledger-entry {
+            font-family: monospace;
+            background: #f8f9fa;
+            padding: 5px;
+            margin: 2px 0;
+            border-radius: 3px;
+        }
+
+        .diagnosis {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔍 Balance Calculation Error Diagnosis</h1>
+
+    <div class="critical">
+        <h3>🚨 CRITICAL ISSUE DETECTED</h3>
+        <p><strong>Both balance calculation methods are showing wrong balances!</strong></p>
+        <p>This suggests the problem is in the source data (customer_ledger_entries) or the calculation logic itself.
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>🧪 Comprehensive Balance Diagnosis</h2>
+        <button onclick="diagnoseBalanceIssues()">🔍 Run Full Diagnosis</button>
+        <div id="diagnosisResults"></div>
+    </div>
+
+    <div class="section">
+        <h2>📊 Ledger Entry Analysis</h2>
+        <button onclick="analyzeLedgerEntries()">📈 Analyze Ledger Entries</button>
+        <div id="ledgerAnalysis"></div>
+    </div>
+
+    <div class="section">
+        <h2>🔧 Balance Calculation Logic Test</h2>
+        <button onclick="testCalculationLogic()">⚙️ Test Calculation Logic</button>
+        <div id="calculationTest"></div>
+    </div>
+
+    <script type="module">
+        let db;
+
+        async function initializeDB() {
+            try {
+                const module = await import('./src/services/database.ts');
+                db = new module.DatabaseService();
+                await db.initialize();
+                console.log('✅ Database initialized');
+                return true;
+            } catch (error) {
+                console.error('❌ Failed to initialize database:', error);
+                return false;
+            }
+        }
+
+        function addResult(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const className = type === 'error' ? 'error' :
+                type === 'success' ? 'success' :
+                    type === 'warning' ? 'warning' : 'info';
+            container.innerHTML += `<p class="${className}">${message}</p>`;
+        }
+
+        window.diagnoseBalanceIssues = async function () {
+            const results = document.getElementById('diagnosisResults');
+            results.innerHTML = '<h3>🔍 Full Balance Diagnosis</h3>';
+
+            if (!await initializeDB()) {
+                addResult('diagnosisResults', '❌ Database initialization failed', 'error');
+                return;
+            }
+
+            try {
+                // Get a sample customer to analyze
+                const customers = await db.getCustomers();
+                if (customers.length === 0) {
+                    addResult('diagnosisResults', '⚠️ No customers found', 'warning');
+                    return;
+                }
+
+                const testCustomer = customers[0];
+                addResult('diagnosisResults', `🎯 Analyzing customer: ${testCustomer.name} (ID: ${testCustomer.id})`, 'info');
+
+                // Get the "correct" balance that you expect
+                const prompt = `For customer "${testCustomer.name}", what should be the correct balance?
+                Please check manually:
+                1. All invoices issued to this customer
+                2. All payments received from this customer
+                3. Expected balance = Total Invoices - Total Payments`;
+
+                addResult('diagnosisResults', prompt, 'warning');
+
+                // Analyze all calculation methods
+                addResult('diagnosisResults', '<h4>📊 All Balance Calculation Methods:</h4>', 'info');
+
+                // Method 1: CustomerBalanceManager
+                try {
+                    const balanceManager = new (await import('./src/services/customer-balance-manager.ts')).CustomerBalanceManager(db.dbConnection);
+                    await balanceManager.initialize();
+                    const managerBalance = await balanceManager.getCurrentBalance(testCustomer.id);
+                    addResult('diagnosisResults', `• CustomerBalanceManager: Rs. ${managerBalance.toFixed(2)}`, 'info');
+                } catch (error) {
+                    addResult('diagnosisResults', `• CustomerBalanceManager: ERROR - ${error.message}`, 'error');
+                }
+
+                // Method 2: getCustomerAccountSummary
+                try {
+                    const accountSummary = await db.getCustomerAccountSummary(testCustomer.id);
+                    addResult('diagnosisResults', `• getCustomerAccountSummary: Rs. ${accountSummary.outstandingAmount.toFixed(2)}`, 'info');
+                } catch (error) {
+                    addResult('diagnosisResults', `• getCustomerAccountSummary: ERROR - ${error.message}`, 'error');
+                }
+
+                // Method 3: Direct ledger calculation
+                try {
+                    const rawCalc = await db.executeRawQuery(\`
+                        SELECT 
+                            COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END), 0) as direct_balance
+                        FROM customer_ledger_entries 
+                        WHERE customer_id = ?
+                    \`, [testCustomer.id]);
+                    const directBalance = parseFloat(rawCalc[0]?.direct_balance || 0);
+                    addResult('diagnosisResults', `• Direct Ledger Calculation: Rs.${ directBalance.toFixed(2) }`, 'info');
+                } catch (error) {
+                    addResult('diagnosisResults', `• Direct Ledger Calculation: ERROR - ${ error.message }`, 'error');
+                }
+
+                // Method 4: Stored balance
+                addResult('diagnosisResults', `• Stored Balance(customers.balance): Rs.${(testCustomer.balance || 0).toFixed(2)}`, 'info');
+
+                // Critical Analysis
+                addResult('diagnosisResults', '<h4>🚨 CRITICAL QUESTIONS TO ANSWER:</h4>', 'error');
+                addResult('diagnosisResults', '1. Are the ledger entries themselves correct?', 'error');
+                addResult('diagnosisResults', '2. Is the debit/credit logic correct?', 'error');
+                addResult('diagnosisResults', '3. Are there missing or duplicate entries?', 'error');
+                addResult('diagnosisResults', '4. Is the calculation formula correct?', 'error');
+
+            } catch (error) {
+                addResult('diagnosisResults', `❌ Error: ${ error.message } `, 'error');
+            }
+        };
+
+        window.analyzeLedgerEntries = async function() {
+            const results = document.getElementById('ledgerAnalysis');
+            results.innerHTML = '<h3>📊 Ledger Entry Analysis</h3>';
+
+            if (!await initializeDB()) return;
+
+            try {
+                const customers = await db.getCustomers();
+                if (customers.length === 0) return;
+
+                const testCustomer = customers[0];
+                addResult('ledgerAnalysis', `🔍 Analyzing ledger entries for: ${ testCustomer.name } `, 'info');
+
+                // Get all ledger entries for this customer
+                const ledgerEntries = await db.executeRawQuery(\`
+                    SELECT 
+                        id, entry_type, transaction_type, amount, description, date,
+                        invoice_id, payment_id
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                    ORDER BY date ASC, id ASC
+                \`, [testCustomer.id]);
+
+                if (ledgerEntries.length === 0) {
+                    addResult('ledgerAnalysis', '⚠️ No ledger entries found for this customer', 'warning');
+                    return;
+                }
+
+                addResult('ledgerAnalysis', `Found ${ ledgerEntries.length } ledger entries: `, 'info');
+
+                // Analyze entries
+                let totalDebits = 0;
+                let totalCredits = 0;
+                let running_balance = 0;
+
+                let table = '<table style="font-size: 12px;">';
+                table += '<tr><th>Date</th><th>Type</th><th>Transaction</th><th>Amount</th><th>Running Balance</th><th>Description</th><th>Issues</th></tr>';
+
+                for (const entry of ledgerEntries) {
+                    const amount = parseFloat(entry.amount || 0);
+                    let issues = [];
+
+                    if (entry.entry_type === 'debit') {
+                        totalDebits += amount;
+                        running_balance += amount;
+                    } else if (entry.entry_type === 'credit') {
+                        totalCredits += amount;
+                        running_balance -= amount;
+                    } else {
+                        issues.push('UNKNOWN ENTRY TYPE');
+                    }
+
+                    // Check for potential issues
+                    if (amount <= 0) issues.push('ZERO/NEGATIVE AMOUNT');
+                    if (!entry.entry_type) issues.push('MISSING ENTRY TYPE');
+                    if (!entry.transaction_type) issues.push('MISSING TRANSACTION TYPE');
+                    if (entry.description && entry.description.includes('Balance synchronization')) {
+                        issues.push('SYNC ENTRY (should not exist)');
+                    }
+
+                    const rowClass = issues.length > 0 ? 'wrong' : 'correct';
+                    table += \`<tr class="\${rowClass}">
+                        <td>\${entry.date}</td>
+                        <td>\${entry.entry_type}</td>
+                        <td>\${entry.transaction_type}</td>
+                        <td>Rs. \${amount.toFixed(2)}</td>
+                        <td>Rs. \${running_balance.toFixed(2)}</td>
+                        <td>\${entry.description || ''}</td>
+                        <td>\${issues.join(', ') || 'OK'}</td>
+                    </tr>\`;
+                }
+
+                table += '</table>';
+                results.innerHTML += table;
+
+                // Summary
+                addResult('ledgerAnalysis', '<h4>📈 Ledger Summary:</h4>', 'info');
+                addResult('ledgerAnalysis', `• Total Debits: Rs.${ totalDebits.toFixed(2) } `, 'info');
+                addResult('ledgerAnalysis', `• Total Credits: Rs.${ totalCredits.toFixed(2) } `, 'info');
+                addResult('ledgerAnalysis', `• Calculated Balance: Rs.${ (totalDebits - totalCredits).toFixed(2) } `, 'info');
+                addResult('ledgerAnalysis', `• Final Running Balance: Rs.${ running_balance.toFixed(2) } `, 'info');
+
+                // Cross-reference with invoices and payments
+                addResult('ledgerAnalysis', '<h4>🔍 Cross-Reference Check:</h4>', 'info');
+                
+                const invoices = await db.executeRawQuery(\`
+                    SELECT SUM(total_amount) as total_invoiced
+                    FROM invoices 
+                    WHERE customer_id = ?
+                \`, [testCustomer.id]);
+                
+                const payments = await db.executeRawQuery(\`
+                    SELECT SUM(amount) as total_paid
+                    FROM payments 
+                    WHERE customer_id = ?
+                \`, [testCustomer.id]);
+
+                const totalInvoiced = parseFloat(invoices[0]?.total_invoiced || 0);
+                const totalPaid = parseFloat(payments[0]?.total_paid || 0);
+                const expectedBalance = totalInvoiced - totalPaid;
+
+                addResult('ledgerAnalysis', `• Total Invoiced(from invoices table): Rs.${ totalInvoiced.toFixed(2) } `, 'info');
+                addResult('ledgerAnalysis', `• Total Paid(from payments table): Rs.${ totalPaid.toFixed(2) } `, 'info');
+                addResult('ledgerAnalysis', `• Expected Balance: Rs.${ expectedBalance.toFixed(2) } `, 'info');
+
+                // Compare
+                if (Math.abs(expectedBalance - running_balance) > 0.01) {
+                    addResult('ledgerAnalysis', `🚨 MISMATCH! Ledger balance(${ running_balance.toFixed(2) }) ≠ Expected balance(${ expectedBalance.toFixed(2) })`, 'error');
+                    addResult('ledgerAnalysis', '💡 This indicates ledger entries are incorrect or incomplete', 'error');
+                } else {
+                    addResult('ledgerAnalysis', '✅ Ledger entries match expected balance', 'success');
+                }
+
+            } catch (error) {
+                addResult('ledgerAnalysis', `❌ Error: ${ error.message } `, 'error');
+            }
+        };
+
+        window.testCalculationLogic = async function() {
+            const results = document.getElementById('calculationTest');
+            results.innerHTML = '<h3>⚙️ Calculation Logic Test</h3>';
+
+            if (!await initializeDB()) return;
+
+            try {
+                addResult('calculationTest', '🧮 Testing the balance calculation formula...', 'info');
+
+                // Test different calculation formulas
+                const customers = await db.getCustomers();
+                const testCustomer = customers[0];
+
+                addResult('calculationTest', `Testing on customer: ${ testCustomer.name } `, 'info');
+
+                // Formula 1: Current logic (debit - credit)
+                const formula1 = await db.executeRawQuery(\`
+                    SELECT 
+                        SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) as balance
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                \`, [testCustomer.id]);
+
+                // Formula 2: Separate debit and credit sums
+                const formula2 = await db.executeRawQuery(\`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+                        COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END), 0) as total_credits
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                \`, [testCustomer.id]);
+
+                const balance1 = parseFloat(formula1[0]?.balance || 0);
+                const debits = parseFloat(formula2[0]?.total_debits || 0);
+                const credits = parseFloat(formula2[0]?.total_credits || 0);
+                const balance2 = debits - credits;
+
+                addResult('calculationTest', `• Formula 1(current): Rs.${ balance1.toFixed(2) } `, 'info');
+                addResult('calculationTest', `• Formula 2(debits - credits): Rs.${ balance2.toFixed(2) } `, 'info');
+                addResult('calculationTest', `  - Total Debits: Rs.${ debits.toFixed(2) } `, 'info');
+                addResult('calculationTest', `  - Total Credits: Rs.${ credits.toFixed(2) } `, 'info');
+
+                if (Math.abs(balance1 - balance2) > 0.01) {
+                    addResult('calculationTest', '🚨 FORMULA MISMATCH! The two calculation methods give different results', 'error');
+                } else {
+                    addResult('calculationTest', '✅ Both formulas agree', 'success');
+                }
+
+                // Test business logic understanding
+                addResult('calculationTest', '<h4>🤔 Business Logic Check:</h4>', 'info');
+                addResult('calculationTest', 'DEBIT entries should be:', 'info');
+                addResult('calculationTest', '• Invoices (money customer owes us) → INCREASES balance', 'info');
+                addResult('calculationTest', '• Any charges → INCREASES balance', 'info');
+                addResult('calculationTest', '', 'info');
+                addResult('calculationTest', 'CREDIT entries should be:', 'info');
+                addResult('calculationTest', '• Payments (money customer paid us) → DECREASES balance', 'info');
+                addResult('calculationTest', '• Any refunds → DECREASES balance', 'info');
+                addResult('calculationTest', '', 'info');
+                addResult('calculationTest', 'Therefore: Balance = Total Debits - Total Credits', 'info');
+                addResult('calculationTest', 'If balance is POSITIVE = Customer owes us money', 'info');
+                addResult('calculationTest', 'If balance is NEGATIVE = We owe customer money', 'info');
+
+            } catch (error) {
+                addResult('calculationTest', `❌ Error: ${ error.message }`, 'error');
+            }
+        };
+
+        // Initialize when page loads
+        initializeDB();
+    </script>
+</body>
+
+</html>

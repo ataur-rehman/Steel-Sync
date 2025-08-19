@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛡️ Production-Safe Validation Tool</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 1.2em;
+        }
+
+        .hero-section {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            color: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .hero-section h2 {
+            margin: 0 0 15px 0;
+            font-size: 1.8em;
+        }
+
+        .hero-section p {
+            margin: 0;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .feature-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #007bff;
+        }
+
+        .feature-card h3 {
+            margin: 0 0 10px 0;
+            color: #007bff;
+        }
+
+        .feature-card p {
+            margin: 0;
+            color: #6c757d;
+            line-height: 1.5;
+        }
+
+        .validation-controls {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 0 10px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            background: #0056b3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3);
+        }
+
+        .btn.secondary {
+            background: #6c757d;
+        }
+
+        .btn.secondary:hover {
+            background: #545b62;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .status-running {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        #validation-report {
+            background: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .summary {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .summary.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .summary.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .details ul,
+        .errors ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .details li,
+        .errors li {
+            padding: 8px 15px;
+            margin: 5px 0;
+            border-radius: 5px;
+            border-left: 4px solid;
+        }
+
+        .details li.info {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+        }
+
+        .details li.success {
+            background: #e8f5e8;
+            border-left-color: #4caf50;
+        }
+
+        .details li.error,
+        .errors li {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: #e9ecef;
+            border-radius: 3px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #45a049);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .test-scenarios {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .test-scenarios h3 {
+            margin: 0 0 15px 0;
+            color: #495057;
+        }
+
+        .scenario-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .scenario-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #28a745;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .scenario-item h4 {
+            margin: 0 0 8px 0;
+            color: #28a745;
+            font-size: 0.95em;
+        }
+
+        .scenario-item p {
+            margin: 0;
+            font-size: 0.85em;
+            color: #6c757d;
+            line-height: 1.4;
+        }
+
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+
+        .alert-info {
+            background: #cce7ff;
+            border-color: #74b9ff;
+            color: #004085;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🛡️ Production-Safe Validation Tool</h1>
+        <p class="subtitle">Comprehensive testing for invoice payment calculation system</p>
+
+        <div class="hero-section">
+            <h2>Zero-Dependency Production Testing</h2>
+            <p>Validates that invoice payment calculations work perfectly without database triggers, stored values, or
+                external dependencies</p>
+        </div>
+
+        <div class="alert alert-info">
+            <strong>🎯 Problem Being Solved:</strong> Invoice #I03 was showing "Paid: Rs. 500" instead of correct "Rs.
+            1,000" amount. This tool validates the permanent production-safe fix.
+        </div>
+
+        <div class="features">
+            <div class="feature-card">
+                <h3>🔍 Real-time Calculation</h3>
+                <p>Validates that payment amounts are calculated directly from database queries, not stored values</p>
+            </div>
+            <div class="feature-card">
+                <h3>🛡️ Database Recreation Safe</h3>
+                <p>Tests scenarios where database is recreated and triggers are lost</p>
+            </div>
+            <div class="feature-card">
+                <h3>⚡ Production Ready</h3>
+                <p>Ensures zero impact on production performance and reliability</p>
+            </div>
+            <div class="feature-card">
+                <h3>📊 Consistency Verification</h3>
+                <p>Multiple calculation runs to ensure consistent results</p>
+            </div>
+        </div>
+
+        <div class="test-scenarios">
+            <h3>Test Scenarios Covered</h3>
+            <div class="scenario-list">
+                <div class="scenario-item">
+                    <h4>Invoice I03 Validation</h4>
+                    <p>Specific test for the original Rs. 500 → Rs. 1,000 payment issue</p>
+                </div>
+                <div class="scenario-item">
+                    <h4>Database Recreation</h4>
+                    <p>Simulates fresh database without triggers or stored procedures</p>
+                </div>
+                <div class="scenario-item">
+                    <h4>Payment Addition</h4>
+                    <p>Tests adding new payments and verifying calculation updates</p>
+                </div>
+                <div class="scenario-item">
+                    <h4>Calculation Consistency</h4>
+                    <p>Multiple API calls to ensure consistent payment calculations</p>
+                </div>
+                <div class="scenario-item">
+                    <h4>Error Handling</h4>
+                    <p>Validates graceful failure and recovery mechanisms</p>
+                </div>
+                <div class="scenario-item">
+                    <h4>Production Safety</h4>
+                    <p>Confirms zero side effects and production-safe operations</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="validation-controls">
+            <h3>Validation Controls</h3>
+            <button class="btn" onclick="runFullValidation()">
+                <span id="run-btn-text">🚀 Run Full Validation</span>
+            </button>
+            <button class="btn secondary" onclick="clearResults()">🗑️ Clear Results</button>
+            <button class="btn secondary" onclick="downloadReport()">📄 Download Report</button>
+            <div id="validation-status"></div>
+        </div>
+
+        <div class="alert alert-warning">
+            <strong>⚠️ Important:</strong> This validation tool connects to your running application at
+            <code>http://localhost:3000</code>.
+            Make sure your development server is running before starting validation.
+        </div>
+
+        <div id="validation-report"></div>
+    </div>
+
+    <script src="./production-safe-validation.js"></script>
+    <script>
+        let currentValidator = null;
+
+        async function runFullValidation() {
+            const runBtn = document.getElementById('run-btn-text');
+            const statusDiv = document.getElementById('validation-status');
+
+            // Update UI to show running state
+            runBtn.innerHTML = '<span class="loading"></span>Running Validation...';
+            statusDiv.innerHTML = '<span class="status-indicator status-running">🔄 Testing in progress...</span>';
+
+            try {
+                currentValidator = new ProductionSafeValidator();
+                const result = await currentValidator.runFullValidation();
+
+                // Update status based on result
+                if (result.success) {
+                    statusDiv.innerHTML = '<span class="status-indicator status-success">✅ All tests passed!</span>';
+                } else {
+                    statusDiv.innerHTML = '<span class="status-indicator status-error">❌ Some tests failed</span>';
+                }
+
+            } catch (error) {
+                console.error('Validation failed:', error);
+                statusDiv.innerHTML = '<span class="status-indicator status-error">💥 Validation failed</span>';
+
+                // Show error in report area
+                const reportElement = document.getElementById('validation-report');
+                reportElement.innerHTML = `
+                    <div class="summary error">
+                        <h4>Validation Error</h4>
+                        <p>Critical error occurred during validation: ${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                // Reset button
+                runBtn.innerHTML = '🚀 Run Full Validation';
+            }
+        }
+
+        function clearResults() {
+            document.getElementById('validation-report').innerHTML = '';
+            document.getElementById('validation-status').innerHTML = '';
+            currentValidator = null;
+        }
+
+        function downloadReport() {
+            if (!currentValidator) {
+                alert('No validation results to download. Please run validation first.');
+                return;
+            }
+
+            const report = currentValidator.generateReport();
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `production-validation-report-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // Show connection status
+        function checkServerConnection() {
+            fetch('http://localhost:3000/api/health')
+                .then(response => {
+                    if (response.ok) {
+                        console.log('✅ Server connection OK');
+                    } else {
+                        console.warn('⚠️ Server responded but may have issues');
+                    }
+                })
+                .catch(error => {
+                    console.warn('⚠️ Cannot connect to development server at localhost:3000');
+                });
+        }
+
+        // Check server connection on page load
+        checkServerConnection();
+    </script>
+</body>
+
+</html>

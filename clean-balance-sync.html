@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Clean Balance Sync Entries</title>
+</head>
+
+<body>
+    <h1>🧹 Clean Balance Synchronization Entries</h1>
+
+    <button onclick="cleanBalanceSyncEntries()">Remove All Balance Sync Entries</button>
+    <button onclick="showBalanceSyncEntries()">Show Current Balance Sync Entries</button>
+
+    <div id="results"></div>
+
+    <script type="module">
+        let db;
+
+        async function initializeDB() {
+            try {
+                const module = await import('./src/services/database.ts');
+                db = new module.DatabaseService();
+                await db.initialize();
+                console.log('✅ Database initialized');
+            } catch (error) {
+                console.error('❌ Failed to initialize database:', error);
+            }
+        }
+
+        window.showBalanceSyncEntries = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>🔍 Current Balance Sync Entries</h2>';
+
+            try {
+                const syncEntries = await db.executeRawQuery(`
+                    SELECT id, customer_id, customer_name, description, amount, date, time, created_at
+                    FROM customer_ledger_entries 
+                    WHERE description LIKE '%Balance synchronization%'
+                    ORDER BY created_at DESC
+                `);
+
+                results.innerHTML += `<p>Found ${syncEntries.length} balance synchronization entries</p>`;
+
+                if (syncEntries.length > 0) {
+                    results.innerHTML += '<table border="1"><tr><th>ID</th><th>Customer</th><th>Description</th><th>Amount</th><th>Date</th><th>Time</th></tr>';
+                    syncEntries.forEach(entry => {
+                        results.innerHTML += `<tr>
+                            <td>${entry.id}</td>
+                            <td>${entry.customer_name}</td>
+                            <td>${entry.description}</td>
+                            <td>${entry.amount}</td>
+                            <td>${entry.date}</td>
+                            <td>${entry.time}</td>
+                        </tr>`;
+                    });
+                    results.innerHTML += '</table>';
+                }
+
+            } catch (error) {
+                results.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        };
+
+        window.cleanBalanceSyncEntries = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>🧹 Cleaning Balance Sync Entries</h2>';
+
+            try {
+                // First show what we're about to delete
+                const syncEntries = await db.executeRawQuery(`
+                    SELECT COUNT(*) as count FROM customer_ledger_entries 
+                    WHERE description LIKE '%Balance synchronization%'
+                `);
+
+                const count = syncEntries[0].count;
+                results.innerHTML += `<p>Found ${count} balance synchronization entries to delete</p>`;
+
+                if (count > 0) {
+                    // Delete them
+                    await db.executeRawQuery(`
+                        DELETE FROM customer_ledger_entries 
+                        WHERE description LIKE '%Balance synchronization%'
+                    `);
+
+                    results.innerHTML += `<p style="color: green;">✅ Successfully deleted ${count} balance synchronization entries</p>`;
+                    results.innerHTML += `<p>These were fake entries created by faulty sync logic. The real balance is calculated from actual transactions.</p>`;
+                } else {
+                    results.innerHTML += `<p style="color: green;">✅ No balance synchronization entries found</p>`;
+                }
+
+            } catch (error) {
+                results.innerHTML += `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        };
+
+        // Initialize when page loads
+        initializeDB();
+    </script>
+</body>
+
+</html>

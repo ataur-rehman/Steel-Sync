@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>🔍 Ata Ur Rehman Balance Investigation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        .alert {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .alert-danger {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .alert-info {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+            font-size: 12px;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+
+        .debit {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        .credit {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .calculation {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+
+        .wrong {
+            background: #ffebee;
+        }
+
+        .correct {
+            background: #e8f5e8;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 Ata Ur Rehman Balance Investigation</h1>
+
+        <div class="alert alert-danger">
+            <h3>🚨 BALANCE CALCULATION ERROR DETECTED</h3>
+            <p><strong>Expected:</strong> Rs. 10,688 (32,128 - 21,440)</p>
+            <p><strong>System Shows:</strong> Rs. 17,838</p>
+            <p><strong>Discrepancy:</strong> Rs. 7,150 EXTRA</p>
+        </div>
+
+        <button onclick="investigateAta()">🔍 Investigate Ata's Balance</button>
+        <button onclick="checkSpecificEntries()">📊 Check Specific Entries</button>
+        <button onclick="findMissingCredits()">💰 Find Missing Credits</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script type="module">
+        let db;
+
+        async function initializeDB() {
+            try {
+                const module = await import('./src/services/database.ts');
+                db = new module.DatabaseService();
+                await db.initialize();
+                return true;
+            } catch (error) {
+                console.error('Database init failed:', error);
+                return false;
+            }
+        }
+
+        function addResult(message, type = 'info') {
+            const results = document.getElementById('results');
+            const alertClass = type === 'error' ? 'alert-danger' :
+                type === 'success' ? 'alert-info' :
+                    type === 'warning' ? 'alert-warning' : 'alert-info';
+            results.innerHTML += `<div class="alert ${alertClass}">${message}</div>`;
+        }
+
+        window.investigateAta = async function () {
+            const results = document.getElementById('results');
+            results.innerHTML = '<h2>🔍 Investigating Ata Ur Rehman\'s Balance</h2>';
+
+            if (!await initializeDB()) {
+                addResult('❌ Database connection failed', 'error');
+                return;
+            }
+
+            try {
+                // Find Ata's customer ID
+                const customers = await db.executeRawQuery(`
+                    SELECT id, name, balance 
+                    FROM customers 
+                    WHERE name LIKE '%Ata%' OR name LIKE '%Rehman%'
+                    LIMIT 5
+                `);
+
+                if (customers.length === 0) {
+                    addResult('⚠️ Customer not found', 'warning');
+                    return;
+                }
+
+                const ata = customers[0];
+                addResult(`🎯 Found customer: ${ata.name} (ID: ${ata.id})`);
+                addResult(`📊 Stored balance: Rs. ${(ata.balance || 0).toFixed(2)}`);
+
+                // Get ALL ledger entries
+                const allEntries = await db.executeRawQuery(`
+                    SELECT 
+                        id, entry_type, transaction_type, amount, description, 
+                        reference_id, reference_number, date, time
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                    ORDER BY date DESC, time DESC, id DESC
+                `, [ata.id]);
+
+                addResult(`📝 Found ${allEntries.length} ledger entries`);
+
+                // Calculate manually
+                let totalDebits = 0;
+                let totalCredits = 0;
+                let problemEntries = [];
+
+                let table = '<table><tr><th>Date/Time</th><th>Type</th><th>Amount</th><th>Description</th><th>Issues</th></tr>';
+
+                for (const entry of allEntries) {
+                    const amount = parseFloat(entry.amount || 0);
+                    let issues = [];
+
+                    if (entry.entry_type === 'debit') {
+                        totalDebits += amount;
+                    } else if (entry.entry_type === 'credit') {
+                        totalCredits += amount;
+                    } else {
+                        issues.push('UNKNOWN ENTRY TYPE');
+                    }
+
+                    // Check for suspicious descriptions
+                    if (entry.description && entry.description.includes('REFERENCE ONLY')) {
+                        issues.push('REFERENCE ONLY - might not be counted');
+                        problemEntries.push(entry);
+                    }
+
+                    if (amount <= 0) {
+                        issues.push('ZERO/NEGATIVE AMOUNT');
+                        problemEntries.push(entry);
+                    }
+
+                    const rowClass = issues.length > 0 ? 'wrong' : 'correct';
+                    const amountClass = entry.entry_type === 'debit' ? 'debit' : 'credit';
+
+                    table += `<tr class="${rowClass}">
+                        <td>${entry.date} ${entry.time}</td>
+                        <td>${entry.entry_type}</td>
+                        <td class="${amountClass}">Rs. ${amount.toFixed(2)}</td>
+                        <td>${entry.description || ''}</td>
+                        <td>${issues.join(', ') || 'OK'}</td>
+                    </tr>`;
+                }
+
+                table += '</table>';
+                results.innerHTML += table;
+
+                // Show calculation
+                const calculatedBalance = totalDebits - totalCredits;
+
+                addResult(`
+                    <div class="calculation">
+                        <h3>📊 Manual Calculation</h3>
+                        <p><strong>Total Debits:</strong> Rs. ${totalDebits.toFixed(2)}</p>
+                        <p><strong>Total Credits:</strong> Rs. ${totalCredits.toFixed(2)}</p>
+                        <p><strong>Calculated Balance:</strong> Rs. ${calculatedBalance.toFixed(2)}</p>
+                        <p><strong>Expected from UI:</strong> Rs. 10,688.00</p>
+                        <p><strong>System Shows:</strong> Rs. 17,838.00</p>
+                    </div>
+                `);
+
+                // Check database method
+                const accountSummary = await db.getCustomerAccountSummary(ata.id);
+                addResult(`🔧 Database method result: Rs. ${accountSummary.outstandingAmount.toFixed(2)}`);
+
+                // Show problem entries
+                if (problemEntries.length > 0) {
+                    addResult(`⚠️ Found ${problemEntries.length} suspicious entries that might be causing issues`, 'warning');
+                }
+
+            } catch (error) {
+                addResult(`❌ Error: ${error.message}`, 'error');
+            }
+        };
+
+        window.checkSpecificEntries = async function () {
+            if (!await initializeDB()) return;
+
+            const results = document.getElementById('results');
+            results.innerHTML += '<h2>📊 Checking Specific Entry Types</h2>';
+
+            try {
+                // Find Ata
+                const customers = await db.executeRawQuery(`
+                    SELECT id FROM customers WHERE name LIKE '%Ata%' LIMIT 1
+                `);
+
+                if (customers.length === 0) return;
+                const ataId = customers[0].id;
+
+                // Check for "REFERENCE ONLY" entries
+                const referenceEntries = await db.executeRawQuery(`
+                    SELECT COUNT(*) as count, SUM(amount) as total_amount
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ? AND description LIKE '%REFERENCE ONLY%'
+                `, [ataId]);
+
+                const refCount = referenceEntries[0]?.count || 0;
+                const refAmount = parseFloat(referenceEntries[0]?.total_amount || 0);
+
+                addResult(`🔍 "REFERENCE ONLY" entries: ${refCount} entries, Total: Rs. ${refAmount.toFixed(2)}`);
+
+                // Check for zero-amount entries
+                const zeroEntries = await db.executeRawQuery(`
+                    SELECT COUNT(*) as count
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ? AND (amount = 0 OR amount IS NULL)
+                `, [ataId]);
+
+                addResult(`🔍 Zero amount entries: ${zeroEntries[0]?.count || 0}`);
+
+                // Check the SQL query used by the system
+                const systemCalc = await db.executeRawQuery(`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+                        COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END), 0) as total_credits,
+                        COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END), 0) as outstanding_balance
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                `, [ataId]);
+
+                const systemDebits = parseFloat(systemCalc[0]?.total_debits || 0);
+                const systemCredits = parseFloat(systemCalc[0]?.total_credits || 0);
+                const systemBalance = parseFloat(systemCalc[0]?.outstanding_balance || 0);
+
+                addResult(`
+                    <div class="calculation">
+                        <h3>🖥️ System SQL Query Results</h3>
+                        <p><strong>System Debits:</strong> Rs. ${systemDebits.toFixed(2)}</p>
+                        <p><strong>System Credits:</strong> Rs. ${systemCredits.toFixed(2)}</p>
+                        <p><strong>System Balance:</strong> Rs. ${systemBalance.toFixed(2)}</p>
+                    </div>
+                `);
+
+                // The discrepancy analysis
+                if (systemBalance === 17838) {
+                    addResult('🎯 FOUND THE PROBLEM! The system SQL is returning Rs. 17,838', 'error');
+                    addResult('💡 This means the issue is in the database entries themselves, not the calculation logic', 'warning');
+                } else if (systemDebits === 32128 && systemCredits === 21440) {
+                    addResult('✅ SQL query gives correct individual amounts but wrong total', 'warning');
+                } else {
+                    addResult('🔍 The SQL query is giving different amounts than expected', 'error');
+                    addResult(`Expected: Debits=32128, Credits=21440, but got Debits=${systemDebits}, Credits=${systemCredits}`, 'error');
+                }
+
+            } catch (error) {
+                addResult(`❌ Error: ${error.message}`, 'error');
+            }
+        };
+
+        window.findMissingCredits = async function () {
+            if (!await initializeDB()) return;
+
+            const results = document.getElementById('results');
+            results.innerHTML += '<h2>💰 Looking for Missing Credits</h2>';
+
+            try {
+                const customers = await db.executeRawQuery(`
+                    SELECT id FROM customers WHERE name LIKE '%Ata%' LIMIT 1
+                `);
+
+                if (customers.length === 0) return;
+                const ataId = customers[0].id;
+
+                // Look for credit entries that might be recorded wrong
+                const suspiciousCredits = await db.executeRawQuery(`
+                    SELECT 
+                        id, entry_type, amount, description, reference_number, date, time
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ? 
+                    AND (
+                        description LIKE '%REFERENCE ONLY%' 
+                        OR description LIKE '%Credit applied%'
+                        OR amount = 0
+                        OR entry_type IS NULL
+                    )
+                    ORDER BY date DESC
+                `, [ataId]);
+
+                addResult(`🔍 Found ${suspiciousCredits.length} suspicious credit-related entries:`);
+
+                let table = '<table><tr><th>ID</th><th>Type</th><th>Amount</th><th>Description</th><th>Date/Time</th></tr>';
+
+                for (const entry of suspiciousCredits) {
+                    const rowClass = entry.amount === 0 ? 'wrong' : 'correct';
+                    table += `<tr class="${rowClass}">
+                        <td>${entry.id}</td>
+                        <td>${entry.entry_type || 'NULL'}</td>
+                        <td>Rs. ${(entry.amount || 0).toFixed(2)}</td>
+                        <td>${entry.description || ''}</td>
+                        <td>${entry.date} ${entry.time}</td>
+                    </tr>`;
+                }
+
+                table += '</table>';
+                results.innerHTML += table;
+
+                // Specific analysis
+                addResult('🧐 <strong>Analysis:</strong>', 'info');
+                addResult('• "REFERENCE ONLY" entries might be tracking credits without affecting balance', 'warning');
+                addResult('• Zero-amount entries are definitely not contributing to balance calculation', 'error');
+                addResult('• Missing credit entries would explain why balance is higher than expected', 'warning');
+
+                // Proposed fix
+                addResult(`
+                    <div class="calculation">
+                        <h3>🔧 PROPOSED FIX</h3>
+                        <p>The Rs. 7,150 discrepancy (17,838 - 10,688) suggests that Rs. 7,150 worth of credits are not being counted.</p>
+                        <p>Look for:</p>
+                        <ul>
+                            <li>Credit entries marked as "REFERENCE ONLY" that should affect balance</li>
+                            <li>Credit entries with zero amounts that should have actual amounts</li>
+                            <li>Missing credit entries for payments that were made</li>
+                        </ul>
+                    </div>
+                `, 'info');
+
+            } catch (error) {
+                addResult(`❌ Error: ${error.message}`, 'error');
+            }
+        };
+
+        // Initialize on load
+        initializeDB();
+    </script>
+</body>
+
+</html>

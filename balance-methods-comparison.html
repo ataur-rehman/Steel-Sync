@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Balance Calculation Methods Comparison</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .success {
+            color: green;
+            font-weight: bold;
+        }
+
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+
+        .warning {
+            color: orange;
+            font-weight: bold;
+        }
+
+        .info {
+            color: blue;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .match {
+            background-color: #d4edda;
+        }
+
+        .mismatch {
+            background-color: #f8d7da;
+        }
+
+        .method-header {
+            background-color: #e7f3ff;
+            font-weight: bold;
+        }
+
+        button {
+            padding: 12px 24px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .methodology {
+            background: #f8f9fa;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            margin: 15px 0;
+        }
+
+        .code-block {
+            background: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔍 Balance Calculation Methods Comparison</h1>
+
+    <div class="methodology">
+        <h3>📊 Understanding The Two Balance Calculation Methods</h3>
+
+        <h4>🎯 Customer Ledger - Outstanding Balance:</h4>
+        <div class="code-block">
+            Method: getCustomerAccountSummary() → outstandingAmount
+            Source: customer_ledger_entries table
+            Formula: SUM(debits) - SUM(credits) FROM customer_ledger_entries
+            Used for: Detailed customer ledger view with aging, overdue analysis
+        </div>
+
+        <h4>💼 Customer List - Total Balance:</h4>
+        <div class="code-block">
+            Method: getCustomersOptimized() → total_balance
+            Source: CustomerBalanceManager.getCustomerWithBalance()
+            Formula: Can use customers.balance OR calculated from ledger
+            Used for: Fast customer list display with filtering
+        </div>
+
+        <p class="info"><strong>Expected:</strong> Both methods should return exactly the same value for consistency!
+        </p>
+    </div>
+
+    <div class="section">
+        <h2>🧪 Compare Balance Calculation Methods</h2>
+        <button class="btn-primary" onclick="compareBalanceMethods()">🔍 Compare Methods</button>
+        <button class="btn-success" onclick="testSpecificCustomer()">🎯 Test Specific Customer</button>
+        <div id="comparisonResults"></div>
+    </div>
+
+    <div class="section">
+        <h2>📊 Detailed Analysis</h2>
+        <button class="btn-primary" onclick="detailedAnalysis()">📈 Run Detailed Analysis</button>
+        <div id="detailedResults"></div>
+    </div>
+
+    <script type="module">
+        let db;
+
+        async function initializeDB() {
+            try {
+                const module = await import('./src/services/database.ts');
+                db = new module.DatabaseService();
+                await db.initialize();
+                console.log('✅ Database initialized');
+                return true;
+            } catch (error) {
+                console.error('❌ Failed to initialize database:', error);
+                return false;
+            }
+        }
+
+        function addResult(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const className = type === 'error' ? 'error' :
+                type === 'success' ? 'success' :
+                    type === 'warning' ? 'warning' : 'info';
+            container.innerHTML += `<p class="${className}">${message}</p>`;
+        }
+
+        window.compareBalanceMethods = async function () {
+            const results = document.getElementById('comparisonResults');
+            results.innerHTML = '<h3>🔍 Balance Methods Comparison</h3>';
+
+            if (!await initializeDB()) {
+                addResult('comparisonResults', '❌ Database initialization failed', 'error');
+                return;
+            }
+
+            try {
+                // Get customers using both methods
+                addResult('comparisonResults', '📊 Getting customers using Customer List method...', 'info');
+                const customersFromList = await db.getCustomers(); // This uses getCustomersOptimized with includeBalance=true
+
+                if (customersFromList.length === 0) {
+                    addResult('comparisonResults', '⚠️ No customers found', 'warning');
+                    return;
+                }
+
+                addResult('comparisonResults', `Found ${customersFromList.length} customers`, 'info');
+
+                // Compare first 10 customers
+                const customersToTest = customersFromList.slice(0, 10);
+
+                let table = '<table>';
+                table += '<tr class="method-header">';
+                table += '<th>Customer</th>';
+                table += '<th>Customer List<br/>total_balance</th>';
+                table += '<th>Customer Ledger<br/>outstandingAmount</th>';
+                table += '<th>Difference</th>';
+                table += '<th>Status</th>';
+                table += '</tr>';
+
+                let allMatch = true;
+
+                for (const customer of customersToTest) {
+                    try {
+                        // Method 1: Customer List - total_balance
+                        const listBalance = parseFloat(customer.total_balance || 0);
+
+                        // Method 2: Customer Ledger - getCustomerAccountSummary
+                        const accountSummary = await db.getCustomerAccountSummary(customer.id);
+                        const ledgerBalance = parseFloat(accountSummary.outstandingAmount || 0);
+
+                        // Calculate difference
+                        const difference = Math.abs(listBalance - ledgerBalance);
+                        const isMatch = difference < 0.01;
+
+                        if (!isMatch) allMatch = false;
+
+                        const rowClass = isMatch ? 'match' : 'mismatch';
+                        const status = isMatch ? '✅ Match' : '❌ Mismatch';
+
+                        table += `<tr class="${rowClass}">
+                            <td>${customer.name} (ID: ${customer.id})</td>
+                            <td>Rs. ${listBalance.toFixed(2)}</td>
+                            <td>Rs. ${ledgerBalance.toFixed(2)}</td>
+                            <td>Rs. ${difference.toFixed(2)}</td>
+                            <td>${status}</td>
+                        </tr>`;
+
+                    } catch (customerError) {
+                        table += `<tr class="mismatch">
+                            <td>${customer.name}</td>
+                            <td colspan="4">Error: ${customerError.message}</td>
+                        </tr>`;
+                        allMatch = false;
+                    }
+                }
+
+                table += '</table>';
+                results.innerHTML += table;
+
+                // Summary
+                if (allMatch) {
+                    addResult('comparisonResults', '🎉 PERFECT! Both methods return identical balance values', 'success');
+                } else {
+                    addResult('comparisonResults', '⚠️ INCONSISTENCY DETECTED! Balance calculation methods disagree', 'error');
+                    addResult('comparisonResults', '💡 This means Customer List and Customer Ledger show different balance values for the same customer', 'warning');
+                }
+
+            } catch (error) {
+                addResult('comparisonResults', `❌ Error: ${error.message}`, 'error');
+            }
+        };
+
+        window.testSpecificCustomer = async function () {
+            const results = document.getElementById('comparisonResults');
+            results.innerHTML += '<h3>🎯 Specific Customer Deep Dive</h3>';
+
+            if (!await initializeDB()) return;
+
+            try {
+                // Get a customer with recent activity
+                const customers = await db.getCustomers();
+                if (customers.length === 0) {
+                    addResult('comparisonResults', 'No customers found', 'warning');
+                    return;
+                }
+
+                const testCustomer = customers[0];
+                addResult('comparisonResults', `🔍 Deep analysis for: ${testCustomer.name}`, 'info');
+
+                // Method 1: Customer List way
+                addResult('comparisonResults', '\n📋 METHOD 1: Customer List (total_balance)', 'info');
+                addResult('comparisonResults', `Result: Rs. ${(testCustomer.total_balance || 0).toFixed(2)}`, 'info');
+                addResult('comparisonResults', `Source: getCustomersOptimized() → CustomerBalanceManager.getCustomerWithBalance()`, 'info');
+
+                // Method 2: Customer Ledger way
+                addResult('comparisonResults', '\n📊 METHOD 2: Customer Ledger (outstandingAmount)', 'info');
+                const accountSummary = await db.getCustomerAccountSummary(testCustomer.id);
+                addResult('comparisonResults', `Result: Rs. ${accountSummary.outstandingAmount.toFixed(2)}`, 'info');
+                addResult('comparisonResults', `Source: getCustomerAccountSummary() → customer_ledger_entries SUM calculation`, 'info');
+
+                // Additional details
+                addResult('comparisonResults', '\n📈 DETAILED BREAKDOWN:', 'info');
+                addResult('comparisonResults', `• Total Invoiced: Rs. ${accountSummary.totalInvoicedAmount.toFixed(2)}`, 'info');
+                addResult('comparisonResults', `• Total Paid: Rs. ${accountSummary.totalPaidAmount.toFixed(2)}`, 'info');
+                addResult('comparisonResults', `• Outstanding: Rs. ${accountSummary.outstandingAmount.toFixed(2)}`, 'info');
+
+                // Check raw ledger calculation
+                const rawLedgerCalc = await db.executeRawQuery(`
+                    SELECT 
+                        COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END), 0) as total_debits,
+                        COALESCE(SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END), 0) as total_credits,
+                        COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END), 0) as outstanding
+                    FROM customer_ledger_entries 
+                    WHERE customer_id = ?
+                `, [testCustomer.id]);
+
+                const rawOutstanding = parseFloat(rawLedgerCalc[0]?.outstanding || 0);
+                addResult('comparisonResults', `• Raw Ledger Calculation: Rs. ${rawOutstanding.toFixed(2)}`, 'info');
+
+                // Compare all values
+                const listBalance = parseFloat(testCustomer.total_balance || 0);
+                const ledgerBalance = accountSummary.outstandingAmount;
+
+                if (Math.abs(listBalance - ledgerBalance) < 0.01 && Math.abs(ledgerBalance - rawOutstanding) < 0.01) {
+                    addResult('comparisonResults', '\n✅ ALL METHODS AGREE - Balance calculations are consistent!', 'success');
+                } else {
+                    addResult('comparisonResults', '\n❌ METHODS DISAGREE - Inconsistent balance calculations detected!', 'error');
+                    addResult('comparisonResults', '🔧 This needs to be fixed for proper balance display consistency', 'warning');
+                }
+
+            } catch (error) {
+                addResult('comparisonResults', `❌ Error: ${error.message}`, 'error');
+            }
+        };
+
+        window.detailedAnalysis = async function () {
+            const results = document.getElementById('detailedResults');
+            results.innerHTML = '<h3>📈 Detailed Analysis Report</h3>';
+
+            if (!await initializeDB()) return;
+
+            try {
+                // Analysis 1: Check CustomerBalanceManager vs raw calculation
+                addResult('detailedResults', '🔍 ANALYSIS 1: CustomerBalanceManager vs Raw Calculation', 'info');
+
+                const customers = await db.getCustomers();
+                const sampleCustomer = customers[0];
+
+                if (sampleCustomer) {
+                    // Get balance from CustomerBalanceManager (used by customer list)
+                    const customerWithBalance = sampleCustomer; // Already has balance from getCustomers()
+
+                    // Get balance from raw ledger calculation (used by customer ledger)
+                    const rawCalc = await db.executeRawQuery(`
+                        SELECT 
+                            COALESCE(SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END), 0) as raw_outstanding
+                        FROM customer_ledger_entries 
+                        WHERE customer_id = ?
+                    `, [sampleCustomer.id]);
+
+                    const rawOutstanding = parseFloat(rawCalc[0]?.raw_outstanding || 0);
+                    const managerBalance = parseFloat(customerWithBalance.total_balance || 0);
+
+                    addResult('detailedResults', `Sample Customer: ${sampleCustomer.name}`, 'info');
+                    addResult('detailedResults', `• CustomerBalanceManager: Rs. ${managerBalance.toFixed(2)}`, 'info');
+                    addResult('detailedResults', `• Raw Ledger Calculation: Rs. ${rawOutstanding.toFixed(2)}`, 'info');
+                    addResult('detailedResults', `• Difference: Rs. ${Math.abs(managerBalance - rawOutstanding).toFixed(2)}`, 'info');
+                }
+
+                // Analysis 2: Check stored balance vs calculated balance
+                addResult('detailedResults', '\n🔍 ANALYSIS 2: Stored vs Calculated Balance', 'info');
+
+                const balanceComparison = await db.executeRawQuery(`
+                    SELECT 
+                        c.id, c.name, c.balance as stored_balance,
+                        COALESCE(SUM(CASE WHEN l.entry_type = 'debit' THEN l.amount ELSE -l.amount END), 0) as calculated_balance
+                    FROM customers c
+                    LEFT JOIN customer_ledger_entries l ON c.id = l.customer_id
+                    WHERE c.id != -1
+                    GROUP BY c.id, c.name, c.balance
+                    LIMIT 5
+                `);
+
+                let comparisonTable = '<table><tr><th>Customer</th><th>Stored Balance</th><th>Calculated Balance</th><th>Difference</th><th>Status</th></tr>';
+
+                for (const customer of balanceComparison) {
+                    const stored = parseFloat(customer.stored_balance || 0);
+                    const calculated = parseFloat(customer.calculated_balance || 0);
+                    const diff = Math.abs(stored - calculated);
+                    const isConsistent = diff < 0.01;
+
+                    const rowClass = isConsistent ? 'match' : 'mismatch';
+                    const status = isConsistent ? '✅ Consistent' : '❌ Inconsistent';
+
+                    comparisonTable += `<tr class="${rowClass}">
+                        <td>${customer.name}</td>
+                        <td>Rs. ${stored.toFixed(2)}</td>
+                        <td>Rs. ${calculated.toFixed(2)}</td>
+                        <td>Rs. ${diff.toFixed(2)}</td>
+                        <td>${status}</td>
+                    </tr>`;
+                }
+
+                comparisonTable += '</table>';
+                results.innerHTML += comparisonTable;
+
+                // Analysis 3: Summary and recommendations
+                addResult('detailedResults', '\n🎯 SUMMARY & RECOMMENDATIONS:', 'info');
+                addResult('detailedResults', '• Customer List uses: CustomerBalanceManager.getCustomerWithBalance()', 'info');
+                addResult('detailedResults', '• Customer Ledger uses: getCustomerAccountSummary() → direct ledger SUM', 'info');
+                addResult('detailedResults', '• Both should return identical values for consistency', 'info');
+                addResult('detailedResults', '• Any differences indicate synchronization issues between methods', 'warning');
+
+            } catch (error) {
+                addResult('detailedResults', `❌ Error: ${error.message}`, 'error');
+            }
+        };
+
+        // Initialize when page loads
+        initializeDB();
+    </script>
+</body>
+
+</html>

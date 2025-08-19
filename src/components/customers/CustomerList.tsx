@@ -4,7 +4,7 @@ import { useDetailNavigation } from '../../hooks/useDetailNavigation';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import type { Customer } from '../../types';
 import { toast } from 'react-hot-toast';
-import { Plus, Edit, FileText, Trash2, Users, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Edit, FileText, Trash2, Users, Search, ChevronLeft, ChevronRight, DollarSign } from 'lucide-react';
 import Modal from '../common/Modal';
 import CustomerForm from './CustomerForm';
 import { formatCurrency } from '../../utils/calculations';
@@ -12,6 +12,7 @@ import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import ConfirmationModal from '../common/ConfirmationModal';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
+import FIFOPaymentForm from '../payments/FIFOPaymentForm';
 export default function CustomerList() {
   const { navigateToDetail } = useDetailNavigation();
   const { db } = useDatabase();
@@ -34,6 +35,10 @@ export default function CustomerList() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // FIFO Payment state
+  const [showFIFOPayment, setShowFIFOPayment] = useState(false);
+  const [selectedPaymentCustomer, setSelectedPaymentCustomer] = useState<Customer | null>(null);
 
   // Debounced search effect
   useEffect(() => {
@@ -421,6 +426,16 @@ export default function CustomerList() {
                         </button>
                         <button
                           onClick={() => {
+                            setSelectedPaymentCustomer(customer);
+                            setShowFIFOPayment(true);
+                          }}
+                          className="btn btn-primary flex items-center px-2 py-1 text-xs"
+                          title="Add Payment"
+                        >
+                          <DollarSign className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => {
                             setSelectedCustomer(customer);
                             setShowModal(true);
                           }}
@@ -475,6 +490,27 @@ export default function CustomerList() {
         isDestructive={true}
         loading={deleteLoading}
       />
+
+      {/* FIFO Payment Modal */}
+      {showFIFOPayment && selectedPaymentCustomer && (
+        <FIFOPaymentForm
+          customerId={selectedPaymentCustomer.id}
+          customerName={selectedPaymentCustomer.name}
+          customerBalance={selectedPaymentCustomer.total_balance || 0}
+          customerPhone={selectedPaymentCustomer.phone}
+          isOpen={showFIFOPayment}
+          onClose={() => {
+            setShowFIFOPayment(false);
+            setSelectedPaymentCustomer(null);
+          }}
+          onPaymentSuccess={() => {
+            setShowFIFOPayment(false);
+            setSelectedPaymentCustomer(null);
+            loadCustomers(); // Reload customer list
+            toast.success('Payment recorded successfully!');
+          }}
+        />
+      )}
     </div>
   );
 }

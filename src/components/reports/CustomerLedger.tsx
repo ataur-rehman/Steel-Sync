@@ -10,6 +10,7 @@ import { useNavigation } from '../../hooks/useNavigation';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import SmartDetailHeader from '../common/SmartDetailHeader';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
+import FIFOPaymentForm from '../payments/FIFOPaymentForm';
 import {
   Search,
   FileText,
@@ -38,6 +39,7 @@ interface Customer {
 interface CustomerTransaction {
   id: string;
   date: string;
+  time?: string;
   type: 'invoice' | 'payment' | 'adjustment';
   description: string;
   invoice_amount?: number;
@@ -145,8 +147,8 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
 
           {/* Clear Filters */}
           <div>
-            <button 
-              onClick={onClearSearch} 
+            <button
+              onClick={onClearSearch}
               className="btn btn-secondary w-full px-3 py-1.5 text-sm"
             >
               Clear Search
@@ -234,8 +236,8 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                 const balanceStatus = hasCredit
                   ? { status: 'Credit', color: 'text-green-600 bg-green-100' }
                   : hasBalance
-                  ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
-                  : { status: 'Clear', color: 'text-gray-700 bg-gray-100' };
+                    ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
+                    : { status: 'Clear', color: 'text-gray-700 bg-gray-100' };
                 return (
                   <tr key={customer.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -312,13 +314,14 @@ const CustomerLedger: React.FC = () => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransaction[]>([]);
   const [customerAccountSummary, setCustomerAccountSummary] = useState<any>(null);
-  
+
   // UI State
   const [loading, setLoading] = useState(false);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [showAddPayment, setShowAddPayment] = useState(false);
+  const [showFIFOPayment, setShowFIFOPayment] = useState(false);
   const [currentView, setCurrentView] = useState<'customers' | 'ledger' | 'stock'>('customers');
-  
+
   // Filters
   const [filters, setFilters] = useState({
     from_date: '',
@@ -447,7 +450,7 @@ const CustomerLedger: React.FC = () => {
     eventBus.on('invoice:created', handleInvoiceUpdated); // New event name
     eventBus.on(BUSINESS_EVENTS.PAYMENT_RECORDED, handleCustomerBalanceUpdate);
     eventBus.on(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, handleCustomerBalanceUpdate);
-    
+
     // Listen for overdue status updates
     eventBus.on('CUSTOMER_OVERDUE_STATUS_UPDATED', handleCustomerBalanceUpdate);
     eventBus.on('ALL_CUSTOMERS_OVERDUE_STATUS_UPDATED', () => {
@@ -508,23 +511,23 @@ const CustomerLedger: React.FC = () => {
       const channels = await db.getPaymentChannels(false); // Only active channels
       console.log('✅ Loaded payment channels from database:', channels);
       console.log('📊 Number of channels loaded:', channels?.length || 0);
-      
+
       if (!channels || channels.length === 0) {
         console.error('❌ No payment channels found in database');
         toast.error('No payment channels found. Please set up payment channels first.');
         return;
       }
-      
+
       setPaymentChannels(channels);
       console.log('💾 Payment channels set in state');
-      
+
       // Set default payment channel
       if (channels.length > 0) {
         const defaultChannel = channels[0];
         setSelectedPaymentChannel(defaultChannel);
-        setNewPayment(prev => ({ 
-          ...prev, 
-          payment_method: defaultChannel.name 
+        setNewPayment(prev => ({
+          ...prev,
+          payment_method: defaultChannel.name
         }));
         console.log('✅ Default payment channel set:', defaultChannel.name);
       }
@@ -544,9 +547,9 @@ const CustomerLedger: React.FC = () => {
         from_date: filters.from_date,
         to_date: filters.to_date
       };
-      
+
       const ledgerData = await db.getCustomerLedger(selectedCustomer.id, apiFilters);
-      
+
       // Process transactions to show proper debit/credit entries
       const processedTransactions = ledgerData.transactions.map((transaction: any) => {
         if (transaction.type === 'invoice') {
@@ -590,8 +593,8 @@ const CustomerLedger: React.FC = () => {
 
     try {
       setLoading(true);
-      
-      
+
+
     } catch (error) {
       console.error('Failed to load customer stock movements:', error);
       toast.error('Failed to load stock movements');
@@ -615,15 +618,15 @@ const CustomerLedger: React.FC = () => {
 
   const selectCustomer = useCallback((customer: Customer) => {
     console.log('📋 [CustomerLedger] Selecting customer:', customer.name, 'ID:', customer.id);
-    
+
     // Set loading state to prevent showing empty data
     setLoading(true);
-    
+
     // Batch state updates to prevent flickering
     setSelectedCustomer(customer);
     setCurrentView('ledger');
     setNewPayment(prev => ({ ...prev, customer_id: customer.id }));
-    
+
     // Load data asynchronously without blocking UI
     Promise.all([
       loadCustomerInvoices(customer.id),
@@ -639,16 +642,16 @@ const CustomerLedger: React.FC = () => {
   // Enhanced auto-selection effect - optimized to prevent flickering
   useEffect(() => {
     const state = location.state as any;
-    
+
     // Primary source: URL parameter (/customers/:id)
     const customerIdFromUrl = params.id ? parseInt(params.id) : null;
     // Secondary source: navigation state
     const customerIdFromState = state?.customerId || state?.navigationContext?.customerId;
-    
+
     // Use URL param first, then state
     const customerId = customerIdFromUrl || customerIdFromState;
     const customerName = state?.customerName || state?.navigationContext?.customerName;
-    
+
     console.log('🔍 [CustomerLedger] Auto-selection check:', {
       urlParam: customerIdFromUrl,
       stateParam: customerIdFromState,
@@ -657,7 +660,7 @@ const CustomerLedger: React.FC = () => {
       customersLoaded: customers.length > 0,
       currentSelected: selectedCustomer?.id
     });
-    
+
     // Only proceed if we have a customer ID, customers are loaded, and it's not already selected
     if (customerId && customers.length > 0 && (!selectedCustomer || selectedCustomer.id !== customerId)) {
       console.log('🎯 [CustomerLedger] Auto-selecting customer ID:', customerId, 'Name:', customerName);
@@ -683,9 +686,9 @@ const CustomerLedger: React.FC = () => {
 
   const handleNavigateToNewInvoice = useCallback((customer: Customer) => {
     navigate('/billing/new', {
-      state: { 
+      state: {
         customerId: customer.id,
-        customerName: customer.name 
+        customerName: customer.name
       }
     });
   }, [navigate]);
@@ -721,12 +724,12 @@ const CustomerLedger: React.FC = () => {
         notes: newPayment.notes,
         date: newPayment.date
       }, selectedInvoice || undefined);
-      
-      const invoiceInfo = selectedInvoice ? 
+
+      const invoiceInfo = selectedInvoice ?
         ` (allocated to Invoice ${formatInvoiceNumber(customerInvoices.find(inv => inv.id === selectedInvoice)?.bill_number || '')})` : '';
-      
+
       toast.success(`Payment of ${formatCurrency(newPayment.amount)} recorded for ${selectedCustomer.name}${invoiceInfo}`);
-      
+
       setShowAddPayment(false);
       setSelectedInvoice(null);
       setNewPayment({
@@ -737,11 +740,11 @@ const CustomerLedger: React.FC = () => {
         notes: '',
         date: new Date().toISOString().split('T')[0]
       });
-      
+
       await loadCustomerLedger();
       await loadCustomers();
       await loadCustomerAccountSummary(selectedCustomer.id);
-      
+
     } catch (error) {
       console.error('Error adding payment:', error);
       toast.error('Failed to add payment');
@@ -751,9 +754,9 @@ const CustomerLedger: React.FC = () => {
   const createNewInvoice = () => {
     if (!selectedCustomer) return;
     navigate('/billing/new', {
-      state: { 
+      state: {
         customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name 
+        customerName: selectedCustomer.name
       }
     });
   };
@@ -772,13 +775,7 @@ const CustomerLedger: React.FC = () => {
     return `Rs. ${safeAmount.toFixed(2)}`;
   };
 
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
+
 
   const exportLedger = async () => {
     if (!selectedCustomer || !filteredTransactions.length) {
@@ -807,16 +804,16 @@ const CustomerLedger: React.FC = () => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    
+
     // Log activity
     await activityLogger.logReportExported(`Customer Ledger (${selectedCustomer.name})`, 'CSV');
-    
+
     toast.success('Ledger exported successfully');
   };
 
   const printLedger = () => {
     if (!selectedCustomer) return;
-    
+
     const printWindow = window.open('', '_blank');
     if (!printWindow) {
       toast.error('Please allow popups for printing');
@@ -867,7 +864,7 @@ const CustomerLedger: React.FC = () => {
             <tbody>
               ${filteredTransactions.map(tx => `
                 <tr>
-                  <td>${formatDate(tx.date)}</td>
+                  <td>${tx.date}${tx.time ? '<br><small>' + tx.time + '</small>' : ''}</td>
                   <td>${tx.description}</td>
                   <td>${tx.reference_number || ''}</td>
                   <td class="text-right debit">${(tx.debit_amount || tx.invoice_amount) ? formatCurrency(tx.debit_amount || tx.invoice_amount) : '-'}</td>
@@ -888,7 +885,7 @@ const CustomerLedger: React.FC = () => {
 
     printWindow.document.write(printContent);
     printWindow.document.close();
-    
+
     printWindow.onload = () => {
       printWindow.print();
       printWindow.close();
@@ -921,7 +918,7 @@ const CustomerLedger: React.FC = () => {
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
               <p className="mt-1 text-sm text-gray-500">{selectedCustomer?.name} - Account Statement</p>
             </div>
-            
+
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowAddPayment(true)}
@@ -930,7 +927,7 @@ const CustomerLedger: React.FC = () => {
                 <Plus className="h-4 w-4 mr-2" />
                 Add Payment
               </button>
-            
+
               <button
                 onClick={createNewInvoice}
                 className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
@@ -938,7 +935,7 @@ const CustomerLedger: React.FC = () => {
                 <Receipt className="h-4 w-4 mr-2" />
                 New Invoice
               </button>
-              
+
               <button
                 onClick={exportLedger}
                 className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -946,7 +943,7 @@ const CustomerLedger: React.FC = () => {
               >
                 <Download className="h-4 w-4" />
               </button>
-              
+
               <button
                 onClick={printLedger}
                 className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -970,59 +967,57 @@ const CustomerLedger: React.FC = () => {
                     <p className="text-lg font-semibold text-gray-900">{selectedCustomer?.name}</p>
                     <p className="text-sm text-gray-600">Account: {formatCustomerCode(selectedCustomer?.customer_code || selectedCustomer?.id.toString().padStart(6, '0') || '')}</p>
                   </div>
-                  
+
                   {selectedCustomer?.phone && (
                     <div>
                       <p className="text-xs text-gray-500">Phone</p>
                       <p className="text-sm text-gray-900">{selectedCustomer.phone}</p>
                     </div>
                   )}
-                  
+
                   <div>
                     <p className="text-xs text-gray-500">Member Since</p>
                     <p className="text-sm text-gray-900">{customerAccountSummary?.memberSince || 'N/A'}</p>
                   </div>
-                  
+
                   {/* NEW: Days Overdue */}
                   <div>
                     <p className="text-xs text-gray-500">Days Overdue</p>
-                    <p className={`text-sm font-semibold ${
-                      customerAccountSummary && customerAccountSummary.outstandingAmount > 0
-                        ? customerAccountSummary.daysOverdue > 30 ? 'text-red-600' : 'text-orange-600'
-                        : 'text-green-600'
-                    }`}>
-                      {customerAccountSummary && customerAccountSummary.outstandingAmount > 0 
+                    <p className={`text-sm font-semibold ${customerAccountSummary && customerAccountSummary.outstandingAmount > 0
+                      ? customerAccountSummary.daysOverdue > 30 ? 'text-red-600' : 'text-orange-600'
+                      : 'text-green-600'
+                      }`}>
+                      {customerAccountSummary && customerAccountSummary.outstandingAmount > 0
                         ? `${Math.floor(customerAccountSummary.daysOverdue)} days`
                         : 'No overdue'
                       }
                     </p>
                   </div>
                 </div>
-                
+
                 <div className="space-y-3">
                   <div>
                     <p className="text-xs text-gray-500">Total Invoices</p>
                     <p className="text-lg font-semibold text-gray-900">{customerAccountSummary?.totalInvoicesCount || 0}</p>
                   </div>
-                  
+
                   {/* NEW: Invoices Overdue */}
                   <div>
                     <p className="text-xs text-gray-500">Invoices Overdue</p>
-                    <p className={`text-sm font-semibold ${
-                      customerAccountSummary && customerAccountSummary.invoicesOverdueCount > 0 
-                        ? 'text-red-600' 
-                        : 'text-green-600'
-                    }`}>
+                    <p className={`text-sm font-semibold ${customerAccountSummary && customerAccountSummary.invoicesOverdueCount > 0
+                      ? 'text-red-600'
+                      : 'text-green-600'
+                      }`}>
                       {customerAccountSummary?.invoicesOverdueCount || 0}
                       {customerAccountSummary && customerAccountSummary.invoicesOverdueCount > 0 ? ' overdue' : ''}
                     </p>
                   </div>
-                  
+
                   <div>
                     <p className="text-xs text-gray-500">Last Invoice</p>
                     <p className="text-sm text-gray-900">{customerAccountSummary?.lastInvoiceDate || 'No invoices'}</p>
                   </div>
-                  
+
                   <div>
                     <p className="text-xs text-gray-500">Last Payment</p>
                     <p className="text-sm text-gray-900">{customerAccountSummary?.lastPaymentDate || 'No payments'}</p>
@@ -1030,7 +1025,7 @@ const CustomerLedger: React.FC = () => {
                 </div>
               </div>
             </div>
-            
+
             {/* Right Column - Financial Summary */}
             <div>
               <h3 className="text-sm font-medium text-gray-500 mb-4">Financial Summary</h3>
@@ -1040,27 +1035,26 @@ const CustomerLedger: React.FC = () => {
                     <p className="text-xs text-gray-500">Total Invoiced</p>
                     <p className="text-lg font-semibold text-blue-600">{formatCurrency(customerAccountSummary?.totalInvoicedAmount || 0)}</p>
                   </div>
-                  
+
                   <div>
                     <p className="text-xs text-gray-500">Total Paid</p>
                     <p className="text-lg font-semibold text-green-600">{formatCurrency(customerAccountSummary?.totalPaidAmount || 0)}</p>
                   </div>
                 </div>
-                
+
                 <div className="space-y-3">
                   <div>
                     <p className="text-xs text-gray-500">Outstanding Balance</p>
-                    <div className={`text-xl font-bold ${
-                      customerAccountSummary && customerAccountSummary.outstandingAmount > 0 
-                        ? 'text-red-600' 
-                        : customerAccountSummary && customerAccountSummary.outstandingAmount < 0
+                    <div className={`text-xl font-bold ${customerAccountSummary && customerAccountSummary.outstandingAmount > 0
+                      ? 'text-red-600'
+                      : customerAccountSummary && customerAccountSummary.outstandingAmount < 0
                         ? 'text-green-600'
                         : 'text-gray-900'
-                    }`}>
+                      }`}>
                       {formatCurrency(customerAccountSummary?.outstandingAmount || 0)}
                       <span className="text-sm font-normal ml-2">
-                        {customerAccountSummary && customerAccountSummary.outstandingAmount > 0 ? 'Dr' : 
-                         customerAccountSummary && customerAccountSummary.outstandingAmount < 0 ? 'Cr' : ''}
+                        {customerAccountSummary && customerAccountSummary.outstandingAmount > 0 ? 'Dr' :
+                          customerAccountSummary && customerAccountSummary.outstandingAmount < 0 ? 'Cr' : ''}
                       </span>
                     </div>
                     {customerAccountSummary && customerAccountSummary.outstandingAmount < 0 && (
@@ -1088,7 +1082,7 @@ const CustomerLedger: React.FC = () => {
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
             </div>
-            
+
             <input
               type="date"
               value={filters.from_date}
@@ -1096,7 +1090,7 @@ const CustomerLedger: React.FC = () => {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="From Date"
             />
-            
+
             <input
               type="date"
               value={filters.to_date}
@@ -1104,7 +1098,7 @@ const CustomerLedger: React.FC = () => {
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="To Date"
             />
-            
+
             <select
               value={filters.type}
               onChange={(e) => handleFilterChange('type', e.target.value)}
@@ -1115,7 +1109,7 @@ const CustomerLedger: React.FC = () => {
               <option value="payment">Payments</option>
               <option value="adjustment">Adjustments</option>
             </select>
-            
+
             {(filters.from_date || filters.to_date || filters.type || filters.search) && (
               <button
                 onClick={clearFilters}
@@ -1169,7 +1163,10 @@ const CustomerLedger: React.FC = () => {
                     return withBalances.reverse().map((transaction) => (
                       <tr key={transaction.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatDate(transaction.date)}
+                          <div>{transaction.date}</div>
+                          {transaction.time && (
+                            <div className="text-xs text-gray-500">{transaction.time}</div>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900">
                           <div className="font-medium">{transaction.description}</div>
@@ -1177,7 +1174,7 @@ const CustomerLedger: React.FC = () => {
                             <div className="text-xs text-gray-500 mt-1">{transaction.notes}</div>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">  
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {transaction.reference_number || '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
@@ -1207,7 +1204,7 @@ const CustomerLedger: React.FC = () => {
                 <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions found</h3>
                 <p className="text-gray-500">
-                  {filters.search || filters.type || filters.from_date || filters.to_date 
+                  {filters.search || filters.type || filters.from_date || filters.to_date
                     ? 'No transactions match your current filters. Try adjusting your search criteria.'
                     : 'This customer has no transaction history yet.'
                   }
@@ -1242,7 +1239,7 @@ const CustomerLedger: React.FC = () => {
                   </div>
                 )}
               </div>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between py-3 bg-gray-50 px-4 rounded-lg border border-gray-200">
                   <span className="text-lg font-bold text-gray-900">Adjusted Balance:</span>
@@ -1257,7 +1254,7 @@ const CustomerLedger: React.FC = () => {
       </div>
     );
   };
-  
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Smart Detail Header when viewing specific customer */}
@@ -1328,7 +1325,7 @@ const CustomerLedger: React.FC = () => {
                 ×
               </button>
             </div>
-            
+
             <div className="mb-4 p-3 bg-blue-50 rounded-lg">
               <p className="text-sm text-blue-800">
                 <strong>Customer:</strong> {selectedCustomer ? selectedCustomer.name : ''}
@@ -1337,7 +1334,7 @@ const CustomerLedger: React.FC = () => {
                 <strong>Current Balance:</strong> {selectedCustomer ? formatCurrency(selectedCustomer.total_balance) : ''}
               </p>
             </div>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment Date</label>
@@ -1348,7 +1345,7 @@ const CustomerLedger: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment Amount</label>
                 <input
@@ -1361,7 +1358,7 @@ const CustomerLedger: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment Channel</label>
                 <select
@@ -1410,7 +1407,7 @@ const CustomerLedger: React.FC = () => {
                   </div>
                 )}
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Reference (Optional)</label>
                 <input
@@ -1421,7 +1418,7 @@ const CustomerLedger: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
                 <textarea
@@ -1433,7 +1430,7 @@ const CustomerLedger: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={() => setShowAddPayment(false)}

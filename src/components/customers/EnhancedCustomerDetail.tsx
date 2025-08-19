@@ -6,6 +6,7 @@ import CustomerNavigation from './CustomerNavigation';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import { formatCurrency } from '../../utils/calculations';
+import FIFOPaymentForm from '../payments/FIFOPaymentForm';
 
 const CustomerDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +14,7 @@ const CustomerDetail: React.FC = () => {
   const [financialSummary, setFinancialSummary] = useState<any>(null);
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showFIFOPayment, setShowFIFOPayment] = useState(false);
   const { db } = useDatabase();
   const { navigateTo } = useSmartNavigation();
 
@@ -22,7 +24,7 @@ const CustomerDetail: React.FC = () => {
 
   const loadCustomerData = async () => {
     if (!id) return;
-    
+
     try {
       setLoading(true);
       const [customerData, summary, invoices] = await Promise.all([
@@ -30,7 +32,7 @@ const CustomerDetail: React.FC = () => {
         db.getCustomerBalance(parseInt(id)),
         db.getInvoices({ customer_id: parseInt(id), limit: 5 })
       ]);
-      
+
       setCustomer(customerData);
       setFinancialSummary(summary);
       setRecentInvoices(invoices || []);
@@ -46,12 +48,12 @@ const CustomerDetail: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <CustomerNavigation 
+      <CustomerNavigation
         customerId={customer.id}
         customerName={customer.name}
         currentPage="detail"
       />
-      
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Customer Information */}
@@ -59,31 +61,52 @@ const CustomerDetail: React.FC = () => {
             <CustomerBasicInfo customer={customer} />
             <CustomerRecentActivity customerId={customer.id} recentInvoices={recentInvoices} navigateTo={navigateTo} />
           </div>
-          
+
           {/* Financial Summary Sidebar */}
           <div className="lg:col-span-1">
-            <CustomerFinancialSummary 
+            <CustomerFinancialSummary
               summary={financialSummary}
               customerId={customer.id}
               navigateTo={navigateTo}
             />
-            <CustomerQuickActions customerId={customer.id} navigateTo={navigateTo} />
+            <CustomerQuickActions
+              customerId={customer.id}
+              customer={customer}
+              summary={financialSummary}
+              navigateTo={navigateTo}
+              onShowFIFOPayment={() => setShowFIFOPayment(true)}
+            />
           </div>
         </div>
       </div>
+
+      {/* FIFO Payment Form - Moved to main component to avoid nested modal issues */}
+      <FIFOPaymentForm
+        customerId={parseInt(id!)}
+        customerName={customer?.name || ''}
+        customerBalance={financialSummary?.outstanding || 0}
+        customerPhone={customer?.phone}
+        isOpen={showFIFOPayment}
+        onClose={() => setShowFIFOPayment(false)}
+        onPaymentSuccess={() => {
+          setShowFIFOPayment(false);
+          // Reload customer data to reflect updated balance
+          loadCustomerData();
+        }}
+      />
     </div>
   );
 };
 
-const CustomerFinancialSummary: React.FC<{ summary: any; customerId: number; navigateTo: any }> = ({ 
-  summary, 
+const CustomerFinancialSummary: React.FC<{ summary: any; customerId: number; navigateTo: any }> = ({
+  summary,
   customerId,
-  navigateTo 
+  navigateTo
 }) => {
   return (
     <div className="bg-white rounded-lg shadow p-6 mb-6">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Summary</h3>
-      
+
       <div className="space-y-4">
         <div className="flex justify-between">
           <span className="text-gray-600">Outstanding Balance</span>
@@ -91,19 +114,19 @@ const CustomerFinancialSummary: React.FC<{ summary: any; customerId: number; nav
             {formatCurrency(summary?.outstanding || 0)}
           </span>
         </div>
-        
+
         <div className="flex justify-between">
           <span className="text-gray-600">Total Invoiced</span>
           <span className="font-semibold">{formatCurrency(summary?.total_invoiced || 0)}</span>
         </div>
-        
+
         <div className="flex justify-between">
           <span className="text-gray-600">Total Paid</span>
           <span className="font-semibold text-green-600">{formatCurrency(summary?.total_paid || 0)}</span>
         </div>
-        
+
         <div className="pt-4 border-t">
-          <button 
+          <button
             onClick={() => navigateTo(`/customers/${customerId}/ledger`)}
             className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
           >
@@ -119,7 +142,7 @@ const CustomerBasicInfo: React.FC<{ customer: any }> = ({ customer }) => {
   return (
     <div className="bg-white rounded-lg shadow p-6 mb-6">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Information</h3>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="space-y-4">
           <div className="flex items-center space-x-3">
@@ -129,7 +152,7 @@ const CustomerBasicInfo: React.FC<{ customer: any }> = ({ customer }) => {
               <p className="text-sm text-gray-600">{customer.phone || 'N/A'}</p>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-3">
             <CreditCard className="h-5 w-5 text-gray-400" />
             <div>
@@ -138,7 +161,7 @@ const CustomerBasicInfo: React.FC<{ customer: any }> = ({ customer }) => {
             </div>
           </div>
         </div>
-        
+
         <div className="space-y-4">
           <div className="flex items-start space-x-3">
             <MapPin className="h-5 w-5 text-gray-400 mt-0.5" />
@@ -147,7 +170,7 @@ const CustomerBasicInfo: React.FC<{ customer: any }> = ({ customer }) => {
               <p className="text-sm text-gray-600">{customer.address || 'N/A'}</p>
             </div>
           </div>
-          
+
           <div className="flex items-center space-x-3">
             <Calendar className="h-5 w-5 text-gray-400" />
             <div>
@@ -163,10 +186,10 @@ const CustomerBasicInfo: React.FC<{ customer: any }> = ({ customer }) => {
   );
 };
 
-const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any[]; navigateTo: any }> = ({ 
-  customerId, 
+const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any[]; navigateTo: any }> = ({
+  customerId,
   recentInvoices,
-  navigateTo 
+  navigateTo
 }) => {
   return (
     <div className="bg-white rounded-lg shadow p-6">
@@ -179,7 +202,7 @@ const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any
           View All
         </button>
       </div>
-      
+
       {recentInvoices.length > 0 ? (
         <div className="space-y-3">
           {recentInvoices.map((invoice) => (
@@ -199,10 +222,9 @@ const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any
                 <p className="text-sm font-medium text-gray-900">
                   {formatCurrency(invoice.total_amount)}
                 </p>
-                <p className={`text-xs ${
-                  invoice.status === 'paid' ? 'text-green-600' : 
+                <p className={`text-xs ${invoice.status === 'paid' ? 'text-green-600' :
                   invoice.status === 'partial' ? 'text-orange-600' : 'text-red-600'
-                }`}>
+                  }`}>
                   {invoice.status?.charAt(0).toUpperCase() + (invoice.status?.slice(1) || '') || 'Unpaid'}
                 </p>
               </div>
@@ -216,11 +238,17 @@ const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any
   );
 };
 
-const CustomerQuickActions: React.FC<{ customerId: number; navigateTo: any }> = ({ customerId, navigateTo }) => {
+const CustomerQuickActions: React.FC<{
+  customerId: number;
+  customer: any;
+  summary: any;
+  navigateTo: any;
+  onShowFIFOPayment: () => void;
+}> = ({ customerId, customer, navigateTo, onShowFIFOPayment }) => {
   return (
     <div className="bg-white rounded-lg shadow p-6">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-      
+
       <div className="space-y-3">
         <button
           onClick={() => navigateTo(`/invoices/new?customer=${customerId}`)}
@@ -229,15 +257,15 @@ const CustomerQuickActions: React.FC<{ customerId: number; navigateTo: any }> = 
           <ShoppingCart className="h-4 w-4 mr-2" />
           Create Invoice
         </button>
-        
+
         <button
-          onClick={() => navigateTo(`/payments/new?customer=${customerId}`)}
+          onClick={onShowFIFOPayment}
           className="w-full bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors flex items-center justify-center"
         >
           <DollarSign className="h-4 w-4 mr-2" />
-          Record Payment
+          Add Payment (FIFO)
         </button>
-        
+
         <button
           onClick={() => navigateTo(`/customers/${customerId}/edit`)}
           className="w-full bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors flex items-center justify-center"

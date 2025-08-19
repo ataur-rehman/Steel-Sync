@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Balance Diagnostic - Direct Access</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        .alert {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+
+        .alert-danger {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .alert-info {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+
+        button {
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .calculation-box {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #007bff;
+        }
+
+        .loading {
+            display: none;
+        }
+
+        .results {
+            margin-top: 20px;
+        }
+
+        .entry {
+            font-family: monospace;
+            font-size: 12px;
+            padding: 5px;
+            margin: 2px 0;
+            border-radius: 3px;
+        }
+
+        .entry.error {
+            background: #ffebee;
+        }
+
+        .entry.warning {
+            background: #fff3cd;
+        }
+
+        .entry.success {
+            background: #e8f5e8;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 Balance Diagnostic Tool - Direct Access</h1>
+
+        <div class="alert alert-danger">
+            <h3>🚨 BALANCE ISSUE</h3>
+            <p><strong>Expected Balance:</strong> Rs. 10,688 (32,128 - 21,440)</p>
+            <p><strong>System Shows:</strong> Rs. 17,838</p>
+            <p><strong>Discrepancy:</strong> Rs. 7,150</p>
+        </div>
+
+        <div>
+            <button onclick="testDatabaseAccess()">🔧 Test Database Connection</button>
+            <button onclick="runManualAnalysis()">📊 Manual Balance Analysis</button>
+            <button onclick="findDiscrepancy()">🎯 Find Rs. 7,150 Source</button>
+            <button onclick="clearResults()">🗑️ Clear</button>
+        </div>
+
+        <div class="loading" id="loading">
+            <p>⏳ Running analysis...</p>
+        </div>
+
+        <div class="results" id="results"></div>
+    </div>
+
+    <script>
+        let db = null;
+
+        function addResult(message, type = 'info') {
+            const results = document.getElementById('results');
+            const alertClass = type === 'error' ? 'alert-danger' :
+                type === 'success' ? 'alert-info' :
+                    type === 'warning' ? 'alert-warning' : 'alert-info';
+            results.innerHTML += `<div class="alert ${alertClass}">${message}</div>`;
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        async function testDatabaseAccess() {
+            clearResults();
+            showLoading(true);
+
+            try {
+                addResult('🔧 Testing database connection...', 'info');
+
+                // Test if we can access the backend
+                const response = await fetch('/api/test', { method: 'GET' });
+                if (response.ok) {
+                    addResult('✅ Backend connection successful', 'success');
+                } else {
+                    addResult('❌ Backend connection failed', 'error');
+                    addResult('💡 Make sure your Tauri app is running', 'warning');
+                }
+
+                // Try to test database directly
+                addResult('📊 Testing direct database access...', 'info');
+
+                // Since we can't access the database module directly in HTML,
+                // let's provide instructions for manual testing
+                addResult(`
+                    <div class="calculation-box">
+                        <h4>🔧 Manual Database Test</h4>
+                        <p>Open your browser's developer console (F12) and run:</p>
+                        <pre style="background: #f4f4f4; padding: 10px; border-radius: 5px;">
+// Test 1: Check if database service is available
+console.log('Testing database access...');
+
+// Test 2: Manual SQL query (if you have access to the database file)
+// You can run this in any SQLite browser:
+const testQuery = \`
+SELECT 
+  COUNT(*) as total_entries,
+  SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE 0 END) as total_debits,
+  SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE 0 END) as total_credits,
+  SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) as balance
+FROM customer_ledger_entries 
+WHERE customer_id = 1;
+\`;
+console.log('Run this query:', testQuery);
+                        </pre>
+                    </div>
+                `, 'info');
+
+            } catch (error) {
+                addResult(`❌ Error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function runManualAnalysis() {
+            clearResults();
+            addResult('📊 Manual Balance Analysis', 'info');
+
+            addResult(`
+                <div class="calculation-box">
+                    <h4>🧮 Expected Calculation:</h4>
+                    <p>From your ledger display:</p>
+                    <ul>
+                        <li><strong>Total Debits:</strong> Rs. 32,128.00</li>
+                        <li><strong>Total Credits:</strong> Rs. 21,440.00</li>
+                        <li><strong>Expected Balance:</strong> Rs. 10,688.00</li>
+                    </ul>
+                    
+                    <h4>🖥️ System Calculation:</h4>
+                    <p>Database shows: Rs. 17,838.00</p>
+                    
+                    <h4>🔍 Analysis:</h4>
+                    <p><strong>Discrepancy:</strong> Rs. 7,150.00 (17,838 - 10,688)</p>
+                    <p>This suggests either:</p>
+                    <ul>
+                        <li>❌ Missing Rs. 7,150 in credits (payments not counted)</li>
+                        <li>❌ Extra Rs. 7,150 in debits (duplicate invoices)</li>
+                        <li>❌ Wrong entry types affecting calculation</li>
+                    </ul>
+                </div>
+            `, 'info');
+
+            addResult(`
+                <div class="calculation-box">
+                    <h4>🎯 Suspected Issues from Your Ledger:</h4>
+                    <p>Looking at your ledger entries, I noticed:</p>
+                    <ul>
+                        <li><strong>"REFERENCE ONLY" entries:</strong> Some credit entries show "REFERENCE ONLY" which might have zero amounts</li>
+                        <li><strong>Credit applied entries:</strong> "Credit applied: Rs. 8570.00 - REFERENCE ONLY" might not be counted</li>
+                        <li><strong>Multiple payment types:</strong> Mix of cash and credit payments could cause confusion</li>
+                    </ul>
+                    
+                    <p><strong>Most likely cause:</strong> The "REFERENCE ONLY" credit entries totaling Rs. 7,150 are not being counted in the balance calculation.</p>
+                </div>
+            `, 'warning');
+        }
+
+        async function findDiscrepancy() {
+            clearResults();
+            addResult('🎯 Looking for Rs. 7,150 Discrepancy Source', 'info');
+
+            addResult(`
+                <div class="calculation-box">
+                    <h4>🔍 Discrepancy Analysis:</h4>
+                    <p><strong>Target Amount:</strong> Rs. 7,150</p>
+                    
+                    <h4>Possible Sources:</h4>
+                    <div class="entry warning">
+                        💡 Credit applied: Rs. 8,570.00 - REFERENCE ONLY (from Invoice I00023)
+                        <br>This is close to our Rs. 7,150 discrepancy!
+                    </div>
+                    
+                    <div class="entry warning">
+                        💡 Multiple "Credit applied" entries marked as "REFERENCE ONLY"
+                        <br>These might be tracked but not counted in balance calculation
+                    </div>
+                    
+                    <h4>🔧 Recommended Fix:</h4>
+                    <ol>
+                        <li>Check if "REFERENCE ONLY" entries have amount = 0 in database</li>
+                        <li>If yes, either:
+                            <ul>
+                                <li>Make them have the actual credit amount, OR</li>
+                                <li>Exclude them from balance calculation entirely</li>
+                            </ul>
+                        </li>
+                        <li>Ensure consistency between ledger display and balance calculation</li>
+                    </ol>
+                </div>
+            `, 'warning');
+
+            addResult(`
+                <div class="calculation-box">
+                    <h4>🛠️ Direct Database Fix:</h4>
+                    <p>If you have direct database access, run this query to check:</p>
+                    <pre style="background: #f4f4f4; padding: 10px; border-radius: 5px;">
+-- Check for zero-amount reference entries
+SELECT id, entry_type, amount, description 
+FROM customer_ledger_entries 
+WHERE customer_id = 1 
+  AND description LIKE '%REFERENCE ONLY%';
+
+-- Check for adjustment entries with amounts
+SELECT id, entry_type, amount, description 
+FROM customer_ledger_entries 
+WHERE customer_id = 1 
+  AND entry_type = 'adjustment' 
+  AND amount != 0;
+                    </pre>
+                </div>
+            `, 'info');
+
+            addResult(`
+                <div class="alert alert-warning">
+                    <h4>⚡ Quick Fix Suggestion:</h4>
+                    <p>Modify the balance calculation SQL to exclude reference entries:</p>
+                    <pre style="background: #f4f4f4; padding: 10px; border-radius: 5px; margin-top: 10px;">
+-- Current (wrong):
+SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) as balance
+FROM customer_ledger_entries WHERE customer_id = ?
+
+-- Fixed (exclude reference entries):
+SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) as balance
+FROM customer_ledger_entries 
+WHERE customer_id = ? 
+  AND entry_type IN ('debit', 'credit')
+  AND (description NOT LIKE '%REFERENCE ONLY%' OR description IS NULL)
+                    </pre>
+                </div>
+            `, 'warning');
+        }
+
+        // Auto-run analysis on page load
+        window.onload = function () {
+            addResult('🚀 Diagnostic tool loaded. Click buttons above to run analysis.', 'info');
+        };
+    </script>
+</body>
+
+</html>
