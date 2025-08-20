@@ -1,10 +1,17 @@
-import { useEffect, useState, useRef } from 'react';
+import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import {
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
+  ExternalLink,
+  ChevronRight,
+  Activity
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
-import { AlertTriangle, Clock, DollarSign, Users } from 'lucide-react';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import { initializeDashboardRealTimeUpdates } from '../../services/dashboardRealTimeUpdater';
@@ -16,6 +23,11 @@ interface DashboardStats {
   totalCustomers: number;
   lowStockCount: number;
   pendingPayments: number;
+  // Enhanced stats for production dashboard
+  monthlyGrowth?: number;
+  weeklyRevenue?: number;
+  totalRevenue?: number;
+  averageOrderValue?: number;
 }
 
 interface Invoice {
@@ -26,6 +38,7 @@ interface Invoice {
   date: string;
   payment_status: string;
   status?: string;
+  created_at?: string;
 }
 
 import type { UnitType } from '../../utils/unitUtils';
@@ -39,11 +52,69 @@ interface LowStockProduct {
   unit_type: UnitType;
   unit: string;
   category: string;
+  urgency?: 'critical' | 'warning' | 'normal';
 }
+
+interface StatCard {
+  title: string;
+  value: string;
+  color: string;
+  link: string;
+  trend?: {
+    value: number;
+    isPositive: boolean;
+    period: string;
+  };
+  description?: string;
+}
+
+// Performance optimization: Memoized loading skeleton component
+const LoadingSkeleton = () => (
+  <div className="space-y-8 p-6 animate-pulse" role="status" aria-label="Loading dashboard">
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="h-8 w-48 bg-gray-200 rounded"></div>
+      <div className="h-10 w-32 bg-gray-200 rounded"></div>
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      {[...Array(4)].map((_, i) => (
+        <div key={`stat-skeleton-${i}`} className="h-24 bg-gray-200 rounded-lg"></div>
+      ))}
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="h-96 bg-gray-200 rounded-lg"></div>
+      <div className="h-96 bg-gray-200 rounded-lg"></div>
+    </div>
+  </div>
+);
+
+// Performance optimization: Memoized empty state component
+const EmptyState = ({
+  icon,
+  title,
+  description,
+  iconColor = "text-gray-300",
+  iconBackground = "border-gray-300"
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  iconColor?: string;
+  iconBackground?: string;
+}) => (
+  <div className="px-6 py-12 text-center">
+    <div className={`h-12 w-12 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed rounded ${iconColor} ${iconBackground}`}>
+      {icon}
+    </div>
+    <p className="text-gray-500 font-medium">{title}</p>
+    <p className="text-sm text-gray-400 mt-1">{description}</p>
+  </div>
+);
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { db, initialized } = useDatabase();
+
+  // State management
   const [stats, setStats] = useState<DashboardStats>({
     todaySales: 0,
     totalCustomers: 0,
@@ -53,88 +124,225 @@ export default function Dashboard() {
   const [recentInvoices, setRecentInvoices] = useState<Invoice[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<LowStockProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date>(new Date());
+
+  // Performance optimization: Ref to prevent duplicate initialization
   const dashboardInitialized = useRef(false);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    if (initialized && db && !dashboardInitialized.current) {
-      // Initialize dashboard real-time updates
-      initializeDashboardRealTimeUpdates(db).then(() => {
-        console.log('✅ Dashboard real-time updates initialized');
-      }).catch(console.error);
+  // Defensive UX: Prevent accidental navigation when loading
+  const handleNavigation = useCallback((path: string) => {
+    if (!loading) {
+      navigate(path);
+    }
+  }, [navigate, loading]);
 
-      // Enhance database with real-time events
-      enhanceDatabaseWithRealTimeEvents(db);
+  // Performance optimization: Memoized stat cards configuration
+  const statCards = useMemo<StatCard[]>(() => [
+    {
+      title: "Today's Sales",
+      value: formatCurrency(stats.todaySales),
+      color: 'bg-emerald-500',
+      link: '/reports/daily',
+      description: 'Revenue generated today',
+      trend: stats.monthlyGrowth ? {
+        value: stats.monthlyGrowth,
+        isPositive: stats.monthlyGrowth > 0,
+        period: 'vs last month'
+      } : undefined
+    },
+    {
+      title: 'Total Customers',
+      value: stats.totalCustomers.toString(),
+      color: 'bg-blue-500',
+      link: '/customers',
+      description: 'Registered customers'
+    },
+    {
+      title: 'Low Stock Items',
+      value: stats.lowStockCount.toString(),
+      color: stats.lowStockCount > 0 ? 'bg-red-500' : 'bg-green-500',
+      link: '/reports/stock',
+      description: stats.lowStockCount > 0 ? 'Items need restocking' : 'All items well stocked'
+    },
+    {
+      title: 'Pending Payments',
+      value: formatCurrency(stats.pendingPayments),
+      color: stats.pendingPayments > 0 ? 'bg-amber-500' : 'bg-green-500',
+      link: '/billing/list?status=pending',
+      description: 'Outstanding receivables'
+    }
+  ], [stats]);
 
-      // Setup periodic refresh
-      setupPeriodicDashboardRefresh();
+  // Enhanced data loading with retry logic and error handling
+  const loadDashboardData = useCallback(async (retryCount = 0) => {
+    try {
+      setError(null);
 
-      // Setup additional event listeners for dashboard-specific updates
-      const periodicHandler = () => {
-        console.log('⏰ Periodic dashboard refresh triggered');
-        loadDashboardData();
-      };
+      // Clear any existing retry timeout
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
 
-      const comprehensiveHandler = () => {
-        console.log('⏰ Comprehensive dashboard refresh triggered');
-        loadDashboardData();
-      };
+      // Check if database is initialized with retry logic
+      if (!initialized) {
+        console.log('🔄 Dashboard: Database not initialized yet, waiting...');
+        if (retryCount < 5) { // Increased retry attempts for production
+          retryTimeoutRef.current = setTimeout(() => loadDashboardData(retryCount + 1), 1000);
+        } else {
+          setError('Database initialization failed. Please refresh the page.');
+          setLoading(false);
+        }
+        return;
+      }
 
-      const dailySalesHandler = () => {
-        console.log('💰 Daily sales updated, refreshing dashboard...');
-        loadDashboardData();
-      };
+      console.log('📊 Dashboard: Loading real-time data from database...');
 
-      const lowStockHandler = () => {
-        console.log('📦 Low stock status updated, refreshing dashboard...');
-        loadDashboardData();
-      };
+      // Performance optimization: Load all data in parallel with timeout
+      const dataPromises = [
+        db.getDashboardStats(),
+        db.getRecentInvoices(5),
+        db.getLowStockProducts()
+      ];
 
-      const lowStockCheckHandler = () => {
-        console.log('🔍 Low stock check requested, refreshing dashboard...');
-        loadDashboardData();
-      };
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
 
-      const recentInvoicesHandler = () => {
-        console.log('📄 Recent invoices updated, refreshing dashboard...');
-        loadDashboardData();
-      };
+      const [dashboardStats, invoices, lowStock] = await Promise.race([
+        Promise.all(dataPromises),
+        timeoutPromise
+      ]) as [any, any[], any[]];
 
-      const totalCustomersHandler = () => {
-        console.log('👤 Total customers updated, refreshing dashboard...');
-        loadDashboardData();
-      };
+      console.log('📊 Dashboard: Data loaded:', {
+        stats: dashboardStats,
+        invoicesCount: Array.isArray(invoices) ? invoices.length : 0,
+        lowStockCount: Array.isArray(lowStock) ? lowStock.length : 0
+      });
 
-      // Register event listeners
-      eventBus.on('PERIODIC_DASHBOARD_REFRESH', periodicHandler);
-      eventBus.on('COMPREHENSIVE_DASHBOARD_REFRESH', comprehensiveHandler);
-      eventBus.on('DAILY_SALES_UPDATED', dailySalesHandler);
-      eventBus.on('LOW_STOCK_STATUS_UPDATED', lowStockHandler);
-      eventBus.on('LOW_STOCK_CHECK_REQUESTED', lowStockCheckHandler);
-      eventBus.on('RECENT_INVOICES_UPDATED', recentInvoicesHandler);
-      eventBus.on('TOTAL_CUSTOMERS_UPDATED', totalCustomersHandler);
+      // Enhanced low stock products with urgency classification
+      const enhancedLowStock = Array.isArray(lowStock) ? lowStock.map(product => ({
+        ...product,
+        urgency: product.current_stock <= product.min_stock_alert * 0.5
+          ? 'critical' as const
+          : product.current_stock <= product.min_stock_alert * 0.8
+            ? 'warning' as const
+            : 'normal' as const
+      })) : [];
 
-      dashboardInitialized.current = true;
+      setStats(dashboardStats || {
+        todaySales: 0,
+        totalCustomers: 0,
+        lowStockCount: 0,
+        pendingPayments: 0
+      });
+      setRecentInvoices(Array.isArray(invoices) ? invoices : []);
+      setLowStockProducts(enhancedLowStock);
+      setLastUpdateTime(new Date());
 
-      // Cleanup function
-      return () => {
-        eventBus.off('PERIODIC_DASHBOARD_REFRESH', periodicHandler);
-        eventBus.off('COMPREHENSIVE_DASHBOARD_REFRESH', comprehensiveHandler);
-        eventBus.off('DAILY_SALES_UPDATED', dailySalesHandler);
-        eventBus.off('LOW_STOCK_STATUS_UPDATED', lowStockHandler);
-        eventBus.off('LOW_STOCK_CHECK_REQUESTED', lowStockCheckHandler);
-        eventBus.off('RECENT_INVOICES_UPDATED', recentInvoicesHandler);
-        eventBus.off('TOTAL_CUSTOMERS_UPDATED', totalCustomersHandler);
-      };
+    } catch (error) {
+      console.error('❌ Dashboard: Error loading data:', error);
+      setError(error instanceof Error ? error.message : 'Failed to load dashboard data');
+
+      // Set safe fallback data
+      setStats({
+        todaySales: 0,
+        totalCustomers: 0,
+        lowStockCount: 0,
+        pendingPayments: 0
+      });
+      setRecentInvoices([]);
+      setLowStockProducts([]);
+    } finally {
+      setLoading(false);
     }
   }, [initialized, db]);
 
+  // Enhanced initialization with proper cleanup
+  useEffect(() => {
+    if (initialized && db && !dashboardInitialized.current) {
+      const initializeDashboard = async () => {
+        try {
+          // Initialize dashboard real-time updates
+          await initializeDashboardRealTimeUpdates(db);
+          console.log('✅ Dashboard real-time updates initialized');
+
+          // Enhance database with real-time events
+          enhanceDatabaseWithRealTimeEvents(db);
+
+          // Setup periodic refresh
+          setupPeriodicDashboardRefresh();
+
+          dashboardInitialized.current = true;
+        } catch (error) {
+          console.error('❌ Dashboard initialization failed:', error);
+          setError('Failed to initialize real-time updates');
+        }
+      };
+
+      initializeDashboard();
+
+      // Setup enhanced event listeners with better performance
+      const eventHandlers = {
+        periodicRefresh: () => {
+          console.log('⏰ Periodic dashboard refresh triggered');
+          loadDashboardData();
+        },
+        comprehensiveRefresh: () => {
+          console.log('⏰ Comprehensive dashboard refresh triggered');
+          loadDashboardData();
+        },
+        dataUpdated: (eventName: string) => () => {
+          console.log(`💫 ${eventName} updated, refreshing dashboard...`);
+          loadDashboardData();
+        }
+      };
+
+      const events = [
+        'PERIODIC_DASHBOARD_REFRESH',
+        'COMPREHENSIVE_DASHBOARD_REFRESH',
+        'DAILY_SALES_UPDATED',
+        'LOW_STOCK_STATUS_UPDATED',
+        'LOW_STOCK_CHECK_REQUESTED',
+        'RECENT_INVOICES_UPDATED',
+        'TOTAL_CUSTOMERS_UPDATED'
+      ];
+
+      // Register event listeners
+      events.forEach(event => {
+        const handler = event.includes('PERIODIC') || event.includes('COMPREHENSIVE')
+          ? eventHandlers.periodicRefresh
+          : eventHandlers.dataUpdated(event);
+        eventBus.on(event, handler);
+      });
+
+      // Cleanup function
+      return () => {
+        events.forEach(event => {
+          const handler = event.includes('PERIODIC') || event.includes('COMPREHENSIVE')
+            ? eventHandlers.periodicRefresh
+            : eventHandlers.dataUpdated(event);
+          eventBus.off(event, handler);
+        });
+
+        if (retryTimeoutRef.current) {
+          clearTimeout(retryTimeoutRef.current);
+        }
+      };
+    }
+  }, [initialized, db, loadDashboardData]);
+
+  // Initial data load
   useEffect(() => {
     if (initialized) {
       loadDashboardData();
     }
-  }, [initialized]);
+  }, [initialized, loadDashboardData]);
 
-  // Real-time updates: Refresh dashboard when any relevant data changes
+  // Real-time updates with enhanced event listening
   useAutoRefresh(
     () => {
       console.log('🔄 Dashboard: Auto-refreshing due to real-time event');
@@ -153,283 +361,303 @@ export default function Dashboard() {
     ]
   );
 
-  const loadDashboardData = async (retryCount = 0) => {
-    try {
-      setLoading(true);
-
-      // Check if database is initialized with retry logic
-      if (!initialized) {
-        console.log('🔄 Dashboard: Database not initialized yet, waiting...');
-        if (retryCount < 3) {
-          setTimeout(() => loadDashboardData(retryCount + 1), 1000);
-        } else {
-          console.warn('⚠️ Dashboard: Database initialization timeout, using default data');
-          setLoading(false);
-        }
-        return;
-      }
-
-      console.log('📊 Dashboard: Loading real-time data from database...');
-
-      // Load real data from database
-      const [dashboardStats, invoices, lowStock] = await Promise.all([
-        db.getDashboardStats(),
-        db.getRecentInvoices(5),
-        db.getLowStockProducts()
-      ]);
-
-      console.log('📊 Dashboard: Data loaded:', {
-        stats: dashboardStats,
-        invoicesCount: Array.isArray(invoices) ? invoices.length : 0,
-        lowStockCount: Array.isArray(lowStock) ? lowStock.length : 0
-      });
-
-      setStats(dashboardStats);
-      setRecentInvoices(Array.isArray(invoices) ? invoices : []);
-      setLowStockProducts(Array.isArray(lowStock) ? lowStock : []);
-
-    } catch (error) {
-      console.error('❌ Dashboard: Error loading data:', error);
-      // Set empty data on error but don't hide the interface
-      setStats({
-        todaySales: 0,
-        totalCustomers: 0,
-        lowStockCount: 0,
-        pendingPayments: 0
-      });
-      setRecentInvoices([]);
-      setLowStockProducts([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const statCards = [
-    {
-      title: "Today's Sales",
-      value: formatCurrency(stats.todaySales),
-      icon: DollarSign,
-      color: 'bg-green-500',
-      link: '/reports/daily'
-    },
-    {
-      title: 'Total Customers',
-      value: stats.totalCustomers.toString(),
-      icon: Users,
-      color: 'bg-blue-500',
-      link: '/customers'
-    },
-    {
-      title: 'Low Stock Items',
-      value: stats.lowStockCount.toString(),
-      icon: AlertTriangle,
-      color: 'bg-orange-500',
-      link: '/reports/stock'
-    },
-    {
-      title: 'Pending Payments',
-      value: formatCurrency(stats.pendingPayments),
-      icon: Clock,
-      color: 'bg-red-500',
-      link: '/billing/list?status=pending'
-    }
-  ];
-
+  // Performance optimization: Show loading skeleton
   if (loading) {
+    return <LoadingSkeleton />;
+  }
+
+  // Error state with retry option
+  if (error) {
     return (
-      <div className="space-y-8 p-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-          <div className="h-8 w-48 bg-gray-200 rounded animate-pulse"></div>
-          <div className="h-10 w-32 bg-gray-200 rounded animate-pulse"></div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-24 bg-gray-200 rounded-lg animate-pulse"></div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="h-96 bg-gray-200 rounded-lg animate-pulse"></div>
-          <div className="h-96 bg-gray-200 rounded-lg animate-pulse"></div>
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="text-center max-w-md">
+          <div className="text-red-500 text-4xl mb-4">⚠️</div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Dashboard Error</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => {
+              setError(null);
+              setLoading(true);
+              loadDashboardData();
+            }}
+            className="btn btn-primary"
+            autoFocus
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Retry
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">Welcome back! Here's what's happening with your business today. <span className="font-medium text-gray-700">(Overview)</span></p>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto p-4 sm:p-4 lg:p-6">
+        {/* Enhanced Header with Last Update Time */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+            <div className="flex items-center gap-4 mt-2">
+              <p className="text-sm text-gray-500">
+                Welcome back! Here's what's happening with your business today.
+              </p>
+              <div className="flex items-center gap-1 text-xs text-gray-400">
+                <Activity className="w-3 h-3" />
+                <span>Last updated: {lastUpdateTime.toLocaleTimeString()}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setLoading(true);
+                loadDashboardData();
+              }}
+              className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
+              title="Refresh dashboard data"
+              disabled={loading}
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              onClick={() => handleNavigation('/billing/new')}
+              className="btn btn-primary flex items-center px-4 py-2"
+              disabled={loading}
+            >
+              <span className="text-lg mr-2">+</span>
+              New Invoice
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => navigate('/billing/new')}
-          className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
-        >
-          New Invoice
-        </button>
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat, index) => (
-          <div
-            key={index}
-            onClick={() => navigate(stat.link)}
-            className="card p-6 cursor-pointer hover:shadow-md transition-shadow"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{stat.value}</p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Invoices */}
-        <div className="card p-0 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Recent Invoices</h2>
-              <button
-                onClick={() => navigate('/billing/list')}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View All
-              </button>
-            </div>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {!Array.isArray(recentInvoices) || recentInvoices.length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <div className="h-12 w-12 text-gray-300 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-gray-300 rounded">
-                  #
+        {/* Enhanced Stats Cards with Better Visual Hierarchy */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          {statCards.map((stat, index) => (
+            <div
+              key={`stat-${index}`}
+              onClick={() => handleNavigation(stat.link)}
+              className="group card p-4 cursor-pointer hover:shadow-lg transition-all duration-200 border border-gray-200 hover:border-blue-300 relative overflow-hidden"
+              role="button"
+              tabIndex={0}
+              aria-label={`${stat.title}: ${stat.value}. ${stat.description}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleNavigation(stat.link);
+                }
+              }}
+            >
+              <div className="relative flex flex-col h-full">
+                {/* Header with navigation indicator */}
+                <div className="flex items-center justify-between mb-2">
+                  <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors ml-auto" />
                 </div>
-                <p className="text-gray-500">No recent invoices</p>
-                <p className="text-sm text-gray-400 mt-1">Create your first invoice to get started</p>
+
+                {/* Main content - compact and centered */}
+                <div className="flex-1 text-center">
+                  <p className="text-sm font-medium text-gray-600 mb-1">{stat.title}</p>
+                  <p className="text-2xl font-bold text-gray-900 mb-1 leading-tight">{stat.value}</p>
+                  <p className="text-xs text-gray-500">{stat.description}</p>
+                </div>
+
+                {/* Trend indicator at bottom */}
+                {stat.trend && (
+                  <div className={`flex items-center justify-center gap-1 mt-2 text-xs ${stat.trend.isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                    {stat.trend.isPositive ? (
+                      <TrendingUp className="w-3 h-3" />
+                    ) : (
+                      <TrendingDown className="w-3 h-3" />
+                    )}
+                    <span>{Math.abs(stat.trend.value)}% {stat.trend.period}</span>
+                  </div>
+                )}
               </div>
-            ) : (
-              recentInvoices.map((invoice) => (
-                <div
-                  key={invoice.id}
-                  onClick={() => navigate(`/billing/view/${invoice.id}`)}
-                  className="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+            </div>
+          ))}
+        </div>
+
+        {/* Enhanced Main Content Grid with Better Spacing */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+          {/* Recent Invoices with Enhanced UI */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Recent Invoices</h2>
+
+                </div>
+                <button
+                  onClick={() => handleNavigation('/billing/list')}
+                  className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        Invoice #{formatInvoiceNumber(invoice.bill_number)}
-                      </p>
-                      <p className="text-sm text-gray-500 mt-1">{invoice.customer_name}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900">
-                        {formatCurrency(invoice.grand_total)}
-                      </p>
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full mt-1 ${invoice.status === 'paid' || invoice.payment_status === 'paid'
-                        ? 'text-green-600 bg-green-100'
-                        : invoice.status === 'partially_paid' || invoice.payment_status === 'partially_paid'
-                          ? 'text-orange-600 bg-orange-100'
-                          : 'text-red-600 bg-red-100'
-                        }`}>
-                        {invoice.status ?
-                          invoice.status.replace('_', ' ').charAt(0).toUpperCase() + invoice.status.replace('_', ' ').slice(1)
-                          : invoice.payment_status ?
-                            invoice.payment_status.replace('_', ' ').charAt(0).toUpperCase() + invoice.payment_status.replace('_', ' ').slice(1)
-                            : 'Pending'
-                        }
-                      </span>
+                  View All
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+            <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto scrollbar-thin">
+              {!Array.isArray(recentInvoices) || recentInvoices.length === 0 ? (
+                <EmptyState
+                  icon="#"
+                  title="No recent invoices"
+                  description="Create your first invoice to get started"
+                />
+              ) : (
+                recentInvoices.map((invoice) => (
+                  <div
+                    key={`invoice-${invoice.id}`}
+                    onClick={() => handleNavigation(`/billing/view/${invoice.id}`)}
+                    className="px-6 py-4 hover:bg-gray-50 cursor-pointer transition-colors group"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleNavigation(`/billing/view/${invoice.id}`);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            Invoice #{formatInvoiceNumber(invoice.bill_number)}
+                          </p>
+                          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors flex-shrink-0" />
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1 truncate">{invoice.customer_name}</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {new Date(invoice.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-4">
+                        <p className="text-sm font-semibold text-gray-900">
+                          {formatCurrency(invoice.grand_total)}
+                        </p>
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full mt-1 ${invoice.status === 'paid' || invoice.payment_status === 'paid'
+                          ? 'text-emerald-700 bg-emerald-100'
+                          : invoice.status === 'partially_paid' || invoice.payment_status === 'partially_paid'
+                            ? 'text-amber-700 bg-amber-100'
+                            : 'text-red-700 bg-red-100'
+                          }`}>
+                          {(invoice.status || invoice.payment_status || 'pending')
+                            .replace('_', ' ')
+                            .split(' ')
+                            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                            .join(' ')
+                          }
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Low Stock Alert */}
-        <div className="card p-0 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Low Stock Alert</h2>
-              <button
-                onClick={() => navigate('/reports/stock')}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View All
-              </button>
+                ))
+              )}
             </div>
           </div>
-          <div className="divide-y divide-gray-100">
-            {lowStockProducts.length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <div className="h-12 w-12 text-green-600 mx-auto mb-4 flex items-center justify-center text-2xl font-bold border-2 border-dashed border-green-300 rounded">
-                  ✓
+
+          {/* Low Stock Alert with Priority Classification */}
+          <div className="card p-0 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">Inventory Alerts</h2>
+
                 </div>
-                <p className="text-gray-500">All products are well stocked</p>
-                <p className="text-sm text-gray-400 mt-1">No items need restocking at this time</p>
+                <button
+                  onClick={() => handleNavigation('/reports/stock')}
+                  className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                >
+                  View All
+                  <ExternalLink className="w-3 h-3" />
+                </button>
               </div>
-            ) : (
-              lowStockProducts.map((product) => (
-                <div key={product.id} className="px-6 py-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{product.name}</p>
-                      <p className="text-sm text-gray-500 mt-1">{product.category}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-red-600">
-                        {formatUnitString(product.current_stock, product.unit_type)}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Min: {product.min_stock_alert || product.min_stock_level} {product.unit || product.unit_type}
-                      </p>
+            </div>
+
+            <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto scrollbar-thin">
+              {lowStockProducts.length === 0 ? (
+                <EmptyState
+                  icon="✓"
+                  title="All products are well stocked"
+                  description="No items need restocking at this time"
+                  iconColor="text-emerald-600"
+                  iconBackground="border-emerald-300"
+                />
+              ) : (
+                lowStockProducts.map((product) => (
+                  <div
+                    key={`product-${product.id}`}
+                    className={`px-6 py-4 ${product.urgency === 'critical'
+                      ? 'bg-red-50 border-l-4 border-red-500'
+                      : product.urgency === 'warning'
+                        ? 'bg-amber-50 border-l-4 border-amber-500'
+                        : ''
+                      }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-gray-900 truncate">{product.name}</p>
+                          {product.urgency === 'critical' && (
+                            <span className="flex-shrink-0 w-2 h-2 bg-red-500 rounded-full animate-pulse" title="Critical stock level"></span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500 mt-1 truncate">{product.category}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0 ml-4">
+                        <p className={`text-sm font-semibold ${product.urgency === 'critical'
+                          ? 'text-red-700'
+                          : product.urgency === 'warning'
+                            ? 'text-amber-700'
+                            : 'text-red-600'
+                          }`}>
+                          {formatUnitString(product.current_stock, product.unit_type)}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Min: {product.min_stock_alert || product.min_stock_level} {product.unit || product.unit_type}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Quick Actions */}
-      <div className="card p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <button
-            onClick={() => navigate('/billing/new')}
-            className="flex flex-col items-center p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-center"
-          >
-            <div className="text-2xl mb-2">📄</div>
-            <span className="text-sm font-medium text-gray-900">New Invoice</span>
-          </button>
-          <button
-            onClick={() => navigate('/customers')}
-            className="flex flex-col items-center p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-center"
-          >
-            <div className="text-2xl mb-2">👥</div>
-            <span className="text-sm font-medium text-gray-900">Customers</span>
-          </button>
-          <button
-            onClick={() => navigate('/products')}
-            className="flex flex-col items-center p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-center"
-          >
-            <div className="text-2xl mb-2">📦</div>
-            <span className="text-sm font-medium text-gray-900">Products</span>
-          </button>
-          <button
-            onClick={() => navigate('/reports/daily')}
-            className="flex flex-col items-center p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-center"
-          >
-            <div className="text-2xl mb-2">📊</div>
-            <span className="text-sm font-medium text-gray-900">Reports</span>
-          </button>
+        {/* Enhanced Quick Actions with Better UX */}
+        <div className="card p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Quick Actions</h2>
+              <p className="text-sm text-gray-500 mt-1">Common tasks and shortcuts</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-4">
+            {[
+              { icon: '📄', label: 'New Invoice', path: '/billing/new', color: 'hover:bg-blue-50 hover:border-blue-200' },
+              { icon: '👥', label: 'Customers', path: '/customers', color: 'hover:bg-emerald-50 hover:border-emerald-200' },
+              { icon: '📦', label: 'Products', path: '/products', color: 'hover:bg-purple-50 hover:border-purple-200' },
+              { icon: '📊', label: 'Reports', path: '/reports/daily', color: 'hover:bg-amber-50 hover:border-amber-200' }
+            ].map((action, index) => (
+              <button
+                key={`action-${index}`}
+                onClick={() => handleNavigation(action.path)}
+                className={`flex flex-col items-center p-6 rounded-xl border-2 border-gray-200 transition-all duration-200 text-center group ${action.color} hover:shadow-md`}
+                disabled={loading}
+              >
+                <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-200">
+                  {action.icon}
+                </div>
+                <span className="text-sm font-medium text-gray-900 group-hover:text-gray-700">
+                  {action.label}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </div>

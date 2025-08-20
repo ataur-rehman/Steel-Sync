@@ -1,46 +1,159 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { db } from '../../services/database';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
-import { Package, Search, Plus, Edit, Trash2 } from 'lucide-react';
+import {
+  Package,
+  Search,
+  Plus,
+  Edit,
+  Trash2,
+  RefreshCw,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../common/Modal';
-import ProductForm from './ProductForm';
-import { formatUnitString, parseUnit } from '../../utils/unitUtils';
+import ProductFormEnhanced from './ProductFormEnhanced';
+import { formatUnitString } from '../../utils/unitUtils';
+import { formatCurrency } from '../../utils/calculations';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+
+// Production-grade interfaces for type safety
+interface Product {
+  id: number;
+  name: string;
+  category: string;
+  unit_type: string;
+  rate_per_unit: number;
+  current_stock: string;
+  min_stock_alert: string;
+  track_inventory: number;
+  size?: string;
+  grade?: string;
+  created_at: string;
+  updated_at: string;
+  // Computed fields
+  stock_value?: number;
+}
+
+interface ProductFilters {
+  search: string;
+  category: string;
+}
+
+interface PaginationState {
+  currentPage: number;
+  itemsPerPage: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+// Performance optimization: Memoized loading skeleton
+const LoadingSkeleton = () => (
+  <div className="space-y-4 animate-pulse" role="status" aria-label="Loading products">
+    <div className="flex flex-col sm:flex-row gap-4 mb-6">
+      <div className="h-10 w-72 bg-gray-200 rounded-lg"></div>
+      <div className="h-10 w-32 bg-gray-200 rounded-lg"></div>
+    </div>
+    <div className="space-y-3">
+      {[...Array(8)].map((_, i) => (
+        <div key={`product-skeleton-${i}`} className="h-16 bg-gray-200 rounded-lg"></div>
+      ))}
+    </div>
+  </div>
+);
+
+// Empty state component
+const EmptyState = ({
+  hasFilters,
+  onReset,
+  onAddProduct
+}: {
+  hasFilters: boolean;
+  onReset: () => void;
+  onAddProduct: () => void;
+}) => (
+  <div className="text-center py-12">
+    <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center bg-gray-100 rounded-full">
+      <Package className="w-8 h-8 text-gray-400" />
+    </div>
+    <h3 className="text-lg font-medium text-gray-900 mb-2">
+      {hasFilters ? 'No products found' : 'No products yet'}
+    </h3>
+    <p className="text-gray-500 mb-6">
+      {hasFilters
+        ? 'Try adjusting your search filters to find what you\'re looking for.'
+        : 'Get started by adding your first product to the inventory.'
+      }
+    </p>
+    {hasFilters ? (
+      <button onClick={onReset} className="btn btn-secondary">
+        Clear Filters
+      </button>
+    ) : (
+      <button onClick={onAddProduct} className="btn btn-primary flex items-center mx-auto">
+        <Plus className="w-4 h-4 mr-2" />
+        Add First Product
+      </button>
+    )}
+  </div>
+);
 
 const ProductList: React.FC = () => {
   const activityLogger = useActivityLogger();
-  const [products, setProducts] = useState<any[]>([]);
+
+  // State management
+  const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<any | null>(null);
-  const [deletingProduct, setDeletingProduct] = useState<any | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  useEffect(() => {
-    initializeData();
-  }, []);
+  // Filters and pagination
+  const [filters, setFilters] = useState<ProductFilters>({
+    search: '',
+    category: ''
+  });
+
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [pagination, setPagination] = useState<PaginationState>({
+    currentPage: 1,
+    itemsPerPage: 20,
+    totalItems: 0,
+    totalPages: 0
+  });
+
+  // Performance optimization: Refs
+  const loadingRef = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Debounce search term to reduce database calls
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 300); // 300ms delay
-    
+      setDebouncedSearchTerm(filters.search);
+    }, 300);
+
     return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [filters.search]);
+
+  // Load data when dependencies change
+  useEffect(() => {
+    initializeData();
+  }, []);
 
   useEffect(() => {
     loadProducts();
-  }, [debouncedSearchTerm, selectedCategory]);
+  }, [debouncedSearchTerm, filters.category, pagination.currentPage]);
 
-  // Real-time updates: Refresh product list when products or stock changes
+  // Real-time updates
   useAutoRefresh(
     () => {
       console.log('🔄 ProductList: Auto-refreshing due to real-time event');
@@ -48,379 +161,552 @@ const ProductList: React.FC = () => {
     },
     [
       'PRODUCT_CREATED',
-      'PRODUCT_UPDATED', 
+      'PRODUCT_UPDATED',
       'PRODUCT_DELETED',
-      'STOCK_UPDATED',
-      'STOCK_MOVEMENT_CREATED',
-      'STOCK_ADJUSTMENT_MADE'
-    ],
-    [debouncedSearchTerm, selectedCategory]
+      'STOCK_UPDATED'
+    ]
   );
 
-  const initializeData = async () => {
+  const initializeData = useCallback(async () => {
+    await Promise.all([
+      loadProducts(),
+      loadCategories()
+    ]);
+  }, []);
+
+  const loadProducts = useCallback(async () => {
+    if (loadingRef.current) return;
+
+    loadingRef.current = true;
+    setLoading(true);
+    setError(null);
+
     try {
-      await db.initialize();
-      await loadCategories();
-      await loadProducts();
+      let whereConditions = [];
+      let params: any[] = [];
+
+      // Search filter
+      if (debouncedSearchTerm) {
+        whereConditions.push('name LIKE ?');
+        const searchPattern = `%${debouncedSearchTerm}%`;
+        params.push(searchPattern);
+      }
+
+      // Category filter
+      if (filters.category) {
+        whereConditions.push('category = ?');
+        params.push(filters.category);
+      }
+
+      const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
+
+      // Get total count for pagination
+      const countQuery = `SELECT COUNT(*) as total FROM products ${whereClause}`;
+      const countResult = await db.executeSmartQuery(countQuery, params);
+      const totalItems = (countResult[0] as any)?.total || 0;
+
+      // Get paginated products
+      const offset = (pagination.currentPage - 1) * pagination.itemsPerPage;
+      const query = `
+        SELECT *,
+          (CAST(current_stock AS REAL) * rate_per_unit) as stock_value
+        FROM products 
+        ${whereClause}
+        ORDER BY updated_at DESC, name ASC
+        LIMIT ? OFFSET ?
+      `;
+
+      const allParams = [...params, pagination.itemsPerPage, offset];
+      const result = await db.executeSmartQuery(query, allParams);
+
+      setProducts(result as Product[]);
+      setPagination(prev => ({
+        ...prev,
+        totalItems,
+        totalPages: Math.ceil(totalItems / prev.itemsPerPage)
+      }));
+
     } catch (error) {
-      toast.error('Failed to load product data');
-      console.error('Failed to initialize:', error);
+      console.error('Error loading products:', error);
+      setError('Failed to load products. Please try again.');
+      toast.error('Failed to load products');
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
-  };
-const loadProducts = async () => {
-  try {
-    console.log('=== LOADING PRODUCTS ===');
-    console.log('Current environment - isTauri():', typeof window !== 'undefined' && '__TAURI__' in window);
-    console.log('Debounced search term:', debouncedSearchTerm);
-    console.log('Selected category:', selectedCategory);
-    
-    const productList = await db.getProducts(debouncedSearchTerm, selectedCategory);
-    console.log('Raw products from database:', productList);
-    console.log('Number of products:', Array.isArray(productList) ? productList.length : 0);
-    
-    // Ensure we have an array before setting products
-    if (Array.isArray(productList)) {
-      setProducts(productList);
-      console.log('Products state has been updated');
-    } else {
-      console.warn('loadProducts: getProducts returned non-array:', typeof productList);
-      setProducts([]);
-    }
-    console.log('=== END LOADING PRODUCTS ===');
-  } catch (error) {
-    toast.error('Failed to load products');
-    console.error('Failed to load products:', error);
-    setProducts([]); // Set empty array on error
-  }
-};
-  const loadCategories = async () => {
+  }, [debouncedSearchTerm, filters.category, pagination.currentPage, pagination.itemsPerPage]);
+
+  const loadCategories = useCallback(async () => {
     try {
-      const categoryList = await db.getCategories();
-      
-      // Ensure we have an array before setting categories
-      if (Array.isArray(categoryList)) {
-        setCategories(categoryList);
-      } else {
-        console.warn('loadCategories: getCategories returned non-array:', typeof categoryList);
-        setCategories([]);
-      }
+      const query = `
+        SELECT 
+          category as name,
+          COUNT(*) as product_count
+        FROM products 
+        GROUP BY category
+        ORDER BY product_count DESC, category ASC
+      `;
+
+      const result = await db.executeSmartQuery(query);
+      setCategories(result as any[]);
     } catch (error) {
-      console.error('Failed to load categories:', error);
-      setCategories([]); // Set empty array on error
+      console.error('Error loading categories:', error);
     }
-  };
+  }, []);
 
-  const handleSearch = (value: string) => {
-    // Security: Sanitize search input and limit length
-    const sanitizedValue = value.trim().slice(0, 100); // Limit to 100 characters
-    setSearchTerm(sanitizedValue);
-  };
-
-  const handleCategoryFilter = (category: string) => {
-    // Security: Sanitize category input
-    const sanitizedCategory = category.trim().slice(0, 50); // Limit to 50 characters
-    setSelectedCategory(sanitizedCategory);
-  };
-
-  const clearFilters = () => {
-    setSearchTerm('');
-    setSelectedCategory('');
-  };
-
-  // Performance: Memoize stock status calculation
-  const getStockStatus = useCallback((product: any) => {
-    try {
-      const currentStock = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-      const alertLevel = parseUnit(product.min_stock_alert, product.unit_type || 'kg-grams');
-      
-      if (currentStock.numericValue <= alertLevel.numericValue) {
-        return { status: 'Low Stock', color: 'text-red-600 bg-red-100' };
-      } else if (currentStock.numericValue <= alertLevel.numericValue * 1.5) {
-        return { status: 'Medium', color: 'text-yellow-600 bg-yellow-100' };
-      } else {
-        return { status: 'In Stock', color: 'text-green-600 bg-green-100' };
-      }
-    } catch (error) {
-      console.error('Error calculating stock status:', error);
-      return { status: 'Unknown', color: 'text-gray-600 bg-gray-100' };
-    }
-  }, []); // No dependencies since it only uses the input parameter
-
-
-  const handleAddProduct = () => {
-    setShowAddModal(true);
-  };
-
-  const handleEditProduct = (product: any) => {
+  // Product actions
+  const handleEdit = useCallback((product: Product) => {
     setEditingProduct(product);
     setShowEditModal(true);
-  };
+  }, []);
 
-  const handleDeleteProduct = (product: any) => {
-    console.log('🔄 Opening delete confirmation for:', product.name);
+  const handleDelete = useCallback((product: Product) => {
     setDeletingProduct(product);
     setShowDeleteModal(true);
-  };
+  }, []);
 
-  const confirmDeleteProduct = async () => {
-    if (!deletingProduct || isDeleting) return;
-    
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deletingProduct) return;
+
     setIsDeleting(true);
-    
     try {
-      console.log(`🗑️ Deleting product: ${deletingProduct.name} (ID: ${deletingProduct.id})`);
-      await db.deleteProduct(deletingProduct.id);
-      
-      // Log activity
-      await activityLogger.logProductDeleted(deletingProduct.id, deletingProduct.name);
-      
-      console.log(`✅ Product deleted successfully: ${deletingProduct.id}`);
-      toast.success('Product deleted successfully!');
-    } catch (error) {
-      console.error('❌ Failed to delete product:', error);
-      toast.error(`Failed to delete product: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsDeleting(false);
+      await db.executeSmartQuery(
+        'DELETE FROM products WHERE id = ?',
+        [deletingProduct.id]
+      );
+
+      toast.success('Product deleted successfully');
       setShowDeleteModal(false);
       setDeletingProduct(null);
+      loadProducts();
+
+      activityLogger.logProductDeleted(deletingProduct.id, deletingProduct.name);
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      toast.error('Failed to delete product');
+    } finally {
+      setIsDeleting(false);
     }
-  };
+  }, [deletingProduct, loadProducts, activityLogger]);
 
-  const cancelDeleteProduct = () => {
-    setShowDeleteModal(false);
-    setDeletingProduct(null);
-    console.log('❌ Product deletion cancelled by user');
-  };
-
-
-  const handleProductAdded = () => {
+  // Form handlers
+  const handleAddSuccess = useCallback(() => {
     setShowAddModal(false);
-    // Real-time events will handle the UI update automatically
-  };
+    loadProducts();
+    toast.success('Product added successfully');
+  }, [loadProducts]);
 
-  const handleProductUpdated = () => {
+  const handleEditSuccess = useCallback(() => {
     setShowEditModal(false);
     setEditingProduct(null);
-    // Real-time events will handle the UI update automatically
-  };
+    loadProducts();
+    toast.success('Product updated successfully');
+  }, [loadProducts]);
 
-  // Performance: Memoize product count to prevent unnecessary re-renders
-  const productCount = useMemo(() => products.length, [products.length]);
+  // Filter helpers
+  const handleSearchChange = useCallback((value: string) => {
+    setFilters(prev => ({ ...prev, search: value }));
+    setPagination(prev => ({ ...prev, currentPage: 1 }));
+  }, []);
 
-  if (loading) {
+  const handleCategoryChange = useCallback((value: string) => {
+    setFilters(prev => ({ ...prev, category: value }));
+    setPagination(prev => ({ ...prev, currentPage: 1 }));
+  }, []);
+
+  const resetFilters = useCallback(() => {
+    setFilters({
+      search: '',
+      category: ''
+    });
+    setPagination(prev => ({ ...prev, currentPage: 1 }));
+  }, []);
+
+  const hasActiveFilters = useMemo(() => {
+    return Boolean(filters.search || filters.category);
+  }, [filters]);
+
+  // Pagination helpers
+  const goToPage = useCallback((page: number) => {
+    setPagination(prev => ({ ...prev, currentPage: page }));
+  }, []);
+
+  // Product stats for dashboard-style cards
+  const productStats = useMemo(() => {
+    const totalValue = products.reduce((sum, p) => sum + (p.stock_value || 0), 0);
+    return { totalValue };
+  }, [products]);
+
+  // Loading state
+  if (loading && products.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto p-4 sm:p-4 lg:p-6">
+          <LoadingSkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center p-6">
+          <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center bg-red-100 rounded-full">
+            <AlertTriangle className="w-8 h-8 text-red-500" />
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Products</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => loadProducts()}
+            className="btn btn-primary flex items-center mx-auto"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Try Again
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8 p-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Products</h1>
-          <p className="mt-1 text-sm text-gray-500">Manage your product inventory <span className="font-medium text-gray-700">({productCount} products)</span></p>
-        </div>
-        <button onClick={handleAddProduct} className="btn btn-primary flex items-center px-3 py-1.5 text-sm">
-          <Plus className="h-4 w-4 mr-2" /> Add Product
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="card p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search products..."
-              value={searchTerm}
-              onChange={(e) => handleSearch(e.target.value)}
-              className="input pl-10"
-              aria-label="Search products"
-            />
-          </div>
-
-          {/* Category Filter */}
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto p-4 sm:p-4 lg:p-6">
+        {/* Header Section - Consistent with Dashboard */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
-            <select
-              value={selectedCategory}
-              onChange={(e) => handleCategoryFilter(e.target.value)}
-              className="input"
-              aria-label="Filter by category"
+            <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Products</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Manage your product inventory and pricing
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => loadProducts()}
+              className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
+              disabled={loading}
             >
-              <option value="">All Categories</option>
-              {Array.isArray(categories) && categories.map((cat) => (
-                <option key={cat.category} value={cat.category}>
-                  {cat.category}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Clear Filters */}
-          <div>
-            <button onClick={clearFilters} className="btn btn-secondary w-full px-3 py-1.5 text-sm">
-              Clear Filters
+              <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="btn btn-primary flex items-center px-4 py-2"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add Product
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Products Table */}
-      <div className="card p-0 overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
+        {/* Stats Cards - Consistent with Dashboard Style */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          <div className="bg-white p-4 rounded-lg border border-gray-200">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-900">{pagination.totalItems}</div>
+              <div className="text-sm text-gray-500">Total Products</div>
+            </div>
+          </div>
 
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Size/Grade</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Rate</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Stock</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-100">
-            {!Array.isArray(products) || products.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-6 py-12 text-center">
-                  <Package className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500">No products found</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {searchTerm || selectedCategory ? 'Try adjusting your filters' : 'Add your first product to get started'}
-                  </p>
-                </td>
-              </tr>
-            ) : (
-              products.map((product) => {
-                const stockStatus = getStockStatus(product);
-                return (
-                  <tr key={product.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{product.name}</div>
-                        {(product as any).category && (
-                          <div className="text-xs text-gray-500 mt-0.5">{(product as any).category}</div>
-                        )}
-                      </div>
-                    </td>
-                   
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="space-y-0.5">
-                        {product.size && <div className="text-xs text-gray-700">Size: {product.size}</div>}
-                        {product.grade && <div className="text-xs text-gray-400">Grade: {product.grade}</div>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      Rs. {product.rate_per_unit}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${stockStatus.color}`}>
-                        {stockStatus.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex space-x-2">
-                        <button onClick={() => handleEditProduct(product)} className="btn btn-secondary flex items-center px-2 py-1 text-xs">
-                          <Edit className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(product)}
-                          className="btn btn-danger flex items-center px-2 py-1 text-xs"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })
+          <div className="bg-white p-4 rounded-lg border border-gray-200">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(productStats.totalValue)}</div>
+              <div className="text-sm text-gray-500">Total Value</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters Section */}
+        <div className="bg-white p-4 rounded-lg border border-gray-200 mb-6">
+          <div className="flex flex-col lg:flex-row gap-4">
+            {/* Search */}
+            <div className="flex-1 min-w-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="Search products by name..."
+                  value={filters.search}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+                  autoComplete="off"
+                  spellCheck="false"
+                />
+              </div>
+            </div>
+
+            {/* Category Filter */}
+            <div className="w-full lg:w-48">
+              <select
+                value={filters.category}
+                onChange={(e) => handleCategoryChange(e.target.value)}
+                className="w-full px-3 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
+              >
+                <option value="">All Categories</option>
+                {categories.map((category) => (
+                  <option key={category.name} value={category.name}>
+                    {category.name} ({category.product_count})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Reset Filters */}
+            {hasActiveFilters && (
+              <button
+                onClick={resetFilters}
+                className="btn btn-secondary flex items-center px-3 py-2 text-sm"
+              >
+                Clear Filters
+              </button>
             )}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        {/* Products Table */}
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          {products.length === 0 ? (
+            <EmptyState
+              hasFilters={hasActiveFilters}
+              onReset={resetFilters}
+              onAddProduct={() => setShowAddModal(true)}
+            />
+          ) : (
+            <>
+              {/* Table Content */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Product
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Category
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Stock
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Rate
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Value
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {products.map((product) => {
+                      return (
+                        <tr key={product.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <Package className="w-5 h-5 text-gray-400" />
+                              </div>
+                              <div className="ml-4">
+                                <div className="text-sm font-medium text-gray-900">{product.name}</div>
+                                {product.size && (
+                                  <div className="text-sm text-gray-500">{product.size}</div>
+                                )}
+
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              {product.category}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              {product.current_stock && product.unit_type ?
+                                formatUnitString(product.current_stock, product.unit_type as any) :
+                                'N/A'
+                              }
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {formatCurrency(product.rate_per_unit)}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {formatCurrency(product.stock_value || 0)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <div className="flex items-center justify-end space-x-2">
+                              <button
+                                onClick={() => handleEdit(product)}
+                                className="text-indigo-600 hover:text-indigo-900 p-1"
+                                title="Edit product"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(product)}
+                                className="text-red-600 hover:text-red-900 p-1"
+                                title="Delete product"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              {pagination.totalPages > 1 && (
+                <div className="px-6 py-3 border-t border-gray-200 bg-gray-50">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-gray-500">
+                      Showing {((pagination.currentPage - 1) * pagination.itemsPerPage) + 1} to{' '}
+                      {Math.min(pagination.currentPage * pagination.itemsPerPage, pagination.totalItems)} of{' '}
+                      {pagination.totalItems} results
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => goToPage(pagination.currentPage - 1)}
+                        disabled={pagination.currentPage === 1}
+                        className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+
+                      <div className="flex items-center space-x-1">
+                        {[...Array(Math.min(5, pagination.totalPages))].map((_, i) => {
+                          const page = i + 1;
+                          return (
+                            <button
+                              key={page}
+                              onClick={() => goToPage(page)}
+                              className={`px-3 py-1 text-sm rounded ${page === pagination.currentPage
+                                ? 'bg-blue-600 text-white'
+                                : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                            >
+                              {page}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <button
+                        onClick={() => goToPage(pagination.currentPage + 1)}
+                        disabled={pagination.currentPage === pagination.totalPages}
+                        className="p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Add Product Modal */}
-      <Modal
-        isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        title="Add New Product"
-      >
-        <ProductForm
-          onSuccess={handleProductAdded}
-          onCancel={() => setShowAddModal(false)}
-        />
-      </Modal>
+      {showAddModal && (
+        <Modal
+          isOpen={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          title="Add New Product"
+        >
+          <ProductFormEnhanced
+            onSuccess={handleAddSuccess}
+            onCancel={() => setShowAddModal(false)}
+          />
+        </Modal>
+      )}
 
       {/* Edit Product Modal */}
-      <Modal
-        isOpen={showEditModal}
-        onClose={() => { setShowEditModal(false); setEditingProduct(null); }}
-        title="Edit Product"
-      >
-        {editingProduct && (
-          <ProductForm
+      {showEditModal && editingProduct && (
+        <Modal
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingProduct(null);
+          }}
+          title="Edit Product"
+        >
+          <ProductFormEnhanced
             product={editingProduct}
-            onSuccess={handleProductUpdated}
-            onCancel={() => { setShowEditModal(false); setEditingProduct(null); }}
+            onSuccess={handleEditSuccess}
+            onCancel={() => {
+              setShowEditModal(false);
+              setEditingProduct(null);
+            }}
           />
-        )}
-      </Modal>
+        </Modal>
+      )}
 
       {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={showDeleteModal}
-        onClose={cancelDeleteProduct}
-        title="Confirm Delete"
-      >
-        <div className="space-y-4">
-          <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full">
-            <Trash2 className="w-6 h-6 text-red-600" />
-          </div>
-          
-          <div className="text-center">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
-              Delete Product
-            </h3>
-            <p className="text-sm text-gray-500 mb-4">
-              Are you sure you want to delete "<strong>{deletingProduct?.name}</strong>"? This action cannot be undone.
+      {showDeleteModal && deletingProduct && (
+        <Modal
+          isOpen={showDeleteModal}
+          onClose={() => {
+            setShowDeleteModal(false);
+            setDeletingProduct(null);
+          }}
+          title="Delete Product"
+        >
+          <div className="p-6">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">Delete Product</h3>
+                <p className="text-sm text-gray-500">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-6">
+              Are you sure you want to delete <strong>{deletingProduct.name}</strong>?
+              This will remove the product from your inventory.
             </p>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeletingProduct(null);
+                }}
+                className="btn btn-secondary"
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                className="btn btn-danger"
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Product'
+                )}
+              </button>
+            </div>
           </div>
-          
-          <div className="flex space-x-3 justify-end">
-            <button
-              onClick={cancelDeleteProduct}
-              disabled={isDeleting}
-              className="btn btn-secondary px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={confirmDeleteProduct}
-              disabled={isDeleting}
-              className="btn btn-danger px-4 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-            >
-              {isDeleting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Deleting...
-                </>
-              ) : (
-                'Delete Product'
-              )}
-            </button>
-          </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 };
