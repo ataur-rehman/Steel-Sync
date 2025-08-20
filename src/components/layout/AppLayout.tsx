@@ -138,7 +138,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { name: 'Daily Ledger', href: '/reports/daily', icon: Activity, category: 'reports' },
 
     // Management
-    { name: 'Staff Management', href: '/staff', icon: Users, category: 'management' },
+    { name: 'Staff & Salary Management', href: '/staff', icon: Users, category: 'management' },
 
     { name: 'Payment Channels', href: '/payment/channels', icon: CreditCard, category: 'management' },
     { name: 'Business Finance', href: '/finance', icon: BarChart3, category: 'management' },

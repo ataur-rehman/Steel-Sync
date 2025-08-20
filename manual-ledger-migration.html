@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual Ledger Migration Utility</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #2563eb;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .success {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+
+        .error {
+            background-color: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .info {
+            background-color: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #dbeafe;
+        }
+
+        .warning {
+            background-color: #fefce8;
+            color: #ca8a04;
+            border: 1px solid #fef3c7;
+        }
+
+        button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #1d4ed8;
+        }
+
+        button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .button-group {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        pre {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            border: 1px solid #e2e8f0;
+        }
+
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #2563eb;
+            background: #f8fafc;
+        }
+
+        .step h3 {
+            margin-top: 0;
+            color: #1e40af;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔄 Manual Ledger Migration Utility</h1>
+
+        <div class="status info">
+            <strong>📋 Migration Purpose:</strong><br>
+            This utility migrates manual ledger entries from localStorage (browser storage) to the database for
+            permanent, reliable storage.
+        </div>
+
+        <div class="step">
+            <h3>Step 1: Check Current Status</h3>
+            <p>Check what data exists in localStorage and database</p>
+            <button onclick="checkStatus()">🔍 Check Status</button>
+            <div id="statusResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Migrate Data</h3>
+            <p>Move all manual entries from localStorage to database</p>
+            <button onclick="runMigration()" id="migrateBtn">🚀 Run Migration</button>
+            <div id="migrationResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Clean Up</h3>
+            <p>Remove localStorage keys (optional - migration does this automatically)</p>
+            <button onclick="cleanupStorage()">🧹 Clean LocalStorage</button>
+            <div id="cleanupResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 4: Verify</h3>
+            <p>Verify that all entries are now in the database</p>
+            <button onclick="verifyMigration()">✅ Verify Migration</button>
+            <div id="verifyResult"></div>
+        </div>
+
+        <div class="status warning">
+            <strong>⚠️ Important Notes:</strong><br>
+            • This is a one-time migration process<br>
+            • Manual entries will now be stored in the database only<br>
+            • localStorage will no longer be used for manual entries<br>
+            • This change is permanent and improves data reliability
+        </div>
+    </div>
+
+    <script>
+        // Utility functions for the migration process
+
+        async function checkStatus() {
+            const result = document.getElementById('statusResult');
+            result.innerHTML = '<div class="status info">🔄 Checking status...</div>';
+
+            try {
+                // Check localStorage
+                const localStorageKeys = Object.keys(localStorage)
+                    .filter(key => key.startsWith('daily_ledger_') || key.startsWith('closing_balance_'));
+
+                let localStorageEntries = 0;
+                for (const key of localStorageKeys.filter(k => k.startsWith('daily_ledger_'))) {
+                    try {
+                        const entries = JSON.parse(localStorage.getItem(key) || '[]');
+                        localStorageEntries += entries.length;
+                    } catch (e) {
+                        console.warn('Error parsing localStorage key:', key);
+                    }
+                }
+
+                // Check if database connection exists
+                const hasDatabase = typeof window.db !== 'undefined';
+
+                let html = `
+                    <div class="status info">
+                        <strong>📊 Current Status:</strong><br>
+                        • LocalStorage keys: ${localStorageKeys.length} (${localStorageEntries} entries)<br>
+                        • Database connection: ${hasDatabase ? '✅ Available' : '❌ Not available'}<br>
+                        • Migration needed: ${localStorageEntries > 0 ? '✅ Yes' : '❌ No'}
+                    </div>
+                `;
+
+                if (localStorageKeys.length > 0) {
+                    html += `
+                        <div class="status warning">
+                            <strong>📦 LocalStorage Data Found:</strong><br>
+                            Keys: ${localStorageKeys.join(', ')}
+                        </div>
+                    `;
+                }
+
+                result.innerHTML = html;
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Error checking status: ${error.message}</div>`;
+            }
+        }
+
+        async function runMigration() {
+            const result = document.getElementById('migrationResult');
+            const btn = document.getElementById('migrateBtn');
+
+            result.innerHTML = '<div class="status info">🔄 Running migration...</div>';
+            btn.disabled = true;
+
+            try {
+                if (typeof window.migrateToDatabase === 'undefined') {
+                    throw new Error('Migration function not available. Please load the application first.');
+                }
+
+                const migrationResult = await window.migrateToDatabase();
+
+                if (migrationResult.success) {
+                    result.innerHTML = `
+                        <div class="status success">
+                            <strong>✅ Migration Completed Successfully!</strong><br>
+                            • Entries migrated: ${migrationResult.migration?.migratedCount || 0}<br>
+                            • Keys cleaned: ${migrationResult.cleanup?.cleanedKeys || 0}<br>
+                            • Message: ${migrationResult.message}
+                        </div>
+                    `;
+                } else {
+                    result.innerHTML = `
+                        <div class="status error">
+                            <strong>❌ Migration Failed:</strong><br>
+                            ${migrationResult.message}<br>
+                            <pre>${JSON.stringify(migrationResult, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Error during migration: ${error.message}</div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function cleanupStorage() {
+            const result = document.getElementById('cleanupResult');
+            result.innerHTML = '<div class="status info">🔄 Cleaning localStorage...</div>';
+
+            try {
+                if (typeof window.cleanupLocalStorage === 'undefined') {
+                    throw new Error('Cleanup function not available. Please load the application first.');
+                }
+
+                const cleanupResult = await window.cleanupLocalStorage();
+
+                if (cleanupResult.success) {
+                    result.innerHTML = `
+                        <div class="status success">
+                            <strong>✅ Cleanup Completed!</strong><br>
+                            • Keys removed: ${cleanupResult.cleanedKeys}<br>
+                            • Cleaned keys: ${cleanupResult.keys.join(', ') || 'None'}
+                        </div>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="status error">❌ Cleanup failed</div>`;
+                }
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Error during cleanup: ${error.message}</div>`;
+            }
+        }
+
+        async function verifyMigration() {
+            const result = document.getElementById('verifyResult');
+            result.innerHTML = '<div class="status info">🔄 Verifying migration...</div>';
+
+            try {
+                // Check localStorage is clean
+                const remainingKeys = Object.keys(localStorage)
+                    .filter(key => key.startsWith('daily_ledger_'));
+
+                // Check if database has manual entries (if db is available)
+                let dbEntries = 'Database not accessible from this utility';
+                if (typeof window.db !== 'undefined') {
+                    try {
+                        const entries = await window.db.executeRawQuery(
+                            'SELECT COUNT(*) as count FROM ledger_entries WHERE is_manual = 1'
+                        );
+                        dbEntries = entries[0]?.count || 0;
+                    } catch (e) {
+                        dbEntries = 'Error querying database';
+                    }
+                }
+
+                result.innerHTML = `
+                    <div class="status ${remainingKeys.length === 0 ? 'success' : 'warning'}">
+                        <strong>📊 Verification Results:</strong><br>
+                        • LocalStorage keys remaining: ${remainingKeys.length}<br>
+                        • Database manual entries: ${dbEntries}<br>
+                        • Migration status: ${remainingKeys.length === 0 ? '✅ Complete' : '⚠️ Incomplete'}
+                    </div>
+                `;
+            } catch (error) {
+                result.innerHTML = `<div class="status error">❌ Error during verification: ${error.message}</div>`;
+            }
+        }
+
+        // Auto-check status on load
+        window.addEventListener('load', checkStatus);
+    </script>
+</body>
+
+</html>

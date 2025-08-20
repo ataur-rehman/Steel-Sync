@@ -149,7 +149,7 @@ export interface Setting {
 export interface PaymentChannel {
   id: number;
   name: string;
-  type: 'cash' | 'bank' | 'cheque' | 'online';
+  type: 'cash' | 'bank' | 'cheque' | 'mobile_money' | 'card' | 'online' | 'other';
   account_details?: string;
   is_active: boolean;
   created_at: string;

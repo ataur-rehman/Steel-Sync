@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Table Fix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 p-8">
+    <div class="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-6">
+        <h1 class="text-2xl font-bold mb-6">Fix Salary Payments Table</h1>
+
+        <button onclick="fixTable()" class="bg-green-500 text-white px-6 py-3 rounded hover:bg-green-600 text-lg">
+            Fix Table Structure (Drop & Recreate)
+        </button>
+
+        <div id="output" class="mt-6 p-4 bg-gray-100 rounded-lg font-mono text-sm whitespace-pre-wrap"></div>
+    </div>
+
+    <script type="module">
+        import Database from '/node_modules/@tauri-apps/plugin-sql/dist/index.js';
+
+        function log(message) {
+            const output = document.getElementById('output');
+            output.textContent += message + '\n';
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        window.fixTable = async function () {
+            try {
+                const db = await Database.load('sqlite:database.db');
+                log('🔧 Fixing salary_payments table...');
+
+                // Drop existing table
+                await db.execute('DROP TABLE IF EXISTS salary_payments');
+                log('✅ Dropped old table with constraints');
+
+                // Create new clean table
+                const createSQL = `
+                CREATE TABLE salary_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    staff_id INTEGER NOT NULL,
+                    staff_name TEXT NOT NULL,
+                    employee_id TEXT,
+                    payment_amount REAL NOT NULL,
+                    salary_amount REAL,
+                    payment_type TEXT DEFAULT 'full',
+                    payment_method TEXT DEFAULT 'cash',
+                    payment_date TEXT DEFAULT (date('now')),
+                    payment_month TEXT,
+                    payment_year INTEGER,
+                    payment_percentage REAL DEFAULT 100,
+                    paid_by TEXT DEFAULT 'system',
+                    notes TEXT,
+                    created_at TEXT DEFAULT (datetime('now')),
+                    updated_at TEXT DEFAULT (datetime('now')),
+                    FOREIGN KEY (staff_id) REFERENCES staff_members(id)
+                )`;
+
+                await db.execute(createSQL);
+                log('✅ Created new flexible table');
+                log('');
+                log('✨ Table Features:');
+                log('- Only 3 required fields: staff_id, staff_name, payment_amount');
+                log('- No CHECK constraints');
+                log('- Sensible defaults for all optional fields');
+                log('- Compatible with any payment_type or payment_method');
+                log('');
+                log('🎉 Table is now ready for use!');
+
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+            }
+        };
+    </script>
+</body>
+
+</html>

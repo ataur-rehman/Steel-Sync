@@ -21,11 +21,10 @@ import StockReport from './components/reports/StockReport';
 import RootCauseAnalysis from './components/RootCauseAnalysis';
 import StockReceivingList from './components/stock/StockReceivingList';
 import StockReceivingNew from './components/stock/StockReceivingNew';
-import PaymentChannelManagement from './components/payment/PaymentChannelManagement';
-import PaymentChannelDetail from './components/payment/PaymentChannelDetail';
-import PaymentChannelDetailView from './components/payment/PaymentChannelDetailView';
+import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
+
 import DataIntegrityManager from './components/admin/DataIntegrityManager';
-import StaffManagement from './components/staff/StaffManagement';
+import StaffManagementIntegrated from './components/staff/StaffManagementIntegrated';
 
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
@@ -310,28 +309,23 @@ function AppContent() {
                   <PaymentChannelManagement />
                 </ProtectedRoute>
               } />
-              <Route path="/payment-channels/:id" element={
-                <ProtectedRoute module="payments" level="view">
-                  <PaymentChannelDetail />
-                </ProtectedRoute>
-              } />
+
               <Route path="/payment/channels" element={
                 <ProtectedRoute module="payments" level="view">
                   <PaymentChannelManagement />
                 </ProtectedRoute>
               } />
-              <Route path="/payment/channels/:id" element={
-                <ProtectedRoute module="payments" level="view">
-                  <PaymentChannelDetailView />
+
+
+              {/* Integrated Staff & Salary Management */}
+              <Route path="/staff" element={
+                <ProtectedRoute module="user_management" level="view">
+                  <StaffManagementIntegrated />
                 </ProtectedRoute>
               } />
 
-              {/* Staff Management - Professional Version */}
-              <Route path="/staff" element={
-                <ProtectedRoute module="user_management" level="view">
-                  <StaffManagement />
-                </ProtectedRoute>
-              } />
+              {/* Redirect old salary route to integrated staff management */}
+              <Route path="/staff-salary" element={<Navigate to="/staff" replace />} />
 
 
 
