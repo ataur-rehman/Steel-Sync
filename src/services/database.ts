@@ -2,6 +2,7 @@
 import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericValue } from '../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
+import { getCurrentSystemDateTime, formatDate, formatTime, formatDateForDatabase } from '../utils/formatters';
 import { DatabaseSchemaManager } from './database-schema-manager';
 import { DatabaseConnection } from './database-connection';
 import { PermanentSchemaAbstractionLayer } from './permanent-schema-abstraction';
@@ -840,7 +841,7 @@ export class DatabaseService {
                     const mappedRow = {
                       ...row,
                       time: row.time || '12:00', // Default time if missing
-                      date: row.date || row.received_date || new Date().toISOString().split('T')[0]
+                      date: row.date || row.received_date || getCurrentSystemDateTime().dbDate
                     };
 
                     const columns = Object.keys(mappedRow).join(', ');
@@ -1031,7 +1032,7 @@ export class DatabaseService {
       }
 
       // Default values
-      const hire_date = staffData.hire_date || new Date().toISOString().split('T')[0];
+      const hire_date = staffData.hire_date || getCurrentSystemDateTime().dbDate;
       const status = staffData.status || 'active';
       const salary = staffData.salary || 0;
 
@@ -1877,7 +1878,7 @@ export class DatabaseService {
               // Insert manual entry into database
               await this.createLedgerEntry({
                 date: entry.date || date,
-                time: entry.time || new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+                time: entry.time || getCurrentSystemDateTime().dbTime,
                 type: entry.type || 'incoming',
                 category: entry.category || 'Manual Entry',
                 description: entry.description || 'Migrated manual entry',
@@ -2055,7 +2056,7 @@ export class DatabaseService {
         fields.push(`${key} = ?`);
         params.push((product as any)[key]);
       }
-      params.push(new Date().toISOString());
+      params.push(getCurrentSystemDateTime().dateTime);
       params.push(id);
 
       // Execute the main product update using abstraction layer for compatibility
@@ -2229,7 +2230,7 @@ export class DatabaseService {
         fields.push(`${key} = ?`);
         params.push((vendor as any)[key]);
       }
-      params.push(new Date().toISOString());
+      params.push(getCurrentSystemDateTime().dateTime);
       params.push(id);
       await this.dbConnection.execute(
         `UPDATE vendors SET ${fields.join(', ')}, updated_at = ? WHERE id = ?`,
@@ -2301,8 +2302,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      const now = new Date();
-      const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const { dbTime } = getCurrentSystemDateTime();
 
       // Always round amount to two decimal places for ledger
       const roundedAmount = Number(parseFloat(entry.amount.toString()).toFixed(1));      // Only add payment inflow/outflow to daily ledger (exclude sales/invoice)
@@ -2336,7 +2336,7 @@ export class DatabaseService {
         // For non-customer transactions, create business daily ledger entry only
         await this.createLedgerEntry({
           date: entry.date,
-          time: time,
+          time: dbTime,
           type: entry.type,
           category: entry.category,
           description: entry.description,
@@ -3049,7 +3049,7 @@ export class DatabaseService {
         name: 'Test Staff Member',
         position: 'Test Position',
         salary: 30000,
-        created_at: new Date().toISOString()
+        created_at: getCurrentSystemDateTime().dateTime
       };
 
       try {
@@ -3427,8 +3427,8 @@ export class DatabaseService {
               staff.last_login, staff.permissions || '[]', staff.password_hash,
               staff.employment_type || 'full_time', staff.status || 'active',
               staff.notes, staff.created_by || 'system',
-              staff.created_at || new Date().toISOString(),
-              staff.updated_at || new Date().toISOString()
+              staff.created_at || getCurrentSystemDateTime().dateTime,
+              staff.updated_at || getCurrentSystemDateTime().dateTime
             ]);
           } catch (restoreError) {
             console.warn(`⚠️ [CRITICAL] Could not restore staff record ID ${staff.id}:`, restoreError);
@@ -4038,7 +4038,7 @@ export class DatabaseService {
 
           console.log(`💰 [PAYMENT-CALC] Invoice: Rs. ${grandTotal}, Cash: Rs. ${cashPayment}, Credit: Rs. ${creditApplied}, Total Paid: Rs. ${totalPaidAmount}, Remaining: Rs. ${remainingBalance}`);
 
-          const invoiceDate = invoiceData.date || new Date().toISOString().split('T')[0];
+          const invoiceDate = invoiceData.date || getCurrentSystemDateTime().dbDate;
 
           // Insert invoice - CENTRALIZED SCHEMA COMPLIANCE
           const invoiceResult = await this.dbConnection.execute(
@@ -4066,7 +4066,7 @@ export class DatabaseService {
               remainingBalance === 0 ? 'paid' : (totalPaidAmount > 0 ? 'partially_paid' : 'pending'), // status
               remainingBalance === 0 ? 'paid' : (totalPaidAmount > 0 ? 'partial' : 'pending'), // payment_status (different constraint)
               invoiceDate,
-              new Date().toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' }),
+              getCurrentSystemDateTime().dbTime,
               'system'
             ]
           );
@@ -4113,13 +4113,9 @@ export class DatabaseService {
             if (cashPayment > 0) {
               console.log(`🔄 Creating daily ledger entry for regular customer cash payment: Rs.${cashPayment}`);
 
-              const now = new Date();
-              const date = now.toISOString().split('T')[0];
-              const time = now.toLocaleTimeString('en-PK', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true
-              });
+              const { dbDate, dbTime } = getCurrentSystemDateTime();
+              const date = dbDate;
+              const time = dbTime;
 
               // Get payment channel ID for the payment method
               const paymentChannelData = await this.getPaymentChannelByMethod(invoiceData.payment_method || 'cash');
@@ -4170,13 +4166,9 @@ export class DatabaseService {
             if (cashPayment > 0) {
               console.log(`🔄 Creating daily ledger entry for guest customer payment: Rs.${cashPayment}`);
 
-              const now = new Date();
-              const date = now.toISOString().split('T')[0];
-              const time = now.toLocaleTimeString('en-PK', {
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: true
-              });
+              const { dbDate, dbTime } = getCurrentSystemDateTime();
+              const date = dbDate;
+              const time = dbTime;
 
               // Get payment channel ID for the payment method
               const paymentChannelData = await this.getPaymentChannelByMethod(invoiceData.payment_method || 'cash');
@@ -4352,8 +4344,8 @@ export class DatabaseService {
             status: remainingBalance === 0 ? 'paid' : (totalPaidAmount > 0 ? 'partially_paid' : 'pending'),
             notes: invoiceData.notes,
             date: invoiceDate,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+            created_at: getCurrentSystemDateTime().dbTimestamp,
+            updated_at: getCurrentSystemDateTime().dbTimestamp
           };
 
           // Clear caches after successful transaction
@@ -4598,13 +4590,7 @@ export class DatabaseService {
       console.log(`✅ Updated stock for ${product.name}: ${product.current_stock} → ${newStockString}`);
 
       // Create stock movement (only for product items, not miscellaneous items) 
-      const now = new Date();
-      const date = now.toISOString().split('T')[0];
-      const time = now.toLocaleTimeString('en-PK', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
+      const { date, time } = getCurrentSystemDateTime();
 
       await this.dbConnection.execute(
         `INSERT INTO stock_movements (
@@ -4670,13 +4656,7 @@ export class DatabaseService {
 
       // Only create daily ledger entry for business cash flow (no customer_id) for guest customers
       if (cashPayment > 0) {
-        const now = new Date();
-        const date = now.toISOString().split('T')[0];
-        const time = now.toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
+        const { dbDate, dbTime } = getCurrentSystemDateTime();
 
         console.log(`🔄 Creating daily ledger entry for guest customer payment: Rs.${cashPayment}`);
 
@@ -4688,7 +4668,7 @@ export class DatabaseService {
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
           [
-            date, time, 'incoming', 'Payment Received',
+            dbDate, dbTime, 'incoming', 'Payment Received',
             `Payment - Invoice ${billNumber} - ${customer.name} (Guest)`,
             cashPayment, 0, null, null, // customer_id = null to prevent showing in customer ledger
             invoiceId, 'payment', billNumber,
@@ -4703,13 +4683,7 @@ export class DatabaseService {
       return;
     }
 
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    const { dbDate, dbTime } = getCurrentSystemDateTime();
 
     const totalPayment = cashPayment + creditApplied;
     console.log(`🔄 Creating ledger entries for Invoice ${billNumber} - Customer: ${customer.name}, Amount: Rs.${grandTotal}, Cash: Rs.${cashPayment}, Credit: Rs.${creditApplied}, Total Payment: Rs.${totalPayment}`);
@@ -4730,7 +4704,7 @@ export class DatabaseService {
         created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
         [
-          date, time, 'incoming', 'Payment Received',
+          dbDate, dbTime, 'incoming', 'Payment Received',
           `Payment - Invoice ${billNumber} - ${customer.name}`,
           cashPayment, 0, null, null, // customer_id = null to prevent showing in customer ledger
           invoiceId, 'payment', billNumber,
@@ -5042,35 +5016,41 @@ export class DatabaseService {
    */
   private async createPerformanceIndexes(): Promise<void> {
     try {
-      console.log('🚀 [PERF] Creating comprehensive performance indexes...');
+      console.log('🚀 [PERF] Creating comprehensive performance indexes for 100k+ scalability...');
 
       const indexes = [
+        // 🎯 CRITICAL: Customer search and filtering indexes
+        'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
+        'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
+        'CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(balance)',
+        'CREATE INDEX IF NOT EXISTS idx_customers_search_composite ON customers(name, phone, balance)',
+        'CREATE INDEX IF NOT EXISTS idx_customers_balance_filter ON customers(balance, name)',
+
         // Customer ledger indexes for balance calculations
         'CREATE INDEX IF NOT EXISTS idx_customer_ledger_customer_id ON customer_ledger_entries(customer_id)',
         'CREATE INDEX IF NOT EXISTS idx_customer_ledger_date ON customer_ledger_entries(date DESC, created_at DESC)',
         'CREATE INDEX IF NOT EXISTS idx_customer_ledger_balance ON customer_ledger_entries(customer_id, date, entry_type)',
+        'CREATE INDEX IF NOT EXISTS idx_customer_ledger_composite ON customer_ledger_entries(customer_id, entry_type, date DESC)',
 
         // Invoice indexes for performance
         'CREATE INDEX IF NOT EXISTS idx_invoices_customer_id ON invoices(customer_id)',
         'CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(date DESC)',
         'CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)',
         'CREATE INDEX IF NOT EXISTS idx_invoices_remaining_balance ON invoices(remaining_balance)',
+        'CREATE INDEX IF NOT EXISTS idx_invoices_customer_date ON invoices(customer_id, date DESC)',
+        'CREATE INDEX IF NOT EXISTS idx_invoices_customer_stats ON invoices(customer_id, grand_total, date)',
 
-        // Payment indexes for performance
+        // Payment indexes for performance  
         'CREATE INDEX IF NOT EXISTS idx_payments_customer_id ON payments(customer_id)',
         'CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(date DESC)',
         'CREATE INDEX IF NOT EXISTS idx_payments_type ON payments(payment_type)',
+        'CREATE INDEX IF NOT EXISTS idx_payments_customer_date ON payments(customer_id, date DESC)',
 
         // Product and stock indexes
         'CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)',
         'CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)',
         'CREATE INDEX IF NOT EXISTS idx_stock_movements_product_id ON stock_movements(product_id)',
         'CREATE INDEX IF NOT EXISTS idx_stock_movements_date ON stock_movements(date DESC)',
-
-        // Customer search indexes
-        'CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)',
-        'CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)',
-        'CREATE INDEX IF NOT EXISTS idx_customers_balance ON customers(balance)',
       ];
 
       let successCount = 0;
@@ -5087,7 +5067,7 @@ export class DatabaseService {
       }
 
       console.log(`✅ [PERF] Performance indexing complete: ${successCount} created, ${failureCount} skipped`);
-      console.log('🚀 [PERF] Database optimized for large-scale operations!');
+      console.log('🚀 [PERF] Database optimized for 100k+ customer operations!');
 
     } catch (error) {
       console.warn('⚠️ [PERF] Performance index creation failed (non-critical):', error);
@@ -5378,13 +5358,9 @@ export class DatabaseService {
       // Validate product unit_type
       this.validateProductUnitType(product);
 
-      const now = new Date();
-      const date = now.toISOString().split('T')[0];
-      const time = now.toLocaleTimeString('en-PK', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
+      const { dbDate, dbTime } = getCurrentSystemDateTime();
+      const date = dbDate;
+      const time = dbTime;
 
       // Parse current stock and adjustment quantity
       let currentStockNumber: number;
@@ -5645,8 +5621,8 @@ export class DatabaseService {
           reference_type: 'adjustment',
           reference_id: referenceId,
           reference_number: referenceNumber,
-          date: new Date().toISOString().split('T')[0],
-          time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          date: getCurrentSystemDateTime().dbDate,
+          time: getCurrentSystemDateTime().dbTime,
           created_by: 'system'
         });
 
@@ -5837,7 +5813,7 @@ export class DatabaseService {
       // Emit event to refresh UI components
       eventBus.emit('STOCK_RECALCULATED', {
         fixedCount,
-        timestamp: new Date().toISOString()
+        timestamp: getCurrentSystemDateTime().dbTimestamp
       });
 
     } catch (error) {
@@ -6311,8 +6287,8 @@ export class DatabaseService {
 
       // CRITICAL FIX: Only insert into enhanced_payments if we're in a transaction
       // This prevents the nested transaction issue
-      const today = new Date().toISOString().split('T')[0];
-      const time = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const today = getCurrentSystemDateTime().dbDate;
+      const time = getCurrentSystemDateTime().dbTime;
 
       // Add delay to prevent database lock contention
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -6527,7 +6503,7 @@ export class DatabaseService {
           amount: payment.amount,
           paymentMethod: payment.payment_method,
           paymentType: payment.payment_type,
-          created_at: new Date().toISOString()
+          created_at: getCurrentSystemDateTime().dbTimestamp
         });
 
         // CRITICAL FIX: Invalidate customer cache after balance change
@@ -6668,12 +6644,9 @@ export class DatabaseService {
       // PHASE 3: CREATE MAIN PAYMENT RECORD
       // ===================================================================
       const paymentCode = await this.generatePaymentCode();
-      const currentDate = payment.date || new Date().toISOString().split('T')[0];
-      const currentTime = new Date().toLocaleTimeString('en-PK', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
+      const { date: systemCurrentDate, time: systemCurrentTime } = getCurrentSystemDateTime();
+      const currentDate = payment.date || systemCurrentDate;
+      const currentTime = systemCurrentTime;
 
       const paymentResult = await this.dbConnection.execute(`
         INSERT INTO payments (
@@ -7548,12 +7521,7 @@ export class DatabaseService {
         console.log('✅ [PERMANENT] Customer balance updated by:', totalAddition);
 
         // PERMANENT SOLUTION: Create customer ledger entry for items added
-        const currentTime = new Date().toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
-        const currentDate = new Date().toISOString().split('T')[0];
+        const { date: currentDate, time: currentTime } = getCurrentSystemDateTime();
 
         // Get customer name safely
         let customerName = 'Unknown Customer';
@@ -7949,8 +7917,9 @@ export class DatabaseService {
       }
 
       // PERMANENT FIX: Safe creation with proper date/time handling
-      const invoiceDate = invoice.date || new Date().toISOString().split('T')[0];
-      const invoiceTime = invoice.time || new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const { date, time } = getCurrentSystemDateTime();
+      const invoiceDate = invoice.date || date;
+      const invoiceTime = invoice.time || time;
 
       console.log('➕ [Customer Ledger] Creating new ledger entry for invoice:', invoiceId);
 
@@ -8048,12 +8017,8 @@ export class DatabaseService {
       try {
         // Generate unique payment code
         const paymentCode = `PAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
-        const currentTime = new Date().toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
-        const currentDate = paymentData.date || new Date().toISOString().split('T')[0];
+        const { date, time } = getCurrentSystemDateTime();
+        const finalCurrentDate = paymentData.date || date;
 
         // Get customer name
         let customerName = 'Unknown Customer';
@@ -8094,8 +8059,8 @@ export class DatabaseService {
           1.0,
           0,
           paymentData.notes || '',
-          currentDate,
-          currentTime,
+          finalCurrentDate,
+          time,
           'system'
         ]);
 
@@ -8114,6 +8079,9 @@ export class DatabaseService {
         const newRemainingBalance = Math.max(0, (invoice.grand_total || 0) - newTotalPayments);
         const newStatus = newRemainingBalance <= 0.01 ? 'paid' :
           (newTotalPayments > 0 ? 'partially_paid' : 'pending');
+
+        // Get date/time for ledger entries
+        const { date: currentDate, time: currentTime } = getCurrentSystemDateTime();
 
         // PRODUCTION-SAFE: Direct update with calculated values
         await this.dbConnection.execute(`
@@ -8305,7 +8273,7 @@ export class DatabaseService {
           amount: roundedCreditAmount,
           payment_method: 'customer_credit',
           notes: `Customer credit applied: Rs. ${roundedCreditAmount.toFixed(2)}`,
-          date: new Date().toISOString().split('T')[0]
+          date: getCurrentSystemDateTime().dbDate
         });
 
         console.log(`✅ [PAYMENT RECORDED] Payment ID: ${paymentId}, Amount: Rs. ${roundedCreditAmount.toFixed(2)}`);
@@ -8313,11 +8281,7 @@ export class DatabaseService {
         // 🔐 STEP 2: Add reference entry in customer ledger (audit only, amount = 0)
         console.log('🔐 [AUDIT REFERENCE] Adding reference entry to customer ledger...');
 
-        const currentTime = new Date().toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
+        const { date, time } = getCurrentSystemDateTime();
 
         // Get current balance for reference
         const currentBalance = await this.getCustomerCurrentBalance(invoice.customer_id);
@@ -8339,8 +8303,8 @@ export class DatabaseService {
           `PAY#${paymentId}`,
           currentBalance, // Balance before (same as after)
           currentBalance, // Balance after (no change)
-          new Date().toISOString().split('T')[0],
-          currentTime,
+          date,
+          time,
           'system',
           `Reference: Rs. ${roundedCreditAmount.toFixed(2)} credit applied as payment`
         ]);
@@ -8587,10 +8551,10 @@ export class DatabaseService {
       const products = await this.getAllProducts();
       const movements = await this.getStockMovements({ limit: 1000 });
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getCurrentSystemDateTime().dbDate;
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekAgoStr = weekAgo.toISOString().split('T')[0];
+      const weekAgoStr = getCurrentSystemDateTime().dbDate;
 
       // Calculate stock values using unit system
       let totalStockValue = 0;
@@ -8726,10 +8690,11 @@ export class DatabaseService {
 
   /**
    * 🛡️ OPTIMIZED: Get customers with advanced filtering and performance optimizations
-   * Uses CustomerBalanceManager for consistent balance calculations
+   * Uses batch balance calculation for 100k+ scalability
    */
   async getCustomersOptimized(options: {
     search?: string;
+    balanceFilter?: 'all' | 'clear' | 'outstanding';
     limit?: number;
     offset?: number;
     orderBy?: string;
@@ -8745,6 +8710,7 @@ export class DatabaseService {
     const startTime = Date.now();
     const {
       search,
+      balanceFilter = 'all',
       limit = 50,
       offset = 0,
       orderBy = 'name',
@@ -8754,22 +8720,31 @@ export class DatabaseService {
     } = options;
 
     try {
-      console.log('🔍 [CUSTOMERS-OPTIMIZED] Getting customers with options:', { search, limit, offset, includeBalance });
+      console.log('🔍 [CUSTOMERS-OPTIMIZED] Getting customers with options:', { search, balanceFilter, limit, offset, includeBalance });
 
-      // Build optimized base query
+      // Build optimized base query with balance-aware filtering
       let baseQuery = `SELECT DISTINCT c.* FROM customers c`;
       let countQuery = `SELECT COUNT(DISTINCT c.id) as total FROM customers c`;
       const params: any[] = [];
       const countParams: any[] = [];
 
-      // Add WHERE conditions for search
+      // Add WHERE conditions for search and balance filtering
       let whereClause = ' WHERE 1=1';
+
       if (search) {
         whereClause += ` AND (c.name LIKE ? OR c.phone LIKE ? OR c.cnic LIKE ?)`;
         const searchParam = `%${search}%`;
         params.push(searchParam, searchParam, searchParam);
         countParams.push(searchParam, searchParam, searchParam);
       }
+
+      // 🚀 SERVER-SIDE BALANCE FILTERING
+      if (balanceFilter === 'clear') {
+        whereClause += ` AND c.balance <= 0.01`; // Clear balance (allowing small rounding differences)
+      } else if (balanceFilter === 'outstanding') {
+        whereClause += ` AND c.balance > 0.01`; // Outstanding balance
+      }
+      // 'all' filter doesn't add any conditions
 
       // Complete queries
       baseQuery += whereClause;
@@ -8793,73 +8768,130 @@ export class DatabaseService {
       let processedCustomers = customers;
 
       if (includeBalance) {
-        console.log('💰 [CUSTOMERS-OPTIMIZED] Adding balance information using CustomerBalanceManager...');
+        console.log('💰 [CUSTOMERS-OPTIMIZED] Adding balance information using BATCH optimization...');
 
-        // Use CustomerBalanceManager for consistent balance calculations
-        processedCustomers = await Promise.all(
-          customers.map(async (customer: any) => {
-            try {
-              const balanceInfo = await this.customerBalanceManager.getCustomerWithBalance(customer.id);
+        // 🚀 CRITICAL FIX: Batch balance calculation to eliminate N+1 queries
+        const customerIds = customers.map((customer: any) => customer.id);
 
-              return {
-                ...customer,
-                balance: balanceInfo.balance,
-                total_balance: balanceInfo.total_balance,
-                outstanding: balanceInfo.outstanding,
-                balance_source: balanceInfo.source,
-                balance_consistent: balanceInfo.isConsistent
-              };
-            } catch (error) {
-              console.error(`⚠️ [CUSTOMERS-OPTIMIZED] Balance calculation failed for customer ${customer.id}:`, error);
-              // Fallback to stored balance
-              return {
-                ...customer,
+        if (customerIds.length > 0) {
+          try {
+            // Single batch query for all customer balances using LEDGER ENTRIES (SINGLE SOURCE OF TRUTH)
+            const balanceResults = await this.dbConnection.select(`
+              SELECT 
+                c.id,
+                c.balance as stored_balance,
+                COALESCE(
+                  (SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) 
+                   FROM customer_ledger_entries WHERE customer_id = c.id), 0
+                ) as calculated_balance
+              FROM customers c
+              WHERE c.id IN (${customerIds.map(() => '?').join(',')})
+            `, customerIds);
+
+            // Create balance lookup map for O(1) access
+            const balanceMap = new Map();
+            balanceResults.forEach((result: any) => {
+              balanceMap.set(result.id, {
+                balance: parseFloat(result.calculated_balance || 0),
+                total_balance: parseFloat(result.calculated_balance || 0),
+                outstanding: parseFloat(result.calculated_balance || 0),
+                balance_source: 'calculated',
+                balance_consistent: Math.abs(result.stored_balance - result.calculated_balance) < 0.01
+              });
+            });
+
+            // Apply balances to customers using map lookup (O(1) per customer)
+            processedCustomers = customers.map((customer: any) => {
+              const balanceInfo = balanceMap.get(customer.id) || {
                 balance: parseFloat(customer.balance || 0),
                 total_balance: parseFloat(customer.balance || 0),
                 outstanding: parseFloat(customer.balance || 0),
                 balance_source: 'fallback',
                 balance_consistent: false
               };
-            }
-          })
-        );
+
+              return {
+                ...customer,
+                ...balanceInfo
+              };
+            });
+
+            console.log(`✅ [CUSTOMERS-OPTIMIZED] Batch balance calculation completed for ${customerIds.length} customers`);
+          } catch (batchError) {
+            console.error('❌ [CUSTOMERS-OPTIMIZED] Batch balance calculation failed, using fallback:', batchError);
+
+            // Fallback to stored balances if batch fails
+            processedCustomers = customers.map((customer: any) => ({
+              ...customer,
+              balance: parseFloat(customer.balance || 0),
+              total_balance: parseFloat(customer.balance || 0),
+              outstanding: parseFloat(customer.balance || 0),
+              balance_source: 'fallback',
+              balance_consistent: false
+            }));
+          }
+        } else {
+          processedCustomers = customers;
+        }
       }
 
       if (includeStats) {
-        console.log('� [CUSTOMERS-OPTIMIZED] Adding customer statistics...');
+        console.log('📊 [CUSTOMERS-OPTIMIZED] Adding customer statistics using BATCH optimization...');
 
-        // Add invoice statistics
-        processedCustomers = await Promise.all(
-          processedCustomers.map(async (customer: any) => {
-            try {
-              const statsResult = await this.dbConnection.select(`
-                SELECT 
-                  COUNT(*) as invoice_count,
-                  COALESCE(SUM(grand_total), 0) as total_purchased,
-                  MAX(date) as last_purchase_date
-                FROM invoices 
-                WHERE customer_id = ?
-              `, [customer.id]);
+        // 🚀 CRITICAL FIX: Batch stats calculation to eliminate N+1 queries
+        const customerIds = processedCustomers.map((customer: any) => customer.id);
 
-              const stats = statsResult[0] || {};
+        if (customerIds.length > 0) {
+          try {
+            // Single batch query for all customer statistics
+            const statsResults = await this.dbConnection.select(`
+              SELECT 
+                customer_id,
+                COUNT(*) as invoice_count,
+                COALESCE(SUM(grand_total), 0) as total_purchased,
+                MAX(date) as last_purchase_date
+              FROM invoices 
+              WHERE customer_id IN (${customerIds.map(() => '?').join(',')})
+              GROUP BY customer_id
+            `, customerIds);
 
-              return {
-                ...customer,
-                invoice_count: stats.invoice_count || 0,
-                total_purchased: parseFloat(stats.total_purchased || 0),
-                last_purchase_date: stats.last_purchase_date || null
-              };
-            } catch (error) {
-              console.error(`⚠️ [CUSTOMERS-OPTIMIZED] Stats calculation failed for customer ${customer.id}:`, error);
-              return {
-                ...customer,
+            // Create stats lookup map for O(1) access
+            const statsMap = new Map();
+            statsResults.forEach((result: any) => {
+              statsMap.set(result.customer_id, {
+                invoice_count: result.invoice_count || 0,
+                total_purchased: parseFloat(result.total_purchased || 0),
+                last_purchase_date: result.last_purchase_date || null
+              });
+            });
+
+            // Apply stats to customers using map lookup (O(1) per customer)
+            processedCustomers = processedCustomers.map((customer: any) => {
+              const stats = statsMap.get(customer.id) || {
                 invoice_count: 0,
                 total_purchased: 0,
                 last_purchase_date: null
               };
-            }
-          })
-        );
+
+              return {
+                ...customer,
+                ...stats
+              };
+            });
+
+            console.log(`✅ [CUSTOMERS-OPTIMIZED] Batch stats calculation completed for ${customerIds.length} customers`);
+          } catch (statsError) {
+            console.error('❌ [CUSTOMERS-OPTIMIZED] Batch stats calculation failed:', statsError);
+
+            // Fallback to default stats if batch fails
+            processedCustomers = processedCustomers.map((customer: any) => ({
+              ...customer,
+              invoice_count: 0,
+              total_purchased: 0,
+              last_purchase_date: null
+            }));
+          }
+        }
       }
 
       console.log(`✅ [CUSTOMERS-OPTIMIZED] Retrieved ${processedCustomers.length} customers with validated balances`);
@@ -9869,6 +9901,7 @@ export class DatabaseService {
             );
 
             // Create stock movement record for audit trail
+            const { date, time } = getCurrentSystemDateTime();
             await this.dbConnection.execute(
               `INSERT INTO stock_movements (
                 product_id, product_name, movement_type, quantity, previous_stock, new_stock,
@@ -9889,8 +9922,8 @@ export class DatabaseService {
                 'invoice_deleted',
                 invoiceId,
                 `Stock restored due to invoice deletion (Bill: ${invoice.bill_number})`,
-                new Date().toISOString().split('T')[0], // date
-                new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }), // time
+                date, // date
+                time, // time
                 'system', // created_by
                 new Date().toISOString(), // created_at
                 new Date().toISOString() // updated_at
@@ -10277,7 +10310,7 @@ export class DatabaseService {
         reference: payment.reference?.substring(0, 100) || '',
         notes: payment.notes?.substring(0, 500) || '',
         created_by: (payment.created_by || 'system').substring(0, 100),
-        date: payment.date || new Date().toISOString().split('T')[0]
+        date: payment.date || getCurrentSystemDateTime().dbDate
       };
 
       // Validate required fields
@@ -11636,13 +11669,9 @@ export class DatabaseService {
       return;
     }
 
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    const { dbDate, dbTime } = getCurrentSystemDateTime();
+    const date = dbDate;
+    const time = dbTime;
 
     // Get current balance from customer ledger entries
     const existingBalanceResult = await this.dbConnection.select(
@@ -11734,13 +11763,7 @@ export class DatabaseService {
       return;
     }
 
-    const now = new Date();
-    const date = now.toISOString().split('T')[0];
-    const time = now.toLocaleTimeString('en-PK', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    const { dbDate, dbTime } = getCurrentSystemDateTime();
 
     // Get current balance from customer ledger entries
     const existingBalanceResult = await this.dbConnection.select(
@@ -11782,7 +11805,7 @@ export class DatabaseService {
         customerId, customerName, 'debit', 'invoice', grandTotal,
         `Invoice ${billNumber}`,
         invoiceId, billNumber, currentBalance, runningBalance,
-        date, time, 'system',
+        dbDate, dbTime, 'system',
         `Invoice amount: Rs. ${grandTotal.toFixed(2)}`
       ]
     );
@@ -11803,7 +11826,7 @@ export class DatabaseService {
           customerId, customerName, 'credit', 'payment', cashPayment,
           `Cash payment for Invoice ${billNumber}`,
           invoiceId, billNumber, balanceBefore, runningBalance,
-          date, time, 'system',
+          dbDate, dbTime, 'system',
           `Cash payment: Rs. ${cashPayment.toFixed(2)}`
         ]
       );
@@ -11826,7 +11849,7 @@ export class DatabaseService {
           customerId, customerName, 'adjustment', 'payment', 0, // ZERO amount - reference only
           `Credit used for Invoice ${billNumber}`,
           invoiceId, billNumber, balanceBefore, balanceBefore, // balance_after = balance_before (no change)
-          date, time, 'system',
+          dbDate, dbTime, 'system',
           `Credit applied: Rs. ${creditApplied.toFixed(2)} - REFERENCE ONLY`
         ]
       );
@@ -11950,8 +11973,8 @@ export class DatabaseService {
             console.log(`🔧 [SALARY LEDGER FIX] Creating missing ledger entry for salary payment ${payment.id}`);
 
             const paymentDate = payment.payment_date ?
-              new Date(payment.payment_date).toISOString().split('T')[0] :
-              new Date().toISOString().split('T')[0];
+              getCurrentSystemDateTime().dbDate :
+              getCurrentSystemDateTime().dbDate;
 
             // Create the missing ledger entry
             await this.createLedgerEntry({
@@ -12243,9 +12266,9 @@ export class DatabaseService {
 
       console.log(`✅ Using return number: ${returnNumber} (attempt ${attempt})`);
 
-      const now = new Date();
-      const date = now.toISOString().split('T')[0];
-      const time = now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const { dbDate, dbTime } = getCurrentSystemDateTime();
+      const date = dbDate;
+      const time = dbTime;
 
       // Calculate additional totals for return record
       const totalQuantity = returnData.items.reduce((sum, item) => sum + item.return_quantity, 0);
@@ -16284,8 +16307,8 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      const today = new Date().toISOString().split('T')[0];
-      const time = new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true });
+      const today = getCurrentSystemDateTime().dbDate;
+      const time = getCurrentSystemDateTime().dbTime;
 
 
       const paymentCode = await this.generatePaymentCode();
