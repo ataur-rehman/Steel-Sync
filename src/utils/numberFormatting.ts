@@ -16,16 +16,16 @@
  */
 export function formatDisplayNumber(input: string): string {
   if (!input) return input;
-  
+
   // Extract prefix (letters) and number part
   const match = input.match(/^([A-Za-z]*)(\d+)$/);
   if (!match) return input;
-  
+
   const [, prefix, numberStr] = match;
   const number = parseInt(numberStr, 10);
-  
+
   if (isNaN(number)) return input;
-  
+
   // Always format with exactly one leading zero (minimum 2 digits total)
   const paddedNumber = number.toString().padStart(2, '0');
   return `${prefix}${paddedNumber}`;
@@ -40,6 +40,34 @@ export function formatInvoiceNumber(billNumber: string): string {
 }
 
 /**
+ * Format invoice number for print - removes prefix and shows only numbers with leading zero
+ * I00001 -> 01, I00015 -> 015, I00199 -> 0199, I01234 -> 01234
+ */
+export function formatInvoiceNumberForPrint(billNumber: string): string {
+  if (!billNumber) return billNumber;
+
+  // Extract number part only (remove any prefix)
+  const match = billNumber.match(/^[A-Za-z]*(\d+)$/);
+  if (!match) return billNumber;
+
+  const numberStr = match[1];
+  const number = parseInt(numberStr, 10);
+
+  if (isNaN(number)) return billNumber;
+
+  // For numbers 1-9: show with one leading zero (01, 02, etc.)
+  // For numbers 10-99: show with one leading zero (010, 015, etc.)
+  // For numbers 100+: show as is but with one leading zero if less than 1000
+  if (number < 10) {
+    return `0${number}`;
+  } else if (number < 100) {
+    return `0${number}`;
+  } else if (number < 1000) {
+    return `0${number}`;
+  } else {
+    return number.toString();
+  }
+}/**
  * Format stock receiving number for display  
  * S0001 -> S01, S0099 -> S99, S0100 -> S100
  */
@@ -81,21 +109,21 @@ export function extractNumberFromId(id: string): number {
  */
 export function matchesSearchTerm(id: string, searchTerm: string): boolean {
   if (!id || !searchTerm) return false;
-  
+
   const search = searchTerm.trim().toUpperCase();
   const upperID = id.toUpperCase();
-  
+
   // Direct match with formatted version
   if (formatDisplayNumber(upperID).includes(search)) return true;
-  
+
   // Direct match with original
   if (upperID.includes(search)) return true;
-  
+
   // Extract numbers and compare
   const idNumber = extractNumberFromId(id);
   const searchNumber = parseInt(search, 10);
-  
+
   if (!isNaN(searchNumber) && idNumber === searchNumber) return true;
-  
+
   return false;
 }

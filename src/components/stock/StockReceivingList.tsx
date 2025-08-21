@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatDate } from '../../utils/formatters';
 import { formatReceivingNumber } from '../../utils/numberFormatting';
 import { Search, Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -54,7 +54,7 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    
+
     Promise.all([
       db.getVendorPayments(vendor.id),
       db.getStockReceivingList({ vendor_id: vendor.id })
@@ -100,8 +100,8 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
         <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900">Vendor Details</h2>
-            <button 
-              onClick={onClose} 
+            <button
+              onClick={onClose}
               className="text-gray-400 hover:text-gray-600 text-2xl font-light"
             >
               ×
@@ -154,21 +154,19 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
             <nav className="-mb-px flex space-x-8">
               <button
                 onClick={() => setActiveTab('payments')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'payments'
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'payments'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 Payment History ({payments.length})
               </button>
               <button
                 onClick={() => setActiveTab('receivings')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'receivings'
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'receivings'
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                  }`}
               >
                 Stock Receivings ({vendorReceivings.length})
               </button>
@@ -199,7 +197,7 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
                         {payments.map((payment, idx) => (
                           <tr key={idx} className="hover:bg-gray-50 transition-colors">
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {payment.date ? new Date(payment.date).toLocaleDateString() : '-'}
+                              {payment.date ? formatDate(payment.date) : '-'}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                               {formatCurrency(payment.amount)}
@@ -246,7 +244,7 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
                               {formatReceivingNumber(receiving.receiving_number)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {new Date(receiving.date).toLocaleDateString()}
+                              {formatDate(receiving.date)}
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                               {formatCurrency(receiving.total_amount)}
@@ -259,8 +257,8 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
                             </td>
                             <td className="px-4 py-4 whitespace-nowrap">
                               <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(receiving.payment_status)}`}>
-                                {receiving.payment_status === 'paid' ? 'Paid' : 
-                                 receiving.payment_status === 'partial' ? 'Partial' : 'Pending'}
+                                {receiving.payment_status === 'paid' ? 'Paid' :
+                                  receiving.payment_status === 'partial' ? 'Partial' : 'Pending'}
                               </span>
                             </td>
                           </tr>
@@ -288,7 +286,7 @@ const VendorDetailsModal: React.FC<{ vendor: Vendor; onClose: () => void }> = ({
 
 const StockReceivingList: React.FC = () => {
   const navigate = useNavigate();
-  
+
   // State
   const [receivingList, setReceivingList] = useState<StockReceiving[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -363,7 +361,7 @@ const StockReceivingList: React.FC = () => {
     });
   };
 
-  const getVendorById = (id: number): Vendor | undefined => 
+  const getVendorById = (id: number): Vendor | undefined =>
     vendors.find(v => v.id === id);
 
   const openVendorModal = (vendorId: number) => {
@@ -395,17 +393,17 @@ const StockReceivingList: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Stock Receiving</h1>
           <p className="mt-1 text-sm text-gray-500">Manage inventory receiving and vendor payments <span className="font-medium text-gray-700">({receivingList.length} records)</span></p>
         </div>
-                <div className="flex gap-2">
-        
-        <button
-          onClick={() => navigate('/stock/receiving/new')}
-          className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
-          type="button"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          New Receiving
-        </button>
-           </div>
+        <div className="flex gap-2">
+
+          <button
+            onClick={() => navigate('/stock/receiving/new')}
+            className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
+            type="button"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            New Receiving
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -428,9 +426,9 @@ const StockReceivingList: React.FC = () => {
           <div>
             <select
               value={filters.vendor_id ?? ''}
-              onChange={(e) => setFilters(prev => ({ 
-                ...prev, 
-                vendor_id: e.target.value ? Number(e.target.value) : undefined 
+              onChange={(e) => setFilters(prev => ({
+                ...prev,
+                vendor_id: e.target.value ? Number(e.target.value) : undefined
               }))}
               className="input"
               aria-label="Filter by vendor"
@@ -506,7 +504,7 @@ const StockReceivingList: React.FC = () => {
                       {formatReceivingNumber(receiving.receiving_number)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(receiving.date).toLocaleDateString()}<br />
+                      {formatDate(receiving.date)}<br />
                       <span className="text-ms text-gray-500">{typeof receiving.time === 'string' && receiving.time.trim() ? receiving.time : '-'}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -556,9 +554,9 @@ const StockReceivingList: React.FC = () => {
 
       {/* Vendor Details Modal */}
       {showVendorModal && selectedVendor && (
-        <VendorDetailsModal 
-          vendor={selectedVendor} 
-          onClose={() => setShowVendorModal(false)} 
+        <VendorDetailsModal
+          vendor={selectedVendor}
+          onClose={() => setShowVendorModal(false)}
         />
       )}
     </div>

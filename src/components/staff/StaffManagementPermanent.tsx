@@ -14,6 +14,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, RefreshCw, Users, Edit2, AlertCircle, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { permanentDb } from '../../services/permanentDatabase';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+import { formatDate, formatTime } from '../../utils/formatters';
 
 // PERMANENT: Type definitions that will never change
 interface Staff {
@@ -47,7 +49,7 @@ const StaffManagement: React.FC = () => {
         name: '',
         phone: '',
         salary: '0',
-        hire_date: new Date().toISOString().split('T')[0]
+        hire_date: getCurrentSystemDateTime().dbDate
     });
 
     // PERMANENT: Self-contained database operations
@@ -143,10 +145,10 @@ const StaffManagement: React.FC = () => {
                                     `EMP${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
                                     row.phone || '',
                                     row.salary || 0,
-                                    row.hire_date || new Date().toISOString().split('T')[0],
+                                    row.hire_date || getCurrentSystemDateTime().dbDate,
                                     row.is_active !== undefined ? row.is_active : 1,
-                                    row.created_at || new Date().toISOString(),
-                                    row.updated_at || new Date().toISOString()
+                                    row.created_at || getCurrentSystemDateTime().dateTime,
+                                    row.updated_at || getCurrentSystemDateTime().dateTime
                                 ]
                             );
                         } catch (restoreError) {
@@ -197,7 +199,7 @@ const StaffManagement: React.FC = () => {
                 name: String(member.name || ''),
                 phone: member.phone ? String(member.phone) : undefined,
                 salary: member.salary ? Number(member.salary) : undefined,
-                hire_date: String(member.hire_date || new Date().toISOString().split('T')[0]),
+                hire_date: String(member.hire_date || getCurrentSystemDateTime().dbDate),
                 is_active: Boolean(member.is_active),
                 created_at: String(member.created_at || ''),
                 updated_at: String(member.updated_at || '')
@@ -339,7 +341,7 @@ const StaffManagement: React.FC = () => {
             name: '',
             phone: '',
             salary: '0',
-            hire_date: new Date().toISOString().split('T')[0]
+            hire_date: getCurrentSystemDateTime().dbDate
         });
         setEditingStaff(null);
     }, []);
@@ -450,12 +452,12 @@ const StaffManagement: React.FC = () => {
                                             {member.salary ? `₹${member.salary.toLocaleString()}` : '--'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {new Date(member.hire_date).toLocaleDateString()}
+                                            {formatDate(member.hire_date)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${member.is_active
-                                                    ? 'bg-green-100 text-green-800'
-                                                    : 'bg-red-100 text-red-800'
+                                                ? 'bg-green-100 text-green-800'
+                                                : 'bg-red-100 text-red-800'
                                                 }`}>
                                                 {member.is_active ? 'Active' : 'Inactive'}
                                             </span>
@@ -488,13 +490,13 @@ const StaffManagement: React.FC = () => {
 
             {/* PERMANENT: Add/Edit Modal */}
             {showAddModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+                    <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-xs sm:max-w-sm md:max-w-md mx-2 sm:mx-4 max-h-[95vh] overflow-y-auto">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-3 sm:mb-4">
                             {editingStaff ? 'Edit Staff Member' : 'Add New Staff Member'}
                         </h3>
 
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                     Name <span className="text-red-500">*</span>
@@ -503,7 +505,7 @@ const StaffManagement: React.FC = () => {
                                     type="text"
                                     value={formData.name}
                                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Enter staff member's full name"
                                     required
                                     maxLength={100}
@@ -518,7 +520,7 @@ const StaffManagement: React.FC = () => {
                                     type="tel"
                                     value={formData.phone}
                                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Enter phone number"
                                     maxLength={20}
                                 />
@@ -532,7 +534,7 @@ const StaffManagement: React.FC = () => {
                                     type="number"
                                     value={formData.salary}
                                     onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     placeholder="Enter monthly salary amount"
                                     min="0"
                                     step="0.01"
@@ -547,26 +549,26 @@ const StaffManagement: React.FC = () => {
                                     type="date"
                                     value={formData.hire_date}
                                     onChange={(e) => setFormData({ ...formData, hire_date: e.target.value })}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     required
-                                    max={new Date().toISOString().split('T')[0]}
+                                    max={getCurrentSystemDateTime().dbDate}
                                 />
                             </div>
 
-                            <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
+                            <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 mt-4 sm:mt-6 pt-3 sm:pt-4 border-t border-gray-200">
                                 <button
                                     type="button"
                                     onClick={() => {
                                         setShowAddModal(false);
                                         resetForm();
                                     }}
-                                    className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                                    className="w-full sm:w-auto px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+                                    className="w-full sm:w-auto px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm"
                                 >
                                     {editingStaff ? 'Update Staff' : 'Add Staff'}
                                 </button>

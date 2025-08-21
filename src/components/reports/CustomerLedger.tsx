@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
@@ -10,7 +10,8 @@ import { useNavigation } from '../../hooks/useNavigation';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import SmartDetailHeader from '../common/SmartDetailHeader';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
-import FIFOPaymentForm from '../payments/FIFOPaymentForm';
+import { formatDate, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import {
   Search,
   FileText,
@@ -87,29 +88,25 @@ interface PaymentEntry {
 // Customer List View as a separate component - moved outside to prevent recreation
 interface CustomerListViewProps {
   customers: Customer[];
-  filteredCustomers: Customer[];
   customersLoading: boolean;
-  customerSearch: string;
-  onCustomerSearchChange: (value: string) => void;
-  onClearSearch: () => void;
   onSelectCustomer: (customer: Customer) => void;
   onSelectCustomerForPayment: (customer: Customer) => void;
   onNavigateToNewInvoice: (customer: Customer) => void;
   formatCurrency: (amount: number | undefined | null) => string;
+  searchTerm: string;
+  onSearchChange: (value: string) => void;
 }
 
 // Move CustomerListView outside the main component to prevent recreation on every render
 const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
   customers,
-  filteredCustomers,
   customersLoading,
-  customerSearch,
-  onCustomerSearchChange,
-  onClearSearch,
   onSelectCustomer,
   onSelectCustomerForPayment,
   onNavigateToNewInvoice,
-  formatCurrency
+  formatCurrency,
+  searchTerm,
+  onSearchChange
 }) => {
   return (
     <div className="space-y-6 p-6">
@@ -117,87 +114,24 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
-          <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({filteredCustomers.length} customers)</span></p>
+          <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({customers.length} customers)</span></p>
+        </div>
+      </div>
+
+      {/* Search Input - Fixed to prevent recreation */}
+      <div className="mb-6">
+        <div className="relative max-w-md">
+          <UltraStableSearchInput
+            value={searchTerm}
+            onChange={onSearchChange}
+            placeholder="Search customers..."
+            inputId="customer-search-input"
+          />
         </div>
       </div>
 
       {/* Customer Statistics Dashboard */}
       <CustomerStatsDashboard />
-
-      {/* Filters */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Search */}
-          <div className="relative">
-            <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
-            <input
-              key="customer-search-input"
-              type="text"
-              placeholder="Search by name, phone, or CNIC..."
-              value={customerSearch}
-              onChange={(e) => onCustomerSearchChange(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              aria-label="Search customers"
-            />
-          </div>
-
-          {/* Placeholder for consistency */}
-          <div></div>
-          <div></div>
-
-          {/* Clear Filters */}
-          <div>
-            <button
-              onClick={onClearSearch}
-              className="btn btn-secondary w-full px-3 py-1.5 text-sm"
-            >
-              Clear Search
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">{customers.length}</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Receivables</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {formatCurrency(customers.reduce((sum, c) => sum + Math.max(0, c.total_balance), 0))}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Outstanding</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {customers.filter(c => c.total_balance > 0).length}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Paid Up</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
-                {customers.filter(c => c.total_balance <= 0).length}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Customer Table */}
       <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -219,18 +153,16 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                 </td>
               </tr>
-            ) : filteredCustomers.length === 0 ? (
+            ) : customers.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-6 py-12 text-center">
                   <Users className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                   <p className="text-gray-500">No customers found</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {customerSearch ? 'Try adjusting your search terms.' : 'No customers have been added yet.'}
-                  </p>
+                  <p className="text-sm text-gray-400 mt-1">No customers have been added yet.</p>
                 </td>
               </tr>
             ) : (
-              filteredCustomers.map(customer => {
+              customers.map(customer => {
                 const hasCredit = customer.total_balance < 0;
                 const hasBalance = customer.total_balance > 0;
                 const balanceStatus = hasCredit
@@ -302,6 +234,47 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
 // Add display name for debugging
 CustomerListView.displayName = 'CustomerListView';
 
+// FINAL SOLUTION: Ultra-stable search component that prevents any re-creation
+// FIXED: Ultra-stable search component that prevents focus loss
+const UltraStableSearchInput = React.memo(({
+  value,
+  onChange,
+  placeholder,
+  inputId
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  inputId: string;
+}) => {
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    onChange(newValue);
+  }, [onChange]);
+
+  return (
+    <div className="relative flex-1">
+      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <input
+        id={inputId}
+        type="text"
+        placeholder={placeholder}
+        value={value} // Use controlled input with value prop
+        onChange={handleChange}
+        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+      />
+    </div>
+  );
+}, (prevProps, nextProps) => {
+  // Only re-render if props actually changed
+  return prevProps.value === nextProps.value &&
+    prevProps.placeholder === nextProps.placeholder &&
+    prevProps.inputId === nextProps.inputId &&
+    prevProps.onChange === nextProps.onChange;
+});
+
+UltraStableSearchInput.displayName = 'UltraStableSearchInput';
+
 const CustomerLedger: React.FC = () => {
   // State management
   const navigate = useNavigate();
@@ -319,19 +292,18 @@ const CustomerLedger: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [showAddPayment, setShowAddPayment] = useState(false);
-  const [showFIFOPayment, setShowFIFOPayment] = useState(false);
   const [currentView, setCurrentView] = useState<'customers' | 'ledger' | 'stock'>('customers');
 
-  // Filters
+  // FIXED: Separate search terms to prevent conflicts
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+
+  // Filters for transactions
   const [filters, setFilters] = useState({
     from_date: '',
     to_date: '',
     type: '',
     search: ''
   });
-
-  // Search state - use a ref to prevent component re-creation
-  const [customerSearch, setCustomerSearch] = useState('');
 
   // Payment form
   const [newPayment, setNewPayment] = useState<PaymentEntry>({
@@ -340,7 +312,7 @@ const CustomerLedger: React.FC = () => {
     payment_method: 'cash',
     reference: '',
     notes: '',
-    date: new Date().toISOString().split('T')[0]
+    date: formatDateForDatabase()
   });
 
   // Payment channels
@@ -352,17 +324,24 @@ const CustomerLedger: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
 
-  // Memoized filtered customers to prevent unnecessary re-renders
+  // FIXED: Stable customer search handler
+  const handleCustomerSearchChange = useCallback((value: string) => {
+    setCustomerSearchTerm(value);
+  }, []);
+
+  // Filtered customers based on search - using separate search term
   const filteredCustomers = useMemo(() => {
-    if (customerSearch.trim() === '') {
+    if (!customerSearchTerm.trim()) {
       return customers;
     }
+
+    const searchLower = customerSearchTerm.toLowerCase();
     return customers.filter(customer =>
-      customer.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      customer.phone?.includes(customerSearch) ||
-      customer.cnic?.includes(customerSearch)
+      customer.name.toLowerCase().includes(searchLower) ||
+      customer.phone?.toLowerCase().includes(searchLower) ||
+      customer.address?.toLowerCase().includes(searchLower)
     );
-  }, [customers, customerSearch]);
+  }, [customers, customerSearchTerm]); // Fixed dependency
 
   // Memoized filtered transactions
   const filteredTransactions = useMemo(() => {
@@ -372,9 +351,11 @@ const CustomerLedger: React.FC = () => {
     if (filters.search.trim()) {
       const searchLower = filters.search.toLowerCase();
       filtered = filtered.filter(tx =>
-        tx.description.toLowerCase().includes(searchLower) ||
-        tx.reference_number?.toLowerCase().includes(searchLower) ||
-        tx.notes?.toLowerCase().includes(searchLower)
+        tx.description?.toLowerCase().includes(searchLower) ||
+        tx.notes?.toLowerCase().includes(searchLower) ||
+        tx.type?.toLowerCase().includes(searchLower) ||
+        tx.invoice_amount?.toString().includes(searchLower) ||
+        tx.payment_amount?.toString().includes(searchLower)
       );
     }
 
@@ -395,17 +376,92 @@ const CustomerLedger: React.FC = () => {
     return filtered;
   }, [customerTransactions, filters]);
 
-  // Callback functions to prevent unnecessary re-renders
-  const handleCustomerSearchChange = useCallback((value: string) => {
-    setCustomerSearch(value);
-  }, []);
-
+  // FIXED: Stable filter change handler
   const handleFilterChange = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
   }, []);
 
-  const clearCustomerSearch = useCallback(() => {
-    setCustomerSearch('');
+  // FIXED: Stable transaction search handler
+  const handleTransactionSearchChange = useCallback((value: string) => {
+    setFilters(prev => ({ ...prev, search: value }));
+  }, []);
+
+  // Helper functions for loading customer data - moved here to fix dependency order
+  const loadCustomerAccountSummary = useCallback(async (customerId: number) => {
+    try {
+      console.log('Loading customer account summary for ID:', customerId);
+      const summary = await db.getCustomerAccountSummary(customerId);
+      setCustomerAccountSummary(summary);
+      console.log('Customer account summary loaded:', summary);
+    } catch (error) {
+      console.error('Failed to load customer account summary:', error);
+      toast.error('Failed to load customer account details');
+      setCustomerAccountSummary(null);
+    }
+  }, [db]);
+
+  const loadCustomerInvoices = useCallback(async (customerId: number) => {
+    try {
+      setLoadingInvoices(true);
+      const invoices = await db.getCustomerInvoices(customerId);
+      setCustomerInvoices(invoices);
+    } catch (error) {
+      console.error('Failed to load customer invoices:', error);
+      toast.error('Failed to load customer invoices');
+    } finally {
+      setLoadingInvoices(false);
+    }
+  }, [db]);
+
+  // FIXED: Stable callback functions to prevent recreation
+  const selectCustomer = useCallback((customer: Customer) => {
+    console.log('📋 [CustomerLedger] Selecting customer:', customer.name, 'ID:', customer.id);
+
+    // Set loading state to prevent showing empty data
+    setLoading(true);
+
+    // Batch state updates to prevent flickering
+    setSelectedCustomer(customer);
+    setCurrentView('ledger');
+    setNewPayment(prev => ({ ...prev, customer_id: customer.id }));
+
+    // Load data asynchronously without blocking UI
+    Promise.all([
+      loadCustomerInvoices(customer.id),
+      loadCustomerAccountSummary(customer.id)
+    ]).then(() => {
+      setLoading(false);
+    }).catch(error => {
+      console.error('Error loading customer data:', error);
+      setLoading(false);
+    });
+  }, [loadCustomerInvoices, loadCustomerAccountSummary]);
+
+  const handleSelectCustomerForPayment = useCallback((customer: Customer) => {
+    setSelectedCustomer(customer);
+    setShowAddPayment(true);
+  }, []);
+
+  const handleNavigateToNewInvoice = useCallback((customer: Customer) => {
+    navigate('/billing/new', {
+      state: {
+        customerId: customer.id,
+        customerName: customer.name
+      }
+    });
+  }, [navigate]);
+
+  // Use refs to prevent stale closures in event handlers
+  const selectedCustomerRef = useRef<Customer | null>(null);
+
+  // Update refs when values change
+  useEffect(() => {
+    selectedCustomerRef.current = selectedCustomer;
+  }, [selectedCustomer]);
+
+  const formatCurrency = useCallback((amount: number | undefined | null): string => {
+    const safeAmount = amount ?? 0;
+    return `Rs. ${safeAmount.toFixed(2)}`;
   }, []);
 
   useEffect(() => {
@@ -475,7 +531,7 @@ const CustomerLedger: React.FC = () => {
         loadCustomers();
       });
     };
-  }, []);
+  }, []); // FIXED: Empty dependency array
 
   // Fixed useEffect with proper dependencies
   useEffect(() => {
@@ -491,10 +547,10 @@ const CustomerLedger: React.FC = () => {
     }
   }, [selectedCustomer, currentView]);
 
-  const loadCustomers = async () => {
+  const loadCustomers = useCallback(async () => {
     try {
       setCustomersLoading(true);
-      await db.initialize();
+      // Remove db.initialize() - it should only happen once at app startup
       const customerList = await db.getAllCustomers();
       setCustomers(customerList);
     } catch (error) {
@@ -503,7 +559,7 @@ const CustomerLedger: React.FC = () => {
     } finally {
       setCustomersLoading(false);
     }
-  };
+  }, [db]);
 
   const loadPaymentChannels = async () => {
     try {
@@ -603,42 +659,6 @@ const CustomerLedger: React.FC = () => {
     }
   };
 
-  const loadCustomerAccountSummary = async (customerId: number) => {
-    try {
-      console.log('Loading customer account summary for ID:', customerId);
-      const summary = await db.getCustomerAccountSummary(customerId);
-      setCustomerAccountSummary(summary);
-      console.log('Customer account summary loaded:', summary);
-    } catch (error) {
-      console.error('Failed to load customer account summary:', error);
-      toast.error('Failed to load customer account details');
-      setCustomerAccountSummary(null);
-    }
-  };
-
-  const selectCustomer = useCallback((customer: Customer) => {
-    console.log('📋 [CustomerLedger] Selecting customer:', customer.name, 'ID:', customer.id);
-
-    // Set loading state to prevent showing empty data
-    setLoading(true);
-
-    // Batch state updates to prevent flickering
-    setSelectedCustomer(customer);
-    setCurrentView('ledger');
-    setNewPayment(prev => ({ ...prev, customer_id: customer.id }));
-
-    // Load data asynchronously without blocking UI
-    Promise.all([
-      loadCustomerInvoices(customer.id),
-      loadCustomerAccountSummary(customer.id)
-    ]).then(() => {
-      setLoading(false);
-    }).catch(error => {
-      console.error('Error loading customer data:', error);
-      setLoading(false);
-    });
-  }, []);
-
   // Enhanced auto-selection effect - optimized to prevent flickering
   useEffect(() => {
     const state = location.state as any;
@@ -677,34 +697,7 @@ const CustomerLedger: React.FC = () => {
     } else if (!customerId && (state || params.id)) {
       console.log('ℹ️ [CustomerLedger] No valid customerId found. URL param:', params.id, 'State keys:', state ? Object.keys(state) : 'no state');
     }
-  }, [params.id, customers, selectedCustomer, selectCustomer]); // Removed location.state to prevent excessive re-renders
-
-  const handleSelectCustomerForPayment = useCallback((customer: Customer) => {
-    setSelectedCustomer(customer);
-    setShowAddPayment(true);
-  }, []);
-
-  const handleNavigateToNewInvoice = useCallback((customer: Customer) => {
-    navigate('/billing/new', {
-      state: {
-        customerId: customer.id,
-        customerName: customer.name
-      }
-    });
-  }, [navigate]);
-
-  const loadCustomerInvoices = async (customerId: number) => {
-    try {
-      setLoadingInvoices(true);
-      const invoices = await db.getCustomerInvoices(customerId);
-      setCustomerInvoices(invoices);
-    } catch (error) {
-      console.error('Failed to load customer invoices:', error);
-      toast.error('Failed to load customer invoices');
-    } finally {
-      setLoadingInvoices(false);
-    }
-  };
+  }, [params.id, customers.length, selectedCustomer?.id, selectCustomer]); // Use customers.length instead of customers array to prevent re-runs on filter changes
 
   const addPayment = async () => {
     try {
@@ -738,7 +731,7 @@ const CustomerLedger: React.FC = () => {
         payment_method: 'cash',
         reference: '',
         notes: '',
-        date: new Date().toISOString().split('T')[0]
+        date: formatDateForDatabase()
       });
 
       await loadCustomerLedger();
@@ -769,13 +762,6 @@ const CustomerLedger: React.FC = () => {
       search: ''
     });
   }, []);
-
-  const formatCurrency = (amount: number | undefined | null): string => {
-    const safeAmount = amount ?? 0;
-    return `Rs. ${safeAmount.toFixed(2)}`;
-  };
-
-
 
   const exportLedger = async () => {
     if (!selectedCustomer || !filteredTransactions.length) {
@@ -1072,16 +1058,12 @@ const CustomerLedger: React.FC = () => {
         {/* Filters */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                placeholder="Search transactions..."
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              />
-            </div>
+            <UltraStableSearchInput
+              value={filters.search}
+              onChange={handleTransactionSearchChange}
+              placeholder="Search transactions..."
+              inputId="transaction-search-input"
+            />
 
             <input
               type="date"
@@ -1110,7 +1092,7 @@ const CustomerLedger: React.FC = () => {
               <option value="adjustment">Adjustments</option>
             </select>
 
-            {(filters.from_date || filters.to_date || filters.type || filters.search) && (
+            {(filters.search || filters.from_date || filters.to_date || filters.type) && (
               <button
                 onClick={clearFilters}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
@@ -1255,6 +1237,27 @@ const CustomerLedger: React.FC = () => {
     );
   };
 
+  // FIXED: Use component reference instead of useMemo to prevent recreation
+  const customerListViewProps = React.useMemo(() => ({
+    customers: filteredCustomers,
+    customersLoading,
+    onSelectCustomer: selectCustomer,
+    onSelectCustomerForPayment: handleSelectCustomerForPayment,
+    onNavigateToNewInvoice: handleNavigateToNewInvoice,
+    formatCurrency,
+    searchTerm: customerSearchTerm,
+    onSearchChange: handleCustomerSearchChange
+  }), [
+    filteredCustomers,
+    customersLoading,
+    selectCustomer,
+    handleSelectCustomerForPayment,
+    handleNavigateToNewInvoice,
+    formatCurrency,
+    customerSearchTerm,
+    handleCustomerSearchChange
+  ]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Smart Detail Header when viewing specific customer */}
@@ -1288,18 +1291,7 @@ const CustomerLedger: React.FC = () => {
 
       {/* Main Content */}
       {currentView === 'customers' && !params.id ? (
-        <CustomerListView
-          customers={customers}
-          filteredCustomers={filteredCustomers}
-          customersLoading={customersLoading}
-          customerSearch={customerSearch}
-          onCustomerSearchChange={handleCustomerSearchChange}
-          onClearSearch={clearCustomerSearch}
-          onSelectCustomer={selectCustomer}
-          onSelectCustomerForPayment={handleSelectCustomerForPayment}
-          onNavigateToNewInvoice={handleNavigateToNewInvoice}
-          formatCurrency={formatCurrency}
-        />
+        <CustomerListView {...customerListViewProps} />
       ) : params.id && (!selectedCustomer || loading) ? (
         // Loading state when viewing specific customer
         <div className="flex items-center justify-center min-h-[400px]">

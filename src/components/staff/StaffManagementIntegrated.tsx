@@ -28,6 +28,8 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+import { formatDate, formatTime } from '../../utils/formatters';
 
 // Unified interfaces
 interface Staff {
@@ -132,7 +134,7 @@ const StaffManagementIntegrated: React.FC = () => {
         employee_id: '',
         phone: '',
         salary: '',
-        hire_date: new Date().toISOString().split('T')[0],
+        hire_date: getCurrentSystemDateTime().dbDate,
         address: '',
         cnic: '',
         emergency_contact: ''
@@ -143,7 +145,7 @@ const StaffManagementIntegrated: React.FC = () => {
     const [showSalaryModal, setShowSalaryModal] = useState(false);
     const [salaryFormData, setSalaryFormData] = useState<SalaryFormData>({
         staff_id: 0,
-        salary_month: new Date().toISOString().slice(0, 7), // YYYY-MM format
+        salary_month: getCurrentSystemDateTime().dbDate.slice(0, 7), // YYYY-MM format
         basic_salary: '',
         allowances: '0',
         bonuses: '0',
@@ -151,7 +153,7 @@ const StaffManagementIntegrated: React.FC = () => {
         other_deductions: '0',
         payment_amount: '',
         payment_channel_id: '',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: getCurrentSystemDateTime().dbDate,
         notes: ''
     });
 
@@ -299,8 +301,7 @@ const StaffManagementIntegrated: React.FC = () => {
             }
 
             const selectedChannel = paymentChannels.find(c => c.id === parseInt(salaryFormData.payment_channel_id));
-            const currentDate = new Date().toISOString().split('T')[0];
-            const currentTime = new Date().toLocaleTimeString();
+            const { dbDate, dbTime } = getCurrentSystemDateTime();
 
             // Generate pay period start and end from salary_month (YYYY-MM format)
             const [year, month] = salaryFormData.salary_month.split('-').map(Number);
@@ -322,7 +323,7 @@ const StaffManagementIntegrated: React.FC = () => {
                 staff_id: selectedStaff.id,
                 staff_name: selectedStaff.name,
                 payment_amount: paymentAmount,
-                payment_date: currentDate,
+                payment_date: dbDate,
                 payment_channel: selectedChannel?.name
             });
 
@@ -338,7 +339,7 @@ const StaffManagementIntegrated: React.FC = () => {
                 selectedStaff.id,
                 selectedStaff.name,
                 paymentAmount,
-                currentDate,
+                dbDate,
                 selectedChannel?.type || 'cash',
                 parseFloat(salaryFormData.basic_salary) || 0,
                 parseFloat(salaryFormData.allowances) || 0,
@@ -374,11 +375,11 @@ const StaffManagementIntegrated: React.FC = () => {
                 'outgoing',
                 paymentAmount,
                 `Salary payment for ${selectedStaff.name} (${monthDisplay})`,
-                currentDate,
-                currentTime,
+                dbDate,
+                dbTime,
                 'salary',
                 selectedStaff.id,
-                `SAL-${selectedStaff.id}-${currentDate}`, // Use a simple reference since no payment_number
+                `SAL-${selectedStaff.id}-${dbDate}`, // Use a simple reference since no payment_number
                 selectedChannel?.id || null,
                 selectedChannel?.name || 'Cash',
                 'salary',
@@ -391,7 +392,7 @@ const StaffManagementIntegrated: React.FC = () => {
                 staff_name: selectedStaff.name,
                 month_display: monthDisplay,
                 payment_amount: paymentAmount,
-                payment_date: currentDate,
+                payment_date: dbDate,
                 ledger_entry_created: true
             });
 
@@ -404,7 +405,7 @@ const StaffManagementIntegrated: React.FC = () => {
                 const eventBus = (window as any).eventBus;
                 if (eventBus && eventBus.emit) {
                     eventBus.emit('DAILY_LEDGER_UPDATED', {
-                        date: currentDate,
+                        date: dbDate,
                         type: 'salary_payment',
                         amount: paymentAmount,
                         staff_name: selectedStaff.name
@@ -433,7 +434,7 @@ const StaffManagementIntegrated: React.FC = () => {
             employee_id: `EMP-${Date.now()}`,
             phone: '',
             salary: '',
-            hire_date: new Date().toISOString().split('T')[0],
+            hire_date: getCurrentSystemDateTime().dbDate,
             address: '',
             cnic: '',
             emergency_contact: ''
@@ -969,7 +970,7 @@ const StaffManagementIntegrated: React.FC = () => {
                                 </div>
                                 <div className="flex items-center space-x-2 text-sm text-gray-600">
                                     <Calendar className="h-4 w-4" />
-                                    <span>Hired: {new Date(member.hire_date).toLocaleDateString()}</span>
+                                    <span>Hired: {formatDate(member.hire_date)}</span>
                                 </div>
                             </div>
 
@@ -1115,7 +1116,7 @@ const StaffManagementIntegrated: React.FC = () => {
                             {/* Hire Date - always show */}
                             <div className="flex justify-between">
                                 <span className="text-gray-600">Hire Date:</span>
-                                <span className="font-medium">{new Date(selectedStaff.hire_date).toLocaleDateString()}</span>
+                                <span className="font-medium">{formatDate(selectedStaff.hire_date)}</span>
                             </div>
 
                             {/* Status - always show */}
@@ -1151,7 +1152,7 @@ const StaffManagementIntegrated: React.FC = () => {
                                 <span className="text-gray-600">Last Payment:</span>
                                 <span className="font-medium">
                                     {filteredPayments.length > 0
-                                        ? new Date(filteredPayments[0].payment_date).toLocaleDateString()
+                                        ? formatDate(filteredPayments[0].payment_date)
                                         : 'No payments yet'
                                     }
                                 </span>
@@ -1204,7 +1205,7 @@ const StaffManagementIntegrated: React.FC = () => {
                                     // Helper function to get payment period display
                                     const getPaymentPeriod = () => {
                                         // Use payment_date to show the month and year
-                                        return new Date(payment.payment_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                                        return formatDate(payment.payment_date);
                                     };
 
                                     return (
@@ -1219,7 +1220,7 @@ const StaffManagementIntegrated: React.FC = () => {
                                                 PKR {payment.payment_amount.toLocaleString()}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                {new Date(payment.payment_date).toLocaleDateString()}
+                                                {formatDate(payment.payment_date)}
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                                 {payment.payment_channel_name || payment.payment_method}

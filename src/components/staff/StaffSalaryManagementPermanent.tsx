@@ -17,6 +17,8 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Calendar, User, CreditCard, Clock, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { permanentDb } from '../../services/permanentDatabase';
+import { formatDate, formatTime, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
+import { getCurrentSystemDateTime, createSalaryPeriod } from '../../utils/systemDateTime';
 
 // PERMANENT: Type definitions that match centralized database schema
 interface Staff {
@@ -91,9 +93,9 @@ const StaffSalaryManagement: React.FC = () => {
 
     const [formData, setFormData] = useState<SalaryFormData>({
         staff_id: '',
-        salary_month: new Date().toISOString().substring(0, 7), // YYYY-MM format
-        pay_period_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-        pay_period_end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
+        salary_month: createSalaryPeriod().month, // YYYY-MM format
+        pay_period_start: createSalaryPeriod().start,
+        pay_period_end: createSalaryPeriod().end,
         basic_salary: '',
         allowances: '0',
         bonuses: '0',
@@ -330,8 +332,7 @@ const StaffSalaryManagement: React.FC = () => {
             const netSalary = grossSalary - totalDeductions;
 
             const paymentNumber = `SAL${Date.now()}`;
-            const currentDate = new Date().toISOString().split('T')[0];
-            const currentTime = new Date().toTimeString().split(' ')[0];
+            const { dbDate, dbTime } = getCurrentSystemDateTime();
 
             // Get payment channel info
             const selectedChannel = paymentChannels.find(pc => pc.id === parseInt(formData.payment_channel_id));
@@ -364,7 +365,7 @@ const StaffSalaryManagement: React.FC = () => {
                 selectedChannel?.id || null,
                 selectedChannel?.name || 'Cash',
                 'completed',
-                currentDate,
+                dbDate,
                 formData.notes,
                 'system'
             ]);
@@ -381,8 +382,8 @@ const StaffSalaryManagement: React.FC = () => {
                 'debit',
                 paymentAmount,
                 `Salary payment for ${selectedStaff.name} (${formData.pay_period_start} to ${formData.pay_period_end})`,
-                currentDate,
-                currentTime,
+                dbDate,
+                dbTime,
                 'salary_payment',
                 selectedStaff.id,
                 paymentNumber,
@@ -414,8 +415,8 @@ const StaffSalaryManagement: React.FC = () => {
                 formData.payment_method,
                 selectedChannel?.id || null,
                 selectedChannel?.name || 'Cash',
-                currentDate,
-                currentTime,
+                dbDate,
+                dbTime,
                 formData.notes,
                 'system'
             ]);
@@ -453,9 +454,9 @@ const StaffSalaryManagement: React.FC = () => {
     const resetForm = () => {
         setFormData({
             staff_id: '',
-            salary_month: new Date().toISOString().substring(0, 7), // YYYY-MM format
-            pay_period_start: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
-            pay_period_end: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0],
+            salary_month: getCurrentSystemDateTime().dbDate.substring(0, 7), // YYYY-MM format
+            pay_period_start: createSalaryPeriod().start,
+            pay_period_end: createSalaryPeriod().end,
             basic_salary: '',
             allowances: '0',
             bonuses: '0',
@@ -658,7 +659,7 @@ const StaffSalaryManagement: React.FC = () => {
                                                     {payment.payment_date}
                                                 </div>
                                                 <div className="text-sm text-gray-500">
-                                                    {new Date(payment.created_at).toLocaleTimeString()}
+                                                    {formatTime(payment.created_at)}
                                                 </div>
                                             </div>
                                         </div>
@@ -689,11 +690,11 @@ const StaffSalaryManagement: React.FC = () => {
 
             {/* Payment Modal */}
             {showPaymentModal && selectedStaff && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-screen overflow-y-auto">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+                    <div className="bg-white rounded-lg shadow-xl max-w-xs sm:max-w-sm md:max-w-md lg:max-w-2xl w-full max-h-screen overflow-y-auto">
                         <div className="p-6">
-                            <div className="flex items-center justify-between mb-6">
-                                <h3 className="text-lg font-semibold text-gray-900">
+                            <div className="flex items-center justify-between mb-4 sm:mb-6">
+                                <h3 className="text-base sm:text-lg font-semibold text-gray-900 truncate mr-2">
                                     Process Salary Payment - {selectedStaff.name}
                                 </h3>
                                 <button
@@ -707,7 +708,7 @@ const StaffSalaryManagement: React.FC = () => {
                                 </button>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
                                 {/* Pay Period */}
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -868,9 +869,9 @@ const StaffSalaryManagement: React.FC = () => {
                             </div>
 
                             {/* Calculation Summary */}
-                            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                                <h4 className="font-medium text-gray-900 mb-2">Payment Summary</h4>
-                                <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-gray-50 rounded-lg">
+                                <h4 className="font-medium text-gray-900 mb-2 text-sm sm:text-base">Payment Summary</h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
                                     <div>
                                         <span className="text-gray-600">Basic Salary:</span>
                                         <span className="float-right font-medium">PKR {(parseFloat(formData.basic_salary) || 0).toLocaleString()}</span>
@@ -907,19 +908,19 @@ const StaffSalaryManagement: React.FC = () => {
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex justify-end space-x-4 mt-6">
+                            <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-4 mt-4 sm:mt-6">
                                 <button
                                     onClick={() => {
                                         setShowPaymentModal(false);
                                         resetForm();
                                     }}
-                                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                                    className="w-full sm:w-auto px-4 sm:px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors text-sm sm:text-base"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     onClick={processSalaryPayment}
-                                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                                    className="w-full sm:w-auto px-4 sm:px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm sm:text-base"
                                 >
                                     Process Payment
                                 </button>

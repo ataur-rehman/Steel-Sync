@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, RefreshCw, Users, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { permanentDb } from '../../services/permanentDatabase';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+import { formatDate, formatTime } from '../../utils/formatters';
 
 interface SimpleStaff {
     id: number;
@@ -26,7 +28,7 @@ const StaffManagement: React.FC = () => {
         name: '',
         phone: '',
         salary: '',
-        hire_date: new Date().toISOString().split('T')[0]
+        hire_date: getCurrentSystemDateTime().dbDate
     });
 
     // Initialize table on component mount
@@ -198,7 +200,7 @@ const StaffManagement: React.FC = () => {
             name: '',
             phone: '',
             salary: '',
-            hire_date: new Date().toISOString().split('T')[0]
+            hire_date: getCurrentSystemDateTime().dbDate
         });
         setEditingStaff(null);
     };
@@ -273,7 +275,7 @@ const StaffManagement: React.FC = () => {
                                             ₹{member.salary?.toLocaleString() || 0}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {member.hire_date}
+                                            {formatDate(member.hire_date)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${member.is_active

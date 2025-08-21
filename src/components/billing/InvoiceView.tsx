@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../hooks/useDatabase';
 import { formatCurrency } from '../../utils/calculations';
+import { formatDate, formatDateTime } from '../../utils/formatters';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { Printer, Edit, Trash2, DollarSign, Package, User } from 'lucide-react';
@@ -194,7 +195,7 @@ export default function InvoiceView() {
     <div className="min-h-screen bg-gray-50">
       <SmartDetailHeader
         title={`Invoice #${formatInvoiceNumber(invoice.bill_number)}`}
-        subtitle={`${invoice.customer_name} • ${new Date(invoice.created_at).toLocaleDateString()}`}
+        subtitle={`${invoice.customer_name} • ${formatDate(invoice.created_at)}`}
         backToListPath="/billing/list"
         backToListLabel="Back to Invoices"
         backButtonMode="list"
@@ -234,7 +235,7 @@ export default function InvoiceView() {
               <div>
                 <h1 className="text-2xl font-bold">Invoice #{formatInvoiceNumber(invoice.bill_number)}</h1>
                 <p className="text-blue-100 mt-1">
-                  Created on {new Date(invoice.date).toLocaleDateString()}
+                  Created on {formatDate(invoice.date)}
                 </p>
               </div>
               <div className="text-right">
@@ -384,10 +385,10 @@ export default function InvoiceView() {
           <div className="p-6 border-t border-gray-200 bg-gray-50">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
               <div>
-                <span className="font-medium">Created:</span> {new Date(invoice.created_at).toLocaleString()}
+                <span className="font-medium">Created:</span> {formatDateTime(invoice.created_at)}
               </div>
               <div>
-                <span className="font-medium">Last Updated:</span> {new Date(invoice.updated_at).toLocaleString()}
+                <span className="font-medium">Last Updated:</span> {formatDateTime(invoice.updated_at)}
               </div>
             </div>
           </div>

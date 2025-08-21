@@ -18,24 +18,20 @@ import InvoiceDetailsPage from './components/billing/InvoiceDetailsPage';
 import DailyLedger from './components/reports/DailyLedger';
 import CustomerLedger from './components/reports/CustomerLedger';
 import StockReport from './components/reports/StockReport';
+import StockHistory from './components/reports/StockHistory';
 import RootCauseAnalysis from './components/RootCauseAnalysis';
 import StockReceivingList from './components/stock/StockReceivingList';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
-
 import DataIntegrityManager from './components/admin/DataIntegrityManager';
 import StaffManagementIntegrated from './components/staff/StaffManagementIntegrated';
-
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
-
 import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
-
 import PaymentChannelDebug from './components/debug/PaymentChannelDebug';
-
 import toast from 'react-hot-toast';
 import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
@@ -287,9 +283,24 @@ function AppContent() {
                   <DailyLedger />
                 </ProtectedRoute>
               } />
+              <Route path="/reports/customer-ledger" element={
+                <ProtectedRoute module="reports" level="view">
+                  <CustomerLedger />
+                </ProtectedRoute>
+              } />
               <Route path="/reports/stock" element={
                 <ProtectedRoute module="reports" level="view">
                   <StockReport />
+                </ProtectedRoute>
+              } />
+              <Route path="/reports/stock-details/:productId" element={
+                <ProtectedRoute module="reports" level="view">
+                  <StockHistory />
+                </ProtectedRoute>
+              } />
+              <Route path="/reports/stock-history/:productId" element={
+                <ProtectedRoute module="reports" level="view">
+                  <StockHistory />
                 </ProtectedRoute>
               } />
 

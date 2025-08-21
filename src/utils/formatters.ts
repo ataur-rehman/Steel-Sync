@@ -18,11 +18,11 @@ export function getCurrentSystemDateTime() {
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
-  
+
   const dbDate = `${year}-${month}-${day}`;
   const dbTime = `${hours}:${minutes}:${seconds}`;
   const dbTimestamp = `${dbDate} ${dbTime}`;
-  
+
   return { dbDate, dbTime, dbTimestamp };
 }
 
@@ -73,12 +73,19 @@ export function formatTime(date: string | Date): string {
 
 // Combined date and time format: dd/mm/yy hh:mm AM/PM
 export function formatDateTime(date: string | Date): string {
-  const d = new Date(date);
+  let d = new Date(date);
 
   // Validate date
   if (isNaN(d.getTime())) {
     console.warn('Invalid date provided to formatDateTime:', date);
     return formatDateTime(new Date()); // Use current system date/time as fallback
+  }
+
+  // If the input is a UTC timestamp, convert to Pakistan Standard Time (UTC+5)
+  // Check if the date string contains 'Z' (indicating UTC) or if it's already a Date object from UTC
+  if (typeof date === 'string' && date.includes('Z')) {
+    // This is a UTC timestamp, convert to Pakistan time
+    d = new Date(d.getTime() + (5 * 60 * 60 * 1000));
   }
 
   return `${formatDate(d)} ${formatTime(d)}`;

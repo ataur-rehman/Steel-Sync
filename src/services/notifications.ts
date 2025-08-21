@@ -50,7 +50,7 @@ export interface NotificationSettings {
   };
 }
 
-export type NotificationType = 
+export type NotificationType =
   | 'low_stock'
   | 'overdue_payment'
   | 'high_balance'
@@ -62,7 +62,7 @@ export type NotificationType =
   | 'data_export'
   | 'maintenance';
 
-export type NotificationCategory = 
+export type NotificationCategory =
   | 'inventory'
   | 'finance'
   | 'sales'
@@ -220,12 +220,12 @@ class NotificationService {
 
   private isInQuietHours(): boolean {
     if (!this.settings.globalSettings.quietHours.enabled) return false;
-    
+
     const now = new Date();
     const currentTime = now.getHours() * 100 + now.getMinutes();
     const startTime = this.parseTime(this.settings.globalSettings.quietHours.startTime);
     const endTime = this.parseTime(this.settings.globalSettings.quietHours.endTime);
-    
+
     if (startTime <= endTime) {
       return currentTime >= startTime && currentTime <= endTime;
     } else {
@@ -242,7 +242,7 @@ class NotificationService {
     if (!this.settings.enabled) return false;
     if (!this.settings.categories[category].enabled) return false;
     if (this.isInQuietHours() && category !== 'alerts') return false;
-    
+
     return true;
   }
 
@@ -271,7 +271,7 @@ class NotificationService {
     };
 
     this.notifications.unshift(notification);
-    
+
     // Limit notifications
     if (this.notifications.length > this.settings.globalSettings.maxNotifications) {
       this.notifications = this.notifications.slice(0, this.settings.globalSettings.maxNotifications);
@@ -302,20 +302,20 @@ class NotificationService {
       const timeout = window.setTimeout(() => {
         this.repeatNotification(notification.id);
       }, categorySettings.repeatInterval * 60 * 1000);
-      
+
       this.scheduledNotifications.set(`repeat_${notification.id}`, timeout);
     }
   }
 
   private scheduleExpiry(notification: Notification): void {
     if (!notification.expiresAt) return;
-    
+
     const expiryTime = new Date(notification.expiresAt).getTime() - Date.now();
     if (expiryTime > 0) {
       const timeout = window.setTimeout(() => {
         this.expireNotification(notification.id);
       }, expiryTime);
-      
+
       this.scheduledNotifications.set(`expire_${notification.id}`, timeout);
     }
   }
@@ -326,7 +326,7 @@ class NotificationService {
 
     notification.currentRepeat++;
     notification.lastRepeated = new Date().toISOString();
-    
+
     if (notification.currentRepeat < notification.repeatCount) {
       this.scheduleRepeat(notification);
     }
@@ -407,14 +407,14 @@ class NotificationService {
     const notification = this.notifications.find(n => n.id === notificationId);
     if (notification) {
       notification.dismissed = true;
-      
+
       // Clear scheduled repeats
       const repeatKey = `repeat_${notificationId}`;
       if (this.scheduledNotifications.has(repeatKey)) {
         window.clearTimeout(this.scheduledNotifications.get(repeatKey));
         this.scheduledNotifications.delete(repeatKey);
       }
-      
+
       this.emit('notification_dismissed', notification);
     }
   }
@@ -429,7 +429,7 @@ class NotificationService {
   clearExpiredNotifications(): void {
     const now = new Date();
     const initialCount = this.notifications.length;
-    
+
     this.notifications = this.notifications.filter(n => {
       if (n.expiresAt && new Date(n.expiresAt) < now) {
         return false;
@@ -441,7 +441,7 @@ class NotificationService {
       }
       return true;
     });
-    
+
     if (this.notifications.length !== initialCount) {
       this.emit('notifications_cleaned');
     }
@@ -485,7 +485,7 @@ class NotificationService {
       this.checkSystemConditions();
       this.clearExpiredNotifications();
     }, 5 * 60 * 1000);
-    
+
     // Initial check
     window.setTimeout(() => {
       this.checkSystemConditions();
@@ -507,16 +507,20 @@ class NotificationService {
     try {
       await db.initialize();
       const products = await db.getAllProducts();
-      const lowStockItems = products.filter((p: any) => p.stock_quantity <= (p.min_stock_alert || 0));
-      
+      // Filter out non-stock products (track_inventory = 0) from low stock checks
+      const stockProducts = products.filter((p: any) =>
+        p.track_inventory === 1 || p.track_inventory === true || p.track_inventory === undefined || p.track_inventory === null
+      );
+      const lowStockItems = stockProducts.filter((p: any) => p.stock_quantity <= (p.min_stock_alert || 0));
+
       if (lowStockItems.length > 0) {
         // Check if we already have a recent low stock notification
-        const recentLowStock = this.notifications.find(n => 
-          n.type === 'low_stock' && 
-          !n.dismissed && 
+        const recentLowStock = this.notifications.find(n =>
+          n.type === 'low_stock' &&
+          !n.dismissed &&
           new Date(n.timestamp).getTime() > Date.now() - (60 * 60 * 1000) // 1 hour ago
         );
-        
+
         if (!recentLowStock) {
           await this.createNotification({
             id: 'low_stock_check',
@@ -541,14 +545,14 @@ class NotificationService {
       await db.initialize();
       const customers = await db.getAllCustomers();
       const highBalanceCustomers = customers.filter((c: any) => c.balance > 50000);
-      
+
       if (highBalanceCustomers.length > 0) {
-        const recentHighBalance = this.notifications.find(n => 
-          n.type === 'high_balance' && 
-          !n.dismissed && 
+        const recentHighBalance = this.notifications.find(n =>
+          n.type === 'high_balance' &&
+          !n.dismissed &&
           new Date(n.timestamp).getTime() > Date.now() - (4 * 60 * 60 * 1000) // 4 hours ago
         );
-        
+
         if (!recentHighBalance) {
           await this.createNotification({
             id: 'high_balance_check',
@@ -572,20 +576,20 @@ class NotificationService {
     try {
       await db.initialize();
       const overdueInvoices = await db.getOverdueInvoices(30);
-      
+
       // Ensure overdueInvoices is an array
       if (!Array.isArray(overdueInvoices)) {
         console.warn('checkOverduePayments: getOverdueInvoices returned non-array:', typeof overdueInvoices);
         return;
       }
-      
+
       if (overdueInvoices.length > 0) {
-        const recentOverdue = this.notifications.find(n => 
-          n.type === 'overdue_payment' && 
-          !n.dismissed && 
+        const recentOverdue = this.notifications.find(n =>
+          n.type === 'overdue_payment' &&
+          !n.dismissed &&
           new Date(n.timestamp).getTime() > Date.now() - (24 * 60 * 60 * 1000) // 24 hours ago
         );
-        
+
         if (!recentOverdue) {
           await this.createNotification({
             id: 'overdue_payment_check',
@@ -613,18 +617,18 @@ class NotificationService {
         from_date: today,
         to_date: today
       });
-      
+
       if (todayInvoices.length > 0) {
         // Only send daily summary once per day
-        const existingSummary = this.notifications.find(n => 
-          n.type === 'system_alert' && 
+        const existingSummary = this.notifications.find(n =>
+          n.type === 'system_alert' &&
           n.data?.summaryDate === today &&
           !n.dismissed
         );
-        
+
         if (!existingSummary) {
           const totalSales = todayInvoices.reduce((sum, inv) => sum + inv.grand_total, 0);
-          
+
           await this.createNotification({
             id: 'daily_summary',
             type: 'system_alert',
@@ -634,10 +638,10 @@ class NotificationService {
             priority: 'medium',
             actionUrl: `/billing/list?from_date=${today}&to_date=${today}`,
             actionText: 'View Today\'s Sales',
-            data: { 
+            data: {
               summaryDate: today,
               invoiceCount: todayInvoices.length,
-              totalSales 
+              totalSales
             },
           });
         }

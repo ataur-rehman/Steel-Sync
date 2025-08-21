@@ -18,11 +18,12 @@ import {
   Users,
   Truck
 } from 'lucide-react';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
 import { financeService, type FinancialSummary } from '../../services/financeService';
 import { useAuth } from '../../hooks/useAuth';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import { useAutoRefresh } from '../../services/autoRefreshService';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import toast from 'react-hot-toast';
 
 // Optimized Loading skeleton - simpler and faster
@@ -90,11 +91,10 @@ const TabNavigation = React.memo<TabProps>(({ tabs, activeTab, onTabChange }) =>
         <button
           key={tab}
           onClick={() => onTabChange(tab)}
-          className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-            activeTab === tab
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
+          className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === tab
+            ? 'border-blue-500 text-blue-600'
+            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
         >
           {tab}
         </button>
@@ -124,7 +124,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     // Use fallback values
     user = { username: 'Unknown User', id: '0' };
   }
-  
+
   const activityLogger = useActivityLogger();
   const [financialData, setFinancialData] = useState<FinancialSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -134,7 +134,7 @@ const BusinessFinanceDashboard: React.FC = () => {
   const [showReceivablesModal, setShowReceivablesModal] = useState(false);
   const [showPayablesModal, setShowPayablesModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState<ExpenseFormData>({
-    date: new Date().toISOString().split('T')[0],
+    date: getCurrentSystemDateTime().dbDate,
     category: 'misc',
     description: '',
     amount: 0,
@@ -148,7 +148,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     if (!financialData?.businessMetrics) return null;
 
     const { businessMetrics, monthlyData } = financialData;
-    
+
     // Quick return with empty KPIs if no data to avoid processing delays
     if (!monthlyData || monthlyData.length === 0) {
       return {
@@ -164,7 +164,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     // Use last available month data for trend calculations
     const currentMonth = monthlyData[monthlyData.length - 1];
     const previousMonth = monthlyData.length > 1 ? monthlyData[monthlyData.length - 2] : null;
-    
+
     // Optimized trend calculation
     const calculateTrend = (currentValue: number, previousValue: number): number => {
       if (!previousValue || previousValue === 0) return 0;
@@ -216,21 +216,21 @@ const BusinessFinanceDashboard: React.FC = () => {
     try {
       setLoading(true);
       console.log('💼 Loading Business Finance data with cache refresh...');
-      
+
       // CRITICAL FIX: Force fresh data calculation for vendor purchases
       const months = parseInt(selectedPeriod);
       financeService.clearCache(); // Clear cache to ensure fresh data
-      
+
       // Fetch fresh data from database including vendor purchases
       const data = await financeService.getFinancialSummary(months);
       setFinancialData(data);
-      
+
       console.log('✅ Business Finance data refreshed:', {
         totalSales: data.businessMetrics.totalSales,
         totalPurchases: data.businessMetrics.totalPurchases,
         outstandingPayables: data.businessMetrics.outstandingPayables
       });
-      
+
     } catch (error) {
       console.error('Error loading financial data:', error);
       toast.error('Failed to load financial data');
@@ -258,7 +258,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     // Set up event listeners for vendor-related updates
     const eventListeners = [
       'VENDOR_PAYMENT_CREATED',
-      'STOCK_RECEIVING_COMPLETED', 
+      'STOCK_RECEIVING_COMPLETED',
       'VENDOR_PAYMENT_RECORDED',
       'BUSINESS_FINANCE_UPDATE',
       'VENDOR_FINANCIAL_UPDATED'
@@ -268,7 +268,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     const setupEventListeners = async () => {
       try {
         const { eventBus } = await import('../../utils/eventBus');
-        
+
         eventListeners.forEach(eventName => {
           eventBus.on(eventName, handleVendorEvents);
         });
@@ -280,7 +280,7 @@ const BusinessFinanceDashboard: React.FC = () => {
         };
       } catch (error) {
         console.warn('⚠️ Could not setup event listeners:', error);
-        return () => {}; // Return empty cleanup function
+        return () => { }; // Return empty cleanup function
       }
     };
 
@@ -292,7 +292,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     const timeoutId = setTimeout(() => {
       loadFinancialData();
     }, 100); // Small delay to ensure smooth mounting
-    
+
     return () => clearTimeout(timeoutId);
   }, [loadFinancialData]);
 
@@ -303,11 +303,11 @@ const BusinessFinanceDashboard: React.FC = () => {
         ...expenseForm,
         approved_by: user?.username || 'admin'
       });
-      
+
       toast.success('Expense recorded successfully');
       setShowExpenseModal(false);
       setExpenseForm({
-        date: new Date().toISOString().split('T')[0],
+        date: getCurrentSystemDateTime().dbDate,
         category: 'misc',
         description: '',
         amount: 0,
@@ -328,14 +328,14 @@ const BusinessFinanceDashboard: React.FC = () => {
       const a = document.createElement('a');
       a.style.display = 'none';
       a.href = url;
-      a.download = `financial-report-${new Date().toISOString().split('T')[0]}.csv`;
+      a.download = `financial-report-${getCurrentSystemDateTime().dbDate}.csv`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
-      
+
       // Log activity
       await activityLogger.logReportExported('Financial Report', 'CSV');
-      
+
       toast.success('Financial report exported successfully');
     } catch (error) {
       console.error('Error exporting report:', error);
@@ -353,7 +353,7 @@ const BusinessFinanceDashboard: React.FC = () => {
             <LoadingSkeleton className="h-4 w-96" />
           </div>
         </div>
-        
+
         {/* Simple Content Skeleton */}
         <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
@@ -404,9 +404,8 @@ const BusinessFinanceDashboard: React.FC = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-gray-900">Cash Flow Summary</h3>
-          <div className={`px-3 py-1 rounded-full text-sm font-medium ${
-            cashFlow.net >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}>
+          <div className={`px-3 py-1 rounded-full text-sm font-medium ${cashFlow.net >= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+            }`}>
             {cashFlow.net >= 0 ? 'Positive' : 'Negative'} Flow
           </div>
         </div>
@@ -432,9 +431,8 @@ const BusinessFinanceDashboard: React.FC = () => {
             </div>
           </div>
           <div className="text-center">
-            <div className={`text-3xl font-semibold mb-2 ${
-              cashFlow.net >= 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
+            <div className={`text-3xl font-semibold mb-2 ${cashFlow.net >= 0 ? 'text-green-600' : 'text-red-600'
+              }`}>
               {formatCurrency(cashFlow.net)}
             </div>
             <div className="text-sm font-medium text-gray-600">Net Cash Flow</div>
@@ -456,18 +454,18 @@ const BusinessFinanceDashboard: React.FC = () => {
                 <div className="flex items-center space-x-3">
                   <span className="text-sm font-medium text-gray-900 w-12">{data.month}</span>
                   <div className="flex space-x-2">
-                    <div 
+                    <div
                       className="h-6 bg-green-500 rounded flex items-center justify-center text-xs text-white font-medium"
-                      style={{ 
-                        width: `${Math.max((data.revenue / Math.max(...monthlyData.map(d => d.revenue))) * 120, 20)}px` 
+                      style={{
+                        width: `${Math.max((data.revenue / Math.max(...monthlyData.map(d => d.revenue))) * 120, 20)}px`
                       }}
                     >
                       R
                     </div>
-                    <div 
+                    <div
                       className="h-6 bg-red-500 rounded flex items-center justify-center text-xs text-white font-medium"
-                      style={{ 
-                        width: `${Math.max((data.expenses / Math.max(...monthlyData.map(d => d.expenses))) * 120, 20)}px` 
+                      style={{
+                        width: `${Math.max((data.expenses / Math.max(...monthlyData.map(d => d.expenses))) * 120, 20)}px`
                       }}
                     >
                       E
@@ -505,17 +503,16 @@ const BusinessFinanceDashboard: React.FC = () => {
             {expenseBreakdown.map((item, index) => {
               const trendColor = item.monthlyTrend >= 0 ? 'text-red-600' : 'text-green-600';
               const TrendIcon = item.monthlyTrend >= 0 ? ArrowUp : ArrowDown;
-              
+
               return (
                 <div key={index} className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <div 
-                      className={`w-4 h-4 rounded ${
-                        index === 0 ? 'bg-blue-500' :
+                    <div
+                      className={`w-4 h-4 rounded ${index === 0 ? 'bg-blue-500' :
                         index === 1 ? 'bg-green-500' :
-                        index === 2 ? 'bg-yellow-500' :
-                        index === 3 ? 'bg-purple-500' : 'bg-gray-500'
-                      }`}
+                          index === 2 ? 'bg-yellow-500' :
+                            index === 3 ? 'bg-purple-500' : 'bg-gray-500'
+                        }`}
                     ></div>
                     <span className="text-sm font-medium text-gray-900 capitalize">{item.category}</span>
                   </div>
@@ -624,7 +621,7 @@ const BusinessFinanceDashboard: React.FC = () => {
             </div>
           </div>
         </div>
-        
+
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -669,7 +666,7 @@ const BusinessFinanceDashboard: React.FC = () => {
             Add Expense
           </button>
         </div>
-        
+
         <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
@@ -684,18 +681,17 @@ const BusinessFinanceDashboard: React.FC = () => {
               {expenseBreakdown.map((item, index) => {
                 const trendColor = item.monthlyTrend >= 0 ? 'text-red-600' : 'text-green-600';
                 const TrendIcon = item.monthlyTrend >= 0 ? ArrowUp : ArrowDown;
-                
+
                 return (
                   <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4">
                       <div className="flex items-center space-x-3">
-                        <div 
-                          className={`w-3 h-3 rounded-full ${
-                            index === 0 ? 'bg-blue-500' :
+                        <div
+                          className={`w-3 h-3 rounded-full ${index === 0 ? 'bg-blue-500' :
                             index === 1 ? 'bg-green-500' :
-                            index === 2 ? 'bg-yellow-500' :
-                            index === 3 ? 'bg-purple-500' : 'bg-gray-500'
-                          }`}
+                              index === 2 ? 'bg-yellow-500' :
+                                index === 3 ? 'bg-purple-500' : 'bg-gray-500'
+                            }`}
                         ></div>
                         <span className="font-medium text-gray-900 capitalize">{item.category}</span>
                       </div>
@@ -843,22 +839,22 @@ const BusinessFinanceDashboard: React.FC = () => {
           {[...monthlyData].reverse().slice(0, 6).map((data, index) => {
             const netFlow = data.revenue - data.expenses;
             const flowColor = netFlow >= 0 ? 'text-green-600' : 'text-red-600';
-            
+
             return (
               <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
                 <div className="flex items-center space-x-4">
                   <span className="text-sm font-medium text-gray-900 w-12">{data.month}</span>
                   <div className="flex space-x-2">
-                    <div 
+                    <div
                       className="h-4 bg-green-500 rounded"
-                      style={{ 
-                        width: `${Math.max((data.revenue / Math.max(...monthlyData.map(d => d.revenue))) * 80, 10)}px` 
+                      style={{
+                        width: `${Math.max((data.revenue / Math.max(...monthlyData.map(d => d.revenue))) * 80, 10)}px`
                       }}
                     ></div>
-                    <div 
+                    <div
                       className="h-4 bg-red-500 rounded"
-                      style={{ 
-                        width: `${Math.max((data.expenses / Math.max(...monthlyData.map(d => d.expenses))) * 80, 10)}px` 
+                      style={{
+                        width: `${Math.max((data.expenses / Math.max(...monthlyData.map(d => d.expenses))) * 80, 10)}px`
                       }}
                     ></div>
                   </div>
@@ -891,7 +887,7 @@ const BusinessFinanceDashboard: React.FC = () => {
         return (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-6">Monthly Profit Trend Analysis</h3>
-            
+
             {monthlyData && monthlyData.length > 0 ? (
               <>
                 <div className="overflow-x-auto">
@@ -914,10 +910,10 @@ const BusinessFinanceDashboard: React.FC = () => {
                         const grossProfit = revenue - steelCost;
                         const netProfit = data.profit || (revenue - expenses);
                         const profitMargin = revenue > 0 ? ((netProfit / revenue) * 100) : 0;
-                        
+
                         return (
                           <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                            <td className="py-3 px-4 font-medium text-gray-900">{data.month} {new Date().getFullYear()}</td>
+                            <td className="py-3 px-4 font-medium text-gray-900">{data.month} {getCurrentSystemDateTime().raw.getFullYear()}</td>
                             <td className="py-3 px-4 text-gray-600">{formatCurrency(revenue)}</td>
                             <td className="py-3 px-4 text-gray-600">{formatCurrency(steelCost)}</td>
                             <td className="py-3 px-4 text-green-600 font-medium">{formatCurrency(grossProfit)}</td>
@@ -932,7 +928,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-                
+
                 {/* Summary Cards for Quick Overview */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6">
                   <div className="bg-gray-50 rounded-lg p-4">
@@ -1051,10 +1047,10 @@ const BusinessFinanceDashboard: React.FC = () => {
       {/* Simplified Main Content */}
       <div className="max-w-7xl mx-auto px-6 py-6">
         {/* Tab Navigation */}
-        <TabNavigation 
-          tabs={tabs} 
-          activeTab={activeTab} 
-          onTabChange={setActiveTab} 
+        <TabNavigation
+          tabs={tabs}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
         />
 
         {/* Tab Content */}
@@ -1067,28 +1063,28 @@ const BusinessFinanceDashboard: React.FC = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
-              { 
-                icon: Activity, 
-                label: 'Generate Report', 
+              {
+                icon: Activity,
+                label: 'Generate Report',
                 action: () => exportReport()
               },
-              { 
-                icon: Users, 
-                label: 'Customer Ledger', 
+              {
+                icon: Users,
+                label: 'Customer Ledger',
                 action: () => setActiveTab('Outstanding')
               },
-              { 
-                icon: Truck, 
-                label: 'Vendor Payments', 
+              {
+                icon: Truck,
+                label: 'Vendor Payments',
                 action: () => setShowPayablesModal(true)
               },
-              { 
-                icon: Building2, 
-                label: 'Cash Management', 
+              {
+                icon: Building2,
+                label: 'Cash Management',
                 action: () => setActiveTab('Cash Flow')
               }
             ].map((action, index) => (
-              <button 
+              <button
                 key={index}
                 onClick={action.action}
                 className="flex items-center justify-center px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-colors"
@@ -1121,7 +1117,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                   <input
                     type="date"
                     value={expenseForm.date}
-                    onChange={(e) => setExpenseForm({...expenseForm, date: e.target.value})}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, date: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     required
                   />
@@ -1130,7 +1126,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
                   <select
                     value={expenseForm.category}
-                    onChange={(e) => setExpenseForm({...expenseForm, category: e.target.value as any})}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, category: e.target.value as any })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     required
                   >
@@ -1147,7 +1143,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                 <input
                   type="text"
                   value={expenseForm.description}
-                  onChange={(e) => setExpenseForm({...expenseForm, description: e.target.value})}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, description: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter expense description..."
                   required
@@ -1160,7 +1156,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                     type="number"
                     step="0.1"
                     value={expenseForm.amount}
-                    onChange={(e) => setExpenseForm({...expenseForm, amount: parseFloat(e.target.value) || 0})}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, amount: parseFloat(e.target.value) || 0 })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="0.0"
                     required
@@ -1170,7 +1166,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">Payment Method</label>
                   <select
                     value={expenseForm.payment_method}
-                    onChange={(e) => setExpenseForm({...expenseForm, payment_method: e.target.value as any})}
+                    onChange={(e) => setExpenseForm({ ...expenseForm, payment_method: e.target.value as any })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     required
                   >
@@ -1185,7 +1181,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                 <input
                   type="text"
                   value={expenseForm.reference_number || ''}
-                  onChange={(e) => setExpenseForm({...expenseForm, reference_number: e.target.value})}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, reference_number: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="Enter reference number..."
                 />
@@ -1194,7 +1190,7 @@ const BusinessFinanceDashboard: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Notes (Optional)</label>
                 <textarea
                   value={expenseForm.notes || ''}
-                  onChange={(e) => setExpenseForm({...expenseForm, notes: e.target.value})}
+                  onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   rows={3}
                   placeholder="Add any additional notes..."
@@ -1254,13 +1250,12 @@ const BusinessFinanceDashboard: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-gray-600">{customer.days_overdue}</td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          customer.days_overdue > 30 ? 'bg-red-100 text-red-800' :
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${customer.days_overdue > 30 ? 'bg-red-100 text-red-800' :
                           customer.days_overdue > 7 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>
+                            'bg-green-100 text-green-800'
+                          }`}>
                           {customer.days_overdue > 30 ? 'Critical' :
-                           customer.days_overdue > 7 ? 'Warning' : 'Normal'}
+                            customer.days_overdue > 7 ? 'Warning' : 'Normal'}
                         </span>
                       </td>
                     </tr>
@@ -1307,13 +1302,12 @@ const BusinessFinanceDashboard: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-gray-600">{vendor.days_overdue}</td>
                       <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          vendor.days_overdue > 30 ? 'bg-red-100 text-red-800' :
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${vendor.days_overdue > 30 ? 'bg-red-100 text-red-800' :
                           vendor.days_overdue > 7 ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-green-100 text-green-800'
-                        }`}>
+                            'bg-green-100 text-green-800'
+                          }`}>
                           {vendor.days_overdue > 30 ? 'Critical' :
-                           vendor.days_overdue > 7 ? 'Warning' : 'Normal'}
+                            vendor.days_overdue > 7 ? 'Warning' : 'Normal'}
                         </span>
                       </td>
                       <td className="py-3 px-4">

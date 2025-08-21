@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatTime, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
 import { formatReceivingNumber } from '../../utils/numberFormatting';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { emitPaymentEvents } from '../../services/dashboardRealTimeUpdater';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import toast from 'react-hot-toast';
 
 interface PaymentForm {
-  
+
   amount: number;
   payment_method: string;
   payment_channel_id: number;
@@ -23,17 +24,17 @@ interface PaymentForm {
 }
 
 const StockReceivingPayment: React.FC = () => {
-    const [showOptional, setShowOptional] = useState(false);
+  const [showOptional, setShowOptional] = useState(false);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const activityLogger = useActivityLogger();
-  
+
   const [receiving, setReceiving] = useState<any>(null);
   const [, setVendor] = useState<any>(null);
   const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const [form, setForm] = useState<PaymentForm>({
     amount: 0,
     payment_method: 'cash',
@@ -43,7 +44,7 @@ const StockReceivingPayment: React.FC = () => {
     cheque_number: '',
     cheque_date: '',
     notes: '',
-    date: new Date().toISOString().split('T')[0]
+    date: getCurrentSystemDateTime().dbDate
   });
 
   useEffect(() => {
@@ -59,50 +60,50 @@ const StockReceivingPayment: React.FC = () => {
         db.getStockReceivingById(receivingId), // Use specific method instead of filtering list
         db.getVendors()
       ]);
-      
+
       // Load payment channels from database
       console.log('🔄 [StockReceiving] Loading payment channels...');
       const channels = await db.getPaymentChannels();
       console.log('✅ [StockReceiving] Payment channels loaded:', channels);
       console.log('📊 [StockReceiving] Channel count:', channels?.length || 0);
-      
+
       if (!channels || channels.length === 0) {
         console.error('❌ [StockReceiving] No payment channels found');
         toast.error('No payment channels found. Please set up payment channels first.');
         return;
       }
-      
+
       if (!receivingRecord) {
         toast.error('Stock receiving record not found');
         navigate('/stock/receiving');
         return;
       }
-      
+
       const vendorRecord = vendors.find((v: any) => v.id === receivingRecord.vendor_id);
-      
+
       setReceiving(receivingRecord);
       setVendor(vendorRecord);
       setPaymentChannels(channels);
-      
+
       // Debug logging for NaN issue
       console.log('Receiving record:', receivingRecord);
       console.log('Remaining balance:', receivingRecord.remaining_balance, typeof receivingRecord.remaining_balance);
-      
+
       // Set default payment amount to remaining balance with proper 1 decimal precision
       const remainingBalance = receivingRecord.remaining_balance;
-      const safeRemainingBalance = (typeof remainingBalance === 'number' && !isNaN(remainingBalance) && remainingBalance > 0) 
+      const safeRemainingBalance = (typeof remainingBalance === 'number' && !isNaN(remainingBalance) && remainingBalance > 0)
         ? Math.round((remainingBalance + Number.EPSILON) * 10) / 10
         : 0;
-      
+
       console.log('Safe remaining balance:', safeRemainingBalance);
-      
+
       setForm(prev => ({
         ...prev,
         amount: safeRemainingBalance,
         payment_channel_id: channels[0]?.id || 1,
         payment_channel_name: channels[0]?.name || 'Cash'
       }));
-      
+
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load receiving data');
@@ -126,22 +127,22 @@ const StockReceivingPayment: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!receiving) {
       toast.error('No receiving record found');
       return;
     }
-    
+
     if (!form.amount || form.amount <= 0 || isNaN(form.amount)) {
       toast.error('Payment amount must be greater than 0');
       return;
     }
-    
+
     if (form.amount > (receiving?.remaining_balance || 0)) {
       toast.error('Payment amount cannot exceed remaining balance');
       return;
     }
-    
+
     if (form.payment_method === 'cheque' && !form.cheque_number) {
       toast.error('Cheque number is required for cheque payments');
       return;
@@ -154,7 +155,7 @@ const StockReceivingPayment: React.FC = () => {
 
     try {
       setSubmitting(true);
-      
+
       console.log('Submitting payment with data:', {
         vendor_id: receiving.vendor_id,
         vendor_name: receiving.vendor_name,
@@ -167,14 +168,10 @@ const StockReceivingPayment: React.FC = () => {
         cheque_date: form.cheque_date,
         notes: form.notes,
         date: form.date,
-        time: new Date().toLocaleTimeString('en-PK', { 
-          hour: '2-digit', 
-          minute: '2-digit', 
-          hour12: true 
-        }),
+        time: formatTime(new Date()),
         created_by: 'admin' // In real app, get from auth context
       });
-      
+
       // Create vendor payment record
       let paymentId;
       try {
@@ -190,29 +187,25 @@ const StockReceivingPayment: React.FC = () => {
           cheque_date: form.cheque_date,
           notes: form.notes,
           date: form.date,
-          time: new Date().toLocaleTimeString('en-PK', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            hour12: true 
-          }),
+          time: getCurrentSystemDateTime().dbTime,
           created_by: 'admin' // In real app, get from auth context
         });
 
         console.log('✅ Vendor payment created successfully with ID:', paymentId);
-        
+
       } catch (vendorError: any) {
         console.error('❌ Vendor payment creation failed:', vendorError);
-        
+
         // If vendor payment fails due to foreign key constraint, handle gracefully
         if (vendorError.message?.includes('FOREIGN KEY constraint failed')) {
           console.warn('⚠️ Vendor not found, attempting alternative payment recording...');
-          
+
           // Try to recreate the vendor first if it's missing
           let vendorRecreated = false;
           try {
             const existingVendors = await db.getVendors();
             const vendorExists = existingVendors.some(v => v.id === receiving.vendor_id);
-            
+
             if (!vendorExists) {
               console.log('🔧 Attempting to recreate missing vendor...');
               const newVendorId = await db.createVendor({
@@ -220,11 +213,11 @@ const StockReceivingPayment: React.FC = () => {
                 company_name: receiving.vendor_name,
                 notes: `Recreated vendor for stock receiving payment processing`
               });
-              
+
               if (newVendorId === receiving.vendor_id) {
                 vendorRecreated = true;
                 console.log('✅ Vendor recreated successfully, retrying payment...');
-                
+
                 // Retry the vendor payment creation
                 paymentId = await db.createVendorPayment({
                   vendor_id: receiving.vendor_id,
@@ -238,11 +231,7 @@ const StockReceivingPayment: React.FC = () => {
                   cheque_date: form.cheque_date,
                   notes: form.notes,
                   date: form.date,
-                  time: new Date().toLocaleTimeString('en-PK', { 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    hour12: true 
-                  }),
+                  time: getCurrentSystemDateTime().dbTime,
                   created_by: 'admin'
                 });
               }
@@ -250,11 +239,11 @@ const StockReceivingPayment: React.FC = () => {
           } catch (recreateError) {
             console.error('❌ Failed to recreate vendor:', recreateError);
           }
-          
+
           // If vendor recreation failed or couldn't match ID, fallback to daily ledger
           if (!vendorRecreated) {
             console.warn('⚠️ Using fallback: Recording payment in daily ledger instead');
-            
+
             await db.createDailyLedgerEntry({
               type: 'outgoing',
               amount: form.amount,
@@ -267,7 +256,7 @@ const StockReceivingPayment: React.FC = () => {
               notes: `${form.notes || ''} | Original vendor ID: ${receiving.vendor_id} | Fallback payment due to missing vendor record`,
               is_manual: true
             });
-            
+
             paymentId = 0; // Indicate alternative payment method was used
             console.warn('⚠️ Payment recorded in daily ledger due to missing vendor.');
           }
@@ -276,15 +265,15 @@ const StockReceivingPayment: React.FC = () => {
           throw vendorError;
         }
       }
-      
+
       console.log('Payment created with ID:', paymentId);
-      
+
       // Update stock receiving payment status
       await db.updateStockReceivingPayment(receiving.id, form.amount);
-      
+
       // Emit real-time events for dashboard updates
       console.log('🚀 Emitting real-time events for payment...');
-      
+
       // Emit vendor payment events
       emitPaymentEvents({
         paymentId: paymentId || 0,
@@ -295,7 +284,7 @@ const StockReceivingPayment: React.FC = () => {
         invoiceId: undefined,
         billNumber: receiving.receiving_number
       });
-      
+
       // Emit vendor payment created event
       eventBus.emit(BUSINESS_EVENTS.VENDOR_PAYMENT_CREATED, {
         vendorPaymentId: paymentId,
@@ -308,14 +297,14 @@ const StockReceivingPayment: React.FC = () => {
         paymentChannel: form.payment_channel_name,
         date: form.date
       });
-      
+
       // Emit vendor balance updated event
       eventBus.emit(BUSINESS_EVENTS.VENDOR_BALANCE_UPDATED, {
         vendorId: receiving.vendor_id,
         vendorName: receiving.vendor_name,
         paymentAmount: form.amount
       });
-      
+
       // Emit general payment recorded event for dashboard
       eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, {
         paymentId: paymentId || 0,
@@ -327,21 +316,21 @@ const StockReceivingPayment: React.FC = () => {
         date: form.date,
         method: form.payment_method
       });
-      
+
       console.log('✅ Real-time events emitted successfully');
-      
+
       // Log the payment recording activity
       const paymentDescription = (paymentId && paymentId > 0)
         ? `Recorded payment of ₹${form.amount.toFixed(1)} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
         : `Recorded payment of ₹${form.amount.toFixed(1)} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''} - Vendor not found, recorded in daily ledger`;
-      
+
       activityLogger.logCustomActivity(
         ActivityType.PAYMENT,
         ModuleType.PAYMENTS,
         paymentId || 0,
         paymentDescription
       );
-      
+
       if (!paymentId || paymentId === 0) {
         toast.success('Payment recorded successfully in daily ledger!', {
           duration: 5000,
@@ -352,7 +341,7 @@ const StockReceivingPayment: React.FC = () => {
       }
       // Navigate back to the receiving detail page to show updated data
       navigate(`/stock/receiving/${receiving.id}`);
-      
+
     } catch (error: any) {
       console.error('Error recording payment:', error);
       toast.error(error.message || 'Failed to record payment');
@@ -431,7 +420,7 @@ const StockReceivingPayment: React.FC = () => {
             <p className="text-sm font-semibold text-red-600">{formatCurrency(receiving?.remaining_balance || 0)}</p>
           </div>
         </div>
-        
+
         {receiving.notes && (
           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
             <label className="block text-sm text-gray-500 mb-1">Notes</label>
@@ -444,7 +433,7 @@ const StockReceivingPayment: React.FC = () => {
       <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-6">Payment Information</h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Payment Amount */}
             <div>
@@ -487,7 +476,7 @@ const StockReceivingPayment: React.FC = () => {
                 Maximum: {formatCurrency(receiving?.remaining_balance || 0)}
               </p>
             </div>
-            
+
             {/* Payment Date */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -495,13 +484,13 @@ const StockReceivingPayment: React.FC = () => {
               </label>
               <input
                 type="date"
-                value={form.date || new Date().toISOString().split('T')[0]}
-                onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value || new Date().toISOString().split('T')[0] }))}
+                value={form.date || getCurrentSystemDateTime().dbDate}
+                onChange={(e) => setForm(prev => ({ ...prev, date: e.target.value || getCurrentSystemDateTime().dbDate }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               />
             </div>
-            
+
             {/* Payment Method */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -520,7 +509,7 @@ const StockReceivingPayment: React.FC = () => {
                 ))}
               </select>
             </div>
-            
+
             {/* Cheque specific fields */}
             {form.payment_method === 'cheque' && (
               <>
@@ -537,7 +526,7 @@ const StockReceivingPayment: React.FC = () => {
                     required
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Cheque Date
@@ -548,61 +537,61 @@ const StockReceivingPayment: React.FC = () => {
                     onChange={(e) => setForm(prev => ({ ...prev, cheque_date: e.target.value || '' }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
-                </div>  
+                </div>
               </>
             )}
           </div>
-            {/* Add a small vertical gap for visual separation */}
-            <div className="my-4" />
-           {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
-        <div>
-          <button
-            type="button"
-            className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            onClick={() => setShowOptional((v) => !v)}
-            aria-expanded={showOptional}
-            disabled={loading}
-          >
-            <span className="tracking-wide">Optional Details</span>
-            <svg
-              className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
+          {/* Add a small vertical gap for visual separation */}
+          <div className="my-4" />
+          {/* Optional Fields: Size and Grade (Consistent Collapsible Card) */}
+          <div>
+            <button
+              type="button"
+              className="flex items-center w-full justify-between rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+              onClick={() => setShowOptional((v) => !v)}
+              aria-expanded={showOptional}
+              disabled={loading}
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-          <div
-            className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
-            style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
-          >
-           {/* Reference Number */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Reference Number
-              </label>
-              <input
-                type="text"
-                value={form.reference_number || ''}
-                onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value || '' }))}
-                placeholder="Transaction reference (optional)"
-                className="w-6/12 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              />
+              <span className="tracking-wide">Optional Details</span>
+              <svg
+                className={`h-5 w-5 ml-2 transition-transform duration-200 ${showOptional ? 'rotate-90' : 'rotate-0'}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+            <div
+              className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
+              style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
+            >
+              {/* Reference Number */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Reference Number
+                </label>
+                <input
+                  type="text"
+                  value={form.reference_number || ''}
+                  onChange={(e) => setForm(prev => ({ ...prev, reference_number: e.target.value || '' }))}
+                  placeholder="Transaction reference (optional)"
+                  className="w-6/12 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
+              </div>
+              {/* Notes */}
+              <div className="mt-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
+                <textarea
+                  value={form.notes || ''}
+                  onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value || '' }))}
+                  rows={3}
+                  placeholder="Additional notes about this payment..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
+              </div>
             </div>
-          {/* Notes */}
-          <div className="mt-6">
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Notes</label>
-            <textarea
-              value={form.notes || ''}
-              onChange={(e) => setForm(prev => ({ ...prev, notes: e.target.value || '' }))}
-              rows={3}
-              placeholder="Additional notes about this payment..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            />
-          </div>
-          </div>
           </div>
           {/* Payment Summary */}
           {form.amount > 0 && (
@@ -625,7 +614,7 @@ const StockReceivingPayment: React.FC = () => {
           )}
         </div>
 
-      
+
 
         {/* Actions - Simple Button Layout */}
         <div className="flex items-center justify-end gap-3 pt-6 border-t border-gray-200">

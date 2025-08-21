@@ -1,4 +1,5 @@
 import { DATABASE_SCHEMAS, DATABASE_INDEXES, validateTableSchema, getStaffManagementExpectedColumns } from './database-schemas';
+import { getCurrentSystemDateTime } from '../utils/systemDateTime';
 
 /**
  * CENTRALIZED SCHEMA MANAGER
@@ -18,19 +19,19 @@ export class DatabaseSchemaManager {
    */
   async createStaffManagementTable(): Promise<void> {
     console.log('🔧 Creating staff_management table with centralized schema...');
-    
+
     try {
       // Drop existing table if it has wrong schema
       await this.ensureCorrectStaffManagementSchema();
-      
+
       // Create table with definitive schema
       await this.dbConnection.execute(DATABASE_SCHEMAS.STAFF_MANAGEMENT);
-      
+
       // Create performance indexes
       for (const indexQuery of DATABASE_INDEXES.STAFF_MANAGEMENT) {
         await this.dbConnection.execute(indexQuery);
       }
-      
+
       console.log('✅ Staff management table created with correct schema');
     } catch (error) {
       console.error('❌ Failed to create staff_management table:', error);
@@ -44,13 +45,13 @@ export class DatabaseSchemaManager {
    */
   async ensureCorrectStaffManagementSchema(): Promise<void> {
     console.log('🔍 Validating staff_management table schema...');
-    
+
     try {
       // PRODUCTION FIX: Wait for database to be ready before validating
       console.log('⏳ Waiting for database connection to be ready...');
       await this.dbConnection.waitForReady(5000);
       console.log('✅ Database connection confirmed ready');
-      
+
       // Check if table exists
       const tableExists = await this.dbConnection.select(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='staff_management'"
@@ -64,14 +65,14 @@ export class DatabaseSchemaManager {
       // Get current table schema
       const tableInfo = await this.dbConnection.select("PRAGMA table_info(staff_management)");
       const expectedColumns = getStaffManagementExpectedColumns();
-      
+
       console.log('📋 Current columns:', tableInfo.map((col: any) => col.name).join(', '));
-      
+
       // Check if schema is correct
       const hasCorrectSchema = validateTableSchema(tableInfo, expectedColumns);
       const hasNameColumn = tableInfo.some((col: any) => col.name === 'name');
       const hasFullNameColumn = tableInfo.some((col: any) => col.name === 'full_name');
-      
+
       if (hasNameColumn && !hasCorrectSchema) {
         console.log('🔄 Found incorrect schema with "name" column, recreating table...');
         await this.recreateStaffManagementTable();
@@ -84,7 +85,7 @@ export class DatabaseSchemaManager {
       } else {
         console.log('✅ Staff management table schema is correct');
       }
-      
+
     } catch (error) {
       console.error('❌ Failed to validate staff_management schema:', error);
       throw error;
@@ -97,7 +98,7 @@ export class DatabaseSchemaManager {
    */
   private async recreateStaffManagementTable(): Promise<void> {
     console.log('🔄 Recreating staff_management table with correct schema...');
-    
+
     try {
       // Step 1: Backup existing data
       let existingData: any[] = [];
@@ -139,7 +140,7 @@ export class DatabaseSchemaManager {
    */
   private async migrateStaffData(existingData: any[]): Promise<void> {
     console.log('🔄 Migrating staff data to new schema...');
-    
+
     for (const staff of existingData) {
       try {
         const migratedStaff = {
@@ -151,7 +152,7 @@ export class DatabaseSchemaManager {
           email: staff.email,
           role: staff.role || 'worker',
           department: staff.department || 'general',
-          hire_date: staff.hire_date || staff.joining_date || new Date().toISOString().split('T')[0],
+          hire_date: staff.hire_date || staff.joining_date || getCurrentSystemDateTime().dbDate,
           joining_date: staff.joining_date,
           salary: staff.salary || staff.basic_salary || 0,
           basic_salary: staff.basic_salary || staff.salary || 0,
@@ -168,8 +169,8 @@ export class DatabaseSchemaManager {
           password_hash: staff.password_hash,
           notes: staff.notes,
           created_by: staff.created_by || 'system',
-          created_at: staff.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          created_at: staff.created_at || getCurrentSystemDateTime().dateTime,
+          updated_at: getCurrentSystemDateTime().dateTime
         };
 
         await this.dbConnection.execute(`
@@ -202,37 +203,37 @@ export class DatabaseSchemaManager {
    */
   async createAllManagementTables(): Promise<void> {
     console.log('🔧 Creating all management tables with centralized schemas...');
-    
+
     try {
       // Staff management table (most critical)
       await this.createStaffManagementTable();
-      
+
       // Staff sessions table
       await this.dbConnection.execute(DATABASE_SCHEMAS.STAFF_SESSIONS);
       for (const indexQuery of DATABASE_INDEXES.STAFF_MANAGEMENT.filter(q => q.includes('staff_sessions'))) {
         await this.dbConnection.execute(indexQuery);
       }
-      
+
       // Salary payments table
       await this.dbConnection.execute(DATABASE_SCHEMAS.SALARY_PAYMENTS);
       for (const indexQuery of DATABASE_INDEXES.SALARY_PAYMENTS) {
         await this.dbConnection.execute(indexQuery);
       }
-      
+
       // Business expenses table
       await this.dbConnection.execute(DATABASE_SCHEMAS.BUSINESS_EXPENSES);
       for (const indexQuery of DATABASE_INDEXES.BUSINESS_EXPENSES) {
         await this.dbConnection.execute(indexQuery);
       }
-      
+
       // Audit logs table
       await this.dbConnection.execute(DATABASE_SCHEMAS.AUDIT_LOGS);
       for (const indexQuery of DATABASE_INDEXES.AUDIT_LOGS) {
         await this.dbConnection.execute(indexQuery);
       }
-      
+
       console.log('✅ All management tables created with centralized schemas');
-      
+
     } catch (error) {
       console.error('❌ Failed to create management tables:', error);
       throw error;
@@ -244,23 +245,23 @@ export class DatabaseSchemaManager {
    */
   async validateAllSchemas(): Promise<{ valid: boolean; issues: string[] }> {
     const issues: string[] = [];
-    
+
     try {
       // Validate staff_management table
       const staffTableInfo = await this.dbConnection.select("PRAGMA table_info(staff_management)");
       const staffExpectedColumns = getStaffManagementExpectedColumns();
-      
+
       if (!validateTableSchema(staffTableInfo, staffExpectedColumns)) {
         issues.push('staff_management table schema is incorrect');
       }
-      
+
       // Add validation for other tables as needed
-      
+
       return {
         valid: issues.length === 0,
         issues
       };
-      
+
     } catch (error) {
       issues.push(`Schema validation failed: ${error}`);
       return { valid: false, issues };

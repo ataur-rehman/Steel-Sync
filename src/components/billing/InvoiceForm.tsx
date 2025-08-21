@@ -7,6 +7,7 @@ import { formatUnitString, parseUnit, hasSufficientStock, getStockAsNumber, getA
 import { parseCurrency, roundCurrency, addCurrency, subtractCurrency } from '../../utils/currency';
 import { calculateTotal, calculateDiscount, formatCurrency } from '../../utils/calculations';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
+import { getSystemDateForInput, getSystemTimeForInput } from '../../utils/systemDateTime';
 import Modal from '../common/Modal';
 import CustomerForm from '../customers/CustomerForm';
 import { TIronCalculator } from './TIronCalculator';
@@ -86,13 +87,14 @@ interface InvoiceItem {
 }
 
 interface InvoiceFormData {
-
   customer_id: number | null;
   items: InvoiceItem[];
   discount: number;
   payment_amount: number;
   payment_method: string;
   notes: string;
+  date: string; // Date in YYYY-MM-DD format for input
+  time: string; // Time in HH:MM format for input
 }
 
 interface StockPreview {
@@ -141,7 +143,9 @@ const InvoiceForm: React.FC = () => {
     discount: 0,
     payment_amount: 0,
     payment_method: 'cash',
-    notes: ''
+    notes: '',
+    date: getSystemDateForInput(), // Current system date in YYYY-MM-DD format
+    time: getSystemTimeForInput()  // Current system time in HH:MM format
   });
 
   // Payment channels state
@@ -1196,7 +1200,9 @@ const InvoiceForm: React.FC = () => {
         payment_method: formData.payment_method,
         payment_channel_id: selectedPaymentChannel?.id || null,
         payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
-        notes: formData.notes
+        notes: formData.notes,
+        date: formData.date, // User-selected or current system date
+        time: formData.time  // User-selected or current system time
       };
 
       // Debug: Log items with L/pcs data before sending to database
@@ -1360,7 +1366,9 @@ const InvoiceForm: React.FC = () => {
       discount: 0,
       payment_amount: 0,
       payment_method: paymentChannels.length > 0 ? paymentChannels[0].name : 'cash',
-      notes: ''
+      notes: '',
+      date: getSystemDateForInput(), // Reset to current system date
+      time: getSystemTimeForInput()  // Reset to current system time
     });
     setSelectedCustomer(null);
     setCustomerSearch('');
@@ -2302,8 +2310,49 @@ const InvoiceForm: React.FC = () => {
               className={`overflow-hidden transition-all duration-300 bg-white border-x border-b border-gray-200 rounded-b-lg ${showOptional ? 'max-h-[500px] p-4 opacity-100' : 'max-h-0 p-0 opacity-0'}`}
               style={{ pointerEvents: showOptional ? 'auto' : 'none' }}
             >
-              {/* REDESIGNED: Notes */}
+              {/* Date and Time Fields */}
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Invoice Date</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="date"
+                      value={formData.date}
+                      onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                      className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, date: getSystemDateForInput() }))}
+                      className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                      title="Set to current date"
+                    >
+                      Now
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Invoice Time</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="time"
+                      value={formData.time}
+                      onChange={(e) => setFormData(prev => ({ ...prev, time: e.target.value }))}
+                      className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, time: getSystemTimeForInput() }))}
+                      className="px-2 py-1 text-xs text-blue-600 hover:text-blue-800 border border-blue-300 rounded hover:bg-blue-50"
+                      title="Set to current time"
+                    >
+                      Now
+                    </button>
+                  </div>
+                </div>
+              </div>
 
+              {/* REDESIGNED: Notes */}
               <label className="block text-sm font-medium text-gray-700 mb-2">Notes (Optional)</label>
               <textarea
                 value={formData.notes}

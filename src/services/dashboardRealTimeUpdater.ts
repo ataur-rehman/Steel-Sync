@@ -34,7 +34,7 @@ class DashboardRealTimeUpdater {
 
     // Subscribe to all relevant business events
     this.setupEventListeners();
-    
+
     this.isInitialized = true;
     console.log('✅ Dashboard Real-Time Update System initialized');
   }
@@ -44,7 +44,7 @@ class DashboardRealTimeUpdater {
    */
   onDashboardUpdate(callback: () => void): () => void {
     this.dashboardUpdateCallbacks.add(callback);
-    
+
     // Return cleanup function
     return () => {
       this.dashboardUpdateCallbacks.delete(callback);
@@ -147,7 +147,7 @@ class DashboardRealTimeUpdater {
     // Set new timeout for debounced update
     this.debounceTimeout = setTimeout(() => {
       console.log(`🔄 Dashboard: Executing update (reason: ${reason})`);
-      
+
       // Call all registered callbacks
       this.dashboardUpdateCallbacks.forEach(callback => {
         try {
@@ -167,14 +167,20 @@ class DashboardRealTimeUpdater {
   async checkAndUpdateLowStockAlerts(): Promise<void> {
     try {
       const products = await this.db.getAllProducts();
-      const lowStockProducts = products.filter((product: any) => {
+
+      // Filter out non-stock products (track_inventory = 0) from low stock checks
+      const stockProducts = products.filter((product: any) =>
+        product.track_inventory === 1 || product.track_inventory === true || product.track_inventory === undefined || product.track_inventory === null
+      );
+
+      const lowStockProducts = stockProducts.filter((product: any) => {
         const currentStock = this.parseStockValue(product.current_stock);
         const minStock = this.parseStockValue(product.min_stock_alert);
         return currentStock <= minStock && minStock > 0;
       });
 
       // Check for products that were low stock but are now above minimum
-      const allProducts = products.filter((product: any) => {
+      const allProducts = stockProducts.filter((product: any) => {
         const currentStock = this.parseStockValue(product.current_stock);
         const minStock = this.parseStockValue(product.min_stock_alert);
         return currentStock > minStock && minStock > 0;
@@ -198,7 +204,7 @@ class DashboardRealTimeUpdater {
    */
   private parseStockValue(stockString: string): number {
     if (!stockString) return 0;
-    
+
     // Extract numeric value from "10 kg" format
     const match = stockString.toString().match(/^([\d.]+)/);
     return match ? parseFloat(match[1]) : 0;
@@ -210,7 +216,7 @@ class DashboardRealTimeUpdater {
   async forceRefresh(): Promise<void> {
     console.log('🔄 Dashboard: Force refresh requested');
     this.triggerDashboardUpdate('manual_refresh');
-    
+
     // Also check low stock alerts
     await this.checkAndUpdateLowStockAlerts();
   }

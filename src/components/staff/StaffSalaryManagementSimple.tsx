@@ -10,6 +10,8 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
+import { formatDate, formatTime, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
+import { getCurrentSystemDateTime, createSalaryPeriod } from '../../utils/systemDateTime';
 
 // Types matching centralized database schema
 interface Staff {
@@ -64,7 +66,7 @@ const StaffSalaryManagement: React.FC = () => {
 
     const [formData, setFormData] = useState<SalaryFormData>({
         staff_id: '',
-        salary_month: new Date().toISOString().substring(0, 7), // YYYY-MM format
+        salary_month: createSalaryPeriod().month, // YYYY-MM format
         total_salary: '',
         payment_amount: '',
         payment_channel_id: '',
@@ -198,8 +200,7 @@ const StaffSalaryManagement: React.FC = () => {
 
             const selectedChannel = paymentChannels.find(c => c.id === parseInt(formData.payment_channel_id));
 
-            const currentDate = new Date().toISOString().split('T')[0];
-            const currentTime = new Date().toLocaleTimeString();
+            const { dbDate, dbTime } = getCurrentSystemDateTime();
             const paymentNumber = `SAL-${Date.now()}`;
 
             // Convert month to pay period dates
@@ -236,7 +237,7 @@ const StaffSalaryManagement: React.FC = () => {
                 selectedChannel?.id || null,
                 selectedChannel?.name || 'Cash',
                 'completed',
-                currentDate,
+                dbDate,
                 'system'
             ]);
 
@@ -252,8 +253,8 @@ const StaffSalaryManagement: React.FC = () => {
                 'outgoing',
                 paymentAmount,
                 `Salary payment for ${selectedStaff.name} (${formData.salary_month})`,
-                currentDate,
-                currentTime,
+                dbDate,
+                dbTime,
                 'salary',          // Must be from: 'invoice', 'payment', 'adjustment', 'expense', 'income', 'salary', 'other'
                 selectedStaff.id,
                 paymentNumber,
@@ -278,7 +279,7 @@ const StaffSalaryManagement: React.FC = () => {
     const resetForm = () => {
         setFormData({
             staff_id: '',
-            salary_month: new Date().toISOString().substring(0, 7),
+            salary_month: createSalaryPeriod().month,
             total_salary: '',
             payment_amount: '',
             payment_channel_id: '',
@@ -291,7 +292,7 @@ const StaffSalaryManagement: React.FC = () => {
         setSelectedStaff(staffMember);
         setFormData({
             staff_id: staffMember.id.toString(),
-            salary_month: new Date().toISOString().substring(0, 7),
+            salary_month: createSalaryPeriod().month,
             total_salary: staffMember.salary.toString(),
             payment_amount: staffMember.salary.toString(),
             payment_channel_id: '',
@@ -410,7 +411,7 @@ const StaffSalaryManagement: React.FC = () => {
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                         <div>{payment.payment_date}</div>
                                         <div className="text-xs text-gray-500">
-                                            {new Date(payment.created_at).toLocaleTimeString()}
+                                            {formatTime(new Date(payment.created_at))}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">

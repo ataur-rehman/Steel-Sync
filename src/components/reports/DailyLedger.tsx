@@ -1,4 +1,3 @@
-// Fixed Daily Ledger with Proper Data Interconnections
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
@@ -6,6 +5,8 @@ import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
+import { formatDate, formatTime, formatDateTime, formatDateForDatabase, formatTimeForDatabase, getSystemDateTime } from '../../utils/formatters';
+import { getSystemDateForInput } from '../../utils/systemDateTime';
 import {
   Calendar,
   TrendingUp,
@@ -102,7 +103,8 @@ const DailyLedger: React.FC = () => {
   const activityLogger = useActivityLogger();
 
   // Core state
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  // Use centralized system date/time formatting
+  const [selectedDate, setSelectedDate] = useState(formatDateForDatabase());
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -128,7 +130,7 @@ const DailyLedger: React.FC = () => {
     payment_channel_id: undefined,
     payment_channel_name: undefined,
     notes: '',
-    date: new Date().toISOString().split('T')[0]
+    date: formatDateForDatabase()
   });
 
   const [editForm, setEditForm] = useState<Partial<LedgerEntry>>({});
@@ -159,7 +161,7 @@ const DailyLedger: React.FC = () => {
 
           const handleInvoiceCreated = (data: any) => {
             console.log('📊 Daily ledger refreshing due to invoice creation:', data);
-            const invoiceDate = new Date(data.created_at).toISOString().split('T')[0];
+            const invoiceDate = formatDateForDatabase(new Date(data.created_at));
             if (invoiceDate === selectedDate) {
               loadDayData(selectedDate); // Refresh if invoice created today
             }
@@ -167,7 +169,7 @@ const DailyLedger: React.FC = () => {
 
           const handlePaymentReceived = (data: any) => {
             console.log('📊 Daily ledger refreshing due to payment:', data);
-            const today = new Date().toISOString().split('T')[0];
+            const today = formatDateForDatabase();
             if (selectedDate === today) {
               loadDayData(selectedDate); // Refresh today's data
             }
@@ -419,7 +421,7 @@ const DailyLedger: React.FC = () => {
         systemEntries.push({
           id: `vendor_payment_${payment.id}`,
           date: payment.date,
-          time: payment.time || new Date(payment.created_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          time: payment.time || formatTime(new Date(payment.created_at)),
           type: 'outgoing',
           category: 'Vendor Payment',
           description: description,
@@ -567,6 +569,7 @@ const DailyLedger: React.FC = () => {
       // Auto-determine category
       const autoCategory = getAutoCategory(newTransaction);
 
+      const systemDateTime = getSystemDateTime();
       const now = new Date();
       const customerName = newTransaction.customer_id ?
         customers.find(c => c.id === newTransaction.customer_id)?.name : undefined;
@@ -687,7 +690,7 @@ const DailyLedger: React.FC = () => {
 
           const salaryPayment = {
             date: newTransaction.date,
-            time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+            time: formatTime(now),
             type: 'outgoing' as const,
             category: 'Staff Salary',
             description: newTransaction.description,
@@ -756,7 +759,7 @@ const DailyLedger: React.FC = () => {
             // Customer-related transaction
             const customerTransaction = {
               date: newTransaction.date,
-              time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              time: formatTime(now),
               type: newTransaction.type,
               category: newTransaction.category,
               description: newTransaction.description,
@@ -799,7 +802,7 @@ const DailyLedger: React.FC = () => {
             // General business transaction
             const businessTransaction = {
               date: newTransaction.date,
-              time: now.toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              time: formatTime(now),
               type: newTransaction.type,
               category: newTransaction.category,
               description: newTransaction.description,
@@ -994,7 +997,7 @@ const DailyLedger: React.FC = () => {
     } else {
       currentDate.setDate(currentDate.getDate() + 1);
     }
-    setSelectedDate(currentDate.toISOString().split('T')[0]);
+    setSelectedDate(formatDateForDatabase(currentDate));
   };
 
   const exportData = async () => {
@@ -1063,13 +1066,11 @@ const DailyLedger: React.FC = () => {
     return `Rs. ${amount.toLocaleString('en-PK')}`;
   };
 
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+  // Use centralized date formatting for display
+  const formatDateDisplay = (dateString: string): string => {
+    const date = new Date(dateString);
+    const weekday = date.toLocaleDateString('en-US', { weekday: 'long' });
+    return `${weekday}, ${formatDate(date)}`;
   };
 
   // Auto-determine category based on transaction type and context
@@ -1190,7 +1191,7 @@ const DailyLedger: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Daily Ledger</h1>
-          <p className="text-gray-600">{formatDate(selectedDate)}</p>
+          <p className="text-gray-600">{formatDateDisplay(selectedDate)}</p>
           {selectedCustomerId && (
             <p className="text-sm text-blue-600">
               Filtered by: {customers.find(c => c.id === selectedCustomerId)?.name}
@@ -1224,7 +1225,7 @@ const DailyLedger: React.FC = () => {
             <button
               onClick={() => changeDate('next')}
               className="p-2 hover:bg-gray-100 rounded-r-lg"
-              disabled={selectedDate >= new Date().toISOString().split('T')[0]}
+              disabled={selectedDate >= getSystemDateForInput()}
             >
               <ArrowRight className="h-4 w-4" />
             </button>
@@ -1986,7 +1987,7 @@ const DailyLedger: React.FC = () => {
       )}
 
       {/* Balance Transfer Info */}
-      {summary && selectedDate !== new Date().toISOString().split('T')[0] && (
+      {summary && selectedDate !== getSystemDateForInput() && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start">
             <Calendar className="h-5 w-5 text-blue-600 mt-0.5 mr-3" />

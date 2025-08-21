@@ -2,7 +2,7 @@
 import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericValue } from '../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
-import { getCurrentSystemDateTime, formatDate, formatTime, formatDateForDatabase } from '../utils/formatters';
+import { getCurrentSystemDateTime } from '../utils/formatters';
 import { DatabaseSchemaManager } from './database-schema-manager';
 import { DatabaseConnection } from './database-connection';
 import { PermanentSchemaAbstractionLayer } from './permanent-schema-abstraction';
@@ -15,7 +15,8 @@ import { CustomerBalanceManager } from './customer-balance-manager';
 
 /**
  * PRODUCTION-READY: Enhanced error types for better error handling
- */
+ **/
+
 export interface DatabaseError extends Error {
   code?: string;
   errno?: number;
@@ -2056,7 +2057,7 @@ export class DatabaseService {
         fields.push(`${key} = ?`);
         params.push((product as any)[key]);
       }
-      params.push(getCurrentSystemDateTime().dateTime);
+      params.push(getCurrentSystemDateTime().dbTimestamp);
       params.push(id);
 
       // Execute the main product update using abstraction layer for compatibility
@@ -2230,7 +2231,7 @@ export class DatabaseService {
         fields.push(`${key} = ?`);
         params.push((vendor as any)[key]);
       }
-      params.push(getCurrentSystemDateTime().dateTime);
+      params.push(getCurrentSystemDateTime().dbTimestamp);
       params.push(id);
       await this.dbConnection.execute(
         `UPDATE vendors SET ${fields.join(', ')}, updated_at = ? WHERE id = ?`,
@@ -3049,7 +3050,7 @@ export class DatabaseService {
         name: 'Test Staff Member',
         position: 'Test Position',
         salary: 30000,
-        created_at: getCurrentSystemDateTime().dateTime
+        created_at: getCurrentSystemDateTime().dbTimestamp
       };
 
       try {
@@ -3427,8 +3428,8 @@ export class DatabaseService {
               staff.last_login, staff.permissions || '[]', staff.password_hash,
               staff.employment_type || 'full_time', staff.status || 'active',
               staff.notes, staff.created_by || 'system',
-              staff.created_at || getCurrentSystemDateTime().dateTime,
-              staff.updated_at || getCurrentSystemDateTime().dateTime
+              staff.created_at || getCurrentSystemDateTime().dbTimestamp,
+              staff.updated_at || getCurrentSystemDateTime().dbTimestamp
             ]);
           } catch (restoreError) {
             console.warn(`⚠️ [CRITICAL] Could not restore staff record ID ${staff.id}:`, restoreError);
@@ -4046,7 +4047,7 @@ export class DatabaseService {
             bill_number, customer_id, customer_name, customer_phone, customer_address, subtotal, total_amount, discount_percentage, 
             discount_amount, grand_total, paid_amount, payment_amount, payment_method, 
             remaining_balance, notes, status, payment_status, date, time, created_by, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               billNumber,
               invoiceData.customer_id,
@@ -4067,7 +4068,9 @@ export class DatabaseService {
               remainingBalance === 0 ? 'paid' : (totalPaidAmount > 0 ? 'partial' : 'pending'), // payment_status (different constraint)
               invoiceDate,
               getCurrentSystemDateTime().dbTime,
-              'system'
+              'system',
+              getCurrentSystemDateTime().dbTimestamp, // created_at
+              getCurrentSystemDateTime().dbTimestamp  // updated_at
             ]
           );
 
@@ -4127,7 +4130,7 @@ export class DatabaseService {
                 customer_id, customer_name, reference_id, reference_type, bill_number,
                 notes, created_by, payment_method, payment_channel_id, payment_channel_name, 
                 created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   date, time, 'incoming', 'Payment Received',
                   `Payment - Invoice ${billNumber} - ${customerName}`,
@@ -4136,7 +4139,9 @@ export class DatabaseService {
                   invoiceId, 'payment', billNumber,
                   `Invoice payment: Rs. ${cashPayment.toFixed(1)} via ${invoiceData.payment_method || 'cash'}`,
                   'system', invoiceData.payment_method || 'cash',
-                  paymentChannelData?.id || null, paymentChannelData?.name || (invoiceData.payment_method || 'cash')
+                  paymentChannelData?.id || null, paymentChannelData?.name || (invoiceData.payment_method || 'cash'),
+                  getCurrentSystemDateTime().dbTimestamp, // created_at
+                  getCurrentSystemDateTime().dbTimestamp  // updated_at
                 ]
               );
               console.log(`✅ Daily ledger entry created for regular customer payment: Rs.${cashPayment.toFixed(1)}`);
@@ -4180,7 +4185,7 @@ export class DatabaseService {
                 customer_id, customer_name, reference_id, reference_type, bill_number,
                 notes, created_by, payment_method, payment_channel_id, payment_channel_name, 
                 created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   date, time, 'incoming', 'Payment Received',
                   `Payment - Invoice ${billNumber} - ${customerName} (Guest)`,
@@ -4188,7 +4193,9 @@ export class DatabaseService {
                   invoiceId, 'payment', billNumber,
                   `Guest invoice payment: Rs. ${cashPayment.toFixed(1)} via ${invoiceData.payment_method || 'cash'}`,
                   'system', invoiceData.payment_method || 'cash',
-                  paymentChannelData?.id || null, paymentChannelData?.name || (invoiceData.payment_method || 'cash')
+                  paymentChannelData?.id || null, paymentChannelData?.name || (invoiceData.payment_method || 'cash'),
+                  getCurrentSystemDateTime().dbTimestamp, // created_at
+                  getCurrentSystemDateTime().dbTimestamp  // updated_at
                 ]
               );
               console.log(`✅ Daily ledger entry created for guest customer payment: Rs.${cashPayment.toFixed(1)}`);
@@ -4490,7 +4497,7 @@ export class DatabaseService {
           total_price, amount, length, pieces, is_misc_item, misc_description,
           is_non_stock_item, t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet, t_iron_unit,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             invoiceId,
             isMiscItem ? null : item.product_id,
@@ -4509,7 +4516,9 @@ export class DatabaseService {
             tIronData.t_iron_pieces, // t_iron_pieces
             tIronData.t_iron_length_per_piece, // t_iron_length_per_piece
             tIronData.t_iron_total_feet, // t_iron_total_feet
-            tIronData.t_iron_unit // t_iron_unit
+            tIronData.t_iron_unit, // t_iron_unit
+            getCurrentSystemDateTime().dbTimestamp, // created_at
+            getCurrentSystemDateTime().dbTimestamp  // updated_at
           ]
         );
         console.log(`✅ [CENTRALIZED] Invoice item inserted with L/pcs, T-Iron, and misc support:`, {
@@ -4590,7 +4599,7 @@ export class DatabaseService {
       console.log(`✅ Updated stock for ${product.name}: ${product.current_stock} → ${newStockString}`);
 
       // Create stock movement (only for product items, not miscellaneous items) 
-      const { date, time } = getCurrentSystemDateTime();
+      const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
 
       await this.dbConnection.execute(
         `INSERT INTO stock_movements (
@@ -6644,7 +6653,7 @@ export class DatabaseService {
       // PHASE 3: CREATE MAIN PAYMENT RECORD
       // ===================================================================
       const paymentCode = await this.generatePaymentCode();
-      const { date: systemCurrentDate, time: systemCurrentTime } = getCurrentSystemDateTime();
+      const { dbDate: systemCurrentDate, dbTime: systemCurrentTime } = getCurrentSystemDateTime();
       const currentDate = payment.date || systemCurrentDate;
       const currentTime = systemCurrentTime;
 
@@ -6977,7 +6986,7 @@ export class DatabaseService {
           paymentMethod: payment.payment_method,
           paymentType: 'fifo_allocation',
           allocations: allocations.length,
-          created_at: new Date().toISOString()
+          created_at: getCurrentSystemDateTime().dbTimestamp
         });
 
         eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
@@ -7319,7 +7328,7 @@ export class DatabaseService {
         // Add invoice items with proper field mapping for centralized schema
         for (const item of items) {
           // Always set created_at and updated_at to current timestamp
-          const now = new Date().toISOString();
+          const now = getCurrentSystemDateTime().dbTimestamp;
 
           try {
             // ROBUST SCHEMA APPROACH: Try comprehensive insert first, fallback to basic if needed
@@ -7521,7 +7530,7 @@ export class DatabaseService {
         console.log('✅ [PERMANENT] Customer balance updated by:', totalAddition);
 
         // PERMANENT SOLUTION: Create customer ledger entry for items added
-        const { date: currentDate, time: currentTime } = getCurrentSystemDateTime();
+        const { dbDate: currentDate, dbTime: currentTime } = getCurrentSystemDateTime();
 
         // Get customer name safely
         let customerName = 'Unknown Customer';
@@ -7798,7 +7807,7 @@ export class DatabaseService {
         }
 
         // Update updated_at to current timestamp
-        const now = new Date().toISOString();
+        const now = getCurrentSystemDateTime().dbTimestamp;
         await this.dbConnection.execute(`
           UPDATE invoice_items 
           SET quantity = ?, total_price = ?, updated_at = ? 
@@ -7917,7 +7926,7 @@ export class DatabaseService {
       }
 
       // PERMANENT FIX: Safe creation with proper date/time handling
-      const { date, time } = getCurrentSystemDateTime();
+      const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
       const invoiceDate = invoice.date || date;
       const invoiceTime = invoice.time || time;
 
@@ -8017,7 +8026,7 @@ export class DatabaseService {
       try {
         // Generate unique payment code
         const paymentCode = `PAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
-        const { date, time } = getCurrentSystemDateTime();
+        const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
         const finalCurrentDate = paymentData.date || date;
 
         // Get customer name
@@ -8039,7 +8048,7 @@ export class DatabaseService {
             payment_channel_id, payment_channel_name, reference, status,
             currency, exchange_rate, fee_amount, notes, date, time, created_by,
             created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           paymentCode,
           invoice.customer_id,
@@ -8061,7 +8070,9 @@ export class DatabaseService {
           paymentData.notes || '',
           finalCurrentDate,
           time,
-          'system'
+          'system',
+          getCurrentSystemDateTime().dbTimestamp, // created_at
+          getCurrentSystemDateTime().dbTimestamp  // updated_at
         ]);
 
         const paymentId = result?.lastInsertId || 0;
@@ -8081,7 +8092,7 @@ export class DatabaseService {
           (newTotalPayments > 0 ? 'partially_paid' : 'pending');
 
         // Get date/time for ledger entries
-        const { date: currentDate, time: currentTime } = getCurrentSystemDateTime();
+        const { dbDate: currentDate, dbTime: currentTime } = getCurrentSystemDateTime();
 
         // PRODUCTION-SAFE: Direct update with calculated values
         await this.dbConnection.execute(`
@@ -8281,7 +8292,7 @@ export class DatabaseService {
         // 🔐 STEP 2: Add reference entry in customer ledger (audit only, amount = 0)
         console.log('🔐 [AUDIT REFERENCE] Adding reference entry to customer ledger...');
 
-        const { date, time } = getCurrentSystemDateTime();
+        const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
 
         // Get current balance for reference
         const currentBalance = await this.getCustomerCurrentBalance(invoice.customer_id);
@@ -8429,7 +8440,7 @@ export class DatabaseService {
         // Add metadata for debugging
         _calculationSource: 'live_database_calculation',
         _paymentCount: allPayments.length,
-        _lastCalculated: new Date().toISOString()
+        _lastCalculated: getCurrentSystemDateTime().dbTimestamp
       };
     } catch (error) {
       console.error('Error getting invoice with details:', error);
@@ -8526,7 +8537,7 @@ export class DatabaseService {
 
       // Add updated_at timestamp
       fields.push('updated_at = ?');
-      params.push(new Date().toISOString());
+      params.push(getCurrentSystemDateTime().dbTimestamp);
       params.push(invoiceId);
 
       await this.dbConnection.execute(
@@ -9897,11 +9908,11 @@ export class DatabaseService {
 
             await this.dbConnection.execute(
               'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
-              [newStockString, new Date().toISOString(), item.product_id]
+              [newStockString, getCurrentSystemDateTime().dbTimestamp, item.product_id]
             );
 
             // Create stock movement record for audit trail
-            const { date, time } = getCurrentSystemDateTime();
+            const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
             await this.dbConnection.execute(
               `INSERT INTO stock_movements (
                 product_id, product_name, movement_type, quantity, previous_stock, new_stock,
@@ -9925,8 +9936,8 @@ export class DatabaseService {
                 date, // date
                 time, // time
                 'system', // created_by
-                new Date().toISOString(), // created_at
-                new Date().toISOString() // updated_at
+                getCurrentSystemDateTime().dbTimestamp, // created_at
+                getCurrentSystemDateTime().dbTimestamp // updated_at
               ]
             );
           }
@@ -9955,7 +9966,7 @@ export class DatabaseService {
             // Fallback to direct update if CustomerBalanceManager fails
             await this.dbConnection.execute(
               'UPDATE customers SET balance = balance - ?, updated_at = ? WHERE id = ?',
-              [invoice.remaining_balance, new Date().toISOString(), invoice.customer_id]
+              [invoice.remaining_balance, getCurrentSystemDateTime().dbTimestamp, invoice.customer_id]
             );
             console.log('⚠️ [DELETE-INVOICE] Used fallback direct balance update');
           }
@@ -9999,7 +10010,7 @@ export class DatabaseService {
         billNumber: invoice.bill_number,
         customerId: invoice.customer_id,
         customerName: invoice.customer_name,
-        timestamp: new Date().toISOString()
+        timestamp: getCurrentSystemDateTime().dbTimestamp
       });
 
       // Emit related events for comprehensive updates
@@ -10349,7 +10360,7 @@ export class DatabaseService {
           amount, payment_amount, net_amount, payment_method, payment_type,
           payment_channel_id, payment_channel_name, reference, notes,
           date, time, status, created_by, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
           paymentCode,
           sanitizedPayment.customer_id,
@@ -10366,9 +10377,11 @@ export class DatabaseService {
           sanitizedPayment.reference,
           sanitizedPayment.notes,
           sanitizedPayment.date,
-          new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          getCurrentSystemDateTime().dbTime,
           'completed', // status (required)
-          sanitizedPayment.created_by
+          sanitizedPayment.created_by,
+          getCurrentSystemDateTime().dbTimestamp, // created_at
+          getCurrentSystemDateTime().dbTimestamp  // updated_at
         ]);
 
         const paymentId = result?.lastInsertId || 0;
@@ -11358,7 +11371,7 @@ export class DatabaseService {
           productName: product.name,
           category: product.category,
           currentStock: product.current_stock,
-          timestamp: new Date().toISOString()
+          timestamp: getCurrentSystemDateTime().dbTimestamp
         };
 
         // Use imported eventBus with proper BUSINESS_EVENTS constants
@@ -11489,7 +11502,7 @@ export class DatabaseService {
             customerId,
             customerName: customer.name,
             customerCode,
-            timestamp: new Date().toISOString()
+            timestamp: getCurrentSystemDateTime().dbTimestamp
           };
 
           eventBusInstance.emit('customer:created', eventData);
@@ -13578,7 +13591,8 @@ export class DatabaseService {
         this.dbConnection.select(`
           SELECT COUNT(*) as low_stock_count
           FROM products 
-          WHERE CAST(CASE 
+          WHERE (track_inventory = 1 OR track_inventory IS NULL)
+          AND CAST(CASE 
             WHEN INSTR(current_stock, ' ') > 0 
             THEN SUBSTR(current_stock, 1, INSTR(current_stock, ' ') - 1)
             ELSE current_stock 
@@ -13690,10 +13704,12 @@ export class DatabaseService {
 
 
       // Real database implementation - FIXED: Corrected INSTR function usage
+      // Filter out non-stock products (track_inventory = 0)
       const products = await this.safeSelect(`
         SELECT id, name, current_stock, min_stock_alert, unit_type, category
         FROM products 
-        WHERE CAST(CASE 
+        WHERE (track_inventory = 1 OR track_inventory IS NULL) 
+        AND CAST(CASE 
           WHEN INSTR(current_stock, ' ') > 0 
           THEN SUBSTR(current_stock, 1, INSTR(current_stock, ' ') - 1)
           ELSE current_stock 
@@ -13847,7 +13863,7 @@ export class DatabaseService {
         code: error.code,
         query: query.substring(0, 200),
         params: params.slice(0, 5), // Only log first 5 params for security
-        timestamp: new Date().toISOString()
+        timestamp: getCurrentSystemDateTime().dbTimestamp
       });
 
       return [];
@@ -15807,7 +15823,7 @@ export class DatabaseService {
     try {
       await this.dbConnection.execute(
         'UPDATE vendors SET is_active = 0, notes = COALESCE(notes, "") || ? WHERE id = ?',
-        [`\n[DEACTIVATED: ${new Date().toISOString()}] ${reason}`, vendorId]
+        [`\n[DEACTIVATED: ${getCurrentSystemDateTime().dbTimestamp}] ${reason}`, vendorId]
       );
 
       console.log(`✅ Vendor ${vendorId} deactivated: ${reason}`);
@@ -16079,7 +16095,7 @@ export class DatabaseService {
               receivingId,
               quantityAdded: item.quantity,
               newStock: productData.current_stock,
-              timestamp: new Date().toISOString()
+              timestamp: getCurrentSystemDateTime().dbTimestamp
             });
 
             // Also emit product updated event to refresh product lists
@@ -16087,7 +16103,7 @@ export class DatabaseService {
               productId: item.product_id,
               product: productData,
               reason: 'stock_receiving',
-              timestamp: new Date().toISOString()
+              timestamp: getCurrentSystemDateTime().dbTimestamp
             });
           }
         }
@@ -16096,7 +16112,7 @@ export class DatabaseService {
         eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, {
           type: 'receiving',
           receivingId,
-          timestamp: new Date().toISOString()
+          timestamp: getCurrentSystemDateTime().dbTimestamp
         });
 
         // Force UI refresh events
@@ -17737,7 +17753,7 @@ export class DatabaseService {
       // Emit global update event
       eventBus.emit('ALL_CUSTOMERS_OVERDUE_STATUS_UPDATED', {
         totalUpdated: overdueUpdates,
-        timestamp: new Date().toISOString()
+        timestamp: getCurrentSystemDateTime().dbTimestamp
       });
 
     } catch (error) {

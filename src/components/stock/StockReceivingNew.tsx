@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Search } from 'lucide-react';
 import { db } from '../../services/database';
 import { eventBus } from '../../utils/eventBus';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatDate, formatTime } from '../../utils/formatters';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { parseUnit, formatUnitString } from '../../utils/unitUtils';
 import toast from 'react-hot-toast';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
@@ -37,7 +38,7 @@ const StockReceivingNew: React.FC = () => {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const [form, setForm] = useState<StockReceivingForm>({
     vendor_id: 0,
     vendor_name: '',
@@ -73,7 +74,7 @@ const StockReceivingNew: React.FC = () => {
         toast.success('Stock automatically updates when you create the receiving - no need to press Ctrl+S!');
         return;
       }
-      
+
       // Handle Escape key
       if (e.key === 'Escape') {
         setShowProductSearch(false);
@@ -99,7 +100,7 @@ const StockReceivingNew: React.FC = () => {
         db.getVendors(),
         db.getAllProducts()
       ]);
-      
+
       setVendors(vendorData);
       setProducts(productData);
     } catch (error) {
@@ -135,7 +136,7 @@ const StockReceivingNew: React.FC = () => {
     }));
     setShowProductSearch(false);
     setProductSearch('');
-    
+
     // Auto-calculate if quantity exists
     if (newItem.quantity) {
       const quantity = parseUnit(newItem.quantity);
@@ -187,21 +188,21 @@ const StockReceivingNew: React.FC = () => {
     }
 
     const existingItemIndex = form.items.findIndex(item => item.product_id === newItem.product_id);
-    
+
     if (existingItemIndex !== -1) {
       // Update existing item
       const updatedItems = [...form.items];
       const existingItem = updatedItems[existingItemIndex];
-      
+
       try {
         const existingQuantity = parseUnit(existingItem.quantity);
         const newQuantity = parseUnit(newItem.quantity);
         const totalQuantity = existingQuantity.numericValue + newQuantity.numericValue;
-        
+
         const kg = Math.floor(totalQuantity / 1000);
         const grams = totalQuantity % 1000;
         const combinedQuantity = grams > 0 ? `${kg}-${grams}` : `${kg}`;
-        
+
         updatedItems[existingItemIndex] = {
           ...existingItem,
           quantity: combinedQuantity,
@@ -209,7 +210,7 @@ const StockReceivingNew: React.FC = () => {
           total_price: existingItem.total_price + newItem.total_price,
           notes: existingItem.notes && newItem.notes ? `${existingItem.notes}; ${newItem.notes}` : existingItem.notes || newItem.notes
         };
-        
+
         setForm(prev => ({ ...prev, items: updatedItems }));
         toast.success('Item quantity updated');
       } catch (error) {
@@ -248,12 +249,12 @@ const StockReceivingNew: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!form.vendor_id) {
       toast.error('Please select a vendor');
       return;
     }
-    
+
     if (form.items.length === 0) {
       toast.error('Please add at least one item');
       return;
@@ -261,7 +262,7 @@ const StockReceivingNew: React.FC = () => {
 
     try {
       setSubmitting(true);
-      
+
       // Enhanced stock receiving creation with proper payment integration
       const result = await db.createStockReceiving({
         vendor_id: form.vendor_id,
@@ -291,11 +292,11 @@ const StockReceivingNew: React.FC = () => {
       if (form.payment_amount > 0) {
         try {
           console.log('💰 Creating vendor payment for amount:', form.payment_amount);
-          
+
           // Get default payment channel (Cash)
           const paymentChannels = await db.getPaymentChannels();
           const defaultChannel = paymentChannels.find(c => c.name.toLowerCase() === 'cash') || paymentChannels[0];
-          
+
           if (defaultChannel) {
             await db.createVendorPayment({
               vendor_id: form.vendor_id,
@@ -306,13 +307,8 @@ const StockReceivingNew: React.FC = () => {
               payment_channel_name: defaultChannel.name,
               reference_number: form.reference_number || `Stock Receiving #${result}`,
               notes: `Payment for stock receiving from ${form.vendor_name}`,
-              date: new Date().toISOString().split('T')[0],
-              time: new Date().toLocaleTimeString('en-US', { 
-                hour: '2-digit', 
-                minute: '2-digit', 
-                hour12: true,
-                timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
-              }),
+              date: getCurrentSystemDateTime().dbDate,
+              time: getCurrentSystemDateTime().dbTime,
               created_by: 'admin'
             });
             console.log('✅ Vendor payment created successfully');
@@ -330,10 +326,10 @@ const StockReceivingNew: React.FC = () => {
         // Import and clear finance service cache
         const { financeService } = await import('../../services/financeService');
         financeService.clearCache();
-        
+
         // Import BUSINESS_EVENTS for consistent event naming
         const { BUSINESS_EVENTS } = await import('../../utils/eventBus');
-        
+
         // Emit events for real-time updates using proper event system
         // Use statically imported eventBus for all emits
         eventBus.emit('STOCK_RECEIVING_COMPLETED', {
@@ -379,23 +375,23 @@ const StockReceivingNew: React.FC = () => {
           vendorPurchase: form.total_amount,
           vendorPayment: form.payment_amount
         });
-        
+
         console.log('✅ Real-time events emitted for dashboard update (with correct BUSINESS_EVENTS)');
-        
+
         // CRITICAL FIX 4: Force immediate UI refresh for all stock-related components
         setTimeout(() => {
           console.log('🔄 Forcing immediate UI refresh after stock receiving');
-          
+
           // Emit additional refresh events for any components that might be missed
           eventBus.emit('UI_REFRESH_REQUESTED', { type: 'stock_update' });
           eventBus.emit('PRODUCTS_UPDATED', { reason: 'stock_receiving' });
-          
+
           // Force reload of product data in all components
-          eventBus.emit('FORCE_PRODUCT_RELOAD', { 
+          eventBus.emit('FORCE_PRODUCT_RELOAD', {
             reason: 'stock_receiving_completed',
             affectedProducts: form.items.map(item => item.product_id)
           });
-          
+
           // Clear any local storage or session storage that might cache product data
           try {
             localStorage.removeItem('product_cache');
@@ -405,18 +401,18 @@ const StockReceivingNew: React.FC = () => {
           } catch (storageError) {
             console.log('ℹ️ Storage cache clearing skipped');
           }
-          
+
         }, 100);
-        
+
         // CRITICAL FIX 5: Force page refresh for components that might not respond to events
         setTimeout(() => {
           console.log('🔄 Emitting comprehensive refresh events');
-          eventBus.emit('COMPREHENSIVE_DATA_REFRESH', { 
+          eventBus.emit('COMPREHENSIVE_DATA_REFRESH', {
             type: 'stock_receiving',
-            timestamp: new Date().toISOString()
+            timestamp: getCurrentSystemDateTime().dateTime
           });
         }, 500);
-        
+
       } catch (eventError) {
         console.error('⚠️ Event emission failed:', eventError);
       }
@@ -466,7 +462,7 @@ const StockReceivingNew: React.FC = () => {
         {/* Step 1: Vendor Selection - Simple Card */}
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">1. Select Vendor</h3>
-          
+
           <div className="max-w-md">
             <div className="flex items-center justify-between mb-2">
               <label className="block text-sm font-semibold text-gray-700">
@@ -504,7 +500,7 @@ const StockReceivingNew: React.FC = () => {
         {/* Step 2: Add Items - Clean Layout */}
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">2. Add Items</h3>
-          
+
           {/* Simple Add Item Form */}
           <div className="bg-gray-50 p-4 rounded-lg mb-6">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
@@ -525,7 +521,7 @@ const StockReceivingNew: React.FC = () => {
                     placeholder="Search products..."
                     className="w-full px-3 py-2 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
-                  
+
                   {showProductSearch && filteredProducts.length > 0 && (
                     <div className="absolute z-20 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                       {filteredProducts.map(product => (
@@ -544,7 +540,7 @@ const StockReceivingNew: React.FC = () => {
                   )}
                 </div>
               </div>
-              
+
               {/* Quantity */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
@@ -556,7 +552,7 @@ const StockReceivingNew: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
-              
+
               {/* Unit Price */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price</label>
@@ -570,7 +566,7 @@ const StockReceivingNew: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
-              
+
               {/* Add Button */}
               <div>
                 <button
@@ -604,7 +600,7 @@ const StockReceivingNew: React.FC = () => {
                   Added Items ({form.items.length})
                 </span>
               </div>
-              
+
               <div className="divide-y divide-gray-200">
                 {form.items.map((item, index) => (
                   <div key={index} className="px-4 py-3 flex items-center justify-between hover:bg-gray-50">
@@ -625,7 +621,7 @@ const StockReceivingNew: React.FC = () => {
                   </div>
                 ))}
               </div>
-              
+
               {/* Total */}
               <div className="bg-blue-50 px-4 py-3 border-t border-gray-200">
                 <div className="flex justify-between items-center">
@@ -642,7 +638,7 @@ const StockReceivingNew: React.FC = () => {
         {/* Step 3: Payment & Additional Details - Simple Layout */}
         <div className="card p-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">3. Payment & Additional Details</h3>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -662,7 +658,7 @@ const StockReceivingNew: React.FC = () => {
                 Leave empty if paying later
               </p>
             </div>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Notes (Optional)
@@ -711,7 +707,7 @@ const StockReceivingNew: React.FC = () => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                   />
                 </div>
-                
+
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Reference Number</label>
                   <input

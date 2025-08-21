@@ -71,7 +71,6 @@ const CustomerDetail: React.FC = () => {
             />
             <CustomerQuickActions
               customerId={customer.id}
-              customer={customer}
               summary={financialSummary}
               navigateTo={navigateTo}
               onShowFIFOPayment={() => setShowFIFOPayment(true)}
@@ -240,11 +239,10 @@ const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any
 
 const CustomerQuickActions: React.FC<{
   customerId: number;
-  customer: any;
   summary: any;
   navigateTo: any;
   onShowFIFOPayment: () => void;
-}> = ({ customerId, customer, navigateTo, onShowFIFOPayment }) => {
+}> = ({ customerId, navigateTo, onShowFIFOPayment }) => {
   return (
     <div className="bg-white rounded-lg shadow p-6">
       <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>

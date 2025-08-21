@@ -4,7 +4,9 @@ import toast from 'react-hot-toast';
 import { formatCurrency } from '../../utils/calculations';
 import { parseCurrency } from '../../utils/currency';
 import { formatUnitString, parseUnit, validateUnit, getUnitTypeConfig } from '../../utils/unitUtils';
-import { formatInvoiceNumber } from '../../utils/numberFormatting';
+import { formatInvoiceNumber, formatInvoiceNumberForPrint } from '../../utils/numberFormatting';
+import { formatDateTime, formatDate } from '../../utils/formatters';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 
 import {
   Plus,
@@ -136,7 +138,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     payment_method: 'cash',
     reference: '',
     notes: '',
-    date: new Date().toISOString().split('T')[0]
+    date: getCurrentSystemDateTime().dbDate // Use system date in YYYY-MM-DD format
   });
 
   // Payment channels
@@ -533,7 +535,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         payment_method: 'cash',
         reference: '',
         notes: '',
-        date: new Date().toISOString().split('T')[0]
+        date: getCurrentSystemDateTime().dbDate // Reset to current system date
       });
       await loadInvoiceDetails();
 
@@ -578,19 +580,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     }
   };
 
-  // Format date and time for display
-  const formatDateTime = (dateString: string) => {
+  // Use centralized date/time formatting
+  const formatDateTimeDisplay = (dateString: string) => {
     if (!dateString) return '';
-    const d = new Date(dateString);
-    return `${d.toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    })} ${d.toLocaleTimeString('en-PK', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    })}`;
+    return formatDateTime(dateString);
   };
 
 
@@ -615,7 +608,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Invoice ${formatInvoiceNumber(invoice.bill_number)}</title>
+          <title>Invoice ${formatInvoiceNumberForPrint(invoice.bill_number)}</title>
           <style>
             @page { 
               size: 80mm auto; 
@@ -653,6 +646,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               font-style: italic;
             }
             .store-address { 
+              font-size: 9px; 
+              margin-bottom: 1mm; 
+            }
+            .store-phone { 
               font-size: 9px; 
               margin-bottom: 1mm; 
             }
@@ -783,22 +780,19 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         </head>
         <body>
           <div class="header">
-            <div class="store-name">ITTEHAD IRON STORE</div>
-            <div class="store-tagline">(Rebar G60 G72.5 G80, T-Iron, Girders are available)</div>
+            <div class="store-name"><strong>ITTEHAD IRON STORE</strong></div>
+            <div class="store-tagline">(Rebar <strong>G60 G72.5 G80</strong>, T-Iron, Girders are available)</div>
             <div class="store-address">Opposite Lakar Mandi Pull, GT Road, Chichawatni</div>
+            <div class="store-phone">0333-4485500  •  0333-6899636</div>
           </div>
           <div class="invoice-info">
             <div class="invoice-row">
               <span>Invoice#:</span>
-              <span><strong>${formatInvoiceNumber(invoice.bill_number)}</strong></span>
+              <span><strong>${formatInvoiceNumberForPrint(invoice.bill_number)}</strong></span>
             </div>
             <div class="invoice-row">
               <span>Date:</span>
-              <span>${formatDateTime(invoice.created_at)}</span>
-            </div>
-            <div class="invoice-row">
-              <span>Status:</span>
-              <span class="status-${getPaymentStatus()}"><strong>${getStatusConfig(getPaymentStatus()).label.toUpperCase()}</strong></span>
+              <span>${formatDateTimeDisplay(invoice.created_at)}</span>
             </div>
           </div>
           <div class="customer-info">
@@ -880,7 +874,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
           ` : ''}
           <div class="footer">
             <div>Thank you for business with us!</div>
-            <div>Generated: ${formatDateTime(new Date().toISOString())}</div>
+            <div>Generated: ${formatDateTimeDisplay(getCurrentSystemDateTime().raw.toISOString())}</div>
           </div>
         </body>
       </html>
@@ -951,7 +945,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               <h1 className="text-xl font-semibold text-gray-900">
                 Invoice #{formatInvoiceNumber(invoice.bill_number)}
               </h1>
-              <p className="text-sm text-gray-500">{formatDateTime(invoice.created_at)}</p>
+              <p className="text-sm text-gray-500">{formatDateTimeDisplay(invoice.created_at)}</p>
             </div>
           </div>
 
@@ -1287,7 +1281,31 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                   {formatCurrency(payment.amount)}
                                 </div>
                                 <div className="text-sm text-gray-500">
-                                  {formatDateTime(payment.created_at || payment.date)} • {payment.payment_method?.replace('_', ' ')}
+                                  {(() => {
+                                    // Debug: Log payment data to console
+                                    console.log('Payment data:', {
+                                      date: payment.date,
+                                      time: payment.time,
+                                      created_at: payment.created_at
+                                    });
+
+                                    // Priority 1: Use local date+time fields if both exist
+                                    if (payment.date && payment.time) {
+                                      return `${formatDate(payment.date)} ${payment.time}`;
+                                    }
+                                    // Priority 2: Use date field only if available
+                                    else if (payment.date) {
+                                      return formatDate(payment.date);
+                                    }
+                                    // Priority 3: Convert UTC created_at to Pakistan time
+                                    else if (payment.created_at) {
+                                      return formatDateTime(payment.created_at);
+                                    }
+                                    // Last resort
+                                    else {
+                                      return 'No date';
+                                    }
+                                  })()} • {payment.payment_method?.replace('_', ' ')}
                                 </div>
                               </div>
                             </div>
@@ -1523,21 +1541,21 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
         {/* Add Payment Modal */}
         {showAddPayment && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-              <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h2 className="text-lg font-semibold text-gray-900">Record Payment</h2>
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-xs sm:max-w-sm md:max-w-md mx-2 sm:mx-4 max-h-[95vh] overflow-y-auto">
+              <div className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 border-b">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Record Payment</h2>
                 <button
                   onClick={() => setShowAddPayment(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg"
+                  className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               </div>
 
-              <div className="p-6 space-y-4">
+              <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                  <div className="text-sm text-yellow-800">
+                  <div className="text-xs sm:text-sm text-yellow-800">
                     <strong>Outstanding Balance:</strong> {formatCurrency(invoice.remaining_balance)}
                   </div>
                 </div>
@@ -1548,12 +1566,12 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     type="number"
                     value={newPayment.amount}
                     onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                     step="0.1"
                     max={invoice.remaining_balance}
                     placeholder="0.0"
                   />
-                  <div className="flex justify-between mt-2 space-x-2">
+                  <div className="flex flex-col sm:flex-row justify-between mt-2 space-y-2 sm:space-y-0 sm:space-x-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -1561,7 +1579,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         const half = Math.round((invoice.remaining_balance / 2 + Number.EPSILON) * 10) / 10;
                         setNewPayment({ ...newPayment, amount: half.toFixed(1) });
                       }}
-                      className="flex-1 text-xs px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                      className="flex-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                     >
                       Half
                     </button>
@@ -1572,7 +1590,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         const full = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
                         setNewPayment({ ...newPayment, amount: full.toFixed(1) });
                       }}
-                      className="flex-1 text-xs px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
+                      className="flex-1 text-xs px-3 py-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
                     >
                       Full Amount
                     </button>
@@ -1581,7 +1599,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Payment Channel</label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {paymentChannels.map(channel => (
                       <button
                         key={channel.id}
@@ -1590,12 +1608,12 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           setSelectedPaymentChannel(channel);
                           setNewPayment({ ...newPayment, payment_method: channel.name });
                         }}
-                        className={`p-2 text-sm rounded-lg border text-center transition-colors ${selectedPaymentChannel?.id === channel.id
+                        className={`p-2 text-xs sm:text-sm rounded-lg border text-center transition-colors ${selectedPaymentChannel?.id === channel.id
                           ? 'border-green-500 bg-green-50 text-green-700'
                           : 'border-gray-300 hover:bg-gray-50'
                           }`}
                       >
-                        <div className="font-medium">{channel.name}</div>
+                        <div className="font-medium truncate">{channel.name}</div>
                         <div className="text-xs text-gray-500 capitalize">{channel.type}</div>
                       </button>
                     ))}
@@ -1608,35 +1626,38 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     type="text"
                     value={newPayment.reference}
                     onChange={(e) => setNewPayment({ ...newPayment, reference: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                     placeholder="Transaction ID, cheque number, etc."
                   />
                 </div>
 
+                {/* Date Field */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Date</label>
-                  <input
-                    type="date"
-                    value={newPayment.date}
-                    onChange={(e) => setNewPayment({ ...newPayment, date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Payment Date</label>
+                    <input
+                      type="date"
+                      value={newPayment.date}
+                      onChange={(e) => setNewPayment({ ...newPayment, date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex justify-end space-x-3 pt-4">
+                <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-3 sm:pt-4">
                   <button
                     onClick={() => setShowAddPayment(false)}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                    className="w-full sm:w-auto px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleAddPayment}
                     disabled={saving || !newPayment.amount}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
                   >
                     {saving ? (
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center justify-center space-x-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                         <span>Recording...</span>
                       </div>

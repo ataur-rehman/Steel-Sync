@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, type UnitType } from '../../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { formatDate, formatDateForDatabase } from '../../utils/formatters';
+import { getCurrentSystemDateTime, getRelativeDate } from '../../utils/systemDateTime';
 import {
   Package,
   TrendingDown,
@@ -24,7 +26,9 @@ import {
   RefreshCw,
   BarChart3,
   Filter,
-  Download
+  Download,
+  ArrowLeft,
+  ChevronRight
 } from 'lucide-react';
 
 // Enhanced interfaces for complete stock tracking
@@ -125,7 +129,6 @@ const StockReport: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<StockItem | null>(null);
   const [showAdjustment, setShowAdjustment] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [showProductDetails, setShowProductDetails] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   // Filters
@@ -148,6 +151,21 @@ const StockReport: React.FC = () => {
     reason: '',
     notes: ''
   });
+
+  // Handle state restoration when navigating back from stock details
+  useEffect(() => {
+    const navigationState = location.state as any;
+    if (navigationState?.preserveFilters) {
+      setFilters(navigationState.preserveFilters);
+    }
+    if (navigationState?.preserveView) {
+      setCurrentView(navigationState.preserveView);
+    }
+    // Clear the state after restoring to prevent issues with future navigation
+    if (navigationState) {
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     loadStockData();
@@ -315,9 +333,15 @@ const StockReport: React.FC = () => {
 
   // Navigate to product details view
   const viewProductDetails = async (product: StockItem) => {
-    setSelectedProduct(product);
-    setShowProductDetails(true);
-    await loadStockMovements(product.id);
+    // Navigate directly to the stock details page with state to preserve context
+    navigate(`/reports/stock-details/${product.id}`, {
+      state: {
+        fromStockReport: true,
+        productName: product.name,
+        preserveFilters: filters,
+        preserveView: currentView
+      }
+    });
   };
 
   const navigateToCustomer = (customerId: number) => {
@@ -342,8 +366,14 @@ const StockReport: React.FC = () => {
 
       // Get all products with stock info
       console.log('📦 Getting all products...');
-      const products = await db.getAllProducts();
-      console.log(`✅ Retrieved ${products.length} products:`, products);
+      const allProducts = await db.getAllProducts();
+
+      // Filter out non-stock products (track_inventory = 0)
+      const products = allProducts.filter(product =>
+        product.track_inventory === 1 || product.track_inventory === true || product.track_inventory === undefined || product.track_inventory === null
+      );
+
+      console.log(`✅ Retrieved ${allProducts.length} total products, ${products.length} stock products (filtered out ${allProducts.length - products.length} non-stock products):`, products);
 
       // Get categories
       console.log('📁 Getting categories...');
@@ -488,9 +518,7 @@ const StockReport: React.FC = () => {
 
   const processStockData = async (products: any[]): Promise<StockItem[]> => {
     // Get recent movements for all products to calculate 30-day activity
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split('T')[0];
+    const thirtyDaysAgoStr = getRelativeDate(-30).db;
 
     try {
       const recentMovements = await db.getStockMovements({
@@ -553,7 +581,7 @@ const StockReport: React.FC = () => {
             min_stock_alert: product.min_stock_alert,
             stock_value: stockValue,
             status,
-            last_updated: product.updated_at || new Date().toISOString(),
+            last_updated: product.updated_at || getCurrentSystemDateTime().raw.toISOString(),
             movement_30_days: movement30Days,
             avg_monthly_usage: avgMonthlyUsage,
             reorder_suggestion: reorderSuggestion,
@@ -562,32 +590,6 @@ const StockReport: React.FC = () => {
           };
         } catch (error) {
           console.error(`❌ Failed to process stock for ${product.name}:`, error);
-
-          // Check if this is a non-stock product
-          const isNonStock = product.track_inventory === 0 || product.track_inventory === false;
-
-          if (isNonStock) {
-            // For non-stock products, show as service item
-            return {
-              id: product.id,
-              name: product.name,
-              category: product.category,
-              unit: product.unit,
-              unit_type: product.unit_type || 'foot',
-              rate_per_unit: product.rate_per_unit,
-              current_stock: 'N/A (Service)',
-              min_stock_alert: 'N/A',
-              stock_value: 0,
-              status: 'in_stock' as const, // Always available for service products
-              last_updated: product.updated_at || new Date().toISOString(),
-              movement_30_days: 0,
-              avg_monthly_usage: 0,
-              reorder_suggestion: 'N/A',
-              size: product.size,
-              grade: product.grade,
-              is_non_stock: true
-            };
-          }
 
           // Fallback to basic calculation for stock products
           const currentStockData = parseUnit(product.current_stock);
@@ -684,10 +686,10 @@ const StockReport: React.FC = () => {
     const categoriesCount = new Set(items.map(item => item.category)).size;
 
     // Calculate movements for today and this week from database
-    const today = new Date().toISOString().split('T')[0];
+    const today = formatDateForDatabase();
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekAgoStr = weekAgo.toISOString().split('T')[0];
+    const weekAgoStr = formatDateForDatabase(weekAgo);
 
     try {
       // Get actual movement data from database
@@ -931,7 +933,7 @@ const StockReport: React.FC = () => {
         item.stock_value.toString(),
         item.status,
         item.min_stock_alert,
-        formatDate(item.last_updated)
+        formatDateDisplay(item.last_updated)
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -939,7 +941,7 @@ const StockReport: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `stock_report_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `stock_report_${getCurrentSystemDateTime().dbDate}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -977,7 +979,7 @@ const StockReport: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `stock_movements_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `stock_movements_${getCurrentSystemDateTime().dbDate}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1021,26 +1023,9 @@ const StockReport: React.FC = () => {
     return `Rs. ${Number(safeAmount).toFixed(2)}`;
   };
 
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  const formatDateTime = (dateString: string, timeString?: string): string => {
-    if (timeString) {
-      return `${formatDate(dateString)} ${timeString}`;
-    }
-    return new Date(dateString).toLocaleString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+  // Use centralized date/time formatting
+  const formatDateDisplay = (dateString: string): string => {
+    return formatDate(dateString);
   };
 
   if (loading) {
@@ -1068,8 +1053,8 @@ const StockReport: React.FC = () => {
             <button
               onClick={() => setCurrentView('overview')}
               className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${currentView === 'overview'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               Overview
@@ -1077,8 +1062,8 @@ const StockReport: React.FC = () => {
             <button
               onClick={() => setCurrentView('movements')}
               className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${currentView === 'movements'
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
                 }`}
             >
               Movements
@@ -1418,7 +1403,7 @@ const StockReport: React.FC = () => {
                       Quantity
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Stock Change
+                      Remaining Stock
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Customer/Reference
@@ -1437,7 +1422,7 @@ const StockReport: React.FC = () => {
                       <tr key={movement.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">
-                            {formatDate(movement.date)}
+                            {formatDateDisplay(movement.date)}
                           </div>
                           <div className="text-sm text-gray-500">
                             {movement.time}
@@ -1462,7 +1447,7 @@ const StockReport: React.FC = () => {
 
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className={`text-sm font-semibold ${movement.movement_type === 'in' ? 'text-green-600' :
-                              movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
+                            movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
                             }`}>
                             {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
                             {formatUnitString(movement.quantity, movement.unit_type || 'kg-grams')}
@@ -1471,7 +1456,7 @@ const StockReport: React.FC = () => {
 
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900">
-                            {formatUnitString(movement.previous_stock, movement.unit_type || 'kg-grams')} → {formatUnitString(movement.new_stock, movement.unit_type || 'kg-grams')}
+                            {formatUnitString(movement.new_stock, movement.unit_type || 'kg-grams')}
                           </div>
                           <div className="text-sm text-gray-500">
                             Value: {formatCurrency(movement.total_value)}
@@ -1560,135 +1545,6 @@ const StockReport: React.FC = () => {
               </p>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Product Details Modal */}
-      {showProductDetails && selectedProduct && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-4 mx-auto p-5 border w-11/12 max-w-6xl shadow-lg rounded-md bg-white">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">
-                {selectedProduct.name} - Stock Details
-              </h3>
-              <button
-                onClick={() => setShowProductDetails(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Product Info */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-medium text-blue-900 mb-2">Current Stock</h4>
-                <p className="text-2xl font-bold text-blue-600">
-                  {formatUnitString(selectedProduct.current_stock, selectedProduct.unit_type)}
-                </p>
-                <p className="text-sm text-blue-700">
-                  Value: {formatCurrency(selectedProduct.stock_value)}
-                </p>
-              </div>
-
-              <div className="bg-yellow-50 p-4 rounded-lg">
-                <h4 className="font-medium text-yellow-900 mb-2">Alert Level</h4>
-                <p className="text-2xl font-bold text-yellow-600">
-                  {formatUnitString(selectedProduct.min_stock_alert, selectedProduct.unit_type)}
-                </p>
-                <p className="text-sm text-yellow-700">
-                  Rate per Unit: {formatCurrency(selectedProduct.rate_per_unit)}
-                </p>
-              </div>
-
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h4 className="font-medium text-green-900 mb-2">Status</h4>
-                <div className="flex items-center">
-                  {React.createElement(getStatusInfo(selectedProduct.status).icon, {
-                    className: "h-6 w-6 mr-2 text-green-600"
-                  })}
-                  <span className="text-lg font-semibold text-green-600">
-                    {getStatusInfo(selectedProduct.status).label}
-                  </span>
-                </div>
-                <p className="text-sm text-green-700">
-                  Category: {selectedProduct.category}
-                </p>
-              </div>
-            </div>
-
-            {/* Movement History for this Product */}
-            <div>
-              <h4 className="text-lg font-semibold text-gray-900 mb-4">Recent Movement History</h4>
-              <div className="overflow-x-auto max-h-64">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Stock Change</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Reference</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredMovements
-                      .filter(m => m.product_id === selectedProduct.id)
-                      .slice(0, 10)
-                      .map((movement) => (
-                        <tr key={movement.id}>
-                          <td className="px-4 py-2 text-sm text-gray-900">
-                            {formatDateTime(movement.date, movement.time)}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getMovementTypeInfo(movement.movement_type).color
-                              }`}>
-                              {getMovementTypeInfo(movement.movement_type).label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-sm font-medium">
-                            {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
-                            {formatUnitString(movement.quantity, movement.unit_type || 'kg-grams')}
-                          </td>
-                          <td className="px-4 py-2 text-sm text-gray-900">
-                            {formatUnitString(movement.previous_stock, movement.unit_type || 'kg-grams')} → {formatUnitString(movement.new_stock, movement.unit_type || 'kg-grams')}
-                          </td>
-                          <td className="px-4 py-2 text-sm text-gray-500">
-                            {movement.customer_name && (
-                              <div className="flex items-center">
-                                <User className="h-3 w-3 mr-1" />
-                                {movement.customer_name}
-                              </div>
-                            )}
-                            {movement.reference_number && (
-                              <div className="text-xs">{movement.reference_number}</div>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <button
-                onClick={() => setShowProductDetails(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  setShowProductDetails(false);
-                  openAdjustmentModal(selectedProduct);
-                }}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Adjust Stock
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

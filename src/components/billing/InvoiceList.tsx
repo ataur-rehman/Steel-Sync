@@ -7,6 +7,8 @@ import Modal from '../common/Modal';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+import { formatDate, formatTime } from '../../utils/formatters';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import {
   Search,
   Filter,
@@ -23,11 +25,11 @@ import {
   Clock,
   Printer,
   Package,
- 
+
   Plus,
   SortAsc,
   SortDesc,
- 
+
 
   Grid3X3,
   List,
@@ -89,7 +91,7 @@ const PAYMENT_METHOD_OPTIONS = [
 
 const InvoiceList: React.FC = () => {
   const navigate = useNavigate();
-  
+
   // State management - KEEPING YOUR ORIGINAL STATE STRUCTURE
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
@@ -100,36 +102,36 @@ const InvoiceList: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showStockImpactModal, setShowStockImpactModal] = useState(false);
   const [invoiceStockMovements, setInvoiceStockMovements] = useState<any[]>([]);
-  
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
+
   // View mode toggle
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
-  
+
   // Pagination - KEEPING YOUR ORIGINAL
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(24);
-  
+
   // Filters - KEEPING YOUR ORIGINAL
   const [filters, setFilters] = useState<InvoiceFilters>({
     search: '',
     customer_id: null,
     status: '',
     from_date: '',
-    to_date: '',  
+    to_date: '',
     payment_method: ''
   });
 
   // UI Enhancement additions (not changing your logic)
-  
+
   const [sortField, setSortField] = useState('created_at');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   // Load initial data - YOUR ORIGINAL FUNCTION
   useEffect(() => {
     loadData();
-    
+
     // FIXED: Proper event bus integration with correct event names
     const handleInvoiceCreated = (data: any) => {
       console.log('🧾 Invoice list refreshing due to invoice creation:', data);
@@ -171,16 +173,16 @@ const InvoiceList: React.FC = () => {
     try {
       setLoading(true);
       await db.initialize();
-      
+
       const [invoiceList, customerList] = await Promise.all([
         db.getInvoices(),
         db.getAllCustomers()
       ]);
-      
+
       console.log('Loaded invoices:', invoiceList);
       setInvoices(invoiceList);
       setCustomers(customerList);
-      
+
     } catch (error) {
       console.error('Failed to load data:', error);
       toast.error('Failed to load invoices');
@@ -229,13 +231,13 @@ const InvoiceList: React.FC = () => {
     }
 
     if (filters.from_date) {
-      filtered = filtered.filter(invoice => 
+      filtered = filtered.filter(invoice =>
         new Date(invoice.created_at) >= new Date(filters.from_date)
       );
     }
-    
+
     if (filters.to_date) {
-      filtered = filtered.filter(invoice => 
+      filtered = filtered.filter(invoice =>
         new Date(invoice.created_at) <= new Date(filters.to_date + 'T23:59:59')
       );
     }
@@ -248,17 +250,17 @@ const InvoiceList: React.FC = () => {
     filtered.sort((a, b) => {
       let aValue: any = a[sortField as keyof Invoice];
       let bValue: any = b[sortField as keyof Invoice];
-      
+
       if (sortField === 'created_at') {
         aValue = new Date(aValue).getTime();
         bValue = new Date(bValue).getTime();
       }
-      
+
       if (typeof aValue === 'string') {
         aValue = aValue.toLowerCase();
         bValue = bValue.toLowerCase();
       }
-      
+
       if (sortDirection === 'asc') {
         return aValue > bValue ? 1 : -1;
       } else {
@@ -281,14 +283,14 @@ const InvoiceList: React.FC = () => {
   const viewInvoiceStockImpact = async (invoiceId: number) => {
     try {
       setLoading(true);
-      
+
       const movements = await db.getStockMovements({
         reference_type: 'invoice',
         reference_id: invoiceId
       });
-      
+
       if (movements.length === 0) {
-        toast('No stock movements found for this invoice', { 
+        toast('No stock movements found for this invoice', {
           icon: 'ℹ️',
           style: {
             background: '#3b82f6',
@@ -308,17 +310,17 @@ const InvoiceList: React.FC = () => {
         } catch (error) {
           console.warn(`Could not get unit type for product ${movement.product_id}, using default kg-grams`);
         }
-        
+
         const convertQuantity = (rawQuantity: number | string): string => {
           // Check if it's already a formatted string with sign (new format)
           if (typeof rawQuantity === 'string' && (rawQuantity.includes('kg') || rawQuantity.includes('pcs') || rawQuantity.includes('bags'))) {
             // Already formatted, return as is
             return rawQuantity;
           }
-          
+
           // Legacy numeric conversion for backward compatibility
           const numericValue = typeof rawQuantity === 'string' ? parseFloat(rawQuantity) : rawQuantity;
-          
+
           if (productUnitType === 'kg-grams') {
             const kg = Math.floor(Math.abs(numericValue) / 1000);
             const grams = Math.abs(numericValue) % 1000;
@@ -339,7 +341,7 @@ const InvoiceList: React.FC = () => {
             return numericValue.toString();
           }
         };
-        
+
         return {
           ...movement,
           quantity: convertQuantity(movement.quantity),
@@ -351,7 +353,7 @@ const InvoiceList: React.FC = () => {
 
       setInvoiceStockMovements(convertedMovements);
       setShowStockImpactModal(true);
-      
+
       console.log('Stock movements for invoice:', convertedMovements);
     } catch (error) {
       console.error('Error loading invoice stock impact:', error);
@@ -449,13 +451,9 @@ const InvoiceList: React.FC = () => {
     return `Rs. ${rounded.toFixed(2)}`;
   };
 
-  // Format date - YOUR ORIGINAL FUNCTION
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+  // Use centralized date formatting
+  const formatDateDisplay = (dateString: string): string => {
+    return formatDate(dateString);
   };
 
 
@@ -489,37 +487,34 @@ const InvoiceList: React.FC = () => {
             {stats.totalInvoices} invoices • {formatCurrency(stats.totalRevenue)} total revenue
           </p>
         </div>
-        
+
         <div className="flex items-center gap-3">
           {/* View Mode Toggle */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-md transition-colors ${
-                viewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={`p-2 rounded-md transition-colors ${viewMode === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
               title="Grid view"
             >
               <Grid3X3 className="h-4 w-4" />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded-md transition-colors ${
-                viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-              }`}
+              className={`p-2 rounded-md transition-colors ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                }`}
               title="List view"
             >
               <List className="h-4 w-4" />
             </button>
           </div>
-          
+
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center px-4 py-2 border rounded-lg transition-colors ${
-              showFilters || hasActiveFilters() 
-                ? 'border-blue-500 bg-blue-50 text-blue-700' 
-                : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-            }`}
+            className={`flex items-center px-4 py-2 border rounded-lg transition-colors ${showFilters || hasActiveFilters()
+              ? 'border-blue-500 bg-blue-50 text-blue-700'
+              : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
           >
             <Filter className="h-4 w-4 mr-2" />
             Filters
@@ -529,7 +524,7 @@ const InvoiceList: React.FC = () => {
               </span>
             )}
           </button>
-          
+
           <button
             onClick={refreshData}
             disabled={refreshing}
@@ -548,23 +543,23 @@ const InvoiceList: React.FC = () => {
             <div>
               <p className="text-sm font-medium text-gray-600">Total Invoices</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{stats.totalInvoices}</p>
-              
+
             </div>
-            
+
           </div>
         </div>
-        
+
         <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Total Revenue</p>
               <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.totalRevenue)}</p>
-             
+
             </div>
-            
+
           </div>
         </div>
-        
+
         <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
@@ -574,10 +569,10 @@ const InvoiceList: React.FC = () => {
                 {((stats.paidInvoices / stats.totalInvoices) * 100 || 0).toFixed(1)}% paid
               </p>
             </div>
-           
+
           </div>
         </div>
-        
+
         <div className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
@@ -587,7 +582,7 @@ const InvoiceList: React.FC = () => {
                 {stats.totalInvoices - stats.paidInvoices} unpaid
               </p>
             </div>
-          
+
           </div>
         </div>
       </div>
@@ -606,21 +601,20 @@ const InvoiceList: React.FC = () => {
               className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
             />
           </div>
-          
+
           {/* Quick Status Filters */}
           <div className="flex items-center gap-2">
             {STATUS_OPTIONS.slice(1).map(status => (
               <button
                 key={status.value}
-                onClick={() => setFilters(prev => ({ 
-                  ...prev, 
-                  status: prev.status === status.value ? '' : status.value 
+                onClick={() => setFilters(prev => ({
+                  ...prev,
+                  status: prev.status === status.value ? '' : status.value
                 }))}
-                className={`px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  filters.status === status.value
-                    ? status.color + ' border-current'
-                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                }`}
+                className={`px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${filters.status === status.value
+                  ? status.color + ' border-current'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
               >
                 {status.label}
               </button>
@@ -644,16 +638,16 @@ const InvoiceList: React.FC = () => {
               </button>
             )}
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Customer */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Customer</label>
               <select
                 value={filters.customer_id || ''}
-                onChange={(e) => setFilters(prev => ({ 
-                  ...prev, 
-                  customer_id: e.target.value ? parseInt(e.target.value) : null 
+                onChange={(e) => setFilters(prev => ({
+                  ...prev,
+                  customer_id: e.target.value ? parseInt(e.target.value) : null
                 }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               >
@@ -731,7 +725,7 @@ const InvoiceList: React.FC = () => {
               {sortDirection === 'asc' ? <SortAsc className="h-4 w-4" /> : <SortDesc className="h-4 w-4" />}
             </button>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600">Show:</span>
             <select
@@ -746,7 +740,7 @@ const InvoiceList: React.FC = () => {
             </select>
           </div>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-600">
             Showing {startIndex + 1}-{Math.min(endIndex, filteredInvoices.length)} of {filteredInvoices.length}
@@ -763,8 +757,8 @@ const InvoiceList: React.FC = () => {
               {currentInvoices.map((invoice) => {
                 const status = getInvoiceStatus(invoice);
                 const statusInfo = getStatusInfo(status);
-               
-                
+
+
                 return (
                   <div key={invoice.id} className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-200 hover:border-blue-300">
                     {/* Card Header */}
@@ -775,7 +769,7 @@ const InvoiceList: React.FC = () => {
                         </div>
                         <div>
                           <h3 className="font-semibold text-gray-900">{formatInvoiceNumber(invoice.bill_number)}</h3>
-                          <p className="text-xs text-gray-500">{formatDate(invoice.created_at)}</p>
+                          <p className="text-xs text-gray-500">{formatDateDisplay(invoice.created_at)}</p>
                         </div>
                       </div>
                       <div className={`flex items-center px-2 py-1 rounded-full text-xs font-medium border ${statusInfo.color}`}>
@@ -917,13 +911,13 @@ const InvoiceList: React.FC = () => {
                     {currentInvoices.map((invoice) => {
                       const status = getInvoiceStatus(invoice);
                       const statusInfo = getStatusInfo(status);
-                   
-                      
+
+
                       return (
                         <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-3">
-                              
+
                               <div>
                                 <div className="text-sm font-semibold text-gray-900">{formatInvoiceNumber(invoice.bill_number)}</div>
                                 {invoice.notes && (
@@ -934,10 +928,10 @@ const InvoiceList: React.FC = () => {
                               </div>
                             </div>
                           </td>
-                          
+
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-2">
-                            
+
                               <div>
                                 <div className="text-sm font-medium text-gray-900">{invoice.customer_name}</div>
                                 {invoice.customer_phone && (
@@ -946,7 +940,7 @@ const InvoiceList: React.FC = () => {
                               </div>
                             </div>
                           </td>
-                          
+
                           <td className="px-6 py-4">
                             <div>
                               <div className="text-sm font-semibold text-gray-900">{formatCurrency(invoice.grand_total)}</div>
@@ -957,11 +951,11 @@ const InvoiceList: React.FC = () => {
                               )}
                             </div>
                           </td>
-                          
+
                           <td className="px-6 py-4">
                             <div>
                               <div className="text-sm font-medium text-gray-900">{formatCurrency(invoice.payment_amount)}</div>
-                              
+
                               {invoice.remaining_balance > 0 && (
                                 <div className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mt-1">
                                   Due: {formatCurrency(invoice.remaining_balance)}
@@ -969,22 +963,22 @@ const InvoiceList: React.FC = () => {
                               )}
                             </div>
                           </td>
-                          
+
                           <td className="px-6 py-4">
                             <div className="flex items-center">
-          
+
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusInfo.color}`}>
-                            
+
                                 {statusInfo.label}
                               </span>
                             </div>
                           </td>
-                          
+
                           <td className="px-6 py-4">
-                            <div className="text-sm text-gray-900">{formatDate(invoice.created_at)}</div>
-                            <div className="text-xs text-gray-500">{new Date(invoice.created_at).toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit' })}</div>
+                            <div className="text-sm text-gray-900">{formatDateDisplay(invoice.created_at)}</div>
+                            <div className="text-xs text-gray-500">{formatTime(new Date(invoice.created_at))}</div>
                           </td>
-                          
+
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-1">
                               <button
@@ -994,7 +988,7 @@ const InvoiceList: React.FC = () => {
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
-                            
+
                               <button
                                 onClick={() => viewInvoiceStockImpact(invoice.id)}
                                 className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
@@ -1021,7 +1015,7 @@ const InvoiceList: React.FC = () => {
                   Page {currentPage} of {totalPages}
                 </span>
               </div>
-              
+
               <div className="flex items-center space-x-1">
                 <button
                   onClick={() => setCurrentPage(1)}
@@ -1037,26 +1031,25 @@ const InvoiceList: React.FC = () => {
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                
+
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                   const pageNum = Math.max(1, Math.min(totalPages - 4, currentPage - 2)) + i;
                   if (pageNum > totalPages) return null;
-                  
+
                   return (
                     <button
                       key={pageNum}
                       onClick={() => setCurrentPage(pageNum)}
-                      className={`px-3 py-2 text-sm font-medium border rounded-lg transition-colors ${
-                        pageNum === currentPage
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'text-gray-500 bg-white border-gray-300 hover:bg-gray-50'
-                      }`}
+                      className={`px-3 py-2 text-sm font-medium border rounded-lg transition-colors ${pageNum === currentPage
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'text-gray-500 bg-white border-gray-300 hover:bg-gray-50'
+                        }`}
                     >
                       {pageNum}
                     </button>
                   );
                 })}
-                
+
                 <button
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
                   disabled={currentPage === totalPages}
@@ -1083,7 +1076,7 @@ const InvoiceList: React.FC = () => {
             {invoices.length === 0 ? 'No invoices created yet' : 'No invoices match your filters'}
           </h3>
           <p className="text-gray-500 mb-6">
-            {invoices.length === 0 
+            {invoices.length === 0
               ? "Create your first invoice to get started with your business management."
               : "Try adjusting your search criteria or filters to find what you're looking for."
             }
@@ -1119,8 +1112,8 @@ const InvoiceList: React.FC = () => {
           <div className="space-y-4">
             {invoiceStockMovements.length > 0 ? (
               <div>
-            
-                
+
+
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
@@ -1152,7 +1145,7 @@ const InvoiceList: React.FC = () => {
                             <div className="flex items-center">
                               <div>
                                 <div className="text-sm font-medium text-gray-900">
-                            
+
                                   {(() => {
                                     let details = movement.product_name || '';
                                     let size = movement.size;
@@ -1198,7 +1191,7 @@ const InvoiceList: React.FC = () => {
                     </tbody>
                   </table>
                 </div>
-                
+
                 <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                   <h4 className="text-sm font-medium text-blue-900 mb-2">Summary</h4>
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -1244,7 +1237,7 @@ const InvoiceList: React.FC = () => {
                 if (eventBus && eventBus.emit) {
                   eventBus.emit('INVOICE_LIST_REFRESHED', {
                     invoiceId: selectedInvoice.id,
-                    timestamp: new Date().toISOString()
+                    timestamp: getCurrentSystemDateTime().raw.toISOString()
                   });
                 }
               }
@@ -1256,7 +1249,7 @@ const InvoiceList: React.FC = () => {
         />
       )}
 
-      
+
     </div>
   );
 };

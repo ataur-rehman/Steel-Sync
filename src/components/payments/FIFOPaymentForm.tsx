@@ -232,57 +232,59 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[9999] p-2 sm:p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-5xl max-h-[95vh] overflow-hidden flex flex-col">
                 {/* Header - Fixed */}
-                <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-3 text-white flex-shrink-0">
+                <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-3 sm:px-6 py-3 text-white flex-shrink-0">
                     <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                            <CreditCard className="w-5 h-5" />
-                            <div>
-                                <h2 className="text-lg font-semibold">FIFO Payment Allocation</h2>
-                                <p className="text-blue-100 text-sm">{customerName}</p>
+                        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
+                            <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
+                            <div className="min-w-0 flex-1">
+                                <h2 className="text-sm sm:text-lg font-semibold truncate">FIFO Payment Allocation</h2>
+                                <p className="text-blue-100 text-xs sm:text-sm truncate">{customerName}</p>
                             </div>
                         </div>
                         <button
                             onClick={handleClose}
-                            className="text-white hover:text-blue-200 transition-colors"
+                            className="text-white hover:text-blue-200 transition-colors p-1 flex-shrink-0"
                         >
-                            <X className="w-5 h-5" />
+                            <X className="w-4 h-4 sm:w-5 sm:h-5" />
                         </button>
                     </div>
 
                     {/* Compact Customer Info Panel */}
-                    <div className="mt-3 grid grid-cols-4 gap-3 bg-blue-800 bg-opacity-50 rounded-lg p-3">
-                        <div>
-                            <div className="text-blue-200 text-xs">Current Balance</div>
-                            <div className="text-white font-bold text-sm">
+                    <div className="mt-2 sm:mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 bg-blue-800 bg-opacity-50 rounded-lg p-2 sm:p-3">
+                        <div className="min-w-0">
+                            <div className="text-blue-200 text-xs truncate">Current Balance</div>
+                            <div className="text-white font-bold text-xs sm:text-sm truncate">
                                 Rs. {customerBalance?.toLocaleString() || '0.00'}
                             </div>
                         </div>
                         {customerPhone && (
-                            <div>
-                                <div className="text-blue-200 text-xs">Phone</div>
-                                <div className="text-white font-medium text-sm">{customerPhone}</div>
+                            <div className="min-w-0 hidden sm:block">
+                                <div className="text-blue-200 text-xs truncate">Phone</div>
+                                <div className="text-white font-medium text-xs sm:text-sm truncate">{customerPhone}</div>
                             </div>
                         )}
-                        <div>
-                            <div className="text-blue-200 text-xs">Pending Invoices</div>
-                            <div className="text-white font-medium text-sm">
+                        <div className="min-w-0">
+                            <div className="text-blue-200 text-xs truncate">Pending Invoices</div>
+                            <div className="text-white font-medium text-xs sm:text-sm">
                                 {pendingInvoices.length} invoice{pendingInvoices.length !== 1 ? 's' : ''}
                             </div>
                         </div>
-                        <div>
-                            <div className="text-blue-200 text-xs">Total Outstanding</div>
-                            <div className="text-white font-bold text-sm">
+                        <div className="min-w-0">
+                            <div className="text-blue-200 text-xs truncate">Total Outstanding</div>
+                            <div className="text-white font-bold text-xs sm:text-sm truncate">
                                 Rs. {getTotalPendingAmount().toLocaleString()}
                             </div>
                         </div>
                     </div>
-                </div>                <div className="flex flex-1 overflow-hidden">
-                    {/* Left Panel - Payment Form */}
-                    <div className="w-2/5 p-4 border-r border-gray-200 overflow-y-auto">
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                </div>
+
+                <div className="flex flex-1 overflow-hidden flex-col xl:flex-row">
+                    {/* Payment Form - Top on mobile, Left Panel on xl screens */}
+                    <div className="w-full xl:w-2/5 p-3 sm:p-4 border-b xl:border-b-0 xl:border-r border-gray-200 overflow-y-auto">
+                        <form onSubmit={handleSubmit} className="space-y-3 sm:space-y-4">
                             {/* Amount Input */}
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -294,7 +296,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                     min="0"
                                     value={amount}
                                     onChange={(e) => setAmount(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-lg font-medium"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-lg font-medium"
                                     placeholder="0.00"
                                     required
                                 />
@@ -308,7 +310,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                 <select
                                     value={paymentChannelId || ''}
                                     onChange={(e) => setPaymentChannelId(e.target.value ? parseInt(e.target.value) : undefined)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                                     disabled={loadingChannels}
                                     required
                                 >
@@ -330,7 +332,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                     type="text"
                                     value={reference}
                                     onChange={(e) => setReference(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                                     placeholder="Transaction reference, cheque number, etc."
                                 />
                             </div>
@@ -344,7 +346,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                     value={notes}
                                     onChange={(e) => setNotes(e.target.value)}
                                     rows={2}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                                     placeholder="Additional notes..."
                                 />
                             </div>
@@ -353,7 +355,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                             <button
                                 type="submit"
                                 disabled={loading || !amount || parseFloat(amount) <= 0 || !paymentChannelId}
-                                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2 text-sm"
                             >
                                 {loading ? (
                                     <>
@@ -371,47 +373,47 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                     </div>
 
                     {/* Right Panel - Preview */}
-                    <div className="w-3/5 p-4 bg-gray-50 overflow-y-auto">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-                            <ArrowRight className="w-5 h-5 mr-2" />
-                            Allocation Preview
+                    <div className="w-full xl:w-3/5 p-3 sm:p-4 bg-gray-50 overflow-y-auto">
+                        <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4 flex items-center">
+                            <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 mr-2 flex-shrink-0" />
+                            <span className="truncate">Allocation Preview</span>
                         </h3>
 
                         {loadingInvoices ? (
                             <div className="flex items-center justify-center py-8">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                                <span className="ml-2 text-gray-600">Loading invoices...</span>
+                                <div className="animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-b-2 border-blue-600"></div>
+                                <span className="ml-2 text-gray-600 text-sm">Loading invoices...</span>
                             </div>
                         ) : pendingInvoices.length === 0 ? (
                             <div className="text-center py-8">
-                                <AlertCircle className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                                <p className="text-gray-600">No pending invoices found</p>
-                                <p className="text-sm text-gray-500">All payment will be added to customer credit</p>
+                                <AlertCircle className="w-8 h-8 sm:w-12 sm:h-12 text-gray-400 mx-auto mb-3" />
+                                <p className="text-gray-600 text-sm">No pending invoices found</p>
+                                <p className="text-xs sm:text-sm text-gray-500">All payment will be added to customer credit</p>
                             </div>
                         ) : (
-                            <div className="space-y-4">
+                            <div className="space-y-3 sm:space-y-4">
                                 {/* Summary */}
-                                <div className="bg-white p-4 rounded-lg border">
-                                    <div className="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
+                                <div className="bg-white p-3 sm:p-4 rounded-lg border">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 text-xs sm:text-sm">
+                                        <div className="flex justify-between sm:block">
                                             <span className="text-gray-600">Pending Invoices:</span>
-                                            <span className="font-medium ml-2">{pendingInvoices.length}</span>
+                                            <span className="font-medium sm:ml-2">{pendingInvoices.length}</span>
                                         </div>
-                                        <div>
+                                        <div className="flex justify-between sm:block">
                                             <span className="text-gray-600">Total Pending:</span>
-                                            <span className="font-medium ml-2">Rs. {getTotalPendingAmount().toFixed(2)}</span>
+                                            <span className="font-medium sm:ml-2">Rs. {getTotalPendingAmount().toFixed(2)}</span>
                                         </div>
                                         {amount && parseFloat(amount) > 0 && (
                                             <>
-                                                <div>
+                                                <div className="flex justify-between sm:block">
                                                     <span className="text-gray-600">Will Allocate:</span>
-                                                    <span className="font-medium ml-2 text-green-600">
+                                                    <span className="font-medium sm:ml-2 text-green-600">
                                                         Rs. {allocationPreview.reduce((sum, a) => sum + a.allocatedAmount, 0).toFixed(2)}
                                                     </span>
                                                 </div>
-                                                <div>
+                                                <div className="flex justify-between sm:block">
                                                     <span className="text-gray-600">Remaining Credit:</span>
-                                                    <span className="font-medium ml-2 text-blue-600">
+                                                    <span className="font-medium sm:ml-2 text-blue-600">
                                                         Rs. {remainingCredit.toFixed(2)}
                                                     </span>
                                                 </div>
@@ -422,27 +424,27 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
 
                                 {/* Allocation Preview */}
                                 {allocationPreview.length > 0 && (
-                                    <div className="space-y-2 max-h-80 overflow-y-auto">
-                                        <h4 className="text-sm font-medium text-gray-700">FIFO Allocation Order:</h4>
+                                    <div className="space-y-2 max-h-60 sm:max-h-80 overflow-y-auto">
+                                        <h4 className="text-xs sm:text-sm font-medium text-gray-700">FIFO Allocation Order:</h4>
                                         {allocationPreview.map((allocation) => (
                                             <div
                                                 key={allocation.invoiceId}
-                                                className={`p-3 rounded-lg border-l-4 ${allocation.willBePaid
+                                                className={`p-2 sm:p-3 rounded-lg border-l-4 ${allocation.willBePaid
                                                     ? 'bg-green-50 border-green-400'
                                                     : 'bg-yellow-50 border-yellow-400'
                                                     }`}
                                             >
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <div className="font-medium text-sm">
+                                                <div className="flex justify-between items-start space-x-2">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="font-medium text-xs sm:text-sm truncate">
                                                             #{allocation.order} {allocation.invoiceNumber}
                                                         </div>
                                                         <div className="text-xs text-gray-600 mt-1">
                                                             Rs. {allocation.currentBalance.toFixed(2)} → Rs. {allocation.newBalance.toFixed(2)}
                                                         </div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <div className="font-medium text-sm text-green-600">
+                                                    <div className="text-right flex-shrink-0">
+                                                        <div className="font-medium text-xs sm:text-sm text-green-600">
                                                             +Rs. {allocation.allocatedAmount.toFixed(2)}
                                                         </div>
                                                         <div className={`text-xs ${allocation.willBePaid ? 'text-green-600' : 'text-yellow-600'}`}>
@@ -456,22 +458,22 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                 )}
 
                                 {/* Pending Invoices List */}
-                                <div className="space-y-2 max-h-60 overflow-y-auto">
-                                    <h4 className="text-sm font-medium text-gray-700">Pending Invoices (FIFO Order):</h4>
+                                <div className="space-y-2 max-h-48 sm:max-h-60 overflow-y-auto">
+                                    <h4 className="text-xs sm:text-sm font-medium text-gray-700">Pending Invoices (FIFO Order):</h4>
                                     {pendingInvoices.map((invoice) => {
                                         const allocation = allocationPreview.find(a => a.invoiceId === invoice.id);
                                         return (
                                             <div
                                                 key={invoice.id}
-                                                className={`p-2 rounded border text-sm ${allocation ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
+                                                className={`p-2 rounded border text-xs sm:text-sm ${allocation ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'
                                                     }`}
                                             >
-                                                <div className="flex justify-between items-center">
-                                                    <div>
-                                                        <span className="font-medium">{invoice.bill_number || invoice.invoice_number}</span>
-                                                        <span className="text-gray-500 ml-2">({invoice.days_pending} days)</span>
+                                                <div className="flex justify-between items-center space-x-2">
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="font-medium truncate block">{invoice.bill_number || invoice.invoice_number}</span>
+                                                        <span className="text-gray-500 text-xs">({invoice.days_pending} days)</span>
                                                     </div>
-                                                    <div className="text-right">
+                                                    <div className="text-right flex-shrink-0">
                                                         <div className="font-medium">Rs. {invoice.remaining_balance.toFixed(2)}</div>
                                                         {allocation && (
                                                             <div className="text-xs text-blue-600">
