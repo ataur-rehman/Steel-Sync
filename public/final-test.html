@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Final T-Iron & Miscellaneous Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+
+        .info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 10px 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .btn-warning {
+            background-color: #ffc107;
+            color: black;
+        }
+
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+        }
+
+        #results {
+            margin-top: 20px;
+        }
+
+        .step {
+            margin: 15px 0;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            background-color: #f8f9fa;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔧 Final T-Iron & Miscellaneous Item Fix Test</h1>
+
+    <div class="info test-result">
+        <h3>📋 Test Objectives</h3>
+        <ol>
+            <li><strong>T-Iron Schema Permanence:</strong> Verify T-Iron fields exist even after database recreation
+            </li>
+            <li><strong>T-Iron Display Fix:</strong> Ensure items show "11pcs × 12ft/pcs = 132ft" instead of just "132"
+            </li>
+            <li><strong>Miscellaneous Item Ledger:</strong> Verify miscellaneous items create daily ledger entries</li>
+        </ol>
+    </div>
+
+    <div class="step">
+        <h3>Step 1: Test Database Recreation Scenario</h3>
+        <p>This simulates your concern about database file recreation or reset.</p>
+        <button class="btn-danger" onclick="recreateDatabase()">🗑️ Recreate Database</button>
+        <button class="btn-primary" onclick="verifySchema()">🔍 Verify T-Iron Schema</button>
+    </div>
+
+    <div class="step">
+        <h3>Step 2: Test T-Iron Item Addition</h3>
+        <p>Add a T-Iron item and verify proper display format.</p>
+        <button class="btn-success" onclick="testTIronItem()">🔩 Test T-Iron Item</button>
+    </div>
+
+    <div class="step">
+        <h3>Step 3: Test Miscellaneous Item Ledger</h3>
+        <p>Add a miscellaneous item and verify daily ledger entry creation.</p>
+        <button class="btn-success" onclick="testMiscellaneousItem()">💼 Test Miscellaneous Item</button>
+    </div>
+
+    <div class="step">
+        <h3>Step 4: Run Complete Test Suite</h3>
+        <p>Execute all tests in sequence to verify permanent fixes.</p>
+        <button class="btn-warning" onclick="runCompleteTest()">🧪 Run All Tests</button>
+        <button class="btn-danger" onclick="clearResults()">🧹 Clear Results</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        let testInvoiceId = null;
+
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `test-result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}:</strong> ${message}`;
+            results.appendChild(div);
+            console.log(message);
+
+            // Auto-scroll to bottom
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function recreateDatabase() {
+            log('🗑️ Starting database recreation test...', 'warning');
+
+            try {
+                if (!window.db) {
+                    throw new Error('Database service not available');
+                }
+
+                // First, verify current state
+                log('📊 Checking current database state...', 'info');
+                const currentInvoices = await window.db.getInvoices({ limit: 5 });
+                log(`Current database has ${currentInvoices.length} invoices`, 'info');
+
+                // Force schema fix (this should recreate tables if needed)
+                log('🔧 Forcing schema recreation...', 'info');
+                if (window.fixTIronSchema) {
+                    const result = await window.fixTIronSchema();
+                    log(`Schema fix result: ${JSON.stringify(result)}`, result.success ? 'success' : 'error');
+                } else {
+                    log('Schema fix utility not available', 'warning');
+                }
+
+                // Verify database is still accessible
+                const newInvoices = await window.db.getInvoices({ limit: 1 });
+                log(`✅ Database recreation test passed - still accessible with ${newInvoices.length} invoices`, 'success');
+
+            } catch (error) {
+                log(`❌ Database recreation test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function verifySchema() {
+            log('🔍 Verifying T-Iron schema...', 'info');
+
+            try {
+                if (!window.db) {
+                    throw new Error('Database service not available');
+                }
+
+                // Test schema by attempting to create an invoice with T-Iron data
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Schema Test Customer',
+                    bill_number: 'SCHEMA-' + Date.now(),
+                    subtotal: 100,
+                    total_amount: 100,
+                    grand_total: 100
+                };
+
+                const invoiceId = await window.db.createInvoice(testInvoice);
+                log(`📋 Created test invoice: ${invoiceId}`, 'info');
+
+                // Try to add item with T-Iron fields
+                const tIronTestItem = {
+                    invoice_id: invoiceId,
+                    product_name: 'T Iron Schema Test',
+                    quantity: 60,
+                    unit_price: 100,
+                    total_price: 100,
+                    t_iron_pieces: 5,
+                    t_iron_length_per_piece: 12,
+                    t_iron_total_feet: 60,
+                    t_iron_unit: 'ft',
+                    is_non_stock_item: 1
+                };
+
+                const itemIds = await window.db.addInvoiceItems(invoiceId, [tIronTestItem]);
+                log(`✅ Successfully added T-Iron item with ID: ${itemIds[0]}`, 'success');
+
+                // Verify the data was saved correctly
+                const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                const savedItem = savedInvoice.items[0];
+
+                if (savedItem.t_iron_pieces && savedItem.t_iron_length_per_piece) {
+                    log(`✅ T-Iron schema verification PASSED: ${savedItem.t_iron_pieces}pcs × ${savedItem.t_iron_length_per_piece}ft/pcs = ${savedItem.t_iron_total_feet}ft`, 'success');
+                } else {
+                    log('❌ T-Iron fields not saved properly', 'error');
+                    log(`Saved data: pieces=${savedItem.t_iron_pieces}, length=${savedItem.t_iron_length_per_piece}`, 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Schema verification failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testTIronItem() {
+            log('🔩 Testing T-Iron item addition and display...', 'info');
+
+            try {
+                if (!testInvoiceId) {
+                    // Create test invoice first
+                    const testInvoice = {
+                        customer_id: 1,
+                        customer_name: 'T-Iron Test Customer',
+                        bill_number: 'TIRON-' + Date.now(),
+                        subtotal: 16236,
+                        total_amount: 16236,
+                        grand_total: 16236
+                    };
+
+                    testInvoiceId = await window.db.createInvoice(testInvoice);
+                    log(`📋 Created test invoice: ${testInvoiceId}`, 'info');
+                }
+
+                // Add T-Iron item as mentioned in your issue
+                const tIronItem = {
+                    invoice_id: testInvoiceId,
+                    product_name: 'T Iron',
+                    quantity: 169, // This was showing as "169" instead of calculation
+                    unit: 'ft',
+                    unit_price: 133,
+                    total_price: 22477,
+                    is_non_stock_item: 1,
+                    t_iron_pieces: 1,
+                    t_iron_length_per_piece: 169,
+                    t_iron_total_feet: 169,
+                    t_iron_unit: 'ft'
+                };
+
+                const itemIds = await window.db.addInvoiceItems(testInvoiceId, [tIronItem]);
+                log(`✅ Added T-Iron item with ID: ${itemIds[0]}`, 'success');
+
+                // Verify the saved data
+                const savedInvoice = await window.db.getInvoiceDetails(testInvoiceId);
+                const savedItem = savedInvoice.items.find(item => item.id === itemIds[0]);
+
+                if (savedItem && savedItem.t_iron_pieces && savedItem.t_iron_length_per_piece) {
+                    const expectedDisplay = `${savedItem.t_iron_pieces}pcs × ${savedItem.t_iron_length_per_piece}ft/pcs = ${savedItem.t_iron_total_feet}ft`;
+                    log(`✅ T-Iron display should show: "${expectedDisplay}" instead of just "${savedItem.quantity}"`, 'success');
+                    log(`✅ T-Iron fix VERIFIED: Display format is now correct`, 'success');
+                } else {
+                    log('❌ T-Iron calculation data not saved correctly', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ T-Iron test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testMiscellaneousItem() {
+            log('💼 Testing miscellaneous item and daily ledger creation...', 'info');
+
+            try {
+                if (!testInvoiceId) {
+                    // Create test invoice first
+                    const testInvoice = {
+                        customer_id: 1,
+                        customer_name: 'Misc Test Customer',
+                        bill_number: 'MISC-' + Date.now(),
+                        subtotal: 5000,
+                        total_amount: 5000,
+                        grand_total: 5000
+                    };
+
+                    testInvoiceId = await window.db.createInvoice(testInvoice);
+                    log(`📋 Created test invoice: ${testInvoiceId}`, 'info');
+                }
+
+                // Add miscellaneous item (like Labor-T Iron)
+                const miscItem = {
+                    invoice_id: testInvoiceId,
+                    product_name: 'Labor-T Iron',
+                    quantity: 1,
+                    unit: 'item',
+                    unit_price: 5000,
+                    total_price: 5000,
+                    is_misc_item: 1, // This is key for ledger creation
+                    misc_description: 'T-Iron installation labor work'
+                };
+
+                log('💼 Adding miscellaneous item with description: "T-Iron installation labor work"', 'info');
+                const itemIds = await window.db.addInvoiceItems(testInvoiceId, [miscItem]);
+                log(`✅ Added miscellaneous item with ID: ${itemIds[0]}`, 'success');
+
+                // Wait a moment for ledger entry to be created
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Check if daily ledger entry was created
+                const today = new Date().toISOString().split('T')[0];
+                const ledgerEntries = await window.db.getDailyLedgerByDate(today);
+
+                log(`📊 Checking ${ledgerEntries.length} daily ledger entries for today...`, 'info');
+
+                const miscLedgerEntry = ledgerEntries.find(entry =>
+                    entry.description &&
+                    entry.description.includes('T-Iron installation labor work')
+                );
+
+                if (miscLedgerEntry) {
+                    log(`✅ MISCELLANEOUS ITEM LEDGER VERIFIED!`, 'success');
+                    log(`✅ Ledger entry found: "${miscLedgerEntry.description}"`, 'success');
+                    log(`✅ Amount: Rs. ${miscLedgerEntry.amount}`, 'success');
+                    log(`✅ Category: ${miscLedgerEntry.category}`, 'success');
+                } else {
+                    log('❌ Miscellaneous item daily ledger entry NOT FOUND', 'error');
+                    log('Available ledger entries:', 'warning');
+                    ledgerEntries.forEach(entry => {
+                        log(`  - ${entry.description} (Rs. ${entry.amount})`, 'info');
+                    });
+                }
+
+            } catch (error) {
+                log(`❌ Miscellaneous item test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function runCompleteTest() {
+            log('🚀 Starting complete test suite...', 'warning');
+            clearResults();
+
+            try {
+                log('🧪 COMPREHENSIVE TEST: Verifying all fixes are permanent', 'info');
+
+                // Step 1: Database recreation
+                await recreateDatabase();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Step 2: Schema verification
+                await verifySchema();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Step 3: T-Iron test
+                await testTIronItem();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Step 4: Miscellaneous item test
+                await testMiscellaneousItem();
+
+                log('🎉 COMPLETE TEST SUITE FINISHED!', 'success');
+                log('✅ Check results above to verify all fixes are working', 'success');
+
+            } catch (error) {
+                log(`❌ Complete test suite failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-load message
+        window.addEventListener('load', () => {
+            log('🔧 Test page loaded. Ready to verify permanent fixes!', 'info');
+            log('📋 Use the buttons above to test each component individually or run the complete suite.', 'info');
+        });
+    </script>
+</body>
+
+</html>

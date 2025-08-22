@@ -7,6 +7,7 @@ import { formatUnitString, parseUnit, validateUnit, getUnitTypeConfig } from '..
 import { formatInvoiceNumber, formatInvoiceNumberForPrint } from '../../utils/numberFormatting';
 import { formatDateTime, formatDate } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+import { TIronCalculator } from './TIronCalculator';
 
 import {
   Plus,
@@ -27,6 +28,7 @@ import {
   Printer,
   Copy,
   ChevronDown,
+  Calculator,
   ChevronUp,
   Undo2
 } from 'lucide-react';
@@ -95,9 +97,14 @@ interface ReturnModalState {
 interface Product {
   id: number;
   name: string;
-  unit_type: string;
+  unit_type?: 'kg-grams' | 'piece' | 'bag' | 'kg' | 'meter' | 'ton' | 'foot';
+  unit: string;
   rate_per_unit: number;
   current_stock: string;
+  min_stock_alert: string;
+  track_inventory?: number; // 1 = track inventory, 0 = non-stock product
+  size?: string;
+  grade?: string;
 }
 
 const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onUpdate }) => {
@@ -126,6 +133,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemLength, setNewItemLength] = useState('');
   const [newItemPieces, setNewItemPieces] = useState('');
+
+  // T-Iron Calculator state
+  const [showTIronCalculator, setShowTIronCalculator] = useState(false);
+  const [selectedTIronProduct, setSelectedTIronProduct] = useState<Product | null>(null);
 
   // Miscellaneous item state
   const [itemType, setItemType] = useState<'product' | 'misc'>('product');
@@ -158,6 +169,136 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     setNewItemPieces('');
     setMiscItemDescription('');
     setMiscItemPrice('');
+  };
+
+  // T-Iron Calculator handlers
+  const handleTIronCalculationComplete = async (calculatedItem: any) => {
+    try {
+      setSaving(true);
+
+      // DEBUG: Log the received data (same as InvoiceForm)
+      console.log('🔧 T-Iron Calculator Data Received in InvoiceDetails:', {
+        pieces: calculatedItem.t_iron_pieces,
+        lengthPerPiece: calculatedItem.t_iron_length_per_piece,
+        totalFeet: calculatedItem.t_iron_total_feet,
+        unit: calculatedItem.t_iron_unit,
+        pricePerFoot: calculatedItem.unit_price,
+        totalPrice: calculatedItem.total_price,
+        description: calculatedItem.product_description,
+        rawCalculatedItem: calculatedItem
+      });
+
+      const newItem = {
+        product_id: calculatedItem.product_id,
+        product_name: calculatedItem.product_name,
+        quantity: calculatedItem.quantity.toString(), // Total feet
+        unit_price: calculatedItem.unit_price, // Price per foot
+        total_price: calculatedItem.total_price,
+        unit: calculatedItem.unit,
+        // T-Iron specific calculation data - CRITICAL FIX: Proper unit handling
+        t_iron_pieces: Number(calculatedItem.t_iron_pieces), // Ensure it's a number
+        t_iron_length_per_piece: Number(calculatedItem.t_iron_length_per_piece), // Ensure it's a number
+        t_iron_total_feet: Number(calculatedItem.t_iron_total_feet), // Ensure it's a number
+        t_iron_unit: String(calculatedItem.t_iron_unit || 'pcs'), // FIXED: Use 'pcs' not 'ft'
+        product_description: calculatedItem.product_description,
+        is_non_stock_item: Number(calculatedItem.is_non_stock_item || 1) // Ensure it's 1 for T-Iron items
+      };
+
+      // DEBUG: Log the created invoice item being sent to database
+      console.log('🔧 New T-Iron Item Being Sent to Database from InvoiceDetails:', {
+        pieces: newItem.t_iron_pieces,
+        lengthPerPiece: newItem.t_iron_length_per_piece,
+        totalFeet: newItem.t_iron_total_feet,
+        unit: newItem.t_iron_unit,
+        pricePerFoot: newItem.unit_price,
+        totalPrice: newItem.total_price,
+        quantity: newItem.quantity,
+        fullNewItem: newItem
+      });
+
+      console.log('🔧 About to call db.addInvoiceItems from InvoiceDetails with:', [newItem]);
+      await db.addInvoiceItems(invoiceId, [newItem]);
+
+      toast.success(`T-Iron added: ${calculatedItem.t_iron_pieces}${calculatedItem.t_iron_unit || 'pcs'} × ${calculatedItem.t_iron_length_per_piece}ft × Rs.${calculatedItem.unit_price}/ft = Rs.${calculatedItem.total_price}`);
+      setShowTIronCalculator(false);
+      setSelectedTIronProduct(null);
+      await loadInvoiceDetails();
+
+      if (onUpdate) {
+        onUpdate();
+      }
+
+      // Add event bus notification (same as InvoiceForm pattern)
+      try {
+        if (typeof window !== 'undefined') {
+          const eventBus = (window as any).eventBus;
+          if (eventBus && eventBus.emit) {
+            eventBus.emit('INVOICE_DETAILS_UPDATED', {
+              invoiceId,
+              action: 't_iron_item_added',
+              customerId: invoice?.customer_id
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Could not emit invoice details update event:', error);
+      }
+
+    } catch (error: any) {
+      console.error('Error adding T-Iron item:', error);
+      toast.error(error.message || 'Failed to add T-Iron item');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTIronCalculatorCancel = () => {
+    setShowTIronCalculator(false);
+    setSelectedTIronProduct(null);
+  };
+
+  // Helper function to check if Add Item button should be disabled
+  const isAddItemButtonDisabled = () => {
+    if (saving) return true;
+
+    if (itemType === 'misc') {
+      const isDisabled = !miscItemDescription.trim() || !miscItemPrice || parseFloat(miscItemPrice) <= 0;
+      console.log('🔍 [MISC-DEBUG] Button disabled check:', {
+        itemType,
+        miscItemDescription: miscItemDescription.trim(),
+        miscItemPrice,
+        parsedPrice: parseFloat(miscItemPrice),
+        isDisabled,
+        saving
+      });
+      return isDisabled;
+    }
+
+    if (itemType === 'product') {
+      if (!selectedProduct) return true;
+
+      // For T-Iron products, only require product selection
+      const isTIronProduct = selectedProduct.name.toLowerCase().includes('t-iron') ||
+        selectedProduct.name.toLowerCase().includes('tiron') ||
+        selectedProduct.name.toLowerCase().includes('t iron');
+
+      console.log('🔍 Add Item Button Check:', {
+        productName: selectedProduct.name,
+        isTIronProduct,
+        newItemQuantity,
+        newItemPrice,
+        buttonWillBeDisabled: isTIronProduct ? false : (!newItemQuantity || !newItemPrice)
+      });
+
+      if (isTIronProduct) {
+        return false; // T-Iron products only need product selection
+      }
+
+      // For regular products, require all fields
+      return !newItemQuantity || !newItemPrice;
+    }
+
+    return false;
   };
 
   useEffect(() => {
@@ -206,9 +347,26 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   };
 
   const handleAddItem = async () => {
+    console.log('🚀 [MISC-DEBUG] handleAddItem function called!');
+    console.log('🚀 [MISC-DEBUG] handleAddItem called with:', {
+      itemType,
+      selectedProduct: selectedProduct?.name,
+      newItemQuantity,
+      newItemPrice,
+      miscItemDescription,
+      miscItemPrice
+    });
+    alert('🚀 handleAddItem function called!');
+
     if (itemType === 'misc') {
+      console.log('🎫 [MISC-DEBUG] Processing miscellaneous item...');
       // Handle miscellaneous item
       if (!miscItemDescription.trim() || !miscItemPrice || parseFloat(miscItemPrice) <= 0) {
+        console.error('🎫 [MISC-DEBUG] Validation failed:', {
+          description: miscItemDescription.trim(),
+          price: miscItemPrice,
+          parsedPrice: parseFloat(miscItemPrice)
+        });
         toast.error('Please enter item description and valid price');
         return;
       }
@@ -223,9 +381,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
           unit_price: parseFloat(miscItemPrice),
           total_price: parseFloat(miscItemPrice),
           unit: 'item',
-          is_misc_item: true,
+          is_misc_item: 1, // Use integer 1 instead of boolean true for database consistency
           misc_description: miscItemDescription.trim()
         };
+
+        console.log('💼 [DEBUG] Creating miscellaneous item:', {
+          productName: newMiscItem.product_name,
+          isMiscItem: newMiscItem.is_misc_item,
+          miscDescription: newMiscItem.misc_description,
+          totalPrice: newMiscItem.total_price
+        });
 
         await db.addInvoiceItems(invoiceId, [newMiscItem]);
 
@@ -263,7 +428,38 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     }
 
     // Handle regular product item
-    if (!selectedProduct || !newItemQuantity || !newItemPrice) {
+    if (!selectedProduct) {
+      toast.error('Please select a product');
+      return;
+    }
+
+    // Check if this is a T-Iron product that needs special calculation FIRST
+    const isTIronProduct = selectedProduct.name.toLowerCase().includes('t-iron') ||
+      selectedProduct.name.toLowerCase().includes('tiron') ||
+      selectedProduct.name.toLowerCase().includes('t iron');
+
+    console.log('🔍 T-Iron Detection:', {
+      productName: selectedProduct.name,
+      isTIronProduct,
+      lowerCaseName: selectedProduct.name.toLowerCase(),
+      currentStates: {
+        showTIronCalculator,
+        selectedTIronProduct: selectedTIronProduct?.name
+      }
+    });
+
+    if (isTIronProduct) {
+      // Show T-Iron calculator instead of adding directly
+      console.log('✅ Opening T-Iron calculator for:', selectedProduct.name);
+      toast.success(`Opening T-Iron calculator for precise calculation...`);
+      setSelectedTIronProduct(selectedProduct);
+      setShowTIronCalculator(true);
+      console.log('✅ T-Iron calculator state set, returning early');
+      return;
+    }
+
+    // For non-T-Iron products, validate all fields are filled
+    if (!newItemQuantity || !newItemPrice) {
       toast.error('Please fill all required fields');
       return;
     }
@@ -583,7 +779,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   // Use centralized date/time formatting
   const formatDateTimeDisplay = (dateString: string) => {
     if (!dateString) return '';
-    return formatDateTime(dateString);
+    // Use system local time instead of UTC conversion
+    return new Date(dateString).toLocaleString();
   };
 
 
@@ -805,17 +1002,24 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             ${invoice.items?.map((item: any) => `
               <div class="item-row">
                 <div class="item-name">${item.product_name}</div>
-                ${item.updated_at && item.updated_at !== item.created_at ? `<div class="item-timestamp">Updated: ${formatDateTime(item.updated_at)}</div>` : ''}
+                ${item.updated_at && item.updated_at !== item.created_at ? `<div class="item-timestamp">Updated: ${new Date(item.updated_at).toLocaleDateString()}</div>` : ''}
                 <div class="item-details">
                   ${(() => {
-        // Check if this is a T-Iron item with calculation data
-        if (item.t_iron_pieces && item.t_iron_length_per_piece) {
+        // T-Iron display using exact InvoiceForm logic
+        const isTIronProduct = item.product_name && (
+          item.product_name.toLowerCase().includes('t-iron') ||
+          item.product_name.toLowerCase().includes('tiron') ||
+          item.product_name.toLowerCase().includes('t iron')
+        );
+
+        if (isTIronProduct && item.t_iron_pieces && item.t_iron_length_per_piece) {
+          const pieces = item.t_iron_pieces;
+          const lengthPerPiece = item.t_iron_length_per_piece;
           const unit = item.t_iron_unit || 'pcs';
-          return `<span>${item.t_iron_pieces}${unit} × ${item.t_iron_length_per_piece}ft/${unit} × Rs.${item.unit_price}</span>`;
-        } else {
-          // Regular items - ensure proper × formatting
-          return `<span>${item.quantity} × Rs.${item.unit_price}</span>`;
+          return `<span>${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${item.unit_price}</span>`;
         }
+        // Regular items
+        return `<span>${item.quantity} × Rs.${item.unit_price}</span>`;
       })()}
                   <span><strong>Rs.${item.total_price.toFixed(2)}</strong></span>
                 </div>
@@ -874,7 +1078,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
           ` : ''}
           <div class="footer">
             <div>Thank you for business with us!</div>
-            <div>Generated: ${formatDateTimeDisplay(getCurrentSystemDateTime().raw.toISOString())}</div>
+            <div>Generated: ${getCurrentSystemDateTime().dateTime}</div>
           </div>
         </body>
       </html>
@@ -1057,22 +1261,112 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                               )}
                               {item.product_name}
                               {(() => {
+                                // FIXED: Check if it's a miscellaneous item first
+                                if (item.is_misc_item) {
+                                  // Miscellaneous items should not show calculation format
+                                  return null;
+                                }
+
                                 const productName = item.product_name.toLowerCase();
                                 const isTIronByName = productName.includes('t-iron') || productName.includes('tiron') || productName.includes('t iron');
 
-                                if (item.t_iron_pieces && item.t_iron_length_per_piece) {
-                                  // Show proper T-Iron calculation with pieces and length
-                                  const unit = item.t_iron_unit || 'pcs';
-                                  return (
-                                    <span className="text-sm text-blue-600 ml-2">
-                                      ({item.t_iron_pieces}{unit} × {item.t_iron_length_per_piece}ft/{unit} × Rs.{item.unit_price})
-                                    </span>
-                                  );
+                                // ENHANCED: More robust T-Iron data checking
+                                const hasTIronPieces = item.t_iron_pieces !== null && item.t_iron_pieces !== undefined && item.t_iron_pieces !== 0;
+                                const hasTIronLength = item.t_iron_length_per_piece !== null && item.t_iron_length_per_piece !== undefined && item.t_iron_length_per_piece !== 0;
+
+                                console.log('🔍 [T-IRON CHECK] Data availability:', {
+                                  t_iron_pieces: item.t_iron_pieces,
+                                  t_iron_length_per_piece: item.t_iron_length_per_piece,
+                                  hasTIronPieces,
+                                  hasTIronLength,
+                                  productName: item.product_name
+                                });
+
+                                if (hasTIronPieces && hasTIronLength) {
+                                  // ENHANCED: Ensure proper type conversion for T-Iron data
+                                  const pieces = Number(item.t_iron_pieces);
+                                  const lengthPerPiece = Number(item.t_iron_length_per_piece);
+                                  const unitPrice = Number(item.unit_price);
+
+                                  // Validate that we have valid numbers
+                                  if (pieces > 0 && lengthPerPiece > 0) {
+                                    const unit = item.t_iron_unit || 'pcs';
+                                    console.log('🔧 [T-IRON DISPLAY] Using saved calculation data:', {
+                                      pieces,
+                                      lengthPerPiece,
+                                      unit,
+                                      unitPrice
+                                    });
+
+                                    return (
+                                      <span className="text-sm text-blue-600 ml-2">
+                                        ({pieces}{unit} × {lengthPerPiece}ft/{unit} × Rs.{unitPrice})
+                                      </span>
+                                    );
+                                  } else {
+                                    console.log('🔧 [T-IRON DISPLAY] Invalid saved data, falling back to reconstruction:', {
+                                      rawPieces: item.t_iron_pieces,
+                                      rawLength: item.t_iron_length_per_piece,
+                                      convertedPieces: pieces,
+                                      convertedLength: lengthPerPiece
+                                    });
+                                  }
                                 } else if (isTIronByName) {
-                                  // For T-Iron products without proper calculation data, show basic format
+                                  // ENHANCED T-Iron Display: Try to reconstruct missing calculation data
+                                  console.log('🔍 T-Iron Display Fix: Missing calculation data for:', item.product_name, {
+                                    quantity: item.quantity,
+                                    unit_price: item.unit_price,
+                                    total_price: item.total_price,
+                                    t_iron_pieces: item.t_iron_pieces,
+                                    t_iron_length_per_piece: item.t_iron_length_per_piece
+                                  });
+
+                                  // Try to reconstruct reasonable T-Iron calculation from available data
+                                  // ENHANCED SMART RECONSTRUCTION: Better estimation logic
+                                  const totalFeet = parseFloat(String(item.quantity)) || 1;
+                                  let displayPieces = 1;
+                                  let displayLength = totalFeet;
+
+                                  if (totalFeet > 50) {
+                                    // IMPROVED: Try common T-Iron lengths to find best fit
+                                    const commonLengths = [14, 15, 12, 10, 16, 8, 20]; // Added 15ft - very common T-Iron length!
+                                    let bestFit = { pieces: Math.round(totalFeet / 12), length: 12, difference: Math.abs(totalFeet % 12) };
+
+                                    console.log('🔧 [SMART RECONSTRUCTION] Testing common lengths for', totalFeet, 'feet');
+
+                                    for (const length of commonLengths) {
+                                      const pieces = Math.round(totalFeet / length);
+                                      const calculatedTotal = pieces * length;
+                                      const difference = Math.abs(totalFeet - calculatedTotal);
+
+                                      console.log(`   ${pieces} × ${length} = ${calculatedTotal} (diff: ${difference})`);
+
+                                      if (difference < bestFit.difference && pieces > 0) {
+                                        bestFit = { pieces, length, difference };
+                                        console.log('     ⭐ New best fit!');
+                                      } else if (difference === bestFit.difference && difference === 0) {
+                                        // ENHANCED: When multiple perfect matches exist, prefer more typical T-Iron dimensions
+                                        // Typically fewer pieces with longer length is more common than many short pieces
+                                        if (pieces < bestFit.pieces && length > bestFit.length) {
+                                          bestFit = { pieces, length, difference };
+                                          console.log('     ⭐ Better perfect match (fewer pieces, longer length)!');
+                                        }
+                                      }
+                                    }
+
+                                    displayPieces = bestFit.pieces;
+                                    displayLength = bestFit.length;
+
+                                    console.log(`🎯 [SMART RECONSTRUCTION] Final choice: ${displayPieces}pcs × ${displayLength}ft/pcs`);
+
+                                    // Ensure pieces is at least 1
+                                    if (displayPieces < 1) displayPieces = 1;
+                                  }
+
                                   return (
                                     <span className="text-sm text-blue-600 ml-2">
-                                      (1pcs × {item.quantity}ft/pcs × Rs.{item.unit_price})
+                                      ({displayPieces}pcs × {displayLength}ft/pcs × Rs.{item.unit_price})
+                                      <span className="text-xs text-orange-500 ml-1" title="Estimated - use T-Iron calculator for exact values">⚠️</span>
                                     </span>
                                   );
                                 } else {
@@ -1110,9 +1404,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                               })()}
                             </div>
                             <div className="text-xs text-gray-400">
-                              Added: {formatDateTime(item.created_at || '')}
+                              Added: {new Date(item.created_at || '').toLocaleString()}
                               {item.updated_at && item.updated_at !== item.created_at && (
-                                <span> | Updated: {formatDateTime(item.updated_at)}</span>
+                                <span> | Updated: {new Date(item.updated_at).toLocaleString()}</span>
                               )}
                             </div>
                           </td>
@@ -1144,31 +1438,87 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                 </div>
                               ) : (
                                 <div className="flex items-center space-x-2">
-                                  {/* Display T-Iron calculation format or regular quantity */}
-                                  {item.t_iron_pieces && item.t_iron_length_per_piece ? (
-                                    <div className="text-sm text-blue-600">
-                                      <div className="font-medium">
-                                        {item.t_iron_pieces}{item.t_iron_unit || 'pcs'}
-                                      </div>
-                                      <div className="text-xs">
-                                        × {item.t_iron_length_per_piece}ft/{item.t_iron_unit || 'pcs'}
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        = {item.t_iron_total_feet}ft
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-sm">{item.quantity}</span>
-                                  )}
-                                  <button
-                                    onClick={() => {
-                                      setEditingItem(item.id);
-                                      setEditQuantity(item.quantity.toString());
-                                    }}
-                                    className="p-1 text-blue-600 hover:text-blue-800"
-                                  >
-                                    <Edit2 className="h-3 w-3" />
-                                  </button>
+                                  {/* T-Iron display using exact InvoiceForm logic */}
+                                  {(() => {
+                                    // Check if this is a T-Iron product (exact same logic as InvoiceForm)
+                                    const isTIronProduct = item.product_name && (
+                                      item.product_name.toLowerCase().includes('t-iron') ||
+                                      item.product_name.toLowerCase().includes('tiron') ||
+                                      item.product_name.toLowerCase().includes('t iron')
+                                    );
+
+                                    // DEBUG: Log why T-Iron items might not display properly
+                                    if (isTIronProduct) {
+                                      console.log('🔍 T-Iron Debug for item:', {
+                                        id: item.id,
+                                        product_name: item.product_name,
+                                        isTIronProduct,
+                                        t_iron_pieces: item.t_iron_pieces,
+                                        t_iron_length_per_piece: item.t_iron_length_per_piece,
+                                        t_iron_total_feet: item.t_iron_total_feet,
+                                        t_iron_unit: item.t_iron_unit,
+                                        quantity: item.quantity,
+                                        hasRequiredData: !!(item.t_iron_pieces && item.t_iron_length_per_piece),
+                                        rawData: {
+                                          pieces_type: typeof item.t_iron_pieces,
+                                          length_type: typeof item.t_iron_length_per_piece,
+                                          pieces_value: item.t_iron_pieces,
+                                          length_value: item.t_iron_length_per_piece
+                                        }
+                                      });
+                                    }
+
+                                    if (isTIronProduct && item.t_iron_pieces && item.t_iron_length_per_piece) {
+                                      const pieces = item.t_iron_pieces;
+                                      const lengthPerPiece = item.t_iron_length_per_piece;
+                                      const unit = item.t_iron_unit || 'pcs';
+
+                                      return (
+                                        <div className="text-sm">
+                                          {pieces}{unit} × {lengthPerPiece}ft/{unit}
+                                        </div>
+                                      );
+                                    }
+                                    return <span className="text-sm">{item.quantity}</span>;
+                                  })()}
+                                  {(() => {
+                                    // Check if this is a T-Iron item with calculation data
+                                    const isTIronProduct = item.product_name && (
+                                      item.product_name.toLowerCase().includes('t-iron') ||
+                                      item.product_name.toLowerCase().includes('tiron') ||
+                                      item.product_name.toLowerCase().includes('t iron')
+                                    );
+                                    const hasTIronData = !!(item.t_iron_pieces && item.t_iron_length_per_piece);
+
+                                    if (isTIronProduct && hasTIronData) {
+                                      // For T-Iron items, show calculator button instead of edit
+                                      return (
+                                        <button
+                                          onClick={() => toast('T-Iron items cannot be edited directly. Remove and re-add with T-Iron calculator.', {
+                                            icon: '⚙️',
+                                            duration: 4000
+                                          })}
+                                          className="p-1 text-gray-400 hover:text-gray-600"
+                                          title="T-Iron items must use calculator"
+                                        >
+                                          <Calculator className="h-3 w-3" />
+                                        </button>
+                                      );
+                                    } else {
+                                      // For regular items, show edit button
+                                      return (
+                                        <button
+                                          onClick={() => {
+                                            setEditingItem(item.id);
+                                            setEditQuantity(item.quantity.toString());
+                                          }}
+                                          className="p-1 text-blue-600 hover:text-blue-800"
+                                        >
+                                          <Edit2 className="h-3 w-3" />
+                                        </button>
+                                      );
+                                    }
+                                  })()}
                                 </div>
                               )
                             )}
@@ -1394,7 +1744,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         type="radio"
                         value="misc"
                         checked={itemType === 'misc'}
-                        onChange={(e) => setItemType(e.target.value as 'product' | 'misc')}
+                        onChange={(e) => {
+                          console.log('🎫 [MISC-DEBUG] Miscellaneous item radio selected');
+                          setItemType(e.target.value as 'product' | 'misc');
+                        }}
                         className="mr-2"
                       />
                       <span className="text-sm">Miscellaneous Item</span>
@@ -1412,6 +1765,31 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           const product = products.find(p => p.id === parseInt(e.target.value));
                           setSelectedProduct(product || null);
                           setNewItemPrice(product?.rate_per_unit.toString() || '');
+
+                          // Check if T-Iron product and open calculator immediately
+                          if (product) {
+                            const isTIronProduct = product.name.toLowerCase().includes('t-iron') ||
+                              product.name.toLowerCase().includes('tiron') ||
+                              product.name.toLowerCase().includes('t iron');
+
+                            console.log('🔍 T-Iron Detection Check:', {
+                              productName: product.name,
+                              track_inventory: product.track_inventory,
+                              unit_type: product.unit_type,
+                              isTIronProduct,
+                              shouldShowCalculator: isTIronProduct
+                            });
+
+                            if (isTIronProduct) {
+                              console.log('✅ Opening T-Iron calculator immediately for:', product.name);
+                              // Close the Add Item modal and open T-Iron calculator
+                              setShowAddItem(false);
+                              setSelectedTIronProduct(product);
+                              setShowTIronCalculator(true);
+                              resetAddItemForm();
+                              return;
+                            }
+                          }
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
@@ -1488,10 +1866,41 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                       <input
                         type="text"
                         value={miscItemDescription}
-                        onChange={(e) => setMiscItemDescription(e.target.value)}
+                        onChange={(e) => {
+                          console.log('🎫 [MISC-DEBUG] Description changed:', e.target.value);
+                          setMiscItemDescription(e.target.value);
+                        }}
                         placeholder="Enter item description (e.g., Rent, Fare, Service charge)"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
+
+                      {/* Quick selection buttons */}
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMiscItemDescription('Labor-T Iron')}
+                          className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
+                        >
+                          Labor-T Iron
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMiscItemDescription('Transport')}
+                          className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                        >
+                          Transport
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            console.log('🎫 [MISC-DEBUG] Service Charge button clicked');
+                            setMiscItemDescription('Service Charge');
+                          }}
+                          className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                        >
+                          Service Charge
+                        </button>
+                      </div>
                     </div>
 
                     <div>
@@ -1499,7 +1908,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                       <input
                         type="number"
                         value={miscItemPrice}
-                        onChange={(e) => setMiscItemPrice(e.target.value)}
+                        onChange={(e) => {
+                          console.log('🎫 [MISC-DEBUG] Price changed:', e.target.value);
+                          setMiscItemPrice(e.target.value);
+                        }}
                         placeholder="Enter price"
                         min="0"
                         step="0.01"
@@ -1520,9 +1932,29 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     Cancel
                   </button>
                   <button
-                    onClick={handleAddItem}
-                    disabled={saving || (itemType === 'product' && (!selectedProduct || !newItemQuantity || !newItemPrice)) || (itemType === 'misc' && (!miscItemDescription.trim() || !miscItemPrice || parseFloat(miscItemPrice) <= 0))}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    type="button"
+                    onClick={(e) => {
+                      try {
+                        console.log('🎯 Button clicked!');
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleAddItem();
+                      } catch (error) {
+                        console.error('❌ Error in button click:', error);
+                        alert('Error in button click: ' + error);
+                      }
+                    }}
+                    disabled={isAddItemButtonDisabled()}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${isAddItemButtonDisabled()
+                      ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                      : selectedProduct && (
+                        selectedProduct.name.toLowerCase().includes('t-iron') ||
+                        selectedProduct.name.toLowerCase().includes('tiron') ||
+                        selectedProduct.name.toLowerCase().includes('t iron')
+                      )
+                        ? 'bg-green-600 text-white hover:bg-green-700' // Special green color for T-Iron
+                        : 'bg-blue-600 text-white hover:bg-blue-700'   // Regular blue for other products
+                      }`}
                   >
                     {saving ? (
                       <div className="flex items-center space-x-2">
@@ -1530,7 +1962,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         <span>Adding...</span>
                       </div>
                     ) : (
-                      'Add Item'
+                      selectedProduct && (
+                        selectedProduct.name.toLowerCase().includes('t-iron') ||
+                        selectedProduct.name.toLowerCase().includes('tiron') ||
+                        selectedProduct.name.toLowerCase().includes('t iron')
+                      ) ? '🧮 Add T-Iron (Calculator)' : 'Add Item'
                     )}
                   </button>
                 </div>
@@ -1818,6 +2254,23 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               </div>
             </div>
           </div>
+        )}
+
+        {/* T-Iron Calculator Modal */}
+        {(() => {
+          console.log('🔍 T-Iron Modal Render Check:', {
+            showTIronCalculator,
+            selectedTIronProduct: selectedTIronProduct?.name,
+            shouldRender: showTIronCalculator && selectedTIronProduct
+          });
+          return null;
+        })()}
+        {showTIronCalculator && selectedTIronProduct && (
+          <TIronCalculator
+            product={selectedTIronProduct}
+            onCalculationComplete={handleTIronCalculationComplete}
+            onCancel={handleTIronCalculatorCancel}
+          />
         )}
       </div>
     </div>

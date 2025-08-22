@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>🔍 Miscellaneous Item Addition Debug Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .debug-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .success {
+            background: #e6ffe6;
+            border-color: #28a745;
+        }
+
+        .error {
+            background: #ffe6e6;
+            border-color: #dc3545;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-color: #ffc107;
+        }
+
+        .info {
+            background: #e6f3ff;
+            border-color: #007bff;
+        }
+
+        button {
+            margin: 5px;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: black;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .form-group {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔍 Miscellaneous Item Addition Debug Tool</h1>
+
+        <div class="debug-section info">
+            <h3>🎯 Step 1: Check Current State</h3>
+            <button class="btn-primary" onclick="checkCurrentState()">Check Current State</button>
+            <div id="stateOutput"></div>
+        </div>
+
+        <div class="debug-section warning">
+            <h3>📝 Step 2: Test Miscellaneous Item Addition</h3>
+            <div class="form-group">
+                <label>Item Description:</label>
+                <input type="text" id="testDescription" value="Test Service Charge"
+                    placeholder="Enter item description">
+            </div>
+            <div class="form-group">
+                <label>Item Price:</label>
+                <input type="number" id="testPrice" value="150" placeholder="Enter price">
+            </div>
+            <div class="form-group">
+                <label>Invoice ID to add to:</label>
+                <input type="number" id="testInvoiceId"
+                    placeholder="Enter invoice ID (optional - will create test invoice if empty)">
+            </div>
+            <button class="btn-success" onclick="testAddMiscItem()">Add Test Miscellaneous Item</button>
+            <div id="addOutput"></div>
+        </div>
+
+        <div class="debug-section info">
+            <h3>📊 Step 3: Check Results</h3>
+            <button class="btn-primary" onclick="checkTodaysLedger()">Check Today's Ledger</button>
+            <button class="btn-primary" onclick="checkRecentInvoices()">Check Recent Invoices</button>
+            <div id="resultsOutput"></div>
+        </div>
+
+        <div class="debug-section warning">
+            <h3>🚨 Step 4: Debug UI Issues</h3>
+            <p>If the above tests work but the UI doesn't, the issue is in the InvoiceDetails component.</p>
+            <button class="btn-warning" onclick="debugUIStates()">Debug UI States</button>
+            <div id="uiDebugOutput"></div>
+        </div>
+    </div>
+
+    <script>
+        function log(containerId, message, type = 'info') {
+            const container = document.getElementById(containerId);
+            const div = document.createElement('div');
+            div.className = `debug-section ${type}`;
+            div.innerHTML = `<pre>${message}</pre>`;
+            container.appendChild(div);
+            console.log(message);
+        }
+
+        function clearOutput(containerId) {
+            document.getElementById(containerId).innerHTML = '';
+        }
+
+        async function checkCurrentState() {
+            clearOutput('stateOutput');
+
+            try {
+                if (!window.db) {
+                    log('stateOutput', '❌ window.db not available', 'error');
+                    return;
+                }
+
+                log('stateOutput', '✅ Database connection available', 'success');
+
+                // Check if we can query the database
+                const today = new Date().toISOString().split('T')[0];
+                const ledger = await window.db.getDailyLedgerEntries(today, { customer_id: null });
+                log('stateOutput', `✅ Database queries working - found ${ledger.entries.length} ledger entries for today`, 'success');
+
+                // Check recent invoices
+                const invoices = await window.db.getInvoices();
+                log('stateOutput', `✅ Found ${invoices.length} total invoices`, 'success');
+
+                if (invoices.length > 0) {
+                    const latestInvoice = invoices[0];
+                    log('stateOutput', `🔍 Latest invoice: ${latestInvoice.bill_number} (ID: ${latestInvoice.id})`, 'info');
+                }
+
+            } catch (error) {
+                log('stateOutput', `❌ Error checking state: ${error.message}`, 'error');
+                console.error('State check error:', error);
+            }
+        }
+
+        async function testAddMiscItem() {
+            clearOutput('addOutput');
+
+            try {
+                const description = document.getElementById('testDescription').value.trim();
+                const price = parseFloat(document.getElementById('testPrice').value);
+                let invoiceId = document.getElementById('testInvoiceId').value;
+
+                if (!description || !price || price <= 0) {
+                    log('addOutput', '❌ Please enter valid description and price', 'error');
+                    return;
+                }
+
+                log('addOutput', `🔄 Testing miscellaneous item addition...
+Description: ${description}
+Price: ${price}
+Invoice ID: ${invoiceId || 'Will create new invoice'}`, 'info');
+
+                // Create test invoice if no ID provided
+                if (!invoiceId) {
+                    const testInvoice = {
+                        customer_id: -1,
+                        customer_name: 'Debug Test Customer',
+                        items: [],
+                        payment_amount: 0,
+                        payment_method: 'cash'
+                    };
+
+                    const invoice = await window.db.createInvoice(testInvoice);
+                    invoiceId = invoice.id;
+                    log('addOutput', `✅ Created test invoice: ${invoice.bill_number} (ID: ${invoiceId})`, 'success');
+                }
+
+                // Create miscellaneous item
+                const miscItem = {
+                    product_id: null,
+                    product_name: description,
+                    quantity: '1',
+                    unit_price: price,
+                    total_price: price,
+                    unit: 'item',
+                    is_misc_item: 1,
+                    misc_description: description
+                };
+
+                log('addOutput', `🔄 Adding miscellaneous item to invoice ${invoiceId}...`, 'info');
+
+                await window.db.addInvoiceItems(invoiceId, [miscItem]);
+
+                log('addOutput', `✅ SUCCESS! Miscellaneous item added to invoice ${invoiceId}`, 'success');
+
+                // Check if ledger entry was created
+                const today = new Date().toISOString().split('T')[0];
+                const ledger = await window.db.getDailyLedgerEntries(today, { customer_id: null });
+                const testEntry = ledger.entries.find(entry =>
+                    entry.description.includes(description) ||
+                    entry.category === 'Labor Payment'
+                );
+
+                if (testEntry) {
+                    log('addOutput', `✅ LEDGER ENTRY CREATED! 
+${JSON.stringify(testEntry, null, 2)}`, 'success');
+                } else {
+                    log('addOutput', `⚠️ Misc item added but no ledger entry found
+Total ledger entries today: ${ledger.entries.length}
+Labor Payment entries: ${ledger.entries.filter(e => e.category === 'Labor Payment').length}`, 'warning');
+                }
+
+            } catch (error) {
+                log('addOutput', `❌ Error adding miscellaneous item: ${error.message}`, 'error');
+                console.error('Add misc item error:', error);
+            }
+        }
+
+        async function checkTodaysLedger() {
+            clearOutput('resultsOutput');
+
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const ledger = await window.db.getDailyLedgerEntries(today, { customer_id: null });
+
+                log('resultsOutput', `📊 Today's Ledger Entries (${today}):
+Total entries: ${ledger.entries.length}
+Labor Payment entries: ${ledger.entries.filter(e => e.category === 'Labor Payment').length}
+Outgoing entries: ${ledger.entries.filter(e => e.type === 'outgoing').length}
+
+Recent entries:
+${ledger.entries.slice(-5).map(e => `- ${e.time} ${e.type} ${e.category}: ${e.description} (Rs.${e.amount})`).join('\n')}`, 'info');
+
+            } catch (error) {
+                log('resultsOutput', `❌ Error checking ledger: ${error.message}`, 'error');
+            }
+        }
+
+        async function checkRecentInvoices() {
+            try {
+                const invoices = await window.db.getInvoices();
+                const recent = invoices.slice(0, 5);
+
+                let output = `📋 Recent Invoices:\n`;
+                for (const invoice of recent) {
+                    const items = await window.db.getInvoiceItems(invoice.id);
+                    const miscItems = items.filter(item => item.is_misc_item);
+
+                    output += `\n${invoice.bill_number} (ID: ${invoice.id}):
+  Total Items: ${items.length}
+  Misc Items: ${miscItems.length}`;
+
+                    if (miscItems.length > 0) {
+                        output += `\n  Misc Items: ${miscItems.map(m => m.misc_description || m.product_name).join(', ')}`;
+                    }
+                }
+
+                log('resultsOutput', output, 'info');
+
+            } catch (error) {
+                log('resultsOutput', `❌ Error checking invoices: ${error.message}`, 'error');
+            }
+        }
+
+        async function debugUIStates() {
+            clearOutput('uiDebugOutput');
+
+            log('uiDebugOutput', `🔍 UI Debug Information:
+
+1. To test miscellaneous item addition in the actual UI:
+   - Open an invoice in InvoiceDetails
+   - Look for "Add Item" button
+   - Select "Miscellaneous Item" option
+   - Fill in description and price
+   - Click Add button
+
+2. Expected console logs when working correctly:
+   - "🔍 Add Item Button Check:" (when form changes)
+   - "🎯 Button clicked!" (when Add button clicked)
+   - "🚀 handleAddItem function called!" (alert should appear)
+   - "💼 [DEBUG] Creating miscellaneous item:" (item data)
+   - "🎫 ✅ Creating ledger entry for miscellaneous item:" (from addInvoiceItems)
+
+3. If you don't see these logs, the issue is:
+   - Add Item modal not opening
+   - Form validation preventing submission
+   - Button disabled state
+   - JavaScript errors breaking the flow
+
+4. Common issues:
+   - Empty description field
+   - Invalid price (0 or negative)
+   - Invoice in read-only state
+   - Component state corruption`, 'warning');
+        }
+
+        // Auto-run state check on load
+        window.addEventListener('load', checkCurrentState);
+    </script>
+</body>
+
+</html>

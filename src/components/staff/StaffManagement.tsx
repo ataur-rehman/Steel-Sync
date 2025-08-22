@@ -27,6 +27,7 @@ import type {
   StaffStatistics
 } from '../../services/staffService';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+import { formatDate } from '../../utils/formatters';
 import SalaryHistory from './SalaryHistory';
 
 const StaffManagement: React.FC = () => {
@@ -347,8 +348,8 @@ const StaffManagement: React.FC = () => {
             <button
               onClick={() => setActiveTab('staff')}
               className={`whitespace-nowrap pb-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'staff'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
               <Users className="h-4 w-4 inline mr-2" />
@@ -357,8 +358,8 @@ const StaffManagement: React.FC = () => {
             <button
               onClick={() => setActiveTab('salary_overview')}
               className={`whitespace-nowrap pb-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'salary_overview'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
             >
               <DollarSign className="h-4 w-4 inline mr-2" />
@@ -523,8 +524,8 @@ const StaffManagement: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${member.is_active
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
                             }`}>
                             {member.is_active ? 'Active' : 'Inactive'}
                           </span>
@@ -561,8 +562,8 @@ const StaffManagement: React.FC = () => {
                             <button
                               onClick={() => toggleStatus(member.id)}
                               className={`${member.is_active
-                                  ? 'text-red-600 hover:text-red-900'
-                                  : 'text-green-600 hover:text-green-900'
+                                ? 'text-red-600 hover:text-red-900'
+                                : 'text-green-600 hover:text-green-900'
                                 }`}
                               title={member.is_active ? 'Deactivate' : 'Activate'}
                             >
@@ -684,7 +685,7 @@ const StaffManagement: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-sm text-gray-500">Hire Date:</span>
-                      <p className="font-medium">{new Date(viewingStaff.hire_date).toLocaleDateString()}</p>
+                      <p className="font-medium">{formatDate(viewingStaff.hire_date)}</p>
                     </div>
                     <div>
                       <span className="text-sm text-gray-500">Salary:</span>
@@ -694,8 +695,8 @@ const StaffManagement: React.FC = () => {
                       <span className="text-sm text-gray-500">Status:</span>
                       <p className="font-medium">
                         <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${viewingStaff.is_active
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
                           }`}>
                           {viewingStaff.is_active ? 'Active' : 'Inactive'}
                         </span>

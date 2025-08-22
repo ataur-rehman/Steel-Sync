@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Calculator, Info } from 'lucide-react';
+import { Calculator, Info, X } from 'lucide-react';
 
 interface TIronCalculatorProps {
     product: any;
@@ -76,131 +76,125 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg xl:max-w-xl 2xl:max-w-2xl max-h-[95vh] overflow-y-auto">
-                <div className="p-3 sm:p-4 md:p-6">
-                    <div className="flex items-center mb-3 sm:mb-4">
-                        <Calculator className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 mr-2" />
-                        <h3 className="text-base sm:text-lg font-semibold text-gray-900">T-Iron Calculator</h3>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-3">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+                <div className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center">
+                            <Calculator className="h-5 w-5 text-blue-600 mr-2" />
+                            <h3 className="text-lg font-semibold text-gray-900">T-Iron Calculator</h3>
+                        </div>
+                        <button
+                            onClick={onCancel}
+                            className="p-1 hover:bg-gray-100 rounded"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
                     </div>
 
-                    <div className="mb-3 sm:mb-4 p-2 sm:p-3 bg-blue-50 rounded-lg">
+                    <div className="mb-3 p-3 bg-blue-50 rounded-lg">
                         <div className="flex items-start">
-                            <Info className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" />
-                            <div className="text-xs sm:text-sm text-blue-700 min-w-0">
-                                <p className="font-medium truncate">Product: {product.name}</p>
-                                <p className="break-words">Formula: Pieces × Length per Piece × Price per Foot</p>
+                            <Info className="h-4 w-4 text-blue-600 mr-2 mt-0.5 flex-shrink-0" />
+                            <div className="text-sm text-blue-700">
+                                <p className="font-medium">{product.name}</p>
+                                <p>Formula: Pieces × Length × Price per Foot</p>
                             </div>
                         </div>
                     </div>
 
-                    <div className="space-y-3 sm:space-y-4">
-                        {/* Unit Selection */}
+                    <div className="space-y-3">
+                        {/* Unit Selection - Compact horizontal */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
-                                Unit Type
-                            </label>
-                            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Unit Type</label>
+                            <div className="flex space-x-2">
                                 <button
                                     type="button"
                                     onClick={() => setUnit('pcs')}
-                                    className={`flex-1 px-3 sm:px-4 py-2 rounded-lg border font-medium transition-colors text-sm ${unit === 'pcs'
+                                    className={`flex-1 px-3 py-2 rounded border text-sm font-medium transition-colors ${unit === 'pcs'
                                         ? 'bg-blue-600 text-white border-blue-600'
                                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                                         }`}
                                 >
-                                    Pieces (pcs)
+                                    Pieces
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setUnit('L')}
-                                    className={`flex-1 px-3 sm:px-4 py-2 rounded-lg border font-medium transition-colors text-sm ${unit === 'L'
+                                    className={`flex-1 px-3 py-2 rounded border text-sm font-medium transition-colors ${unit === 'L'
                                         ? 'bg-blue-600 text-white border-blue-600'
                                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                                         }`}
                                 >
-                                    Length (L)
+                                    Length
                                 </button>
                             </div>
                         </div>
 
-                        {/* Pieces/Length Input */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Number of {unit === 'pcs' ? 'Pieces' : 'Lengths'}
-                            </label>
-                            <input
-                                type="number"
-                                min="1"
-                                step="1"
-                                value={pieces}
-                                onChange={(e) => setPieces(parseInt(e.target.value) || 1)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                placeholder={unit === 'pcs' ? 'e.g., 12' : 'e.g., 5'}
-                            />
-                        </div>
+                        {/* Input Fields - Compact grid */}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    {unit === 'pcs' ? 'Pieces' : 'Lengths'}
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={pieces}
+                                    onChange={(e) => setPieces(parseInt(e.target.value) || 1)}
+                                    className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                    placeholder="12"
+                                />
+                            </div>
 
-                        {/* Length per Piece Input */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Length per {unit === 'pcs' ? 'Piece' : 'Length'} (feet)
-                            </label>
-                            <input
-                                type="number"
-                                min="1"
-                                step="0.1"
-                                value={lengthPerPiece}
-                                onChange={(e) => setLengthPerPiece(parseFloat(e.target.value) || 12)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                placeholder="e.g., 12"
-                            />
-                        </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Length/pc (ft)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="0.1"
+                                    value={lengthPerPiece}
+                                    onChange={(e) => setLengthPerPiece(parseFloat(e.target.value) || 12)}
+                                    className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                    placeholder="12"
+                                />
+                            </div>
 
-                        {/* Price per Foot Input */}
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Price per Foot (Rs.)
-                            </label>
-                            <input
-                                type="number"
-                                min="1"
-                                step="0.01"
-                                value={pricePerFoot}
-                                onChange={(e) => setPricePerFoot(parseFloat(e.target.value) || 120)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                placeholder="e.g., 120"
-                            />
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Price/ft (Rs.)
+                                </label>
+                                <input
+                                    type="number"
+                                    min="1"
+                                    step="0.01"
+                                    value={pricePerFoot}
+                                    onChange={(e) => setPricePerFoot(parseFloat(e.target.value) || 120)}
+                                    className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                                    placeholder="120"
+                                />
+                            </div>
                         </div>
                     </div>
 
-                    {/* Calculation Display */}
+                    {/* Calculation Display - Compact */}
                     {calculation && errors.length === 0 && (
-                        <div className="mt-4 sm:mt-6 p-3 sm:p-4 bg-green-50 rounded-lg border border-green-200">
-                            <h4 className="font-medium text-green-800 mb-2 text-sm sm:text-base">Calculation Result</h4>
-                            <div className="space-y-1 text-xs sm:text-sm text-green-700">
-                                <div className="flex justify-between items-center">
-                                    <span className="truncate mr-2">{unit === 'pcs' ? 'Pieces' : 'Lengths'}:</span>
-                                    <span className="font-medium">{calculation.pieces}</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="truncate mr-2">Length per {unit === 'pcs' ? 'Piece' : 'Length'}:</span>
-                                    <span className="font-medium">{calculation.lengthPerPiece} ft</span>
-                                </div>
-                                <div className="flex justify-between items-center">
-                                    <span className="truncate mr-2">Price per Foot:</span>
-                                    <span className="font-medium">Rs. {calculation.pricePerFoot}</span>
+                        <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+                            <h4 className="font-medium text-green-800 mb-2 text-sm">Calculation Result</h4>
+                            <div className="space-y-1 text-sm text-green-700">
+                                <div className="flex justify-between">
+                                    <span>{calculation.pieces}{unit} × {calculation.lengthPerPiece}ft × Rs.{calculation.pricePerFoot}</span>
                                 </div>
                                 <div className="border-t border-green-300 pt-2 mt-2">
                                     <div className="flex justify-between items-center font-medium">
-                                        <span className="truncate mr-2">Total Feet:</span>
+                                        <span>Total Feet:</span>
                                         <span>{calculation.totalFeet} ft</span>
                                     </div>
-                                    <div className="flex justify-between items-center font-bold text-sm sm:text-lg">
-                                        <span className="truncate mr-2">Total Amount:</span>
+                                    <div className="flex justify-between items-center font-bold text-lg">
+                                        <span>Total Amount:</span>
                                         <span>Rs. {calculation.totalAmount.toLocaleString()}</span>
-                                    </div>
-                                    <div className="mt-2 p-2 bg-blue-100 rounded text-blue-800">
-                                        <span className="font-medium text-xs break-all">Formula: {calculation.pieces}{unit} × {calculation.lengthPerPiece}ft/{unit} × Rs.{calculation.pricePerFoot}</span>
                                     </div>
                                 </div>
                             </div>
@@ -209,28 +203,28 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
 
                     {/* Error Display */}
                     {errors.length > 0 && (
-                        <div className="mt-3 sm:mt-4 p-3 bg-red-50 rounded-lg border border-red-200">
-                            <h4 className="font-medium text-red-800 mb-1 text-sm">Please fix the following errors:</h4>
-                            <ul className="text-xs sm:text-sm text-red-700 list-disc list-inside space-y-0.5">
+                        <div className="mt-3 p-3 bg-red-50 rounded-lg border border-red-200">
+                            <h4 className="font-medium text-red-800 mb-1 text-sm">Please fix errors:</h4>
+                            <ul className="text-sm text-red-700 list-disc list-inside">
                                 {errors.map((error, index) => (
-                                    <li key={index} className="break-words">{error}</li>
+                                    <li key={index}>{error}</li>
                                 ))}
                             </ul>
                         </div>
                     )}
 
-                    {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row justify-end space-y-2 sm:space-y-0 sm:space-x-3 mt-4 sm:mt-6">
+                    {/* Action Buttons - Compact */}
+                    <div className="flex justify-end space-x-3 mt-4">
                         <button
                             onClick={onCancel}
-                            className="w-full sm:w-auto px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                            className="px-4 py-2 text-gray-700 border border-gray-300 rounded hover:bg-gray-50 transition-colors text-sm"
                         >
                             Cancel
                         </button>
                         <button
                             onClick={handleAddToInvoice}
                             disabled={errors.length > 0}
-                            className={`w-full sm:w-auto px-4 py-2 rounded-lg font-medium transition-colors text-sm ${errors.length > 0
+                            className={`px-4 py-2 rounded font-medium transition-colors text-sm ${errors.length > 0
                                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                                 : 'bg-blue-600 text-white hover:bg-blue-700'
                                 }`}

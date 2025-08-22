@@ -3,6 +3,7 @@ import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
+import { formatDateTime } from '../../utils/formatters';
 import {
   RotateCcw,
   Search,
@@ -361,15 +362,9 @@ const Returns: React.FC = () => {
     return formatUnitString(product.unit, product.unit_type || 'kg-grams');
   };
 
-  // Format date
-  const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+  // Use centralized date/time formatting for consistency
+  const formatReturnDate = (dateString: string): string => {
+    return formatDateTime(dateString);
   };
 
   // Calculate summary statistics
@@ -793,7 +788,7 @@ const Returns: React.FC = () => {
                             {returnItem.return_number}
                           </div>
                           <div className="text-sm text-gray-500">
-                            {formatDate(returnItem.return_date)}
+                            {formatReturnDate(returnItem.return_date)}
                           </div>
                           {returnItem.invoice_number && (
                             <div className="text-sm text-blue-600">
@@ -922,7 +917,7 @@ const Returns: React.FC = () => {
                   <h4 className="font-medium text-gray-900 mb-2">Return Information</h4>
                   <div className="space-y-1 text-sm">
                     <p><span className="text-gray-600">Return Number:</span> {selectedReturn.return_number}</p>
-                    <p><span className="text-gray-600">Return Date:</span> {formatDate(selectedReturn.return_date)}</p>
+                    <p><span className="text-gray-600">Return Date:</span> {formatReturnDate(selectedReturn.return_date)}</p>
                     <p><span className="text-gray-600">Refund Method:</span> {selectedReturn.refund_method && typeof selectedReturn.refund_method === 'string' ? selectedReturn.refund_method.replace('_', ' ') : 'N/A'}</p>
                     <p><span className="text-gray-600">Reason:</span> {selectedReturn.reason}</p>
                     {selectedReturn.invoice_number && (
@@ -942,7 +937,7 @@ const Returns: React.FC = () => {
                       </span>
                     </p>
                     {selectedReturn.processed_at && (
-                      <p><span className="text-gray-600">Processed:</span> {formatDate(selectedReturn.processed_at)}</p>
+                      <p><span className="text-gray-600">Processed:</span> {formatReturnDate(selectedReturn.processed_at)}</p>
                     )}
                   </div>
                 </div>
@@ -978,8 +973,8 @@ const Returns: React.FC = () => {
                           </td>
                           <td className="px-4 py-2">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${item.condition === 'good' ? 'bg-green-100 text-green-800' :
-                                item.condition === 'damaged' ? 'bg-yellow-100 text-yellow-800' :
-                                  'bg-red-100 text-red-800'
+                              item.condition === 'damaged' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-red-100 text-red-800'
                               }`}>
                               {item.condition}
                             </span>
@@ -1249,7 +1244,7 @@ const Returns: React.FC = () => {
                             <div className="text-sm text-gray-600">
                               Qty: {item.quantity_returned} × Rs. {item.rate_per_unit} |
                               Condition: <span className={`font-medium ${item.condition === 'good' ? 'text-green-600' :
-                                  item.condition === 'damaged' ? 'text-yellow-600' : 'text-red-600'
+                                item.condition === 'damaged' ? 'text-yellow-600' : 'text-red-600'
                                 }`}>{item.condition}</span>
                             </div>
                           </div>

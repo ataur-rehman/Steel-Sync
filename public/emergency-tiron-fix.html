@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ T-Iron Database Emergency Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #333;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .emergency {
+            background: #ff4757;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .fix-section {
+            background: #2f3542;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }
+
+        .success {
+            background: #2ed573;
+            color: #333;
+        }
+
+        button {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            margin: 10px 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        button.success {
+            background: #2ed573;
+            color: #333;
+        }
+
+        button.warning {
+            background: #ffa502;
+            color: #333;
+        }
+
+        button:hover {
+            transform: scale(1.05);
+            transition: transform 0.2s;
+        }
+
+        .log {
+            background: #1e272e;
+            border: 2px solid #ff4757;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        .status.critical {
+            background: #ff4757;
+        }
+
+        .status.success {
+            background: #2ed573;
+            color: #333;
+        }
+
+        .status.warning {
+            background: #ffa502;
+            color: #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="emergency">
+            <h1>⚡ EMERGENCY T-IRON DATABASE FIX</h1>
+            <h2>🚨 CRITICAL: T-Iron columns are empty!</h2>
+            <p><strong>Impact:</strong> Smart reconstruction instead of actual user input</p>
+        </div>
+
+        <div class="fix-section">
+            <h2>🔧 Emergency Actions</h2>
+            <button onclick="emergencySchemaCheck()" class="warning">🔍 EMERGENCY SCHEMA CHECK</button>
+            <button onclick="forceSchemaRecreation()" class="critical">🚨 FORCE SCHEMA RECREATION</button>
+            <button onclick="emergencyColumnAdd()" class="success">⚡ ADD MISSING COLUMNS</button>
+        </div>
+
+        <div id="emergency-status" class="status critical">
+            SYSTEM STATUS: T-Iron columns not saving data - CRITICAL FAILURE
+        </div>
+
+        <div class="fix-section">
+            <h3>📋 Emergency Log</h3>
+            <div id="emergencyLog" class="log">Emergency T-Iron database fix tool ready...\nClick "EMERGENCY SCHEMA
+                CHECK" to diagnose the problem.</div>
+        </div>
+
+        <div class="fix-section">
+            <h3>🎯 Quick Fix Commands</h3>
+            <button onclick="testQuickFix()" class="success">🚀 TEST QUICK FIX</button>
+            <button onclick="verifyFix()" class="warning">✅ VERIFY FIX WORKED</button>
+        </div>
+    </div>
+
+    <script>
+        let emergencyLog = [];
+
+        function eLog(message, urgent = false) {
+            const timestamp = new Date().toLocaleTimeString();
+            const urgentMark = urgent ? '🚨 URGENT: ' : '';
+            emergencyLog.push(`[${timestamp}] ${urgentMark}${message}`);
+            updateEmergencyLog();
+            if (urgent) console.error(message);
+            else console.log(message);
+        }
+
+        function updateEmergencyLog() {
+            document.getElementById('emergencyLog').innerHTML = emergencyLog.join('\n');
+            document.getElementById('emergencyLog').scrollTop = document.getElementById('emergencyLog').scrollHeight;
+        }
+
+        function updateStatus(message, type = 'critical') {
+            const statusEl = document.getElementById('emergency-status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function emergencySchemaCheck() {
+            eLog('🚨 EMERGENCY SCHEMA CHECK INITIATED', true);
+
+            try {
+                if (!window.db) {
+                    eLog('❌ CRITICAL: No database connection!', true);
+                    updateStatus('NO DATABASE CONNECTION - SYSTEM FAILURE', 'critical');
+                    return;
+                }
+
+                eLog('🔍 Checking invoice_items table schema...');
+                const tableInfo = await window.db.execute(`PRAGMA table_info(invoice_items)`);
+
+                eLog(`📊 Found ${tableInfo.length} columns in invoice_items table`);
+
+                const requiredColumns = ['t_iron_pieces', 't_iron_length_per_piece', 't_iron_total_feet', 't_iron_unit'];
+                const existingColumns = tableInfo.map(col => col.name);
+                const missingColumns = requiredColumns.filter(col => !existingColumns.includes(col));
+
+                eLog('🔍 T-Iron column status:');
+                for (const col of requiredColumns) {
+                    const exists = existingColumns.includes(col);
+                    eLog(`   ${col}: ${exists ? '✅ EXISTS' : '❌ MISSING'}`, !exists);
+                }
+
+                if (missingColumns.length > 0) {
+                    eLog(`🚨 CRITICAL: ${missingColumns.length} T-Iron columns missing!`, true);
+                    updateStatus(`MISSING COLUMNS: ${missingColumns.join(', ')}`, 'critical');
+                } else {
+                    eLog('✅ All T-Iron columns exist in schema');
+
+                    // If columns exist, check if data is being saved
+                    eLog('🔍 Checking if T-Iron data is actually being saved...');
+                    try {
+                        const recentTIron = await window.db.execute(`
+                            SELECT id, product_name, t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet
+                            FROM invoice_items 
+                            WHERE product_name LIKE '%Iron%' 
+                            ORDER BY id DESC 
+                            LIMIT 5
+                        `);
+
+                        eLog(`📊 Found ${recentTIron.length} recent T-Iron items`);
+                        let hasValidData = false;
+
+                        for (const item of recentTIron) {
+                            const hasData = item.t_iron_pieces && item.t_iron_length_per_piece;
+                            eLog(`   ID ${item.id}: Pieces=${item.t_iron_pieces}, Length=${item.t_iron_length_per_piece} ${hasData ? '✅' : '❌'}`);
+                            if (hasData) hasValidData = true;
+                        }
+
+                        if (!hasValidData) {
+                            eLog('🚨 CRITICAL: T-Iron columns exist but NO DATA is being saved!', true);
+                            updateStatus('COLUMNS EXIST BUT DATA NOT SAVING - LOGIC ERROR', 'critical');
+                        } else {
+                            eLog('✅ Some T-Iron data found - partial fix may be needed');
+                            updateStatus('PARTIAL DATA FOUND - NEEDS INVESTIGATION', 'warning');
+                        }
+
+                    } catch (dataError) {
+                        eLog(`❌ Error checking T-Iron data: ${dataError.message}`, true);
+                    }
+                }
+
+            } catch (error) {
+                eLog(`❌ EMERGENCY SCHEMA CHECK FAILED: ${error.message}`, true);
+                updateStatus('SCHEMA CHECK FAILED - SYSTEM ERROR', 'critical');
+            }
+        }
+
+        async function forceSchemaRecreation() {
+            eLog('🚨 FORCE SCHEMA RECREATION INITIATED', true);
+
+            try {
+                if (!window.db) {
+                    eLog('❌ No database connection', true);
+                    return;
+                }
+
+                eLog('⚠️ WARNING: This will recreate the invoice_items table');
+                eLog('📦 Backing up existing data...');
+
+                let backupData = [];
+                try {
+                    backupData = await window.db.execute('SELECT * FROM invoice_items');
+                    eLog(`✅ Backed up ${backupData.length} existing items`);
+                } catch (backupError) {
+                    eLog('⚠️ No existing data to backup');
+                }
+
+                eLog('🔧 Dropping existing table...');
+                await window.db.execute('DROP TABLE IF EXISTS invoice_items');
+
+                eLog('🔧 Creating new table with T-Iron support...');
+                await window.db.execute(`
+                    CREATE TABLE invoice_items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        invoice_id INTEGER NOT NULL,
+                        product_id INTEGER DEFAULT NULL,
+                        product_name TEXT NOT NULL,
+                        quantity TEXT DEFAULT '1',
+                        unit_price REAL NOT NULL CHECK (unit_price >= 0),
+                        rate REAL NOT NULL CHECK (rate > 0),
+                        total_price REAL NOT NULL CHECK (total_price >= 0),
+                        amount REAL NOT NULL CHECK (amount >= 0),
+                        unit TEXT DEFAULT 'piece',
+                        length REAL DEFAULT NULL,
+                        pieces REAL DEFAULT NULL,
+                        is_misc_item BOOLEAN DEFAULT 0,
+                        misc_description TEXT DEFAULT NULL,
+                        is_non_stock_item BOOLEAN DEFAULT 0,
+                        t_iron_pieces INTEGER DEFAULT NULL,
+                        t_iron_length_per_piece REAL DEFAULT NULL,
+                        t_iron_total_feet REAL DEFAULT NULL,
+                        t_iron_unit TEXT DEFAULT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+                    )
+                `);
+
+                eLog('✅ New table created with full T-Iron support!');
+
+                // Restore backup data
+                if (backupData.length > 0) {
+                    eLog('📦 Restoring backup data...');
+                    for (const item of backupData) {
+                        try {
+                            await window.db.execute(`
+                                INSERT INTO invoice_items (
+                                    id, invoice_id, product_id, product_name, quantity, unit_price, 
+                                    rate, total_price, amount, unit, length, pieces, is_misc_item, 
+                                    misc_description, is_non_stock_item, t_iron_pieces, 
+                                    t_iron_length_per_piece, t_iron_total_feet, t_iron_unit, 
+                                    created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            `, [
+                                item.id, item.invoice_id, item.product_id, item.product_name,
+                                item.quantity, item.unit_price, item.rate || item.unit_price,
+                                item.total_price, item.amount || item.total_price, item.unit || 'piece',
+                                item.length, item.pieces, item.is_misc_item || 0, item.misc_description,
+                                item.is_non_stock_item || 0, item.t_iron_pieces,
+                                item.t_iron_length_per_piece, item.t_iron_total_feet, item.t_iron_unit,
+                                item.created_at, item.updated_at
+                            ]);
+                        } catch (restoreError) {
+                            eLog(`⚠️ Failed to restore item ${item.id}: ${restoreError.message}`);
+                        }
+                    }
+                    eLog('✅ Data restoration completed');
+                }
+
+                eLog('🎉 SCHEMA RECREATION COMPLETED!', true);
+                updateStatus('SCHEMA RECREATED SUCCESSFULLY - T-IRON SUPPORT ACTIVE', 'success');
+
+            } catch (error) {
+                eLog(`❌ SCHEMA RECREATION FAILED: ${error.message}`, true);
+                updateStatus('SCHEMA RECREATION FAILED - MANUAL INTERVENTION NEEDED', 'critical');
+            }
+        }
+
+        async function emergencyColumnAdd() {
+            eLog('⚡ EMERGENCY COLUMN ADDITION INITIATED', true);
+
+            try {
+                if (!window.db) {
+                    eLog('❌ No database connection', true);
+                    return;
+                }
+
+                const columnsToAdd = [
+                    { name: 't_iron_pieces', type: 'INTEGER DEFAULT NULL' },
+                    { name: 't_iron_length_per_piece', type: 'REAL DEFAULT NULL' },
+                    { name: 't_iron_total_feet', type: 'REAL DEFAULT NULL' },
+                    { name: 't_iron_unit', type: 'TEXT DEFAULT NULL' }
+                ];
+
+                eLog('🔧 Adding T-Iron columns...');
+                for (const column of columnsToAdd) {
+                    try {
+                        await window.db.execute(`ALTER TABLE invoice_items ADD COLUMN ${column.name} ${column.type}`);
+                        eLog(`✅ Added column: ${column.name}`);
+                    } catch (columnError) {
+                        if (columnError.message.includes('duplicate')) {
+                            eLog(`ℹ️ Column ${column.name} already exists`);
+                        } else {
+                            eLog(`❌ Failed to add ${column.name}: ${columnError.message}`, true);
+                        }
+                    }
+                }
+
+                eLog('🎉 EMERGENCY COLUMN ADDITION COMPLETED!', true);
+                updateStatus('T-IRON COLUMNS ADDED SUCCESSFULLY', 'success');
+
+            } catch (error) {
+                eLog(`❌ COLUMN ADDITION FAILED: ${error.message}`, true);
+                updateStatus('COLUMN ADDITION FAILED', 'critical');
+            }
+        }
+
+        async function testQuickFix() {
+            eLog('🚀 TESTING QUICK FIX...', true);
+
+            try {
+                // Create test invoice
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Emergency Test',
+                    bill_number: 'EMERGENCY-' + Date.now(),
+                    subtotal: 1000,
+                    total_amount: 1000,
+                    grand_total: 1000
+                };
+
+                const invoiceId = await window.db.createInvoice(testInvoice);
+                eLog(`✅ Test invoice created: ${invoiceId}`);
+
+                // Add T-Iron item
+                const testTIron = {
+                    product_id: null,
+                    product_name: 'T Iron Emergency Test',
+                    quantity: '132',
+                    unit_price: 124,
+                    total_price: 16368,
+                    unit: 'ft',
+                    t_iron_pieces: 11,
+                    t_iron_length_per_piece: 12,
+                    t_iron_total_feet: 132,
+                    t_iron_unit: 'pcs',
+                    is_non_stock_item: 1
+                };
+
+                eLog('💾 Saving T-Iron test item...');
+                const itemIds = await window.db.addInvoiceItems(invoiceId, [testTIron]);
+                eLog(`✅ Item saved with ID: ${itemIds[0]}`);
+
+                // Verify
+                const saved = await window.db.getInvoiceDetails(invoiceId);
+                const item = saved.items[0];
+
+                eLog('🔍 Verification results:');
+                eLog(`   Pieces: ${item.t_iron_pieces}`);
+                eLog(`   Length: ${item.t_iron_length_per_piece}`);
+                eLog(`   Total: ${item.t_iron_total_feet}`);
+
+                if (item.t_iron_pieces && item.t_iron_length_per_piece) {
+                    eLog('🎉 QUICK FIX SUCCESSFUL!', true);
+                    updateStatus('QUICK FIX WORKED - T-IRON DATA SAVING', 'success');
+                } else {
+                    eLog('❌ QUICK FIX FAILED - DATA STILL NOT SAVING', true);
+                    updateStatus('QUICK FIX FAILED - DEEPER ISSUE PRESENT', 'critical');
+                }
+
+            } catch (error) {
+                eLog(`❌ QUICK FIX TEST FAILED: ${error.message}`, true);
+                updateStatus('QUICK FIX TEST FAILED', 'critical');
+            }
+        }
+
+        async function verifyFix() {
+            eLog('✅ VERIFYING FIX STATUS...');
+
+            try {
+                if (!window.db) {
+                    eLog('❌ No database connection');
+                    return;
+                }
+
+                // Check schema
+                const tableInfo = await window.db.execute(`PRAGMA table_info(invoice_items)`);
+                const tIronCols = tableInfo.filter(col => col.name.includes('t_iron'));
+
+                eLog(`📊 T-Iron columns found: ${tIronCols.length}/4`);
+
+                if (tIronCols.length === 4) {
+                    eLog('✅ Schema is correct');
+
+                    // Check recent data
+                    const recentData = await window.db.execute(`
+                        SELECT t_iron_pieces, t_iron_length_per_piece 
+                        FROM invoice_items 
+                        WHERE product_name LIKE '%Iron%' 
+                        AND t_iron_pieces IS NOT NULL 
+                        ORDER BY id DESC 
+                        LIMIT 3
+                    `);
+
+                    if (recentData.length > 0) {
+                        eLog(`✅ Found ${recentData.length} items with valid T-Iron data`);
+                        updateStatus('FIX VERIFIED - T-IRON SYSTEM OPERATIONAL', 'success');
+                    } else {
+                        eLog('⚠️ Schema correct but no T-Iron data found');
+                        updateStatus('SCHEMA OK BUT NO DATA - NEEDS TESTING', 'warning');
+                    }
+                } else {
+                    eLog('❌ Schema still incomplete');
+                    updateStatus('SCHEMA STILL BROKEN - RETRY FIX', 'critical');
+                }
+
+            } catch (error) {
+                eLog(`❌ Verification failed: ${error.message}`);
+            }
+        }
+
+        // Initialize
+        eLog('⚡ Emergency T-Iron Database Fix Tool Ready');
+        eLog('🚨 CRITICAL: T-Iron data not saving - immediate action required');
+    </script>
+</body>
+
+</html>

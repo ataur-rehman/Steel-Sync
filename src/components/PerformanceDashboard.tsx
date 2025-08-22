@@ -7,6 +7,7 @@
 import React from 'react';
 import { useInvoicePerformance, PerformanceUtils } from '../utils/invoicePerformanceMonitor';
 import type { PerformanceTestSuite } from '../utils/invoicePerformanceTest';
+import { formatTime } from '../utils/formatters';
 
 interface PerformanceDashboardProps {
     onRunTests?: () => void;
@@ -142,14 +143,14 @@ export const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({
                     <div className="flex items-center justify-between text-sm text-gray-600">
                         <span>Average: {metrics.averageQueryTime.toFixed(1)}ms</span>
                         <span>Slow Queries: {metrics.slowQueries}/{metrics.totalQueries}</span>
-                        <span>Last Updated: {new Date(metrics.lastUpdated).toLocaleTimeString()}</span>
+                        <span>Last Updated: {formatTime(new Date(metrics.lastUpdated))}</span>
                     </div>
 
                     {/* Simple performance bar */}
                     <div className="mt-3 w-full bg-gray-200 rounded-full h-2">
                         <div
                             className={`h-2 rounded-full transition-all duration-500 ${metrics.averageQueryTime > 2000 ? 'bg-red-500' :
-                                    metrics.averageQueryTime > 1000 ? 'bg-yellow-500' : 'bg-green-500'
+                                metrics.averageQueryTime > 1000 ? 'bg-yellow-500' : 'bg-green-500'
                                 }`}
                             style={{
                                 width: `${Math.min(100, (metrics.averageQueryTime / 3000) * 100)}%`

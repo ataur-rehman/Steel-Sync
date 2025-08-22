@@ -39,11 +39,11 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
             data,
             timestamp: new Date()
           };
-          
+
           setEventLogs(prevLogs => [newLog, ...prevLogs.slice(0, 99)]); // Keep only 100 recent events
         }
       };
-      
+
       eventBus.on(eventName, handler);
       handlers.set(eventName, handler);
     });
@@ -73,12 +73,11 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
   };
 
   const formatTimestamp = (timestamp: Date) => {
-    return timestamp.toLocaleTimeString('en-US', { 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit', 
-      second: '2-digit',
-      fractionalSecondDigits: 3
+    return timestamp.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
     });
   };
 
@@ -97,7 +96,7 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
       <div className="absolute inset-0 bg-black bg-opacity-50" onClick={onClose} />
-      
+
       <div className="absolute right-0 top-0 h-full w-full max-w-4xl bg-white shadow-xl">
         <div className="flex h-full flex-col">
           {/* Header */}
@@ -109,20 +108,19 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
                 <p className="text-sm text-gray-500">Development tool for debugging real-time updates</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-2">
               <button
                 onClick={() => setIsMonitoring(!isMonitoring)}
-                className={`flex items-center space-x-1 rounded-md px-3 py-1 text-sm font-medium ${
-                  isMonitoring 
-                    ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                className={`flex items-center space-x-1 rounded-md px-3 py-1 text-sm font-medium ${isMonitoring
+                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
+                  }`}
               >
                 {isMonitoring ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                 <span>{isMonitoring ? 'Monitoring' : 'Paused'}</span>
               </button>
-              
+
               <button
                 onClick={clearLogs}
                 className="flex items-center space-x-1 rounded-md bg-red-100 px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-200"
@@ -130,7 +128,7 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
                 <Trash2 className="h-4 w-4" />
                 <span>Clear</span>
               </button>
-              
+
               <button
                 onClick={onClose}
                 className="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -150,11 +148,10 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
                 <button
                   key={key}
                   onClick={() => toggleEventFilter(eventName)}
-                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                    selectedEvents.has(eventName)
+                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${selectedEvents.has(eventName)
                       ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                       : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                  }`}
+                    }`}
                 >
                   {key.replace(/_/g, ' ')}
                 </button>
@@ -210,7 +207,7 @@ export const RealTimeEventMonitor: React.FC<RealTimeEventMonitorProps> = ({ isOp
                         </div>
                       </div>
                     </div>
-                    
+
                     {log.data && Object.keys(log.data).length > 0 && (
                       <div className="mt-2">
                         <pre className="text-xs text-gray-600 overflow-x-auto">

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Final Verification Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            margin: 10px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔧 Final Verification: Both Issues Fixed</h1>
+    <p>Testing the complete fix for T-Iron display and Miscellaneous item ledger issues.</p>
+
+    <button class="btn" onclick="runCompleteVerification()">✅ Run Complete Verification</button>
+    <button class="btn" onclick="clearResults()" style="background: #6c757d;">🧹 Clear</button>
+
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}:</strong> ${message}`;
+            document.getElementById('results').appendChild(div);
+            console.log(message);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function runCompleteVerification() {
+            clearResults();
+            log('🚀 FINAL VERIFICATION: Testing both T-Iron and Miscellaneous item fixes...', 'info');
+
+            try {
+                if (!window.db) {
+                    throw new Error('Database not available');
+                }
+
+                // Create test invoice
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Final Test Customer',
+                    bill_number: 'FINAL-' + Date.now(),
+                    subtotal: 30000,
+                    total_amount: 30000,
+                    grand_total: 30000
+                };
+
+                const invoiceId = await window.db.createInvoice(testInvoice);
+                log(`📋 Created test invoice: ${invoiceId}`, 'info');
+
+                // Test 1: T-Iron item with correct format (like InvoiceDetails after fix)
+                log('🔩 TEST 1: Adding T-Iron item with fixed data types...', 'info');
+
+                const tIronItem = {
+                    product_id: null,
+                    product_name: 'T Iron Final Test',
+                    quantity: '121',
+                    unit_price: 111,
+                    total_price: 13431,
+                    unit: 'ft',
+                    // Enhanced data types as fixed
+                    t_iron_pieces: 11, // Number
+                    t_iron_length_per_piece: 11, // Number
+                    t_iron_total_feet: 121, // Number
+                    t_iron_unit: 'ft', // String
+                    is_non_stock_item: 1 // Integer
+                };
+
+                const tIronIds = await window.db.addInvoiceItems(invoiceId, [tIronItem]);
+                log(`✅ T-Iron item added with ID: ${tIronIds[0]}`, 'success');
+
+                // Test 2: Miscellaneous item with fixed reference_type mapping
+                log('💼 TEST 2: Adding miscellaneous item with fixed ledger creation...', 'info');
+
+                const miscItem = {
+                    product_id: null,
+                    product_name: 'Labor-T Iron Final Test',
+                    quantity: '1',
+                    unit_price: 5000,
+                    total_price: 5000,
+                    unit: 'item',
+                    is_misc_item: 1, // Integer as fixed
+                    misc_description: 'Labor-T Iron final verification test'
+                };
+
+                const miscIds = await window.db.addInvoiceItems(invoiceId, [miscItem]);
+                log(`✅ Miscellaneous item added with ID: ${miscIds[0]}`, 'success');
+
+                // Verification 1: Check T-Iron data was saved correctly
+                log('🔍 VERIFICATION 1: Checking T-Iron data persistence...', 'info');
+
+                const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                const savedTIron = savedInvoice.items.find(item => item.id === tIronIds[0]);
+
+                if (savedTIron && savedTIron.t_iron_pieces && savedTIron.t_iron_length_per_piece) {
+                    const expectedDisplay = `${savedTIron.t_iron_pieces}pcs × ${savedTIron.t_iron_length_per_piece}ft/pcs = ${savedTIron.t_iron_total_feet}ft`;
+                    log(`✅ T-IRON DISPLAY FIX VERIFIED: Will show "${expectedDisplay}" instead of just "${savedTIron.quantity}"`, 'success');
+                } else {
+                    log('❌ T-Iron display fix FAILED - data not saved correctly', 'error');
+                    log(`Saved T-Iron data: pieces=${savedTIron?.t_iron_pieces}, length=${savedTIron?.t_iron_length_per_piece}`, 'error');
+                }
+
+                // Verification 2: Check miscellaneous item flag
+                const savedMisc = savedInvoice.items.find(item => item.id === miscIds[0]);
+                if (savedMisc && savedMisc.is_misc_item) {
+                    log('✅ Miscellaneous item flag saved correctly', 'success');
+                } else {
+                    log('❌ Miscellaneous item flag not saved correctly', 'error');
+                }
+
+                // Verification 3: Check daily ledger entry creation (after reference_type fix)
+                log('📊 VERIFICATION 3: Checking daily ledger entry creation (with fixed reference_type mapping)...', 'info');
+
+                // Wait for ledger creation
+                setTimeout(async () => {
+                    try {
+                        const today = new Date().toISOString().split('T')[0];
+                        const ledgerEntries = await window.db.getDailyLedgerByDate(today);
+
+                        const miscLedgerEntry = ledgerEntries.find(entry =>
+                            entry.description && entry.description.includes('Labor-T Iron final verification test')
+                        );
+
+                        if (miscLedgerEntry) {
+                            log('✅ MISCELLANEOUS LEDGER FIX VERIFIED: Daily ledger entry created successfully!', 'success');
+                            log(`📋 Ledger entry: "${miscLedgerEntry.description}" (Rs. ${miscLedgerEntry.amount})`, 'success');
+                            log(`📋 Category: ${miscLedgerEntry.category}, Type: ${miscLedgerEntry.type}`, 'success');
+                        } else {
+                            log('❌ Miscellaneous ledger fix FAILED - no ledger entry found', 'error');
+                            log(`Available ledger entries today (${ledgerEntries.length}):`, 'warning');
+                            ledgerEntries.slice(0, 5).forEach(entry => {
+                                log(`  - ${entry.description} (Rs. ${entry.amount})`, 'info');
+                            });
+                        }
+
+                        // Final summary
+                        log('🎯 FINAL VERIFICATION COMPLETE:', 'info');
+                        log('1. T-Iron Display: ' + (savedTIron?.t_iron_pieces ? '✅ FIXED' : '❌ NOT FIXED'), savedTIron?.t_iron_pieces ? 'success' : 'error');
+                        log('2. Miscellaneous Ledger: ' + (miscLedgerEntry ? '✅ FIXED' : '❌ NOT FIXED'), miscLedgerEntry ? 'success' : 'error');
+
+                    } catch (ledgerError) {
+                        log(`❌ Ledger verification failed: ${ledgerError.message}`, 'error');
+                    }
+                }, 3000);
+
+            } catch (error) {
+                log(`❌ Verification failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-run on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                log('🔧 Final verification test loaded. Click "Run Complete Verification" to test both fixes.', 'info');
+                log('🎯 This will verify: 1) T-Iron display format, 2) Miscellaneous item ledger creation', 'info');
+            }, 1000);
+        });
+    </script>
+</body>
+
+</html>

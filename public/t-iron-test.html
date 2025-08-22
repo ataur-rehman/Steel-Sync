@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>T-Iron Schema Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+        }
+
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+
+        .info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            overflow-x: auto;
+        }
+
+        #results {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 T-Iron Schema Permanent Fix Test</h1>
+    <p>This test verifies that the T-Iron schema has been permanently fixed and items can be saved correctly.</p>
+
+    <div class="test-section info">
+        <h3>Test Plan</h3>
+        <ol>
+            <li>Check if database is accessible</li>
+            <li>Verify T-Iron schema fix utility is available</li>
+            <li>Test invoice_items table structure</li>
+            <li>Simulate adding T-Iron item</li>
+            <li>Verify data persistence</li>
+        </ol>
+    </div>
+
+    <button onclick="runTests()">🧪 Run All Tests</button>
+    <button onclick="fixSchema()">🔧 Fix T-Iron Schema</button>
+    <button onclick="testTIronAdd()">➕ Test T-Iron Add</button>
+    <button onclick="clearResults()">🧹 Clear Results</button>
+
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `test-section ${type}`;
+            div.innerHTML = `<pre>${new Date().toLocaleTimeString()}: ${message}</pre>`;
+            results.appendChild(div);
+            console.log(message);
+        }
+
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function runTests() {
+            clearResults();
+            log('🚀 Starting T-Iron Schema Tests...', 'info');
+
+            // Test 1: Database access
+            try {
+                if (window.db) {
+                    log('✅ Test 1: Database instance found', 'success');
+
+                    // Try to get invoices to trigger schema check
+                    const invoices = await window.db.getInvoices({ limit: 1 });
+                    log(`✅ Test 1b: Database query successful (${invoices.length} invoices)`, 'success');
+                } else {
+                    log('❌ Test 1: No database instance found', 'error');
+                    return;
+                }
+            } catch (error) {
+                log(`❌ Test 1: Database access failed: ${error.message}`, 'error');
+                return;
+            }
+
+            // Test 2: Schema fix utility
+            if (window.fixTIronSchema) {
+                log('✅ Test 2: T-Iron schema fix utility available', 'success');
+            } else {
+                log('❌ Test 2: T-Iron schema fix utility not found', 'error');
+            }
+
+            // Test 3: Try to add a test T-Iron item
+            await testTIronAdd();
+
+            log('🎯 Tests completed! Check results above.', 'info');
+        }
+
+        async function fixSchema() {
+            log('🔧 Running T-Iron schema fix...', 'info');
+
+            if (window.fixTIronSchema) {
+                try {
+                    const result = await window.fixTIronSchema();
+                    log(`✅ Schema fix result: ${JSON.stringify(result)}`, 'success');
+                } catch (error) {
+                    log(`❌ Schema fix failed: ${error.message}`, 'error');
+                }
+            } else {
+                log('❌ Schema fix utility not available', 'error');
+            }
+        }
+
+        async function testTIronAdd() {
+            log('➕ Testing T-Iron item addition...', 'info');
+
+            if (!window.db) {
+                log('❌ No database instance available', 'error');
+                return;
+            }
+
+            try {
+                // Create a test invoice first
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Test Customer',
+                    bill_number: 'TEST-' + Date.now(),
+                    subtotal: 16236,
+                    total_amount: 16236,
+                    grand_total: 16236
+                };
+
+                log('📋 Creating test invoice...', 'info');
+                const invoiceId = await window.db.createInvoice(testInvoice);
+                log(`✅ Created test invoice with ID: ${invoiceId}`, 'success');
+
+                // Now add a T-Iron item
+                const tIronItem = {
+                    invoice_id: invoiceId,
+                    product_name: 'T Iron (Test)',
+                    quantity: 132, // Total feet
+                    unit: 'ft',
+                    unit_price: 123,
+                    total_price: 16236,
+                    is_non_stock_item: 1,
+                    t_iron_pieces: 11,
+                    t_iron_length_per_piece: 12,
+                    t_iron_total_feet: 132,
+                    t_iron_unit: 'ft'
+                };
+
+                log('🔩 Adding T-Iron item with data:', 'info');
+                log(JSON.stringify(tIronItem, null, 2), 'info');
+
+                const itemId = await window.db.addInvoiceItems(invoiceId, [tIronItem]);
+                log(`✅ Added T-Iron item with ID: ${itemId}`, 'success');
+
+                // Verify the item was saved correctly
+                const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                const savedItem = savedInvoice.items.find(item => item.id === itemId[0]);
+
+                if (savedItem) {
+                    log('✅ T-Iron item retrieved successfully:', 'success');
+                    log(`Pieces: ${savedItem.t_iron_pieces}`, 'info');
+                    log(`Length per piece: ${savedItem.t_iron_length_per_piece}`, 'info');
+                    log(`Total feet: ${savedItem.t_iron_total_feet}`, 'info');
+
+                    // Check if the display would be correct
+                    if (savedItem.t_iron_pieces && savedItem.t_iron_length_per_piece) {
+                        log(`✅ Expected display: "${savedItem.t_iron_pieces}pcs × ${savedItem.t_iron_length_per_piece}ft/pcs = ${savedItem.t_iron_total_feet}ft"`, 'success');
+                    } else {
+                        log('❌ T-Iron data missing in saved item', 'error');
+                    }
+                } else {
+                    log('❌ Could not retrieve saved T-Iron item', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ T-Iron test failed: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        // Auto-run tests when page loads
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                log('📝 T-Iron test page loaded. Click "Run All Tests" to start.', 'info');
+            }, 1000);
+        });
+    </script>
+</body>
+
+</html>

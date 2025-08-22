@@ -12,6 +12,7 @@
 
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
 import { parseUnit, createUnitFromNumericValue } from '../utils/unitUtils';
+import { getCurrentSystemDateTime } from '../utils/systemDateTime';
 
 export class CentralizedRealtimeSolution {
   private db: any;
@@ -98,20 +99,21 @@ export class CentralizedRealtimeSolution {
           }
         }
 
-        // Ensure received_date and received_time are always set (permanent, migration-free fix)
+        // CRITICAL FIX: Ensure received_date and received_time use consistent system date/time
         let receivedDate = receivingData.received_date;
         let receivedTime = receivingData.received_time;
         if (!receivedDate || typeof receivedDate !== 'string' || !receivedDate.trim()) {
-          // Use date from data or today
-          receivedDate = (receivingData.date || new Date().toISOString().slice(0, 10));
+          // Use provided date or current system date in consistent format
+          const { dbDate } = getCurrentSystemDateTime();
+          receivedDate = (receivingData.date || dbDate);
         }
         if (!receivedTime || typeof receivedTime !== 'string' || !receivedTime.trim()) {
-          // Use time from data or now (HH:MM:SS)
+          // Use provided time or current system time in consistent format
           if (receivingData.time && typeof receivingData.time === 'string' && receivingData.time.trim()) {
             receivedTime = receivingData.time;
           } else {
-            const now = new Date();
-            receivedTime = now.toTimeString().slice(0, 8);
+            const { dbTime } = getCurrentSystemDateTime();
+            receivedTime = dbTime;
           }
         }
 
@@ -189,19 +191,19 @@ export class CentralizedRealtimeSolution {
               [newStockString, item.product_id]
             );
 
-            // Create stock movement record for audit trail
-            // Ensure date and time are always set for stock movement
+            // CRITICAL FIX: Create stock movement record with consistent date/time
             let movementDate = receivingData.received_date;
             let movementTime = receivingData.received_time;
             if (!movementDate || typeof movementDate !== 'string' || !movementDate.trim()) {
-              movementDate = (receivingData.date || new Date().toISOString().slice(0, 10));
+              const { dbDate } = getCurrentSystemDateTime();
+              movementDate = (receivingData.date || dbDate);
             }
             if (!movementTime || typeof movementTime !== 'string' || !movementTime.trim()) {
               if (receivingData.time && typeof receivingData.time === 'string' && receivingData.time.trim()) {
                 movementTime = receivingData.time;
               } else {
-                const now = new Date();
-                movementTime = now.toTimeString().slice(0, 8);
+                const { dbTime } = getCurrentSystemDateTime();
+                movementTime = dbTime;
               }
             }
             await this.db.createStockMovement({
@@ -277,6 +279,11 @@ export class CentralizedRealtimeSolution {
 
         // Add each item
         let totalAddition = 0;
+
+        // Get system datetime for consistent timestamps
+        const systemDateTime = getCurrentSystemDateTime();
+        const now = `${systemDateTime.dbDate} ${systemDateTime.dbTime}`;
+
         for (const item of items) {
           // Check if this is a miscellaneous item
           const isMiscItem = Boolean(item.is_misc_item) || item.product_id === null || item.product_id === undefined;
@@ -288,7 +295,7 @@ export class CentralizedRealtimeSolution {
               INSERT INTO invoice_items (
                 invoice_id, product_id, product_name, quantity, unit, unit_price,
                 rate, total_price, amount, is_misc_item, misc_description, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               invoiceId,
               null, // product_id is null for misc items
@@ -300,17 +307,30 @@ export class CentralizedRealtimeSolution {
               item.total_price,
               item.total_price, // amount
               1, // is_misc_item = true
-              item.misc_description || item.product_name // misc_description
+              item.misc_description || item.product_name, // misc_description
+              now, // created_at - SYSTEM TIME
+              now  // updated_at - SYSTEM TIME
             ]);
 
             console.log('✅ Miscellaneous item added:', item.product_name);
           } else {
-            // Insert regular product item
+            // Insert regular product item WITH T-IRON SUPPORT
+            console.log('🔍 [CENTRALIZED FIX] Adding regular item with T-Iron data:', {
+              productName: item.product_name,
+              quantity: item.quantity,
+              tIronPieces: item.t_iron_pieces,
+              tIronLengthPerPiece: item.t_iron_length_per_piece,
+              tIronTotalFeet: item.t_iron_total_feet,
+              tIronUnit: item.t_iron_unit
+            });
+
             await this.db.dbConnection.execute(`
               INSERT INTO invoice_items (
                 invoice_id, product_id, product_name, quantity, unit, unit_price,
-                rate, total_price, amount, length, pieces, is_misc_item, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+                rate, total_price, amount, length, pieces, is_misc_item, 
+                t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet, t_iron_unit,
+                created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `, [
               invoiceId,
               item.product_id,
@@ -323,7 +343,13 @@ export class CentralizedRealtimeSolution {
               item.total_price, // amount
               item.length || null,
               item.pieces || null,
-              0 // is_misc_item = false
+              0, // is_misc_item = false
+              item.t_iron_pieces || null, // T-Iron pieces
+              item.t_iron_length_per_piece || null, // T-Iron length per piece
+              item.t_iron_total_feet || null, // T-Iron total feet
+              item.t_iron_unit || null, // T-Iron unit
+              now, // created_at - SYSTEM TIME
+              now  // updated_at - SYSTEM TIME
             ]);
 
             // Update product stock ONLY for regular items
@@ -339,13 +365,7 @@ export class CentralizedRealtimeSolution {
             );
 
             // **CRITICAL FIX**: Create stock movement for audit trail ONLY for regular items
-            const now = new Date();
-            const date = now.toISOString().split('T')[0];
-            const time = now.toLocaleTimeString('en-PK', {
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-            });
+            const { dbDate: movementDate, dbTime: movementTime } = getCurrentSystemDateTime();
 
             // **CRITICAL FIX**: Create stock movement for audit trail with correct display format
             await this.db.createStockMovement({
@@ -369,8 +389,8 @@ export class CentralizedRealtimeSolution {
               reference_number: `INV-${invoiceId}`,
               customer_id: invoiceBefore.customer_id,
               customer_name: customerBefore.name || 'Unknown Customer',
-              date: date,
-              time: time,
+              date: movementDate,
+              time: movementTime,
               created_by: 'system'
             });
 
@@ -384,23 +404,77 @@ export class CentralizedRealtimeSolution {
         const newTotal = (invoiceBefore.total_amount || 0) + totalAddition;
         const newRemaining = newTotal - (invoiceBefore.payment_amount || 0);
 
+        // CRITICAL FIX: Calculate invoice status for FIFO payment allocation compatibility
+        const currentPaymentAmount = invoiceBefore.payment_amount || 0;
+        const newStatus = newRemaining <= 0.01 ? 'paid' :
+          (currentPaymentAmount > 0 ? 'partially_paid' : 'pending');
+
+        console.log(`🔄 [FIFO-FIX] Invoice status update: remaining=${newRemaining}, status=${newStatus}`);
+
+        // VALIDATION: Ensure FIFO will see this invoice if it has remaining balance
+        if (newRemaining > 0.01 && newStatus === 'paid') {
+          console.warn(`⚠️ [FIFO-FIX] WARNING: Invoice ${invoiceId} has remaining balance ${newRemaining} but status is 'paid' - this would break FIFO!`);
+        } else if (newRemaining > 0.01 && newStatus !== 'paid') {
+          console.log(`✅ [FIFO-FIX] Invoice ${invoiceId} will be visible to FIFO: remaining=${newRemaining}, status=${newStatus}`);
+        }
+
         await this.db.dbConnection.execute(`
           UPDATE invoices 
-          SET total_amount = ?, grand_total = ?, remaining_balance = ?, updated_at = CURRENT_TIMESTAMP
+          SET total_amount = ?, grand_total = ?, remaining_balance = ?, status = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ?
-        `, [newTotal, newTotal, newRemaining, invoiceId]);
+        `, [newTotal, newTotal, newRemaining, newStatus, invoiceId]);
+
+        // CRITICAL FIX: Create daily ledger entries for miscellaneous items
+        console.log(`🎫 [CENTRALIZED] Processing ${items.length} items for miscellaneous ledger entries...`);
+        for (const item of items) {
+          console.log(`🎫 [CENTRALIZED] Checking item "${item.product_name}":`, {
+            is_misc_item: item.is_misc_item,
+            misc_description: item.misc_description,
+            total_price: item.total_price,
+            booleanCheck: Boolean(item.is_misc_item),
+            hasDescription: !!item.misc_description,
+            hasPositivePrice: item.total_price > 0,
+            willCreateLedger: Boolean(item.is_misc_item) && item.misc_description && item.total_price > 0
+          });
+
+          if (Boolean(item.is_misc_item) && item.misc_description && item.total_price > 0) {
+            console.log(`🎫 [CENTRALIZED] ✅ Creating ledger entry for miscellaneous item: ${item.misc_description}`);
+
+            try {
+              // CRITICAL FIX: Use the same date generation method as the original function
+              const { dbDate: currentDate } = getCurrentSystemDateTime();
+
+              console.log(`🎫 [CENTRALIZED] Calling createMiscellaneousItemLedgerEntry with:`, {
+                miscDescription: item.misc_description,
+                amount: item.total_price,
+                invoiceNumber: invoiceBefore.bill_number || invoiceBefore.invoice_number || `INV-${invoiceId}`,
+                customerName: customerBefore.name || 'Unknown Customer',
+                invoiceId: invoiceId,
+                date: currentDate
+              });
+
+              await this.db.createMiscellaneousItemLedgerEntry({
+                miscDescription: item.misc_description,
+                amount: item.total_price,
+                invoiceNumber: invoiceBefore.bill_number || invoiceBefore.invoice_number || `INV-${invoiceId}`,
+                customerName: customerBefore.name || 'Unknown Customer',
+                invoiceId: invoiceId,
+                date: currentDate
+              });
+              console.log(`🎫 [CENTRALIZED] ✅ Ledger entry created successfully for: ${item.misc_description}`);
+            } catch (ledgerError) {
+              console.error(`🎫 [CENTRALIZED] ❌ Failed to create ledger entry for ${item.misc_description}:`, ledgerError);
+            }
+          } else {
+            console.log(`🎫 [CENTRALIZED] ❌ Skipping ledger entry for "${item.product_name}" - conditions not met`);
+          }
+        }
 
         // CRITICAL FIX: Create customer ledger entry for added items ONLY when NOT in invoice creation
         // During invoice creation, the createInvoiceLedgerEntries method handles this
         if (!inTransaction) {
           console.log('🔍 [CENTRALIZED] Creating customer ledger entry for added items...');
-          const now = new Date();
-          const date = now.toISOString().split('T')[0];
-          const time = now.toLocaleTimeString('en-PK', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          });
+          const { dbDate: currentDate, dbTime: currentTime } = getCurrentSystemDateTime();
 
           // Get current customer balance from customer_ledger_entries
           const currentBalanceResult = await this.db.dbConnection.select(
@@ -428,8 +502,8 @@ export class CentralizedRealtimeSolution {
             invoiceBefore.bill_number,
             balanceBefore,
             balanceAfter,
-            date,
-            time,
+            currentDate,
+            currentTime,
             'system',
             `Added ${items.length} items totaling Rs.${totalAddition.toFixed(1)}`
           ]);
@@ -457,7 +531,22 @@ export class CentralizedRealtimeSolution {
         // Emit comprehensive events
         this.emitInvoiceItemsEvents(invoiceId, invoiceBefore.customer_id, items, totalAddition);
 
-        console.log('✅ [PERMANENT FIX] Invoice items added with proper balance updates');
+        // CRITICAL FIX: Emit invoice update event to notify FIFO system of status change
+        if (invoiceBefore.status !== newStatus) {
+          console.log(`🔄 [FIFO-FIX] Invoice status changed: ${invoiceBefore.status} → ${newStatus}`);
+          eventBus.emit(BUSINESS_EVENTS.INVOICE_UPDATED, {
+            invoiceId,
+            customerId: invoiceBefore.customer_id,
+            action: 'status_changed',
+            oldStatus: invoiceBefore.status,
+            newStatus: newStatus,
+            remainingBalance: newRemaining,
+            reason: 'items_added',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        console.log('✅ [PERMANENT FIX] Invoice items added with proper balance updates and FIFO compatibility');
 
       } catch (error) {
         if (!inTransaction) {
@@ -505,6 +594,9 @@ export class CentralizedRealtimeSolution {
         const mappedPaymentMethod = paymentMethodMap[paymentData.payment_method?.toLowerCase() || ''] || 'other';
         console.log(`🔄 [PERMANENT FIX] Mapped payment method: ${paymentData.payment_method} → ${mappedPaymentMethod}`);
 
+        // CRITICAL FIX: Get consistent system date/time for payment record
+        const { dbDate: systemDate, dbTime: systemTime } = getCurrentSystemDateTime();
+
         // Create payment record
         const paymentId = await this.db.dbConnection.execute(`
           INSERT INTO payments (
@@ -523,8 +615,8 @@ export class CentralizedRealtimeSolution {
           mappedPaymentMethod, // CRITICAL FIX: Use mapped payment method
           paymentData.reference || '',
           `Payment for Invoice ${invoice.bill_number}`,
-          paymentData.date || new Date().toISOString().split('T')[0],
-          new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+          paymentData.date || systemDate,
+          systemTime,
           'completed',
           'system'
         ]);
@@ -552,13 +644,9 @@ export class CentralizedRealtimeSolution {
           [paymentData.amount, invoice.customer_id]
         );
 
-        // CRITICAL FIX: Create daily ledger entry with INCOMING direction
-        const currentDate = paymentData.date || new Date().toISOString().split('T')[0];
-        const currentTime = new Date().toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        });
+        // CRITICAL FIX: Create daily ledger entry with consistent date/time
+        const currentDate = paymentData.date || systemDate;
+        const currentTime = systemTime;
 
         await this.db.dbConnection.execute(`
           INSERT INTO ledger_entries (

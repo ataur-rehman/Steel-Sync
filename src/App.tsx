@@ -28,10 +28,13 @@ import StaffManagementIntegrated from './components/staff/StaffManagementIntegra
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
+import DateTimeFormatTest from './components/test/DateTimeFormatTest';
+import DateTimeFormatAudit from './components/test/DateTimeFormatAudit';
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
 import PaymentChannelDebug from './components/debug/PaymentChannelDebug';
+import TIronDebug from './components/debug/TIronDebug';
 import toast from 'react-hot-toast';
 import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
@@ -471,8 +474,17 @@ function AppContent() {
 
               {/* Debug Routes for Development */}
               {import.meta.env.DEV && (
-                <Route path="/debug/payment-channels" element={<PaymentChannelDebug />} />
+                <>
+                  <Route path="/debug/payment-channels" element={<PaymentChannelDebug />} />
+                  <Route path="/debug/tiron" element={<TIronDebug />} />
+                </>
               )}
+
+              {/* Date/Time Format Test */}
+              <Route path="/test/datetime" element={<DateTimeFormatTest />} />
+
+              {/* Comprehensive Date/Time Format Audit */}
+              <Route path="/test/audit" element={<DateTimeFormatAudit />} />
 
               {/* Catch-all redirect */}
               <Route path="*" element={<Navigate to="/" replace />} />

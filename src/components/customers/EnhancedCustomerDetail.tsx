@@ -6,6 +6,7 @@ import CustomerNavigation from './CustomerNavigation';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import { formatCurrency } from '../../utils/calculations';
+import { formatDate } from '../../utils/formatters';
 import FIFOPaymentForm from '../payments/FIFOPaymentForm';
 
 const CustomerDetail: React.FC = () => {
@@ -175,7 +176,7 @@ const CustomerBasicInfo: React.FC<{ customer: any }> = ({ customer }) => {
             <div>
               <p className="text-sm font-medium text-gray-900">Created</p>
               <p className="text-sm text-gray-600">
-                {customer.created_at ? new Date(customer.created_at).toLocaleDateString() : 'N/A'}
+                {customer.created_at ? formatDate(customer.created_at) : 'N/A'}
               </p>
             </div>
           </div>
@@ -213,7 +214,7 @@ const CustomerRecentActivity: React.FC<{ customerId: number; recentInvoices: any
                     Invoice #{invoice.invoice_number}
                   </p>
                   <p className="text-xs text-gray-500">
-                    {new Date(invoice.created_at).toLocaleDateString()}
+                    {formatDate(invoice.created_at)}
                   </p>
                 </div>
               </div>

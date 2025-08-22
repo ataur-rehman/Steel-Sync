@@ -83,10 +83,14 @@ const INCOMING_CATEGORIES = [
   'Other Income'
 ];
 
+// 🚨 CRITICAL: These categories MUST match those used in database.ts for outgoing transactions
+// 🚨 When adding new expense categories, add them here AND in cashFlowCategories below
+// 🚨 Missing categories will prevent entries from showing in Daily Ledger
 const OUTGOING_CATEGORIES = [
   'Office Rent',
   'Utilities Bill',
   'Staff Salary',
+  'Labor Payment', // Used by miscellaneous items from invoices
   'Transportation',
   'Raw Materials',
   'Equipment Purchase',
@@ -459,6 +463,9 @@ const DailyLedger: React.FC = () => {
         }
 
         // Include only cash flow categories (excluding Vendor Payment since we load those separately)
+        // 🚨 CRITICAL: When adding new expense categories in database.ts, ALWAYS add them here too!
+        // 🚨 MISSING CATEGORIES HERE WILL CAUSE ENTRIES TO NOT DISPLAY IN DAILY LEDGER
+        // 🚨 Categories used in miscellaneous items, salary payments, and other expenses MUST be included
         const cashFlowCategories = [
           'Payment Received',
           'Customer Payment',
@@ -469,6 +476,7 @@ const DailyLedger: React.FC = () => {
           'Staff Salary',
           'Salary Payment',
           'salary', // 🔧 CRITICAL FIX: Include lowercase salary category from staff management
+          'Labor Payment', // 🔧 CRITICAL FIX: Include labor payments from miscellaneous items
           'Business Expense',
           'Manual Income',
           'Manual Expense',

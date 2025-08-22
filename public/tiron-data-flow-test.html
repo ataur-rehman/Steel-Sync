@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 T-Iron Data Flow Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #007acc;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+
+        .critical {
+            border-left-color: #dc3545;
+            background: #ffebee;
+        }
+
+        .success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .warning {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 10px 5px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button.critical {
+            background: #dc3545;
+        }
+
+        button.success {
+            background: #28a745;
+        }
+
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+            max-height: 500px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .data-block {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .passed {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .failed {
+            color: #dc3545;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🧪 T-Iron Data Flow Complete Test</h1>
+
+        <div class="test-section critical">
+            <h2>🎯 The Problem</h2>
+            <p><strong>Expected:</strong> User adds T-Iron (e.g., 11 pieces × 12 ft = 132 ft total)</p>
+            <p><strong>What happens:</strong> T-Iron data gets saved but columns remain empty in database</p>
+            <p><strong>Result:</strong> Display shows smart reconstruction instead of actual input</p>
+        </div>
+
+        <div class="test-section">
+            <h2>🔍 Comprehensive Data Flow Test</h2>
+            <button onclick="testCompleteDataFlow()" class="critical">🎯 Test Complete T-Iron Data Flow</button>
+            <button onclick="debugDatabaseConnection()" class="success">🔧 Debug Database Connection</button>
+            <button onclick="clearLog()">🧹 Clear Log</button>
+        </div>
+
+        <div id="testResults" class="test-section">
+            <h3>📋 Test Results</h3>
+            <div id="testLog" class="log">Ready to test T-Iron data flow...</div>
+        </div>
+    </div>
+
+    <script>
+        let logEntries = [];
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const icon = {
+                'info': 'ℹ️',
+                'success': '✅',
+                'error': '❌',
+                'warning': '⚠️',
+                'debug': '🔧',
+                'critical': '🚨'
+            }[type] || 'ℹ️';
+
+            logEntries.push(`[${timestamp}] ${icon} ${message}`);
+            updateLog();
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateLog() {
+            document.getElementById('testLog').innerHTML = logEntries.join('\n');
+            document.getElementById('testLog').scrollTop = document.getElementById('testLog').scrollHeight;
+        }
+
+        function clearLog() {
+            logEntries = [];
+            updateLog();
+            log('🎯 T-Iron Data Flow Test Ready');
+        }
+
+        async function testCompleteDataFlow() {
+            clearLog();
+            log('🎯 TESTING: Complete T-Iron Data Flow', 'critical');
+
+            try {
+                // Step 1: Check database availability
+                if (!window.db) {
+                    log('❌ Database not available', 'error');
+                    return;
+                }
+                log('✅ Database connection available', 'success');
+
+                // Step 2: Check database schema
+                log('🔍 Checking database schema...', 'debug');
+                try {
+                    const tableInfo = await window.db.execute(`PRAGMA table_info(invoice_items)`);
+                    const tIronColumns = tableInfo.filter(col => col.name.includes('t_iron'));
+
+                    log(`📊 Found ${tIronColumns.length} T-Iron columns:`, 'debug');
+                    for (const col of tIronColumns) {
+                        log(`   ${col.name}: ${col.type}`, 'debug');
+                    }
+
+                    if (tIronColumns.length < 4) {
+                        log('🚨 MISSING T-Iron columns! This is the problem!', 'critical');
+                        return;
+                    } else {
+                        log('✅ All T-Iron columns exist in schema', 'success');
+                    }
+                } catch (schemaError) {
+                    log(`❌ Schema check failed: ${schemaError.message}`, 'error');
+                    return;
+                }
+
+                // Step 3: Create test invoice
+                log('📋 Creating test invoice...', 'debug');
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'T-Iron Flow Test',
+                    bill_number: 'FLOW-' + Date.now(),
+                    subtotal: 16368,
+                    total_amount: 16368,
+                    grand_total: 16368
+                };
+
+                const invoiceId = await window.db.createInvoice(testInvoice);
+                log(`✅ Created invoice ID: ${invoiceId}`, 'success');
+
+                // Step 4: Prepare T-Iron item (exactly like the failing scenario)
+                log('🔧 Preparing T-Iron item with exact user data...', 'debug');
+                const tIronItem = {
+                    product_id: null,
+                    product_name: 'T Iron',
+                    quantity: '132', // Total feet (11 × 12 = 132)
+                    unit_price: 124, // Price per foot
+                    total_price: 16368, // 132 × 124 = 16368
+                    unit: 'ft',
+                    // CRITICAL: The T-Iron specific data that should be saved
+                    t_iron_pieces: 11,
+                    t_iron_length_per_piece: 12,
+                    t_iron_total_feet: 132,
+                    t_iron_unit: 'pcs',
+                    is_non_stock_item: 1
+                };
+
+                log('📝 T-Iron item prepared:', 'debug');
+                log(`   Pieces: ${tIronItem.t_iron_pieces} (${typeof tIronItem.t_iron_pieces})`, 'debug');
+                log(`   Length per piece: ${tIronItem.t_iron_length_per_piece} (${typeof tIronItem.t_iron_length_per_piece})`, 'debug');
+                log(`   Total feet: ${tIronItem.t_iron_total_feet} (${typeof tIronItem.t_iron_total_feet})`, 'debug');
+                log(`   Unit: ${tIronItem.t_iron_unit}`, 'debug');
+
+                // Step 5: Save the item and capture any errors
+                log('💾 Saving T-Iron item to database...', 'debug');
+                let saveSuccess = false;
+                let saveError = null;
+
+                try {
+                    const itemIds = await window.db.addInvoiceItems(invoiceId, [tIronItem]);
+                    log(`✅ Item saved with ID: ${itemIds[0]}`, 'success');
+                    saveSuccess = true;
+                } catch (error) {
+                    log(`❌ Save failed: ${error.message}`, 'error');
+                    saveError = error;
+                    return;
+                }
+
+                // Step 6: Retrieve and verify the saved data
+                log('📥 Retrieving saved data for verification...', 'debug');
+                const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                const savedItem = savedInvoice.items.find(item => item.product_name === 'T Iron');
+
+                if (!savedItem) {
+                    log('❌ Could not find saved T-Iron item', 'error');
+                    return;
+                }
+
+                log('🔍 Verifying saved T-Iron data:', 'debug');
+                log(`   Retrieved pieces: ${savedItem.t_iron_pieces} (${typeof savedItem.t_iron_pieces})`, 'debug');
+                log(`   Retrieved length: ${savedItem.t_iron_length_per_piece} (${typeof savedItem.t_iron_length_per_piece})`, 'debug');
+                log(`   Retrieved total: ${savedItem.t_iron_total_feet} (${typeof savedItem.t_iron_total_feet})`, 'debug');
+                log(`   Retrieved unit: ${savedItem.t_iron_unit}`, 'debug');
+
+                // Step 7: Analyze the results
+                log('📊 CRITICAL ANALYSIS:', 'critical');
+
+                const hasValidPieces = savedItem.t_iron_pieces !== null && savedItem.t_iron_pieces !== undefined && savedItem.t_iron_pieces > 0;
+                const hasValidLength = savedItem.t_iron_length_per_piece !== null && savedItem.t_iron_length_per_piece !== undefined && savedItem.t_iron_length_per_piece > 0;
+                const hasValidTotal = savedItem.t_iron_total_feet !== null && savedItem.t_iron_total_feet !== undefined && savedItem.t_iron_total_feet > 0;
+
+                log(`   Pieces valid: ${hasValidPieces ? 'YES' : 'NO'}`, hasValidPieces ? 'success' : 'error');
+                log(`   Length valid: ${hasValidLength ? 'YES' : 'NO'}`, hasValidLength ? 'success' : 'error');
+                log(`   Total valid: ${hasValidTotal ? 'YES' : 'NO'}`, hasValidTotal ? 'success' : 'error');
+
+                if (hasValidPieces && hasValidLength && hasValidTotal) {
+                    log('🎉 SUCCESS: T-Iron data was properly saved!', 'success');
+                    log('   Display should show actual input, not smart reconstruction', 'success');
+                } else {
+                    log('🚨 CRITICAL: T-Iron data was NOT saved properly!', 'critical');
+                    log('   This is why smart reconstruction is being used', 'critical');
+
+                    // Show what display logic would do
+                    log('🖥️ Display Logic Test:', 'warning');
+                    if (hasValidPieces && hasValidLength) {
+                        log(`   Would display: (${savedItem.t_iron_pieces}pcs × ${savedItem.t_iron_length_per_piece}ft/pcs × Rs.${savedItem.unit_price})`, 'success');
+                    } else {
+                        log('   Would use smart reconstruction due to missing data', 'warning');
+
+                        // Simulate smart reconstruction
+                        const totalFeet = parseInt(savedItem.quantity);
+                        const commonLengths = [14, 15, 12, 10, 16, 8, 20];
+                        let bestFit = { pieces: Math.round(totalFeet / 12), length: 12 };
+
+                        for (const length of commonLengths) {
+                            const pieces = Math.round(totalFeet / length);
+                            const calculatedTotal = pieces * length;
+                            const difference = Math.abs(totalFeet - calculatedTotal);
+
+                            if (difference < Math.abs(totalFeet - (bestFit.pieces * bestFit.length))) {
+                                bestFit = { pieces, length };
+                            }
+                        }
+
+                        log(`   Smart reconstruction: (${bestFit.pieces}pcs × ${bestFit.length}ft/pcs × Rs.${savedItem.unit_price})`, 'warning');
+                    }
+                }
+
+                // Step 8: Check for any database constraints or triggers
+                log('🔍 Checking for database constraints...', 'debug');
+                try {
+                    const foreignKeys = await window.db.execute(`PRAGMA foreign_key_check(invoice_items)`);
+                    if (foreignKeys.length > 0) {
+                        log('⚠️ Foreign key violations found', 'warning');
+                        for (const fk of foreignKeys) {
+                            log(`   ${fk.table}: ${fk.rowid}`, 'warning');
+                        }
+                    } else {
+                        log('✅ No foreign key violations', 'success');
+                    }
+                } catch (fkError) {
+                    log(`⚠️ Could not check foreign keys: ${fkError.message}`, 'warning');
+                }
+
+                log('🏁 Complete T-Iron data flow test finished', 'info');
+
+            } catch (error) {
+                log(`❌ Test failed with error: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        async function debugDatabaseConnection() {
+            log('🔧 DEBUGGING: Database connection and T-Iron handling', 'debug');
+
+            try {
+                if (!window.db) {
+                    log('❌ No database connection', 'error');
+                    return;
+                }
+
+                // Test basic database operations
+                log('🔍 Testing basic database operations...', 'debug');
+
+                try {
+                    const version = await window.db.execute(`SELECT sqlite_version() as version`);
+                    log(`✅ SQLite version: ${version[0].version}`, 'success');
+                } catch (versionError) {
+                    log(`❌ Could not get SQLite version: ${versionError.message}`, 'error');
+                }
+
+                // Check if invoice_items table exists
+                try {
+                    const tables = await window.db.execute(`SELECT name FROM sqlite_master WHERE type='table' AND name='invoice_items'`);
+                    if (tables.length > 0) {
+                        log('✅ invoice_items table exists', 'success');
+                    } else {
+                        log('❌ invoice_items table does not exist', 'error');
+                    }
+                } catch (tableError) {
+                    log(`❌ Could not check tables: ${tableError.message}`, 'error');
+                }
+
+                // Test T-Iron column access
+                try {
+                    const testQuery = await window.db.execute(`SELECT t_iron_pieces, t_iron_length_per_piece FROM invoice_items LIMIT 1`);
+                    log('✅ T-Iron columns are accessible', 'success');
+                } catch (columnError) {
+                    log(`❌ T-Iron columns not accessible: ${columnError.message}`, 'error');
+                    log('   This might be the root cause!', 'critical');
+                }
+
+                // Check database write permissions
+                try {
+                    await window.db.execute(`INSERT INTO invoice_items (invoice_id, product_name, quantity, unit_price, rate, total_price, amount, t_iron_pieces) VALUES (999999, 'TEST', '1', 1, 1, 1, 1, 99)`);
+                    log('✅ Database write test successful', 'success');
+
+                    // Clean up test data
+                    await window.db.execute(`DELETE FROM invoice_items WHERE invoice_id = 999999 AND product_name = 'TEST'`);
+                    log('✅ Test data cleaned up', 'success');
+                } catch (writeError) {
+                    log(`❌ Database write test failed: ${writeError.message}`, 'error');
+                }
+
+                log('🏁 Database debugging completed', 'info');
+
+            } catch (error) {
+                log(`❌ Database debugging failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize
+        log('🎯 T-Iron Data Flow Test Ready');
+        log('Click "Test Complete T-Iron Data Flow" to diagnose the issue');
+    </script>
+</body>
+
+</html>

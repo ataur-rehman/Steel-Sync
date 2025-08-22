@@ -13,12 +13,13 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { formatDate } from '../../utils/formatters';
 import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { salaryHistoryService } from '../../services/salaryHistoryService';
-import type { 
-  SalaryPayment, 
-  SalaryHistoryFormData, 
-  SalaryStatistics 
+import type {
+  SalaryPayment,
+  SalaryHistoryFormData,
+  SalaryStatistics
 } from '../../services/salaryHistoryService';
 
 interface SalaryHistoryProps {
@@ -62,7 +63,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
   const loadData = async () => {
     try {
       setLoading(true);
-      
+
       // Initialize salary history service
       await salaryHistoryService.initializeTables();
 
@@ -94,7 +95,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!staffId) {
       toast.error('Please select a staff member');
       return;
@@ -110,7 +111,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
 
     try {
       await salaryHistoryService.recordPayment(paymentData, 'Admin'); // TODO: Get from current user
-      
+
       // Log the salary payment activity
       activityLogger.logCustomActivity(
         ActivityType.PAYMENT,
@@ -118,7 +119,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
         staffId,
         `Recorded salary payment of ₹${paymentData.payment_amount.toLocaleString()} for ${staffName} (${paymentData.payment_type} payment) for ${paymentData.payment_month}`
       );
-      
+
       toast.success('Salary payment recorded successfully');
       setShowModal(false);
       resetForm();
@@ -384,7 +385,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
                       </td>
                     )}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(payment.payment_date).toLocaleDateString()}
+                      {formatDate(payment.payment_date)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">

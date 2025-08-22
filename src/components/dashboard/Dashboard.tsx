@@ -13,6 +13,7 @@ import { formatCurrency } from '../../utils/calculations';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+import { formatTime, formatDate } from '../../utils/formatters';
 import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import { initializeDashboardRealTimeUpdates } from '../../services/dashboardRealTimeUpdater';
 import { enhanceDatabaseWithRealTimeEvents, setupPeriodicDashboardRefresh } from '../../services/databaseEventEnhancer';
@@ -404,7 +405,7 @@ export default function Dashboard() {
               </p>
               <div className="flex items-center gap-1 text-xs text-gray-400">
                 <Activity className="w-3 h-3" />
-                <span>Last updated: {lastUpdateTime.toLocaleTimeString()}</span>
+                <span>Last updated: {formatTime(lastUpdateTime)}</span>
               </div>
             </div>
           </div>
@@ -530,7 +531,9 @@ export default function Dashboard() {
                         </div>
                         <p className="text-sm text-gray-500 mt-1 truncate">{invoice.customer_name}</p>
                         <p className="text-xs text-gray-400 mt-1">
-                          {new Date(invoice.date).toLocaleDateString()}
+                          <span className="text-xs text-gray-500">
+                            {formatDate(invoice.date)}
+                          </span>
                         </p>
                       </div>
                       <div className="text-right flex-shrink-0 ml-4">

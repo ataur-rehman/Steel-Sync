@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { formatInvoiceNumber } from '../utils/numberFormatting';
+import { formatDateTime } from '../utils/formatters';
 
 export class PrintingService {
   async printInvoice(invoice: any, printerType: '80mm' | 'A4' = 'A4') {
@@ -381,14 +382,7 @@ export class PrintingService {
             </div>
             <div class="invoice-info">
               <div class="invoice-number">Invoice: ${formatInvoiceNumber(invoice.bill_number)}</div>
-              <div>Date: ${new Date(invoice.created_at).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    })}</div>
+              <div>Date: ${formatDateTime(invoice.created_at)}</div>
               <div>Status: ${invoice.status.toUpperCase()}</div>
             </div>
           </div>
@@ -477,14 +471,7 @@ export class PrintingService {
   }
 
   private formatDate(dateString: string): string {
-    return new Date(dateString).toLocaleDateString('en-PK', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    });
+    return formatDateTime(dateString);
   }
 }
 

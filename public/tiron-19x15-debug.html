@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 T-Iron Data Flow Debug (19×15 Issue)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #dc3545;
+            background: #f8d7da;
+        }
+
+        .success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .warning {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .info {
+            border-left-color: #17a2b8;
+            background: #d1ecf1;
+        }
+
+        button {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 10px 5px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #c82333;
+        }
+
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-family: monospace;
+            max-height: 500px;
+            overflow-y: auto;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .scenario {
+            background: #ffebee;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            border-left: 4px solid #f44336;
+        }
+
+        .expected {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .actual {
+            color: #dc3545;
+            font-weight: bold;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 10px 0;
+        }
+
+        th,
+        td {
+            border: 1px solid #dee2e6;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background: #e9ecef;
+        }
+
+        .critical {
+            background: #ffebee;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔧 T-Iron Data Flow Debug - 19×15 Issue</h1>
+
+        <div class="scenario">
+            <h2>🚨 CRITICAL BUG REPORT</h2>
+            <p><strong>Calculator Input:</strong> 19 Pieces × 15 Length/pc × 112 Price/ft</p>
+            <p><strong>Expected Display:</strong> <span class="expected">T Iron (19pcs × 15ft/pcs × Rs.112)</span></p>
+            <p><strong>Actual Display:</strong> <span class="actual">T Iron (24pcs × 12ft/pcs × Rs.112) ⚠️</span></p>
+            <p><strong>Total Feet:</strong> 285 ft ✅ (Correct: 19 × 15 = 285)</p>
+            <p><strong>Problem:</strong> T-Iron data is NOT being saved to database → falls back to smart reconstruction
+            </p>
+        </div>
+
+        <div class="test-section info">
+            <h2>🔍 Debug Plan</h2>
+            <ol>
+                <li>Test exact user scenario: 19pcs × 15ft × 112Rs</li>
+                <li>Check if T-Iron schema exists in database</li>
+                <li>Verify data save operation</li>
+                <li>Check data retrieval from database</li>
+                <li>Test smart reconstruction fallback (should show 19×15, not 24×12)</li>
+                <li>Check date/time formatting issue</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>🧪 Critical Debug Tests</h2>
+            <button onclick="testUserScenario19x15()">🎯 Test 19×15×112 Scenario</button>
+            <button onclick="checkTIronSchema()">🔧 Check T-Iron Schema</button>
+            <button onclick="testDataSaveLoad()">💾 Test Save/Load Process</button>
+            <button onclick="testSmartReconstruction285()">🤖 Test Reconstruction for 285ft</button>
+            <button onclick="testDateTime()">🕐 Test Date/Time Issue</button>
+            <button onclick="clearResults()">🧹 Clear</button>
+        </div>
+
+        <div id="results" class="test-section info">
+            <h2>📋 Debug Results</h2>
+            <div id="testLog" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let testLog = [];
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const typeIcon = {
+                'info': 'ℹ️',
+                'success': '✅',
+                'error': '❌',
+                'warning': '⚠️',
+                'debug': '🔧',
+                'critical': '🚨'
+            }[type] || 'ℹ️';
+
+            testLog.push(`[${timestamp}] ${typeIcon} ${message}`);
+            updateDisplay();
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function updateDisplay() {
+            document.getElementById('testLog').innerHTML = testLog.join('\n');
+            document.getElementById('testLog').scrollTop = document.getElementById('testLog').scrollHeight;
+        }
+
+        function clearResults() {
+            testLog = [];
+            updateDisplay();
+            log('🔧 T-Iron Data Flow Debug Ready', 'info');
+        }
+
+        async function testUserScenario19x15() {
+            log('🎯 TESTING: User scenario 19pcs × 15ft × 112Rs = 285ft', 'critical');
+
+            try {
+                // Create test invoice
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Debug 19x15 Customer',
+                    bill_number: 'DEBUG-19x15-' + Date.now(),
+                    subtotal: 31920,
+                    total_amount: 31920,
+                    grand_total: 31920
+                };
+
+                const invoiceId = await window.db.createInvoice(testInvoice);
+                log(`📋 Created test invoice: ${invoiceId}`, 'success');
+
+                // Add T-Iron item EXACTLY as calculator should produce
+                const calculatorOutput = {
+                    product_id: null,
+                    product_name: 'T Iron',
+                    quantity: 285, // 19 × 15 = 285
+                    unit_price: 112,
+                    total_price: 31920, // 285 × 112 = 31920
+                    unit: 'ft',
+                    t_iron_pieces: 19, // ← USER INPUT
+                    t_iron_length_per_piece: 15, // ← USER INPUT
+                    t_iron_total_feet: 285,
+                    t_iron_unit: 'pcs',
+                    is_non_stock_item: 1
+                };
+
+                log('💾 SAVING: T-Iron with exact calculator output:', 'debug');
+                log(`   Pieces: ${calculatorOutput.t_iron_pieces}`, 'debug');
+                log(`   Length/piece: ${calculatorOutput.t_iron_length_per_piece}`, 'debug');
+                log(`   Total feet: ${calculatorOutput.t_iron_total_feet}`, 'debug');
+                log(`   Price/foot: ${calculatorOutput.unit_price}`, 'debug');
+                log(`   Total amount: ${calculatorOutput.total_price}`, 'debug');
+
+                const itemIds = await window.db.addInvoiceItems(invoiceId, [calculatorOutput]);
+                log(`✅ Added T-Iron item with ID: ${itemIds[0]}`, 'success');
+
+                // CRITICAL: Retrieve and check what was actually saved
+                const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                const savedItem = savedInvoice.items.find(item => item.id === itemIds[0]);
+
+                if (savedItem) {
+                    log('🔍 CRITICAL: Database storage verification:', 'critical');
+                    log(`   Raw pieces: ${savedItem.t_iron_pieces} (type: ${typeof savedItem.t_iron_pieces})`, 'debug');
+                    log(`   Raw length: ${savedItem.t_iron_length_per_piece} (type: ${typeof savedItem.t_iron_length_per_piece})`, 'debug');
+                    log(`   Raw total: ${savedItem.t_iron_total_feet} (type: ${typeof savedItem.t_iron_total_feet})`, 'debug');
+                    log(`   Raw unit: ${savedItem.t_iron_unit}`, 'debug');
+
+                    // Test display logic conditions
+                    const hasTPieces = savedItem.t_iron_pieces !== null && savedItem.t_iron_pieces !== undefined;
+                    const hasTLength = savedItem.t_iron_length_per_piece !== null && savedItem.t_iron_length_per_piece !== undefined;
+
+                    log(`🔍 Display logic conditions:`, 'debug');
+                    log(`   Has t_iron_pieces: ${hasTPieces} (${savedItem.t_iron_pieces})`, hasTPieces ? 'success' : 'error');
+                    log(`   Has t_iron_length_per_piece: ${hasTLength} (${savedItem.t_iron_length_per_piece})`, hasTLength ? 'success' : 'error');
+
+                    if (hasTPieces && hasTLength) {
+                        // Test enhanced type conversion
+                        const pieces = Number(savedItem.t_iron_pieces);
+                        const lengthPerPiece = Number(savedItem.t_iron_length_per_piece);
+                        const unitPrice = Number(savedItem.unit_price);
+
+                        log(`🔧 Type conversion test:`, 'debug');
+                        log(`   ${savedItem.t_iron_pieces} → ${pieces} (valid: ${pieces > 0})`, pieces > 0 ? 'success' : 'error');
+                        log(`   ${savedItem.t_iron_length_per_piece} → ${lengthPerPiece} (valid: ${lengthPerPiece > 0})`, lengthPerPiece > 0 ? 'success' : 'error');
+
+                        if (pieces > 0 && lengthPerPiece > 0) {
+                            const unit = savedItem.t_iron_unit || 'pcs';
+                            const displayText = `(${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${unitPrice})`;
+
+                            log('🎉 ENHANCED DISPLAY WOULD SHOW:', 'success');
+                            log(`   "T Iron ${displayText}"`, 'success');
+
+                            if (pieces === 19 && lengthPerPiece === 15) {
+                                log('🎉 SUCCESS! Shows exact user input: 19pcs × 15ft', 'success');
+                            } else {
+                                log(`❌ WRONG VALUES: ${pieces}pcs × ${lengthPerPiece}ft (expected 19×15)`, 'error');
+                            }
+                        } else {
+                            log('❌ TYPE CONVERSION FAILED - Would fall back to reconstruction', 'error');
+                        }
+                    } else {
+                        log('🚨 CRITICAL: T-Iron data NOT SAVED - Would use reconstruction', 'critical');
+                        log('   This is why you see 24×12 instead of 19×15!', 'critical');
+
+                        // Test reconstruction for 285 feet
+                        testReconstructionForValue(285);
+                    }
+                } else {
+                    log('❌ Could not retrieve saved item', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        async function checkTIronSchema() {
+            log('🔧 CHECKING: T-Iron database schema', 'info');
+
+            try {
+                // Test if T-Iron fields exist in the database
+                log('🔍 Testing T-Iron schema existence...', 'debug');
+
+                // Create a minimal test invoice to check schema
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Schema Test Customer',
+                    bill_number: 'SCHEMA-' + Date.now(),
+                    subtotal: 100,
+                    total_amount: 100,
+                    grand_total: 100
+                };
+
+                const invoiceId = await window.db.createInvoice(testInvoice);
+
+                // Try to add an item with T-Iron fields
+                const testItem = {
+                    product_id: null,
+                    product_name: 'Schema Test Item',
+                    quantity: '10',
+                    unit_price: 10,
+                    total_price: 100,
+                    unit: 'ft',
+                    t_iron_pieces: 5,
+                    t_iron_length_per_piece: 2,
+                    t_iron_total_feet: 10,
+                    t_iron_unit: 'pcs',
+                    is_non_stock_item: 1
+                };
+
+                const itemIds = await window.db.addInvoiceItems(invoiceId, [testItem]);
+                log(`✅ Successfully added item with T-Iron fields: ${itemIds[0]}`, 'success');
+
+                // Retrieve and check if T-Iron fields were preserved
+                const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                const savedItem = savedInvoice.items.find(item => item.id === itemIds[0]);
+
+                if (savedItem) {
+                    const schemaFields = {
+                        't_iron_pieces': savedItem.t_iron_pieces,
+                        't_iron_length_per_piece': savedItem.t_iron_length_per_piece,
+                        't_iron_total_feet': savedItem.t_iron_total_feet,
+                        't_iron_unit': savedItem.t_iron_unit
+                    };
+
+                    log('🔍 T-Iron schema verification:', 'debug');
+                    for (const [field, value] of Object.entries(schemaFields)) {
+                        const exists = value !== null && value !== undefined;
+                        log(`   ${field}: ${value} (${exists ? 'EXISTS' : 'MISSING'})`, exists ? 'success' : 'error');
+                    }
+
+                    const allFieldsExist = Object.values(schemaFields).every(v => v !== null && v !== undefined);
+                    if (allFieldsExist) {
+                        log('✅ T-Iron schema is COMPLETE and working', 'success');
+                    } else {
+                        log('❌ T-Iron schema is INCOMPLETE or not working', 'error');
+                        log('   This explains why T-Iron data is not being preserved!', 'error');
+                    }
+                } else {
+                    log('❌ Could not retrieve schema test item', 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Schema check failed: ${error.message}`, 'error');
+                log('   This indicates T-Iron schema is not properly configured', 'error');
+            }
+        }
+
+        async function testDataSaveLoad() {
+            log('💾 TESTING: Complete data save/load cycle', 'info');
+
+            try {
+                const testCases = [
+                    { desc: "User's 19×15", pieces: 19, length: 15, price: 112 },
+                    { desc: "Simple 10×12", pieces: 10, length: 12, price: 100 },
+                    { desc: "Edge case 1×285", pieces: 1, length: 285, price: 112 }
+                ];
+
+                for (const testCase of testCases) {
+                    log(`🧪 Testing: ${testCase.desc}`, 'debug');
+
+                    const totalFeet = testCase.pieces * testCase.length;
+                    const totalAmount = totalFeet * testCase.price;
+
+                    const testInvoice = {
+                        customer_id: 1,
+                        customer_name: `Test ${testCase.desc}`,
+                        bill_number: `TEST-${Date.now()}-${Math.random()}`,
+                        subtotal: totalAmount,
+                        total_amount: totalAmount,
+                        grand_total: totalAmount
+                    };
+
+                    const invoiceId = await window.db.createInvoice(testInvoice);
+
+                    const testItem = {
+                        product_id: null,
+                        product_name: 'T Iron',
+                        quantity: totalFeet.toString(),
+                        unit_price: testCase.price,
+                        total_price: totalAmount,
+                        unit: 'ft',
+                        t_iron_pieces: testCase.pieces,
+                        t_iron_length_per_piece: testCase.length,
+                        t_iron_total_feet: totalFeet,
+                        t_iron_unit: 'pcs',
+                        is_non_stock_item: 1
+                    };
+
+                    const itemIds = await window.db.addInvoiceItems(invoiceId, [testItem]);
+                    const savedInvoice = await window.db.getInvoiceDetails(invoiceId);
+                    const savedItem = savedInvoice.items.find(item => item.id === itemIds[0]);
+
+                    if (savedItem) {
+                        const piecesOK = Number(savedItem.t_iron_pieces) === testCase.pieces;
+                        const lengthOK = Number(savedItem.t_iron_length_per_piece) === testCase.length;
+
+                        if (piecesOK && lengthOK) {
+                            log(`   ✅ ${testCase.desc}: Data preserved correctly`, 'success');
+                        } else {
+                            log(`   ❌ ${testCase.desc}: Data corrupted!`, 'error');
+                            log(`     Expected: ${testCase.pieces}×${testCase.length}`, 'error');
+                            log(`     Got: ${savedItem.t_iron_pieces}×${savedItem.t_iron_length_per_piece}`, 'error');
+                        }
+                    } else {
+                        log(`   ❌ ${testCase.desc}: Could not retrieve`, 'error');
+                    }
+                }
+
+            } catch (error) {
+                log(`❌ Data save/load test failed: ${error.message}`, 'error');
+            }
+        }
+
+        function testSmartReconstruction285() {
+            log('🤖 TESTING: Smart reconstruction for 285 feet', 'warning');
+            testReconstructionForValue(285);
+        }
+
+        function testReconstructionForValue(totalFeet) {
+            try {
+                log(`🔧 Testing reconstruction algorithm for ${totalFeet} feet`, 'debug');
+
+                // Simulate the enhanced algorithm
+                const commonLengths = [14, 12, 10, 16, 8, 20];
+                let bestFit = { pieces: Math.round(totalFeet / 12), length: 12, difference: Math.abs(totalFeet % 12) };
+
+                log('🧮 Testing common lengths:', 'debug');
+                for (const length of commonLengths) {
+                    const pieces = Math.round(totalFeet / length);
+                    const calculatedTotal = pieces * length;
+                    const difference = Math.abs(totalFeet - calculatedTotal);
+
+                    log(`   ${pieces} × ${length} = ${calculatedTotal} (diff: ${difference})`, 'debug');
+
+                    if (difference < bestFit.difference && pieces > 0) {
+                        bestFit = { pieces, length, difference };
+                        log(`     ⭐ New best fit!`, 'debug');
+                    } else if (difference === bestFit.difference && difference === 0) {
+                        if (pieces < bestFit.pieces && length > bestFit.length) {
+                            bestFit = { pieces, length, difference };
+                            log(`     ⭐ Better perfect match (fewer pieces, longer length)!`, 'debug');
+                        }
+                    }
+                }
+
+                log(`🎯 RECONSTRUCTION RESULT: ${bestFit.pieces}pcs × ${bestFit.length}ft/pcs`, 'warning');
+
+                if (bestFit.pieces === 19 && bestFit.length === 15) {
+                    log('🎉 Reconstruction would show correct 19×15!', 'success');
+                } else if (bestFit.pieces === 24 && bestFit.length === 12) {
+                    log('⚠️ Reconstruction shows 24×12 (current wrong behavior)', 'warning');
+                    log('   This explains what user is seeing!', 'warning');
+                } else {
+                    log(`🤔 Reconstruction shows: ${bestFit.pieces}×${bestFit.length}`, 'warning');
+                }
+
+                // Check for exact match
+                if (285 % 15 === 0) {
+                    const exactPieces = 285 / 15;
+                    log(`🔍 EXACT MATCH POSSIBLE: ${exactPieces} × 15 = ${285}`, 'info');
+                    if (exactPieces === 19) {
+                        log('✅ 19×15 is a perfect match for 285 feet!', 'success');
+                    }
+                }
+
+            } catch (error) {
+                log(`❌ Reconstruction test failed: ${error.message}`, 'error');
+            }
+        }
+
+        function testDateTime() {
+            log('🕐 TESTING: Date/Time formatting issue', 'info');
+
+            try {
+                log('🔍 Current system date/time:', 'debug');
+                const now = new Date();
+                log(`   JavaScript Date: ${now.toString()}`, 'debug');
+                log(`   Locale Date String: ${now.toLocaleDateString()}`, 'debug');
+                log(`   Locale Time String: ${now.toLocaleTimeString()}`, 'debug');
+
+                // User reported system time: 08/23/25 01:20 AM
+                // But app showed: 22/08/25 08:20 PM
+                log('🚨 REPORTED TIME BUG:', 'warning');
+                log('   System: 08/23/25 01:20 AM', 'warning');
+                log('   App showed: 22/08/25 08:20 PM', 'warning');
+                log('   Issues: Wrong date (22 vs 23), wrong time (20:20 vs 01:20)', 'warning');
+
+                // Check if there's a timezone issue
+                log('🔍 Timezone investigation:', 'debug');
+                log(`   UTC: ${now.toISOString()}`, 'debug');
+                log(`   Timezone offset: ${now.getTimezoneOffset()} minutes`, 'debug');
+
+                // Test custom date formatting
+                const testDate = new Date();
+                const formatOptions = {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true
+                };
+
+                log(`📅 Formatted test: ${testDate.toLocaleDateString('en-US', formatOptions)}`, 'debug');
+
+            } catch (error) {
+                log(`❌ DateTime test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Initialize
+        log('🔧 T-Iron Data Flow Debug Ready - 19×15 Issue', 'info');
+        log('📋 Click "Test 19×15×112 Scenario" to debug the exact issue', 'info');
+    </script>
+</body>
+
+</html>

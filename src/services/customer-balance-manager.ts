@@ -13,6 +13,7 @@
 
 import { DatabaseConnection } from './database-connection';
 import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
+import { getCurrentSystemDateTime } from '../utils/formatters';
 
 /* interface BalanceValidationResult {
     isConsistent: boolean;
@@ -146,13 +147,7 @@ export class CustomerBalanceManager {
                 );
 
                 // Create ledger entry for audit trail
-                const now = new Date();
-                const date = now.toISOString().split('T')[0];
-                const time = now.toLocaleTimeString('en-PK', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                });
+                const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
 
                 const entryType = operation === 'add' ? 'debit' : 'credit';
 
@@ -220,13 +215,7 @@ export class CustomerBalanceManager {
                 );
 
                 // Add ledger entry for the change
-                const now = new Date();
-                const date = now.toISOString().split('T')[0];
-                const time = now.toLocaleTimeString('en-PK', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                });
+                const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
 
                 const difference = roundedNewBalance - currentBalance;
                 const entryType = difference >= 0 ? 'debit' : 'credit';

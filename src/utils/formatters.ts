@@ -9,18 +9,19 @@
  * 4. Consistent across all components and pages
  */
 
-// CRITICAL FIX: Centralized system datetime function for database operations
+// CRITICAL FIX: Centralized system datetime function for database operations - 12-hour format
 export function getCurrentSystemDateTime() {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
 
   const dbDate = `${year}-${month}-${day}`;
-  const dbTime = `${hours}:${minutes}:${seconds}`;
+  const dbTime = now.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
   const dbTimestamp = `${dbDate} ${dbTime}`;
 
   return { dbDate, dbTime, dbTimestamp };
@@ -99,12 +100,13 @@ export function formatDateForDatabase(date: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
-// For database storage - local time in HH:MM:SS format
+// For database storage - 12-hour format with AM/PM for consistency
 export function formatTimeForDatabase(date: Date = new Date()): string {
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  const seconds = date.getSeconds().toString().padStart(2, '0');
-  return `${hours}:${minutes}:${seconds}`;
+  return date.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 // Long date format for headers/reports: Monday, 25/12/23

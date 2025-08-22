@@ -20,7 +20,8 @@ import {
   AlertTriangle,
   Info,
   Truck,
-  CreditCard
+  CreditCard,
+  Wrench
 } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -143,7 +144,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { name: 'Payment Channels', href: '/payment/channels', icon: CreditCard, category: 'management' },
     { name: 'Business Finance', href: '/finance', icon: BarChart3, category: 'management' },
 
-
+    // Debug (Development only)
+    ...(import.meta.env.DEV ? [
+      { name: 'T-Iron Debug', href: '/debug/tiron', icon: Wrench, category: 'admin' }
+    ] : [])
   ];
 
   // Category labels for grouping

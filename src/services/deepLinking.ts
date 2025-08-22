@@ -1,5 +1,6 @@
 // Enhanced Deep Linking Service with Complete Module Integration
 import { db } from './database';
+import { formatTime } from '../utils/formatters';
 
 export interface LinkableEntity {
   id: number;
@@ -327,11 +328,7 @@ export class DeepLinkingService {
         timeline.push({
           id: `invoice-${transaction.reference_id}`,
           date: transaction.date,
-          time: new Date(transaction.created_at).toLocaleTimeString('en-PK', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }),
+          time: formatTime(transaction.created_at),
           type: 'sale',
           description: `Invoice ${transaction.reference_number} created`,
           amount: transaction.debit_amount || transaction.credit_amount,
@@ -348,11 +345,7 @@ export class DeepLinkingService {
         timeline.push({
           id: `payment-${transaction.reference_id}`,
           date: transaction.date,
-          time: new Date(transaction.created_at).toLocaleTimeString('en-PK', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }),
+          time: formatTime(transaction.created_at),
           type: 'payment',
           description: `Payment received`,
           amount: transaction.payment_amount,
@@ -461,11 +454,7 @@ export class DeepLinkingService {
     timeline.push({
       id: `created-${invoice.id}`,
       date: new Date(invoice.created_at).toISOString().split('T')[0],
-      time: new Date(invoice.created_at).toLocaleTimeString('en-PK', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      }),
+      time: formatTime(invoice.created_at),
       type: 'sale',
       description: `Invoice created for ${invoice.customer_name}`,
       amount: invoice.grand_total,
@@ -483,11 +472,7 @@ export class DeepLinkingService {
       timeline.push({
         id: `payment-${invoice.id}`,
         date: new Date(invoice.created_at).toISOString().split('T')[0],
-        time: new Date(invoice.created_at).toLocaleTimeString('en-PK', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        }),
+        time: formatTime(invoice.created_at),
         type: 'payment',
         description: `Payment received via ${invoice.payment_method}`,
         amount: invoice.payment_amount,
