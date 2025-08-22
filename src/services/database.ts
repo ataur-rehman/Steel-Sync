@@ -7454,13 +7454,6 @@ export class DatabaseService {
   }
 
   async addInvoiceItems(invoiceId: number, items: any[]): Promise<number[]> {
-    console.log('🚀 [ENTRY DEBUG] addInvoiceItems called with:', {
-      invoiceId,
-      itemCount: items.length,
-      firstItem: items[0],
-      hasFirstItemTIronData: items[0] && (items[0].t_iron_pieces || items[0].t_iron_length_per_piece)
-    });
-
     try {
       if (!this.isInitialized) {
         await this.initialize();

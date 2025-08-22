@@ -356,7 +356,6 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       miscItemDescription,
       miscItemPrice
     });
-    alert('🚀 handleAddItem function called!');
 
     if (itemType === 'misc') {
       console.log('🎫 [MISC-DEBUG] Processing miscellaneous item...');

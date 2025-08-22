@@ -280,9 +280,9 @@ export class CentralizedRealtimeSolution {
         // Add each item
         let totalAddition = 0;
 
-        // Get system datetime for consistent timestamps
+        // SAFE TIME FIX: Get system datetime for consistent timestamps across all items
         const systemDateTime = getCurrentSystemDateTime();
-        const now = `${systemDateTime.dbDate} ${systemDateTime.dbTime}`;
+        const consistentTimestamp = `${systemDateTime.dbDate} ${systemDateTime.dbTime}`;
 
         for (const item of items) {
           // Check if this is a miscellaneous item
@@ -308,14 +308,14 @@ export class CentralizedRealtimeSolution {
               item.total_price, // amount
               1, // is_misc_item = true
               item.misc_description || item.product_name, // misc_description
-              now, // created_at - SYSTEM TIME
-              now  // updated_at - SYSTEM TIME
+              consistentTimestamp, // SAFE TIME FIX: consistent timestamp
+              consistentTimestamp  // SAFE TIME FIX: consistent timestamp
             ]);
 
             console.log('✅ Miscellaneous item added:', item.product_name);
           } else {
-            // Insert regular product item WITH T-IRON SUPPORT
-            console.log('🔍 [CENTRALIZED FIX] Adding regular item with T-Iron data:', {
+            // Insert regular product item WITH T-IRON SUPPORT (SAFE VERSION)
+            console.log('🔍 [T-IRON FIX] Adding regular item with T-Iron data:', {
               productName: item.product_name,
               quantity: item.quantity,
               tIronPieces: item.t_iron_pieces,
@@ -324,33 +324,65 @@ export class CentralizedRealtimeSolution {
               tIronUnit: item.t_iron_unit
             });
 
-            await this.db.dbConnection.execute(`
-              INSERT INTO invoice_items (
-                invoice_id, product_id, product_name, quantity, unit, unit_price,
-                rate, total_price, amount, length, pieces, is_misc_item, 
-                t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet, t_iron_unit,
-                created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [
-              invoiceId,
-              item.product_id,
-              item.product_name,
-              item.quantity,
-              item.unit || 'piece',
-              item.unit_price,
-              item.unit_price, // rate
-              item.total_price,
-              item.total_price, // amount
-              item.length || null,
-              item.pieces || null,
-              0, // is_misc_item = false
-              item.t_iron_pieces || null, // T-Iron pieces
-              item.t_iron_length_per_piece || null, // T-Iron length per piece
-              item.t_iron_total_feet || null, // T-Iron total feet
-              item.t_iron_unit || null, // T-Iron unit
-              now, // created_at - SYSTEM TIME
-              now  // updated_at - SYSTEM TIME
-            ]);
+            // SAFE T-IRON INSERT: Try with T-Iron fields first, fallback to basic insert
+            try {
+              await this.db.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit, unit_price,
+                  rate, total_price, amount, length, pieces, is_misc_item,
+                  t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet, t_iron_unit,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                invoiceId,
+                item.product_id,
+                item.product_name,
+                item.quantity,
+                item.unit || 'piece',
+                item.unit_price,
+                item.unit_price, // rate
+                item.total_price,
+                item.total_price, // amount
+                item.length || null,
+                item.pieces || null,
+                0, // is_misc_item = false
+                item.t_iron_pieces || null, // T-Iron pieces
+                item.t_iron_length_per_piece || null, // T-Iron length per piece
+                item.t_iron_total_feet || null, // T-Iron total feet
+                item.t_iron_unit || null, // T-Iron unit
+                consistentTimestamp, // SAFE TIME FIX: consistent timestamp
+                consistentTimestamp  // SAFE TIME FIX: consistent timestamp
+              ]);
+
+              console.log('✅ [T-IRON FIX] Regular item added WITH T-Iron data:', item.product_name);
+            } catch (tIronError) {
+              console.warn('⚠️ [T-IRON FIX] T-Iron columns not available, using fallback insert:', tIronError);
+
+              // FALLBACK: Insert without T-Iron fields if columns don't exist
+              await this.db.dbConnection.execute(`
+                INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit, unit_price,
+                  rate, total_price, amount, length, pieces, is_misc_item, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `, [
+                invoiceId,
+                item.product_id,
+                item.product_name,
+                item.quantity,
+                item.unit || 'piece',
+                item.unit_price,
+                item.unit_price, // rate
+                item.total_price,
+                item.total_price, // amount
+                item.length || null,
+                item.pieces || null,
+                0, // is_misc_item = false
+                consistentTimestamp, // SAFE TIME FIX: consistent timestamp
+                consistentTimestamp  // SAFE TIME FIX: consistent timestamp
+              ]);
+
+              console.log('✅ [T-IRON FIX] Regular item added with fallback method:', item.product_name);
+            }
 
             // Update product stock ONLY for regular items
             const product = await this.db.getProduct(item.product_id);
