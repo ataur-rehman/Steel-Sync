@@ -17,7 +17,7 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Calendar, User, CreditCard, Clock, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { permanentDb } from '../../services/permanentDatabase';
-import { formatDate, formatTime, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
+import { formatTime } from '../../utils/formatters';
 import { getCurrentSystemDateTime, createSalaryPeriod } from '../../utils/systemDateTime';
 
 // PERMANENT: Type definitions that match centralized database schema

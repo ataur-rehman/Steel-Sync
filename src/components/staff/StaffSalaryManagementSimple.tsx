@@ -10,7 +10,7 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, Search } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
-import { formatDate, formatTime, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
+import { formatTime } from '../../utils/formatters';
 import { getCurrentSystemDateTime, createSalaryPeriod } from '../../utils/systemDateTime';
 
 // Types matching centralized database schema

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { db } from '../../services/database';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import {
   Package,
   Search,
@@ -153,17 +154,23 @@ const ProductList: React.FC = () => {
     loadProducts();
   }, [debouncedSearchTerm, filters.category, pagination.currentPage]);
 
-  // Real-time updates
+  // Real-time updates with enhanced event handling
   useAutoRefresh(
     () => {
       console.log('🔄 ProductList: Auto-refreshing due to real-time event');
+      // Force cache bypass by adding timestamp
       loadProducts();
     },
     [
       'PRODUCT_CREATED',
       'PRODUCT_UPDATED',
       'PRODUCT_DELETED',
-      'STOCK_UPDATED'
+      'STOCK_UPDATED',
+      'PRODUCTS_UPDATED',
+      'UI_REFRESH_REQUESTED',
+      'FORCE_PRODUCT_RELOAD',
+      'PRODUCTS_CACHE_INVALIDATED',
+      'COMPREHENSIVE_DATA_REFRESH'
     ]
   );
 
@@ -235,6 +242,29 @@ const ProductList: React.FC = () => {
       loadingRef.current = false;
     }
   }, [debouncedSearchTerm, filters.category, pagination.currentPage, pagination.itemsPerPage]);
+
+  // Additional event listeners for comprehensive updates
+  useEffect(() => {
+    const handleProductEvents = (data: any) => {
+      console.log('🔄 ProductList: Product event received, refreshing...', data);
+      // Add delay to ensure database transaction is complete
+      setTimeout(() => loadProducts(), 100);
+    };
+
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductEvents);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductEvents);
+    eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleProductEvents);
+    eventBus.on('PRODUCTS_UPDATED', handleProductEvents);
+    eventBus.on('UI_REFRESH_REQUESTED', handleProductEvents);
+
+    return () => {
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductEvents);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductEvents);
+      eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleProductEvents);
+      eventBus.off('PRODUCTS_UPDATED', handleProductEvents);
+      eventBus.off('UI_REFRESH_REQUESTED', handleProductEvents);
+    };
+  }, [loadProducts]);
 
   const loadCategories = useCallback(async () => {
     try {

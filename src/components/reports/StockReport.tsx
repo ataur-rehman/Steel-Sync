@@ -26,9 +26,7 @@ import {
   RefreshCw,
   BarChart3,
   Filter,
-  Download,
-  ArrowLeft,
-  ChevronRight
+  Download
 } from 'lucide-react';
 
 // Enhanced interfaces for complete stock tracking
@@ -176,35 +174,36 @@ const StockReport: React.FC = () => {
       // CRITICAL FIX: Add small delay to ensure database transaction is complete
       setTimeout(() => {
         loadStockData(); // Silent refresh with delay
-      }, 500);
+      }, 300); // Increased delay for complex operations
     };
 
     const handleInvoiceCreated = (data: any) => {
       console.log('📦 Stock report refreshing due to invoice creation:', data);
-      loadStockData(); // Silent refresh
+      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
     };
 
     const handleStockAdjustment = (data: any) => {
       console.log('📦 Stock report refreshing due to stock adjustment:', data);
-      loadStockData(); // Silent refresh
+      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
     };
 
     const handleUIRefreshRequested = (data: any) => {
       console.log('📦 Stock report refreshing due to UI refresh request:', data);
       // CRITICAL FIX: Multiple refresh attempts to ensure data is updated
       setTimeout(() => loadStockData(), 100);
+      setTimeout(() => loadStockData(), 500);
       setTimeout(() => loadStockData(), 1000);
       setTimeout(() => loadStockData(), 2000);
     };
 
     const handleProductsUpdated = (data: any) => {
       console.log('📦 Stock report refreshing due to products updated:', data);
-      loadStockData(); // Silent refresh
+      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
     };
 
     const handleForceProductReload = (data: any) => {
       console.log('📦 Stock report refreshing due to force product reload:', data);
-      loadStockData(); // Silent refresh
+      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
     };
 
     // Register event listeners with correct event names

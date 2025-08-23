@@ -11,7 +11,7 @@
   --color-bg: #f8fafc;
   --color-card: #fff;
   --color-border: #e5e7eb;
-  --color-shadow: 0 2px 12px 0 rgba(0,0,0,0.04);
+  --color-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.04);
 }
 
 * {
@@ -130,13 +130,16 @@ body {
   width: 7px;
   height: 7px;
 }
+
 ::-webkit-scrollbar-track {
   background: #f3f4f6;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #d1d5db;
   border-radius: 6px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #a1a1aa;
 }
@@ -146,7 +149,7 @@ body {
   body {
     background: white;
   }
-  
+
   .no-print {
     display: none !important;
   }
@@ -161,9 +164,175 @@ body {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Custom animations for loading screen */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fadeOutUp {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes spin-reverse {
+  from {
+    transform: rotate(360deg);
+  }
+
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.animate-fadeInScale {
+  animation: fadeInScale 0.3s ease-out;
+}
+
+.animate-fadeOutUp {
+  animation: fadeOutUp 0.8s ease-out;
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s linear infinite;
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 2s linear infinite;
+}
+
+.delay-200 {
+  animation-delay: 0.2s;
+}
+
+/* Performance optimizations for enterprise-grade animations */
+.animate-fadeInScale,
+.animate-fadeOutUp,
+.animate-fadeInUp,
+.animate-shimmer,
+.animate-spin-slow,
+.animate-spin-reverse {
+  will-change: transform, opacity;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+/* Professional loading transitions */
+.loading-transition {
+  transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* Enterprise-grade smooth animations */
+.enterprise-fade {
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+/* GPU acceleration for 60fps performance */
+.animate-pulse,
+.animate-bounce,
+.animate-ping {
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+/* Prevent layout shifts during animations */
+.loading-container {
+  contain: layout style paint;
+  content-visibility: auto;
+}
+
+/* Professional shimmer effect */
+@keyframes professional-shimmer {
+  0% {
+    transform: translateX(-100%) skewX(-12deg);
+  }
+
+  100% {
+    transform: translateX(200%) skewX(-12deg);
+  }
+}
+
+.animate-professional-shimmer {
+  animation: professional-shimmer 2s ease-in-out infinite;
+}
+
+/* Smooth module transitions */
+.module-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Enterprise shadow effects */
+.enterprise-shadow {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+.enterprise-shadow-lg {
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 /* Number input - remove spinners */
@@ -174,5 +343,6 @@ input[type='number']::-webkit-outer-spin-button {
 }
 
 input[type='number'] {
+  appearance: textfield;
   -moz-appearance: textfield;
 }

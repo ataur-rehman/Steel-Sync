@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { eventBus, BUSINESS_EVENTS } from './utils/eventBus';
+import { realtimeTestUtils } from './utils/realtimeTestUtils';
 
 /**
  * CRITICAL DOM STABILITY: React Application Bootstrap
@@ -18,8 +19,8 @@ function loadDOMStabilityFixes(): void {
   // Override problematic DOM methods with safe versions
   const originalRemoveChild = Node.prototype.removeChild;
   const originalInsertBefore = Node.prototype.insertBefore;
-  
-  Node.prototype.removeChild = function<T extends Node>(child: T): T {
+
+  Node.prototype.removeChild = function <T extends Node>(child: T): T {
     try {
       if (this.contains && !this.contains(child)) {
         console.warn('DOM Fix: Attempted to remove non-child node, skipping');
@@ -37,8 +38,8 @@ function loadDOMStabilityFixes(): void {
       return child;
     }
   };
-  
-  Node.prototype.insertBefore = function<T extends Node>(newNode: T, referenceNode: Node | null): T {
+
+  Node.prototype.insertBefore = function <T extends Node>(newNode: T, referenceNode: Node | null): T {
     try {
       if (!referenceNode) {
         return this.appendChild(newNode) as T;
@@ -62,7 +63,7 @@ function loadDOMStabilityFixes(): void {
       }
     }
   };
-  
+
   console.log('✅ DOM stability fixes loaded');
 }
 
@@ -73,44 +74,44 @@ async function initializeApp(): Promise<void> {
     console.log('⚠️ [APP-INIT] Already initializing, skipping...');
     return;
   }
-  
+
   if (isAppMounted) {
     console.log('✅ [APP-INIT] Application already mounted successfully');
     return;
   }
-  
+
   isInitializing = true;
-  
+
   try {
     console.log('🚀 [APP-INIT] Starting stable application...');
-    
+
     // STEP 1: Load DOM stability fixes first
     loadDOMStabilityFixes();
-    
+
     // STEP 2: Ensure DOM is ready and stable
     const rootElement = document.getElementById('root');
     if (!rootElement) {
       throw new Error('Root element not found');
     }
-    
+
     // STEP 3: Clear any corrupted DOM state
     if (rootElement.hasChildNodes()) {
       console.log('🔧 [DOM-STABILITY] Cleaning existing DOM nodes...');
       // Check if nodes are corrupted or if this is a re-mount
       const children = Array.from(rootElement.childNodes);
       let hasCorruptedNodes = false;
-      
+
       children.forEach(child => {
         if (child.nodeType === Node.ELEMENT_NODE) {
           const element = child as Element;
           // Check for React DOM corruption indicators
-          if (!child.parentNode || element.classList.contains('react-error-boundary') || 
-              element.textContent?.includes('error') || element.textContent?.includes('failed')) {
+          if (!child.parentNode || element.classList.contains('react-error-boundary') ||
+            element.textContent?.includes('error') || element.textContent?.includes('failed')) {
             hasCorruptedNodes = true;
           }
         }
       });
-      
+
       if (hasCorruptedNodes) {
         console.log('⚠️ [DOM-STABILITY] Corrupted nodes detected, cleaning...');
         rootElement.innerHTML = '';
@@ -130,47 +131,47 @@ async function initializeApp(): Promise<void> {
         return;
       }
     }
-    
+
     // STEP 4: Create React root safely (only if not exists)
     if (!reactRoot) {
       console.log('🔧 [DOM-STABILITY] Creating new React root...');
-      
+
       // Ensure root element is completely clean
       rootElement.innerHTML = '';
-      
+
       // Wait for DOM to stabilize
       await new Promise(resolve => setTimeout(resolve, 100));
-      
+
       reactRoot = ReactDOM.createRoot(rootElement);
-      
+
       // Add stability markers
       rootElement.dataset.reactStable = 'true';
       rootElement.dataset.initTime = Date.now().toString();
     }
-    
+
     // STEP 5: Render React application with error boundaries
     console.log('🎨 [DOM-STABILITY] Rendering React application...');
-    
+
     try {
       reactRoot.render(React.createElement(App));
       console.log('✅ [APP-INIT] React application rendered successfully');
-      
+
       // Mark as successfully mounted
       isAppMounted = true;
-      
+
       // Wait to ensure rendering is complete
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       // Verify the app is actually mounted
       if (rootElement.hasChildNodes()) {
         console.log('✅ [DOM-STABILITY] Application mount verified');
       } else {
         throw new Error('Application failed to mount - no child nodes detected');
       }
-      
+
     } catch (renderError) {
       console.error('❌ [DOM-STABILITY] React render failed:', renderError);
-      
+
       // Attempt recovery
       rootElement.innerHTML = `
         <div style="padding: 20px; text-align: center; color: #721c24; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px; margin: 20px;">
@@ -186,18 +187,18 @@ async function initializeApp(): Promise<void> {
           </button>
         </div>
       `;
-      
+
       throw renderError;
     }
-    
+
     console.log('✅ [APP-INIT] Application started successfully');
-    
+
     // STEP 6: Add production console utilities
     addProductionConsoleUtilities();
-    
+
   } catch (error) {
     console.error('❌ [APP-INIT] Critical application startup failure:', error);
-    
+
     // Show user-friendly error with recovery options
     const rootElement = document.getElementById('root');
     if (rootElement) {
@@ -234,17 +235,17 @@ async function initializeApp(): Promise<void> {
 async function recoverApplication(): Promise<void> {
   try {
     console.log('🔄 [RECOVERY] Attempting application recovery...');
-    
+
     // Reset initialization flags
     isInitializing = false;
     isAppMounted = false;
     reactRoot = null;
-    
+
     // Clear root element
     const rootElement = document.getElementById('root');
     if (rootElement) {
       rootElement.innerHTML = '<div style="padding: 20px; text-align: center;">Recovering application...</div>';
-      
+
       // Clear React references
       try {
         delete (rootElement as any)._reactRootContainer;
@@ -254,15 +255,15 @@ async function recoverApplication(): Promise<void> {
         // Ignore cleanup errors
       }
     }
-    
+
     // Wait for DOM to stabilize
     await new Promise(resolve => setTimeout(resolve, 1000));
-    
+
     // Attempt re-initialization
     await initializeApp();
-    
+
     console.log('✅ [RECOVERY] Application recovery successful');
-    
+
   } catch (recoveryError) {
     console.error('❌ [RECOVERY] Recovery failed, forcing reload:', recoveryError);
     window.location.reload();
@@ -275,17 +276,17 @@ async function recoverApplication(): Promise<void> {
 async function clearAndReload(): Promise<void> {
   try {
     console.log('🧹 [CACHE-CLEAR] Clearing all caches and reloading...');
-    
+
     // Clear localStorage
     if (window.localStorage) {
       window.localStorage.clear();
     }
-    
+
     // Clear sessionStorage
     if (window.sessionStorage) {
       window.sessionStorage.clear();
     }
-    
+
     // Clear service workers
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
@@ -293,16 +294,16 @@ async function clearAndReload(): Promise<void> {
         await registration.unregister();
       }
     }
-    
+
     // Clear caches
     if ('caches' in window) {
       const cacheNames = await caches.keys();
       await Promise.all(cacheNames.map(name => caches.delete(name)));
     }
-    
+
     // Force reload
     window.location.reload();
-    
+
   } catch (error) {
     console.error('❌ [CACHE-CLEAR] Cache clear failed:', error);
     window.location.reload();
@@ -319,10 +320,15 @@ function addProductionConsoleUtilities(): void {
   console.log('- Call clearCaches() to clear all caches');
   console.log('- Call recoverApp() to recover from DOM errors');
   console.log('- Call clearAndReload() to completely reset the app');
+  console.log('- Call realtimeTest.startEventMonitoring() to debug real-time updates');
+  console.log('- Call realtimeTest.forceGlobalRefresh() to force UI refresh');
 
   // Application recovery
   (window as any).recoverApp = recoverApplication;
   (window as any).clearAndReload = clearAndReload;
+
+  // Real-time testing utilities
+  (window as any).realtimeTest = realtimeTestUtils;
 
   // Production database re-initialization
   (window as any).reinitializeDatabase = async () => {
@@ -339,7 +345,7 @@ function addProductionConsoleUtilities(): void {
   (window as any).getSystemStatus = async () => {
     try {
       console.log('🔍 [CONSOLE] Checking system status...');
-      
+
       const status = {
         reactMounted: isAppMounted,
         domStable: document.getElementById('root')?.dataset.reactStable === 'true',
@@ -363,18 +369,18 @@ function addProductionConsoleUtilities(): void {
   (window as any).fixReactDOMErrors = async () => {
     try {
       console.log('🔧 [CONSOLE] Applying immediate React DOM fixes...');
-      
+
       // Apply DOM fixes
       loadDOMStabilityFixes();
-      
+
       // Recover if needed
       if (!isAppMounted) {
         await recoverApplication();
       }
-      
+
       console.log('✅ [CONSOLE] React DOM fixes applied');
       return { success: true, message: 'DOM fixes applied successfully' };
-      
+
     } catch (error) {
       console.error('❌ [CONSOLE] DOM fix failed:', error);
       return { success: false, error: (error as Error)?.message || String(error) };
@@ -391,24 +397,24 @@ window.addEventListener('error', (event) => {
   const error = event.error;
   if (error && error.message) {
     const message = error.message;
-    
+
     // Check if it's a React DOM error
-    if (message.includes('removeChild') || 
-        message.includes('insertBefore') || 
-        message.includes('appendChild') ||
-        message.includes('replaceChild')) {
-      
+    if (message.includes('removeChild') ||
+      message.includes('insertBefore') ||
+      message.includes('appendChild') ||
+      message.includes('replaceChild')) {
+
       console.log('🔧 [ERROR-HANDLER] React DOM error detected, attempting recovery...');
-      
+
       // Prevent the error from crashing the app
       event.preventDefault();
       event.stopPropagation();
-      
+
       // Attempt recovery
       setTimeout(() => {
         recoverApplication();
       }, 100);
-      
+
       return false;
     }
   }
@@ -417,16 +423,16 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason && event.reason.message) {
     const message = event.reason.message;
-    
+
     if (message.includes('DOM') || message.includes('React') || message.includes('removeChild') || message.includes('insertBefore')) {
       console.log('🔧 [ERROR-HANDLER] Unhandled DOM promise rejection, attempting recovery...');
-      
+
       event.preventDefault();
-      
+
       setTimeout(() => {
         recoverApplication();
       }, 100);
-      
+
       return;
     }
   }

@@ -5,7 +5,7 @@ import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
-import { formatDate, formatTime, formatDateTime, formatDateForDatabase, formatTimeForDatabase, getSystemDateTime } from '../../utils/formatters';
+import { formatDate, formatTime, formatDateForDatabase } from '../../utils/formatters';
 import { getSystemDateForInput } from '../../utils/systemDateTime';
 import {
   Calendar,
@@ -577,7 +577,6 @@ const DailyLedger: React.FC = () => {
       // Auto-determine category
       const autoCategory = getAutoCategory(newTransaction);
 
-      const systemDateTime = getSystemDateTime();
       const now = new Date();
       const customerName = newTransaction.customer_id ?
         customers.find(c => c.id === newTransaction.customer_id)?.name : undefined;

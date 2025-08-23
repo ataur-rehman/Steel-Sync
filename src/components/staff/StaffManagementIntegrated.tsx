@@ -29,7 +29,7 @@ import {
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
-import { formatDate, formatTime } from '../../utils/formatters';
+import { formatDate } from '../../utils/formatters';
 
 // Unified interfaces
 interface Staff {

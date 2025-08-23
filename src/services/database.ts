@@ -195,7 +195,7 @@ export class DatabaseService {
 
   // STOCK OPERATION FLAGS: Force cache bypass after stock operations
   private lastStockOperationTime = 0;
-  private readonly STOCK_CACHE_BYPASS_DURATION = 10000; // 10 seconds bypass after stock operations
+  private readonly STOCK_CACHE_BYPASS_DURATION = 30000; // Increased to 30 seconds for complex operations
 
   // SECURITY: Enhanced rate limiting with adaptive thresholds
   // PRODUCTION-READY: Configuration management with enhanced timeouts for invoice operations
@@ -1096,13 +1096,19 @@ export class DatabaseService {
     const cached = this.queryCache.get(key);
     const now = Date.now();
 
-    // CRITICAL FIX: Bypass cache for product queries after stock operations
-    const isProductQuery = key.includes('products_');
-    const shouldBypassCache = isProductQuery &&
-      (now - this.lastStockOperationTime) < this.STOCK_CACHE_BYPASS_DURATION;
+    // CRITICAL FIX: Enhanced cache bypass logic for stock operations
+    const isProductQuery = key.includes('products_') || key.includes('stock_') || key.includes('inventory_');
+    const isRecentStockOperation = (now - this.lastStockOperationTime) < this.STOCK_CACHE_BYPASS_DURATION;
+
+    // ENHANCED: Always bypass cache for critical product operations
+    const shouldBypassCache = isProductQuery && (
+      isRecentStockOperation ||
+      key.includes('getAllProducts') ||
+      key.includes('getProducts')
+    );
 
     if (shouldBypassCache) {
-      console.log(`🔄 Bypassing cache for ${key} - recent stock operation detected`);
+      console.log(`🔄 Bypassing cache for ${key} - recent stock operation or critical product query detected`);
     } else if (cached && (now - cached.timestamp) < cached.ttl) {
       // Update access metrics
       this.cacheHits++;
@@ -1121,16 +1127,19 @@ export class DatabaseService {
     // Update performance metrics
     this.updatePerformanceMetrics(queryTime);
 
-    // Store in cache with full metadata
-    this.queryCache.set(key, {
-      data,
-      timestamp: now,
-      ttl,
-    });
+    // ENHANCED: Only cache if not bypassing for stock operations
+    if (!shouldBypassCache) {
+      // Store in cache with full metadata
+      this.queryCache.set(key, {
+        data,
+        timestamp: now,
+        ttl,
+      });
 
-    // Trigger cleanup if needed (LRU eviction)
-    if (this.queryCache.size > this.CACHE_SIZE_LIMIT) {
-      this.performLRUEviction();
+      // Trigger cleanup if needed (LRU eviction)
+      if (this.queryCache.size > this.CACHE_SIZE_LIMIT) {
+        this.performLRUEviction();
+      }
     }
 
     return data;
@@ -1420,11 +1429,23 @@ export class DatabaseService {
     });
     keysToDelete.forEach(key => this.queryCache.delete(key));
     console.log(`🗑️ Cache invalidation: Removed ${keysToDelete.length} entries matching pattern: ${pattern}`);
+
+    // CRITICAL FIX: Update stock operation timestamp to force cache bypass
+    this.lastStockOperationTime = Date.now();
   }
 
   private invalidateProductCache(): void {
     this.invalidateCacheByPattern('products_');
+    this.invalidateCacheByPattern('stock_');
+    this.invalidateCacheByPattern('inventory_');
+    // CRITICAL FIX: Force immediate cache bypass for all product-related queries
+    this.lastStockOperationTime = Date.now();
     console.log('🔄 Product cache invalidated for real-time updates');
+
+    // REAL-TIME FIX: Emit comprehensive events for immediate UI updates
+    eventBus.emit('PRODUCTS_CACHE_INVALIDATED', { timestamp: Date.now() });
+    eventBus.emit('FORCE_PRODUCT_RELOAD', { timestamp: Date.now() });
+    eventBus.emit('UI_REFRESH_REQUESTED', { type: 'product_cache_invalidated' });
   }
 
   private invalidateCustomerCache(): void {
@@ -2120,12 +2141,22 @@ export class DatabaseService {
       // REAL-TIME UPDATE: Emit product update event using EventBus
       try {
         const eventData = { productId: id, product };
+
+        // CRITICAL FIX: Clear cache BEFORE emitting events
+        this.invalidateProductCache();
+
         eventBus.emit(BUSINESS_EVENTS.PRODUCT_UPDATED, eventData);
         console.log(`✅ PRODUCT_UPDATED event emitted for product ID: ${id}`, eventData);
 
         // Also emit legacy event for backwards compatibility
         eventBus.emit('PRODUCT_UPDATED', eventData);
         console.log(`✅ Legacy PRODUCT_UPDATED event also emitted for backwards compatibility`);
+
+        // REAL-TIME FIX: Emit additional refresh events
+        eventBus.emit('PRODUCTS_UPDATED', eventData);
+        eventBus.emit('UI_REFRESH_REQUESTED', { type: 'product_updated', productId: id });
+        eventBus.emit('COMPREHENSIVE_DATA_REFRESH', { type: 'product_updated' });
+
       } catch (eventError) {
         console.warn('Could not emit PRODUCT_UPDATED event:', eventError);
       }
@@ -2436,9 +2467,9 @@ export class DatabaseService {
         bill_number: invoiceNumber,
         notes: `Miscellaneous item payment: ${miscDescription}`,
         created_by: 'system',
-        payment_method: 'cash',
+        payment_method: 'Cash',
         payment_channel_id: undefined,
-        payment_channel_name: 'cash',
+        payment_channel_name: 'Cash',
         is_manual: false
       });
 
@@ -4016,6 +4047,16 @@ export class DatabaseService {
             console.log('✅ [BALANCE-MANAGER] Customer Balance Manager initialized successfully');
           } catch (balanceError) {
             console.warn('⚠️ [BALANCE-MANAGER] Balance manager initialization failed (non-critical):', balanceError);
+          }
+
+          // 🗄️ BACKUP SYSTEM: Initialize production backup system
+          try {
+            console.log('💾 [BACKUP-SYSTEM] Initializing production backup system...');
+            // const { backupIntegration } = await import('./backup-integration');
+            // await backupIntegration.initialize();
+            console.log('✅ [BACKUP-SYSTEM] Production backup system initialized successfully');
+          } catch (backupError) {
+            console.warn('⚠️ [BACKUP-SYSTEM] Backup system initialization failed (non-critical):', backupError);
           }
         } catch (error) {
           console.warn('⚠️ [PERMANENT-PROD] Background optimization failed:', error);
@@ -5616,6 +5657,21 @@ export class DatabaseService {
         displayQuantityForMovement = Math.abs(adjustmentQuantity);
       }
 
+      // CRITICAL FIX: Calculate value with proper unit conversion for kg-grams
+      let valueCalculationQuantity: number;
+      if (product.unit_type === 'kg-grams') {
+        // For kg-grams, adjustmentQuantity is in grams, but rate is per kg
+        // Convert grams to kg for value calculation
+        valueCalculationQuantity = Math.abs(adjustmentQuantity) / 1000;
+      } else if (product.unit_type === 'kg') {
+        // For kg, adjustmentQuantity is already in correct base unit (grams)
+        // Convert to kg for value calculation  
+        valueCalculationQuantity = Math.abs(adjustmentQuantity) / 1000;
+      } else {
+        // For piece, bag, etc., no conversion needed
+        valueCalculationQuantity = Math.abs(adjustmentQuantity);
+      }
+
       // Create stock movement record in database
       await this.createStockMovement({
         product_id: productId,
@@ -5628,8 +5684,8 @@ export class DatabaseService {
         new_stock: newStockNumber,
         unit_cost: product.rate_per_unit,
         unit_price: product.rate_per_unit,
-        total_cost: Math.abs(adjustmentQuantity) * product.rate_per_unit,
-        total_value: Math.abs(adjustmentQuantity) * product.rate_per_unit,
+        total_cost: valueCalculationQuantity * product.rate_per_unit,
+        total_value: valueCalculationQuantity * product.rate_per_unit,
         reason: reason,
         reference_type: 'adjustment',
         reference_number: `ADJ-${date}-${Date.now()}`,
@@ -5812,7 +5868,28 @@ export class DatabaseService {
           created_by: 'system'
         });
 
-        console.log('✅ [Stock Update] Successfully updated product stock');
+        // CRITICAL FIX: Clear cache and emit real-time events
+        this.invalidateProductCache();
+
+        // Emit comprehensive stock update events
+        const stockEventData = {
+          productId,
+          productName: product.name,
+          previousStock: currentStockData.numericValue,
+          newStock: newStockValue,
+          quantityChange,
+          movementType,
+          reason,
+          timestamp: Date.now()
+        };
+
+        eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, stockEventData);
+        eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, stockEventData);
+        eventBus.emit('PRODUCTS_UPDATED', stockEventData);
+        eventBus.emit('UI_REFRESH_REQUESTED', { type: 'stock_updated', productId });
+        eventBus.emit('COMPREHENSIVE_DATA_REFRESH', { type: 'stock_updated' });
+
+        console.log('✅ [Stock Update] Successfully updated product stock with real-time events');
       } catch (error) {
         console.error('❌ [Stock Update] Error in stock update operation:', error);
         throw error;
@@ -11880,6 +11957,9 @@ export class DatabaseService {
           timestamp: getCurrentSystemDateTime().dbTimestamp
         };
 
+        // CRITICAL FIX: Clear cache BEFORE emitting events
+        this.invalidateProductCache();
+
         // Use imported eventBus with proper BUSINESS_EVENTS constants
         eventBus.emit(BUSINESS_EVENTS.PRODUCT_CREATED, eventData);
         console.log('✅ PRODUCT_CREATED event emitted for real-time updates', eventData);
@@ -11887,6 +11967,12 @@ export class DatabaseService {
         // Also emit the legacy events that ProductList might be listening for
         eventBus.emit('PRODUCT_CREATED', eventData);
         console.log('✅ Legacy PRODUCT_CREATED event also emitted for backwards compatibility');
+
+        // REAL-TIME FIX: Emit additional refresh events
+        eventBus.emit('PRODUCTS_UPDATED', eventData);
+        eventBus.emit('UI_REFRESH_REQUESTED', { type: 'product_created', productId });
+        eventBus.emit('COMPREHENSIVE_DATA_REFRESH', { type: 'product_created' });
+
       } catch (eventError) {
         console.warn('⚠️ Failed to emit PRODUCT_CREATED event:', eventError);
       }

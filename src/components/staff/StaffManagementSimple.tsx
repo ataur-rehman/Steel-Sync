@@ -3,7 +3,7 @@ import { Plus, Trash2, RefreshCw, Users, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { permanentDb } from '../../services/permanentDatabase';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
-import { formatDate, formatTime } from '../../utils/formatters';
+import { formatDate } from '../../utils/formatters';
 
 interface SimpleStaff {
     id: number;

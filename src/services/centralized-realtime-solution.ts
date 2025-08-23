@@ -786,35 +786,56 @@ export class CentralizedRealtimeSolution {
   }
 
   /**
-   * Emit events for stock receiving
+   * CRITICAL: Emit comprehensive events after stock receiving
    */
   private emitStockReceivingEvents(receivingId: number, receivingData: any): void {
     try {
+      console.log('🚀 Emitting comprehensive stock receiving events...');
+
+      // Force database cache invalidation
+      if (this.db.invalidateProductCache) {
+        this.db.invalidateProductCache();
+      }
+
+      // Emit primary events
       eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
-        type: 'receiving',
+        type: 'stock_receiving',
         receivingId,
-        products: receivingData.items?.map((item: any) => ({
-          productId: item.product_id,
-          productName: item.product_name,
-          quantityReceived: item.quantity
-        })) || [],
-        timestamp: new Date().toISOString()
+        vendorId: receivingData.vendor_id,
+        vendorName: receivingData.vendor_name,
+        items: receivingData.items,
+        timestamp: Date.now()
       });
 
       eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, {
-        type: 'receiving',
+        type: 'stock_receiving',
         receivingId,
-        timestamp: new Date().toISOString()
+        items: receivingData.items,
+        timestamp: Date.now()
       });
 
-      eventBus.emit(BUSINESS_EVENTS.PRODUCT_UPDATED, {
-        reason: 'stock_receiving',
-        receivingId
-      });
+      // Emit comprehensive refresh events
+      eventBus.emit('PRODUCTS_UPDATED', { type: 'stock_receiving', receivingId });
+      eventBus.emit('UI_REFRESH_REQUESTED', { type: 'stock_receiving', receivingId });
+      eventBus.emit('FORCE_PRODUCT_RELOAD', { type: 'stock_receiving', receivingId });
+      eventBus.emit('PRODUCTS_CACHE_INVALIDATED', { type: 'stock_receiving', receivingId });
+      eventBus.emit('COMPREHENSIVE_DATA_REFRESH', { type: 'stock_receiving', receivingId });
 
-      console.log('✅ Stock receiving events emitted');
+      // Emit for each product individually
+      if (receivingData.items && Array.isArray(receivingData.items)) {
+        receivingData.items.forEach((item: any) => {
+          eventBus.emit('PRODUCT_STOCK_UPDATED', {
+            productId: item.product_id,
+            productName: item.product_name,
+            quantity: item.quantity,
+            type: 'stock_receiving'
+          });
+        });
+      }
+
+      console.log('✅ All stock receiving events emitted successfully');
     } catch (error) {
-      console.warn('⚠️ Failed to emit stock receiving events:', error);
+      console.error('❌ Failed to emit stock receiving events:', error);
     }
   }
 

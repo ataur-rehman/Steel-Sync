@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
-
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  // ... existing config
+  plugins: [react()],
   server: {
     watch: {
       ignored: [
@@ -10,8 +10,12 @@ export default defineConfig({
         '**/store.db',
         'data/store.db',
         '**/data/**',
-        '**/target/**'
+        '**/target/**',
+        'public/**/*.html',
+        '!public/vite.svg',
+        'web-dist-mac/**'
       ]
     }
-  }
+  },
+  publicDir: 'public'
 })

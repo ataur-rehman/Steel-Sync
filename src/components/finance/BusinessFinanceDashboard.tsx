@@ -18,7 +18,7 @@ import {
   Users,
   Truck
 } from 'lucide-react';
-import { formatCurrency, formatDate, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/formatters';
 import { financeService, type FinancialSummary } from '../../services/financeService';
 import { useAuth } from '../../hooks/useAuth';
 import { useActivityLogger } from '../../hooks/useActivityLogger';

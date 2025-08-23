@@ -18,11 +18,25 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true,
+    "publisher": "Ittehad Iron Store",
+    "copyright": "Copyright © 2025 Ittehad Iron Store. All rights reserved.",
+    "category": "Business",
+    "shortDescription": "Complete Business Management System",
+    "longDescription": "A comprehensive business management system for iron stores with inventory, sales, and financial tracking."
   },
   "plugins": {
     "sql": {
       "preload": []
+    },
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://your-update-server.com/api/releases/{{target}}/{{arch}}/{{current_version}}"
+      ],
+      "dialog": true,
+      "pubkey": ""
     }
   },
   "app": {
@@ -41,7 +55,11 @@
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "alwaysOnTop": false,
+        "skipTaskbar": false
       }
     ]
   }

@@ -10,8 +10,7 @@ import { useNavigation } from '../../hooks/useNavigation';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import SmartDetailHeader from '../common/SmartDetailHeader';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
-import { formatDate, formatDateTime, formatDateForDatabase } from '../../utils/formatters';
-import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+import { formatDateForDatabase } from '../../utils/formatters';
 import {
   Search,
   FileText,

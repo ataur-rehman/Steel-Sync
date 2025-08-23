@@ -7,7 +7,7 @@ import { useActivityLogger } from '../../hooks/useActivityLogger';
 import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { formatReceivingNumber } from '../../utils/numberFormatting';
 import SmartDetailHeader from '../common/SmartDetailHeader';
-import { formatDate, formatDateTime } from '../../utils/formatters';
+import { formatDate } from '../../utils/formatters';
 import { Trash2, FileText, Search } from 'lucide-react';
 
 const formatCurrency = (amount: number) => {
@@ -371,7 +371,7 @@ const VendorDetail: React.FC = () => {
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-600">Payment Score</span>
                     <span className={`font-medium ${vendor.outstanding_balance === 0 ? 'text-green-600' :
-                        vendor.outstanding_balance < 50000 ? 'text-yellow-600' : 'text-red-600'
+                      vendor.outstanding_balance < 50000 ? 'text-yellow-600' : 'text-red-600'
                       }`}>
                       {vendor.outstanding_balance === 0 ? 'Excellent' :
                         vendor.outstanding_balance < 50000 ? 'Good' : 'Needs Attention'}
@@ -593,8 +593,8 @@ const VendorDetail: React.FC = () => {
                                 {formatCurrency(r.total_amount)}
                               </div>
                               <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${r.payment_status === 'paid' ? 'bg-green-100 text-green-700' :
-                                  r.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
-                                    'bg-red-100 text-red-700'
+                                r.payment_status === 'partial' ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-red-100 text-red-700'
                                 }`}>
                                 {r.payment_status === 'paid' ? 'Paid' :
                                   r.payment_status === 'partial' ? 'Partial' : 'Pending'}

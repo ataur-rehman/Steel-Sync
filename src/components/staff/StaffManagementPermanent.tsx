@@ -15,7 +15,7 @@ import { Plus, Trash2, RefreshCw, Users, Edit2, AlertCircle, CheckCircle } from 
 import toast from 'react-hot-toast';
 import { permanentDb } from '../../services/permanentDatabase';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
-import { formatDate, formatTime } from '../../utils/formatters';
+import { formatDate } from '../../utils/formatters';
 
 // PERMANENT: Type definitions that will never change
 interface Staff {

@@ -8,6 +8,9 @@ import { SafeAuthProvider } from './components/auth/AuthErrorBoundary';
 import AuthContextErrorHandler from './utils/authErrorHandler';
 import { NavigationProvider } from './hooks/useNavigation';
 import { settingsService } from './services/settingsService';
+import LoadingAnimation from './components/common/LoadingAnimation';
+import InitialLoading from './components/common/InitialLoading';
+import { useAppPreloader } from './hooks/useAppPreloader';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './components/dashboard/Dashboard';
 import ProductList from './components/products/ProductList';
@@ -33,8 +36,6 @@ import DateTimeFormatAudit from './components/test/DateTimeFormatAudit';
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
-import PaymentChannelDebug from './components/debug/PaymentChannelDebug';
-import TIronDebug from './components/debug/TIronDebug';
 import toast from 'react-hot-toast';
 import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
@@ -43,8 +44,8 @@ import { Activity } from 'lucide-react';
 
 function LoginForm() {
   const { login } = useSafeAuth(); // Use safe auth hook to prevent crashes
-  const [username, setUsername] = React.useState('admin');
-  const [password, setPassword] = React.useState('admin123');
+  const [username, setUsername] = React.useState('ittehad');
+  const [password, setPassword] = React.useState('store!123');
   const [loading, setLoading] = React.useState(false);
   const [companyName, setCompanyName] = React.useState('Ittehad Iron Store');
 
@@ -73,9 +74,18 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 animate-fadeInScale">
+      <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full animate-fadeInUp">
         <div className="text-center mb-8">
+          <div className="mx-auto h-16 w-16 bg-gradient-to-br from-gray-600 to-gray-800 rounded-2xl flex items-center justify-center mb-6 animate-pulse">
+            {/* Steel Bar Logo */}
+            <div className="flex space-x-1">
+              <div className="w-1.5 h-10 bg-gradient-to-b from-gray-300 to-gray-500 rounded-sm shadow-inner"></div>
+              <div className="w-1.5 h-8 bg-gradient-to-b from-gray-400 to-gray-600 rounded-sm shadow-inner mt-1"></div>
+              <div className="w-1.5 h-9 bg-gradient-to-b from-gray-300 to-gray-500 rounded-sm shadow-inner"></div>
+              <div className="w-1.5 h-7 bg-gradient-to-b from-gray-400 to-gray-600 rounded-sm shadow-inner mt-1.5"></div>
+            </div>
+          </div>
           <h2 className="text-3xl font-bold text-gray-900 mb-2">{companyName}</h2>
           <p className="text-gray-600">Complete Business Management with Full Traceability</p>
         </div>
@@ -122,10 +132,10 @@ function LoginForm() {
         </form>
 
         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-600 text-center mb-2">Test Credentials:</p>
+          <p className="text-xs text-gray-600 text-center mb-2">Default Credentials:</p>
           <div className="text-xs text-gray-500 space-y-1">
-            <p><strong>Username:</strong> admin</p>
-            <p><strong>Password:</strong> admin123</p>
+            <p><strong>Username:</strong> ittehad</p>
+            <p><strong>Password:</strong> store!123</p>
           </div>
         </div>
 
@@ -136,8 +146,52 @@ function LoginForm() {
 }
 
 function AppContent() {
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
   const [showEventMonitor, setShowEventMonitor] = React.useState(false);
+  const [showInitialLoading, setShowInitialLoading] = React.useState(true);
+  const [showLoginLoadingAnimation, setShowLoginLoadingAnimation] = React.useState(false);
+  const [appFullyReady, setAppFullyReady] = React.useState(false);
+
+  // High-performance preloader
+  const {
+    isPreloading,
+    startPreloading,
+    isReady: preloadReady
+  } = useAppPreloader();
+
+  // Step 1: Show initial loading for exactly 5 seconds
+  const handleInitialLoadingComplete = React.useCallback(() => {
+    console.log('📱 Initial loading complete - Login page ready');
+    setShowInitialLoading(false);
+  }, []);
+
+  // Step 2: When user logs in, start preloading and show animation
+  React.useEffect(() => {
+    if (user && !appFullyReady) {
+      console.log('🚀 User logged in - Starting high-performance preloading');
+      setShowLoginLoadingAnimation(true);
+      startPreloading(); // Start preloading components in background
+    }
+  }, [user, appFullyReady, startPreloading]);
+
+  // Step 3: When preloading is complete, show main app
+  React.useEffect(() => {
+    if (preloadReady && user) {
+      console.log('✅ Preloading complete - App fully ready');
+      setAppFullyReady(true);
+      setShowLoginLoadingAnimation(false);
+    }
+  }, [preloadReady, user]);
+
+  // Handle login animation completion (fallback if preloading is faster than 5s)
+  const handleLoginAnimationComplete = React.useCallback(() => {
+    if (!appFullyReady) {
+      console.log('⏱️ Animation complete but still preloading...');
+      // If preloading isn't done, keep showing animation
+      return;
+    }
+    setShowLoginLoadingAnimation(false);
+  }, [appFullyReady]);
 
   // Show event monitor in development mode with Ctrl+Shift+E
   React.useEffect(() => {
@@ -152,34 +206,30 @@ function AppContent() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  if (loading) {
+  // Show initial loading screen (5 seconds)
+  if (showInitialLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Initializing Deep Linking System...</p>
-        </div>
-      </div>
+      <InitialLoading
+        onComplete={handleInitialLoadingComplete}
+        duration={5000}
+      />
     );
   }
 
+  // Skip the intermediate auth loading to prevent glitch
   if (!user) {
     return <LoginForm />;
   }
 
-  if (loading) {
+  // Show loading animation while preloading components
+  if (showLoginLoadingAnimation || isPreloading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Initializing Deep Linking System...</p>
-        </div>
-      </div>
+      <LoadingAnimation
+        isVisible={true}
+        onAnimationComplete={handleLoginAnimationComplete}
+        duration={5000}
+      />
     );
-  }
-
-  if (!user) {
-    return <LoginForm />;
   }
 
   return (
@@ -472,13 +522,7 @@ function AppContent() {
                 </div>
               } />
 
-              {/* Debug Routes for Development */}
-              {import.meta.env.DEV && (
-                <>
-                  <Route path="/debug/payment-channels" element={<PaymentChannelDebug />} />
-                  <Route path="/debug/tiron" element={<TIronDebug />} />
-                </>
-              )}
+
 
               {/* Date/Time Format Test */}
               <Route path="/test/datetime" element={<DateTimeFormatTest />} />
