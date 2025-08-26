@@ -13,6 +13,7 @@ import { CriticalUnitStockMovementFixes } from './critical-unit-stock-movement-f
 import { LedgerDiagnosticService } from './ledger-diagnostic';
 import { CustomerBalanceManager } from './customer-balance-manager';
 import { PermanentTIronSchemaHandler } from './permanent-tiron-schema';
+import { runAutomaticMigration } from '../utils/safe-invoice-migration';
 
 /**
  * PRODUCTION-READY: Enhanced error types for better error handling
@@ -3919,6 +3920,25 @@ export class DatabaseService {
       // CENTRALIZED SOLUTION: Ensure invoice_items has L/pcs columns before marking as ready
       await this.ensureInvoiceItemsSchemaCompliance();
 
+      // AUTOMATIC INVOICE NUMBER MIGRATION: Convert old I00001 format to new 01 format
+      console.log('🔄 [MIGRATION] Starting automatic invoice number migration...');
+      try {
+        const migrationResult = await runAutomaticMigration(this.dbConnection);
+
+        if (migrationResult.success) {
+          if (migrationResult.migratedCount > 0) {
+            console.log(`✅ [MIGRATION] Successfully migrated ${migrationResult.migratedCount} invoices from old format (${migrationResult.migrationTime}ms)`);
+          } else {
+            console.log('✅ [MIGRATION] No migration needed - using new invoice format');
+          }
+        } else {
+          console.warn('⚠️ [MIGRATION] Invoice migration failed, but system will continue with mixed formats:', migrationResult.errors);
+        }
+      } catch (migrationError) {
+        console.warn('⚠️ [MIGRATION] Migration error, but system will continue:', migrationError);
+        // Never fail initialization due to migration issues
+      }
+
       // PRODUCTION FIX: Mark as ready IMMEDIATELY after abstraction layer
       this.isInitialized = true;
       console.log('✅ [PERMANENT] Database marked as ready - NO schema modifications performed');
@@ -4627,21 +4647,66 @@ export class DatabaseService {
   }
 
   private async generateBillNumberInTransaction(): Promise<string> {
-    const prefix = 'I';
+    // New system: Generate simple numbers with one leading zero (01, 02, 088, 0999, 012324, etc.)
 
-    const result = await this.dbConnection.select(
-      'SELECT bill_number FROM invoices WHERE bill_number LIKE ? ORDER BY CAST(SUBSTR(bill_number, 2) AS INTEGER) DESC LIMIT 1',
-      [`${prefix}%`]
-    );
+    try {
+      // Get the highest number from both old and new format invoices
+      let maxNumber = 0;
 
-    let nextNumber = 1;
-    if (result && result.length > 0) {
-      const lastBillNumber = result[0].bill_number;
-      const lastNumber = parseInt(lastBillNumber.substring(1)) || 0;
-      nextNumber = lastNumber + 1;
+      // Check for numeric-only bill numbers (new format) 
+      // Use LIKE patterns instead of REGEXP for better SQLite compatibility
+      const numericResult = await this.dbConnection.select(`
+        SELECT bill_number FROM invoices 
+        WHERE bill_number NOT LIKE 'I%' 
+        AND bill_number NOT LIKE 'S%' 
+        AND bill_number NOT LIKE 'P%' 
+        AND bill_number NOT LIKE 'C%'
+        AND LENGTH(bill_number) > 0
+        AND bill_number GLOB '[0-9]*'
+        ORDER BY CAST(bill_number AS INTEGER) DESC LIMIT 1
+      `);
+
+      if (numericResult && numericResult.length > 0) {
+        const lastBillNumber = numericResult[0].bill_number;
+        const lastNumber = parseInt(lastBillNumber) || 0;
+        maxNumber = Math.max(maxNumber, lastNumber);
+        console.log(`📋 Found existing new format invoice: ${lastBillNumber}`);
+      }
+
+      // Check for old format invoices (I00001, I00002, etc.)
+      const oldFormatResult = await this.dbConnection.select(
+        'SELECT bill_number FROM invoices WHERE bill_number LIKE "I%" ORDER BY CAST(SUBSTR(bill_number, 2) AS INTEGER) DESC LIMIT 1'
+      );
+
+      if (oldFormatResult && oldFormatResult.length > 0) {
+        const lastBillNumber = oldFormatResult[0].bill_number;
+        const lastNumber = parseInt(lastBillNumber.substring(1)) || 0;
+        maxNumber = Math.max(maxNumber, lastNumber);
+        console.log(`� Found existing old format invoice: ${lastBillNumber} (number: ${lastNumber})`);
+      }
+
+      const nextNumber = maxNumber + 1;
+
+      // Format with appropriate leading zero based on number size
+      let formattedNumber: string;
+      if (nextNumber < 10) {
+        formattedNumber = `0${nextNumber}`;
+      } else if (nextNumber < 100) {
+        formattedNumber = `0${nextNumber}`;
+      } else if (nextNumber < 1000) {
+        formattedNumber = `0${nextNumber}`;
+      } else {
+        formattedNumber = nextNumber.toString();
+      }
+
+      console.log(`🆕 Generated new invoice number: ${formattedNumber} (sequence: ${nextNumber})`);
+      return formattedNumber;
+
+    } catch (error) {
+      console.error('❌ Error generating bill number:', error);
+      // Fallback: start from 01 if there's any error
+      return '01';
     }
-
-    return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
   }
 
   private async processInvoiceItem(

@@ -1,11 +1,11 @@
 /**
  * Test file to verify number formatting functionality
- * Run this to ensure the formatting is working correctly
+ * Updated for new invoice numbering system (pure numbers with leading zero)
  */
 
-import { 
-  formatDisplayNumber, 
-  formatInvoiceNumber, 
+import {
+  formatDisplayNumber,
+  formatInvoiceNumber,
   formatReceivingNumber,
   formatPaymentCode,
   formatCustomerCode,
@@ -15,7 +15,16 @@ import {
 
 // Test cases
 const testCases = [
-  // Basic formatting tests
+  // New invoice format (pure numbers)
+  { input: '01', expected: '01' },
+  { input: '088', expected: '088' },
+  { input: '0999', expected: '0999' },
+  { input: '012324', expected: '012324' },
+  { input: '1', expected: '01' },
+  { input: '99', expected: '99' },
+  { input: '100', expected: '100' },
+
+  // Legacy format tests (for other systems)
   { input: 'I00001', expected: 'I01' },
   { input: 'I00099', expected: 'I99' },
   { input: 'I00100', expected: 'I100' },
@@ -24,7 +33,7 @@ const testCases = [
   { input: 'S0100', expected: 'S100' },
   { input: 'P0001', expected: 'P01' },
   { input: 'C0001', expected: 'C01' },
-  
+
   // Edge cases
   { input: 'I1', expected: 'I01' },
   { input: 'I9', expected: 'I09' },
@@ -74,4 +83,4 @@ console.log(`Extract from I00001: ${extractNumberFromId('I00001')} (expected: 1)
 console.log(`Extract from S0022: ${extractNumberFromId('S0022')} (expected: 22)`);
 console.log(`Extract from ABC123: ${extractNumberFromId('ABC123')} (expected: 123)`);
 
-export {};
+export { };

@@ -905,13 +905,6 @@ const CustomerLedger: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowAddPayment(true)}
-                className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Payment
-              </button>
 
               <button
                 onClick={createNewInvoice}
@@ -1269,13 +1262,7 @@ const CustomerLedger: React.FC = () => {
           backButtonMode="list"
           actions={
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowAddPayment(true)}
-                className="btn btn-primary flex items-center px-3 py-1.5 text-sm"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Payment
-              </button>
+
               <button
                 onClick={() => handleNavigateToNewInvoice(selectedCustomer)}
                 className="btn btn-secondary flex items-center px-3 py-1.5 text-sm"
