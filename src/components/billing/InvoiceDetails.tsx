@@ -137,6 +137,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   // T-Iron Calculator state
   const [showTIronCalculator, setShowTIronCalculator] = useState(false);
   const [selectedTIronProduct, setSelectedTIronProduct] = useState<Product | null>(null);
+  const [editingTIronItem, setEditingTIronItem] = useState<any>(null);
 
   // Miscellaneous item state
   const [itemType, setItemType] = useState<'product' | 'misc'>('product');
@@ -185,41 +186,48 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         pricePerFoot: calculatedItem.unit_price,
         totalPrice: calculatedItem.total_price,
         description: calculatedItem.product_description,
-        rawCalculatedItem: calculatedItem
+        rawCalculatedItem: calculatedItem,
+        isEdit: calculatedItem.isEdit,
+        itemId: calculatedItem.itemId
       });
 
-      const newItem = {
-        product_id: calculatedItem.product_id,
-        product_name: calculatedItem.product_name,
-        quantity: calculatedItem.quantity.toString(), // Total feet
-        unit_price: calculatedItem.unit_price, // Price per foot
-        total_price: calculatedItem.total_price,
-        unit: calculatedItem.unit,
-        // T-Iron specific calculation data - CRITICAL FIX: Proper unit handling
-        t_iron_pieces: Number(calculatedItem.t_iron_pieces), // Ensure it's a number
-        t_iron_length_per_piece: Number(calculatedItem.t_iron_length_per_piece), // Ensure it's a number
-        t_iron_total_feet: Number(calculatedItem.t_iron_total_feet), // Ensure it's a number
-        t_iron_unit: String(calculatedItem.t_iron_unit || 'pcs'), // FIXED: Use 'pcs' not 'ft'
-        product_description: calculatedItem.product_description,
-        is_non_stock_item: Number(calculatedItem.is_non_stock_item || 1) // Ensure it's 1 for T-Iron items
-      };
+      if (calculatedItem.isEdit && calculatedItem.itemId) {
+        // Editing existing T-Iron item - use T-Iron specific update method
+        await db.updateTIronItemCalculation(calculatedItem.itemId, {
+          pieces: calculatedItem.t_iron_pieces,
+          lengthPerPiece: calculatedItem.t_iron_length_per_piece,
+          totalFeet: calculatedItem.t_iron_total_feet,
+          unit: calculatedItem.t_iron_unit,
+          pricePerFoot: calculatedItem.unit_price,
+          totalPrice: calculatedItem.total_price
+        });
 
-      // DEBUG: Log the created invoice item being sent to database
-      console.log('🔧 New T-Iron Item Being Sent to Database from InvoiceDetails:', {
-        pieces: newItem.t_iron_pieces,
-        lengthPerPiece: newItem.t_iron_length_per_piece,
-        totalFeet: newItem.t_iron_total_feet,
-        unit: newItem.t_iron_unit,
-        pricePerFoot: newItem.unit_price,
-        totalPrice: newItem.total_price,
-        quantity: newItem.quantity,
-        fullNewItem: newItem
-      });
+        toast.success(`T-Iron updated: ${calculatedItem.t_iron_pieces}${calculatedItem.t_iron_unit || 'pcs'} × ${calculatedItem.t_iron_length_per_piece}ft × Rs.${calculatedItem.unit_price}/ft = Rs.${calculatedItem.total_price}`);
+        setEditingTIronItem(null);
+      } else {
+        // Adding new T-Iron item
+        const newItem = {
+          product_id: calculatedItem.product_id,
+          product_name: calculatedItem.product_name,
+          quantity: calculatedItem.quantity.toString(), // Total feet
+          unit_price: calculatedItem.unit_price, // Price per foot
+          total_price: calculatedItem.total_price,
+          unit: calculatedItem.unit,
+          // T-Iron specific calculation data - CRITICAL FIX: Proper unit handling
+          t_iron_pieces: Number(calculatedItem.t_iron_pieces), // Ensure it's a number
+          t_iron_length_per_piece: Number(calculatedItem.t_iron_length_per_piece), // Ensure it's a number
+          t_iron_total_feet: Number(calculatedItem.t_iron_total_feet), // Ensure it's a number
+          t_iron_unit: String(calculatedItem.t_iron_unit || 'pcs'), // FIXED: Use 'pcs' not 'ft'
+          product_description: calculatedItem.product_description,
+          is_non_stock_item: Number(calculatedItem.is_non_stock_item || 1) // Ensure it's 1 for T-Iron items
+        };
 
-      console.log('🔧 About to call db.addInvoiceItems from InvoiceDetails with:', [newItem]);
-      await db.addInvoiceItems(invoiceId, [newItem]);
+        console.log('🔧 About to call db.addInvoiceItems from InvoiceDetails with:', [newItem]);
+        await db.addInvoiceItems(invoiceId, [newItem]);
 
-      toast.success(`T-Iron added: ${calculatedItem.t_iron_pieces}${calculatedItem.t_iron_unit || 'pcs'} × ${calculatedItem.t_iron_length_per_piece}ft × Rs.${calculatedItem.unit_price}/ft = Rs.${calculatedItem.total_price}`);
+        toast.success(`T-Iron added: ${calculatedItem.t_iron_pieces}${calculatedItem.t_iron_unit || 'pcs'} × ${calculatedItem.t_iron_length_per_piece}ft × Rs.${calculatedItem.unit_price}/ft = Rs.${calculatedItem.total_price}`);
+      }
+
       setShowTIronCalculator(false);
       setSelectedTIronProduct(null);
       await loadInvoiceDetails();
@@ -255,6 +263,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const handleTIronCalculatorCancel = () => {
     setShowTIronCalculator(false);
     setSelectedTIronProduct(null);
+    setEditingTIronItem(null);
   };
 
   // Helper function to check if Add Item button should be disabled
@@ -1489,16 +1498,23 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                     );
                                     const hasTIronData = !!(item.t_iron_pieces && item.t_iron_length_per_piece);
 
+                                    // Get product info to check inventory tracking status
+                                    const product = item.product_id ? products.find(p => p.id === item.product_id) : null;
+
                                     if (isTIronProduct && hasTIronData) {
-                                      // For T-Iron items, show calculator button instead of edit
+                                      // For T-Iron items, open calculator with existing data
                                       return (
                                         <button
-                                          onClick={() => toast('T-Iron items cannot be edited directly. Remove and re-add with T-Iron calculator.', {
-                                            icon: '⚙️',
-                                            duration: 4000
-                                          })}
-                                          className="p-1 text-gray-400 hover:text-gray-600"
-                                          title="T-Iron items must use calculator"
+                                          onClick={() => {
+                                            console.log('🔧 Opening T-Iron calculator for editing item:', item);
+                                            setEditingTIronItem(item);
+                                            if (product) {
+                                              setSelectedTIronProduct(product);
+                                            }
+                                            setShowTIronCalculator(true);
+                                          }}
+                                          className="p-1 text-orange-600 hover:text-orange-800"
+                                          title="Edit T-Iron calculation"
                                         >
                                           <Calculator className="h-3 w-3" />
                                         </button>
@@ -2269,6 +2285,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             product={selectedTIronProduct}
             onCalculationComplete={handleTIronCalculationComplete}
             onCancel={handleTIronCalculatorCancel}
+            existingItem={editingTIronItem}
           />
         )}
       </div>

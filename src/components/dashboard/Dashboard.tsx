@@ -18,6 +18,7 @@ import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import { initializeDashboardRealTimeUpdates } from '../../services/dashboardRealTimeUpdater';
 import { enhanceDatabaseWithRealTimeEvents, setupPeriodicDashboardRefresh } from '../../services/databaseEventEnhancer';
 import { eventBus } from '../../utils/eventBus';
+import StockMovementDebugger from '../debug/StockMovementDebugger';
 
 interface DashboardStats {
   todaySales: number;
@@ -662,6 +663,9 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+
+        {/* Temporary Stock Movement Debugger */}
+        <StockMovementDebugger />
       </div>
     </div>
   );

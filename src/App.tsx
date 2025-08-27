@@ -297,6 +297,11 @@ function AppContent() {
                   <InvoiceForm />
                 </ProtectedRoute>
               } />
+              <Route path="/billing/edit/:id" element={
+                <ProtectedRoute module="sales" level="edit">
+                  <InvoiceForm />
+                </ProtectedRoute>
+              } />
               <Route path="/billing/list" element={
                 <ProtectedRoute module="reports" level="view">
                   <InvoiceList />

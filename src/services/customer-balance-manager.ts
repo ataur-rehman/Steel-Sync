@@ -121,12 +121,16 @@ export class CustomerBalanceManager {
         operation: 'add' | 'subtract',
         description: string,
         referenceId?: number,
-        referenceNumber?: string
+        referenceNumber?: string,
+        skipTransaction: boolean = false // Add parameter to skip transaction when already in one
     ): Promise<number> {
         try {
             console.log(`🔄 [BALANCE-UPDATE] Customer ${customerId} ${operation} Rs. ${amount.toFixed(2)} - ${description}`);
 
-            await this.dbConnection.execute('BEGIN TRANSACTION');
+            // Only start transaction if not already in one
+            if (!skipTransaction) {
+                await this.dbConnection.execute('BEGIN TRANSACTION');
+            }
 
             try {
                 // Get current balance
@@ -151,39 +155,56 @@ export class CustomerBalanceManager {
 
                 const entryType = operation === 'add' ? 'debit' : 'credit';
 
-                await this.dbConnection.execute(`
-          INSERT INTO customer_ledger_entries (
-            customer_id, customer_name, entry_type, transaction_type,
-            amount, description, reference_id, reference_number,
-            balance_before, balance_after, date, time, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))
-        `, [
-                    customerId,
-                    await this.getCustomerName(customerId),
-                    entryType,
-                    'adjustment', // FIXED: Use valid transaction_type
-                    amount,
-                    description,
-                    referenceId || null,
-                    referenceNumber || null,
-                    currentBalance,
-                    roundedNewBalance,
-                    date,
-                    time
-                ]);
+                // Check if customer_ledger_entries table exists, if not skip ledger entry
+                try {
+                    await this.dbConnection.execute(`
+              INSERT INTO customer_ledger_entries (
+                customer_id, customer_name, entry_type, transaction_type,
+                amount, description, reference_id, reference_number,
+                balance_before, balance_after, date, time, created_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime("now"))
+            `, [
+                        customerId,
+                        await this.getCustomerName(customerId),
+                        entryType,
+                        'adjustment', // FIXED: Use valid transaction_type
+                        amount,
+                        description,
+                        referenceId || null,
+                        referenceNumber || null,
+                        currentBalance,
+                        roundedNewBalance,
+                        date,
+                        time
+                    ]);
+                } catch (ledgerError: any) {
+                    // If table doesn't exist, just log warning and continue
+                    if (ledgerError.message?.includes('no such table: customer_ledger')) {
+                        console.warn('⚠️ [LEDGER-WARNING] customer_ledger_entries table not found, skipping ledger entry');
+                    } else {
+                        throw ledgerError;
+                    }
+                }
 
-                await this.dbConnection.execute('COMMIT');
+                // Only commit if we started the transaction
+                if (!skipTransaction) {
+                    await this.dbConnection.execute('COMMIT');
+                }
 
                 // CRITICAL: Clear ALL caches immediately to force fresh data
                 this.clearCache();
                 console.log('🗑️ [CACHE-CLEAR] All balance caches cleared after update');
 
                 // Emit balance update event
-                this.emitBalanceUpdateEvent(customerId, roundedNewBalance, currentBalance); console.log(`✅ [BALANCE-UPDATED] Customer ${customerId} balance: Rs. ${currentBalance.toFixed(2)} → Rs. ${roundedNewBalance.toFixed(2)}`);
+                this.emitBalanceUpdateEvent(customerId, roundedNewBalance, currentBalance);
+                console.log(`✅ [BALANCE-UPDATED] Customer ${customerId} balance: Rs. ${currentBalance.toFixed(2)} → Rs. ${roundedNewBalance.toFixed(2)}`);
                 return roundedNewBalance;
 
             } catch (error) {
-                await this.dbConnection.execute('ROLLBACK');
+                // Only rollback if we started the transaction
+                if (!skipTransaction) {
+                    await this.dbConnection.execute('ROLLBACK');
+                }
                 throw error;
             }
 

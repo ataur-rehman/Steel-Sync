@@ -25,6 +25,7 @@ import {
   Clock,
   Printer,
   Package,
+  Trash2,
 
   Plus,
   SortAsc,
@@ -102,6 +103,11 @@ const InvoiceList: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showStockImpactModal, setShowStockImpactModal] = useState(false);
   const [invoiceStockMovements, setInvoiceStockMovements] = useState<any[]>([]);
+
+  // Delete confirmation state
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -409,6 +415,49 @@ const InvoiceList: React.FC = () => {
       console.error('Failed to load invoice details:', error);
       toast.error('Failed to load invoice details');
     }
+  };
+
+  // Delete invoice functionality
+  const handleDeleteInvoice = (invoice: Invoice) => {
+    // Only allow deletion of fully unpaid invoices (no payments made)
+    const paymentAmount = parseFloat(invoice.payment_amount?.toString() || '0');
+    if (paymentAmount > 0) {
+      toast.error(`Cannot delete invoice ${invoice.bill_number} - it has payments of Rs.${paymentAmount.toFixed(2)}. Only fully unpaid invoices can be deleted.`);
+      return;
+    }
+
+    setInvoiceToDelete(invoice);
+    setShowDeleteConfirmation(true);
+  };
+
+  const confirmDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+
+    setDeleting(true);
+    try {
+      await db.deleteInvoice(invoiceToDelete.id);
+      toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully`);
+
+      // Refresh the invoice list
+      await loadData();
+
+      // Close confirmation modal
+      setShowDeleteConfirmation(false);
+      setInvoiceToDelete(null);
+
+    } catch (error: any) {
+      console.error('Failed to delete invoice:', error);
+      // Show specific error message from database validation
+      const errorMessage = error?.message || 'Failed to delete invoice';
+      toast.error(errorMessage);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const cancelDeleteInvoice = () => {
+    setShowDeleteConfirmation(false);
+    setInvoiceToDelete(null);
   };
 
   // YOUR ORIGINAL clearFilters function
@@ -848,6 +897,17 @@ const InvoiceList: React.FC = () => {
                       >
                         <Package className="h-3 w-3" />
                       </button>
+
+                      {/* Delete button - only show for unpaid invoices */}
+                      {invoice.remaining_balance > 0 && (
+                        <button
+                          onClick={() => handleDeleteInvoice(invoice)}
+                          className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                          title="Delete Invoice"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -996,6 +1056,17 @@ const InvoiceList: React.FC = () => {
                               >
                                 <Package className="h-4 w-4" />
                               </button>
+
+                              {/* Delete button - only show for unpaid invoices */}
+                              {invoice.remaining_balance > 0 && (
+                                <button
+                                  onClick={() => handleDeleteInvoice(invoice)}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Delete Invoice"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1247,6 +1318,74 @@ const InvoiceList: React.FC = () => {
           }}
           onClose={() => setShowInvoiceModal(false)}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirmation && invoiceToDelete && (
+        <Modal
+          isOpen={showDeleteConfirmation}
+          onClose={cancelDeleteInvoice}
+          title="Delete Invoice"
+        >
+          <div className="p-6">
+            <div className="flex items-center mb-4">
+              <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <Trash2 className="h-6 w-6 text-red-600" />
+              </div>
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Delete Invoice {invoiceToDelete.bill_number}?
+              </h3>
+
+              <p className="text-sm text-gray-500 mb-4">
+                This action cannot be undone. This will permanently delete the invoice and all its items.
+                The customer balance will be adjusted accordingly.
+              </p>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+                <div className="flex">
+                  <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
+                  <div className="text-sm text-yellow-700">
+                    <p className="font-medium">Invoice Details:</p>
+                    <p>Customer: {invoiceToDelete.customer_name}</p>
+                    <p>Amount: Rs. {invoiceToDelete.grand_total?.toLocaleString()}</p>
+                    <p>Outstanding: Rs. {invoiceToDelete.remaining_balance?.toLocaleString()}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={cancelDeleteInvoice}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={confirmDeleteInvoice}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Delete Invoice
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
 

@@ -11,17 +11,19 @@ interface TIronCalculatorProps {
     product: any;
     onCalculationComplete: (calculatedItem: any) => void;
     onCancel: () => void;
+    existingItem?: any; // For editing existing T-Iron items
 }
 
 export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
     product,
     onCalculationComplete,
-    onCancel
+    onCancel,
+    existingItem
 }) => {
-    const [pieces, setPieces] = useState<number>(1);
-    const [lengthPerPiece, setLengthPerPiece] = useState<number>(product.length_per_piece || 12);
-    const [pricePerFoot, setPricePerFoot] = useState<number>(product.rate_per_unit || 120);
-    const [unit, setUnit] = useState<'pcs' | 'L'>('pcs'); // Add unit selection
+    const [pieces, setPieces] = useState<number>(existingItem?.t_iron_pieces || 1);
+    const [lengthPerPiece, setLengthPerPiece] = useState<number>(existingItem?.t_iron_length_per_piece || product.length_per_piece || 12);
+    const [pricePerFoot, setPricePerFoot] = useState<number>(existingItem?.unit_price || product.rate_per_unit || 120);
+    const [unit, setUnit] = useState<'pcs' | 'L'>(existingItem?.t_iron_unit || 'pcs'); // Add unit selection
     const [calculation, setCalculation] = useState<any>(null);
     const [errors, setErrors] = useState<string[]>([]);
 
@@ -69,7 +71,12 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
             t_iron_total_feet: totalFeet,
             t_iron_unit: unit, // Store the unit type (pcs or L)
             product_description: `${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${pricePerFoot}`,
-            is_non_stock_item: true
+            is_non_stock_item: true,
+            // Include existing item ID if editing
+            ...(existingItem && {
+                itemId: existingItem.id,
+                isEdit: true
+            })
         };
 
         onCalculationComplete(calculatedItem);
@@ -82,7 +89,9 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center">
                             <Calculator className="h-5 w-5 text-blue-600 mr-2" />
-                            <h3 className="text-lg font-semibold text-gray-900">T-Iron Calculator</h3>
+                            <h3 className="text-lg font-semibold text-gray-900">
+                                T-Iron Calculator {existingItem ? '(Editing)' : ''}
+                            </h3>
                         </div>
                         <button
                             onClick={onCancel}

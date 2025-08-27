@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../../services/database';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
 import toast from 'react-hot-toast';
@@ -8,6 +8,7 @@ import { parseCurrency, roundCurrency, addCurrency, subtractCurrency } from '../
 import { calculateTotal, calculateDiscount, formatCurrency } from '../../utils/calculations';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { getSystemDateForInput, getSystemTimeForInput } from '../../utils/systemDateTime';
+import { formatTime } from '../../utils/formatters';
 import Modal from '../common/Modal';
 import CustomerForm from '../customers/CustomerForm';
 import { TIronCalculator } from './TIronCalculator';
@@ -118,7 +119,13 @@ const InvoiceForm: React.FC = () => {
   const [showOptional, setShowOptional] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
   const activityLogger = useActivityLogger();
+
+  // Edit mode detection
+  const isEditMode = !!id;
+  const [editingInvoice, setEditingInvoice] = useState<any>(null);
+  const [, setOriginalItems] = useState<InvoiceItem[]>([]); // For diff tracking
 
   // Helper function to convert quantity string to numeric value for calculations - YOUR FUNCTION
   const getQuantityAsNumber = (quantityString: string, unitType?: string): number => {
@@ -213,6 +220,90 @@ const InvoiceForm: React.FC = () => {
     loadInitialData();
     loadPaymentChannels();
   }, []);
+
+  // Load invoice data for edit mode
+  useEffect(() => {
+    if (isEditMode && id) {
+      loadInvoiceForEdit(parseInt(id));
+    }
+  }, [isEditMode, id]);
+
+  // Load invoice data for editing
+  const loadInvoiceForEdit = async (invoiceId: number) => {
+    try {
+      setLoading(true);
+
+      const invoice = await db.getInvoiceDetails(invoiceId);
+      if (!invoice) {
+        toast.error('Invoice not found');
+        navigate('/billing/list');
+        return;
+      }
+
+      // Validate edit permissions
+      if (invoice.payment_amount > 0 && invoice.status === 'paid') {
+        toast.error('Cannot edit fully paid invoices');
+        navigate(`/billing/view/${invoiceId}`);
+        return;
+      }
+
+      setEditingInvoice(invoice);
+
+      // Load invoice items
+      const items = await db.getInvoiceItems(invoiceId);
+      const formattedItems: InvoiceItem[] = items.map((item: any, index: number) => ({
+        id: `item-${index}`,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity?.toString() || '0',
+        unit_price: item.unit_price || 0,
+        total_price: item.total_price || 0,
+        unit: item.unit || '',
+        available_stock: 0, // Will be updated when products load
+        unit_type: item.unit_type,
+        length: item.length,
+        pieces: item.pieces,
+        is_misc_item: item.is_misc_item,
+        misc_description: item.misc_description,
+        t_iron_pieces: item.t_iron_pieces,
+        t_iron_length_per_piece: item.t_iron_length_per_piece,
+        t_iron_total_feet: item.t_iron_total_feet,
+        t_iron_unit: item.t_iron_unit,
+        is_non_stock_item: item.is_non_stock_item
+      }));
+
+      setOriginalItems([...formattedItems]);
+
+      // Find and set customer
+      const customer = await db.getCustomer(invoice.customer_id);
+      if (customer) {
+        setSelectedCustomer(customer);
+        setCustomerSearch(customer.name);
+      }
+
+      // Update form data
+      setFormData({
+        customer_id: invoice.customer_id,
+        items: formattedItems,
+        discount: invoice.discount || 0,
+        payment_amount: invoice.payment_amount || 0,
+        payment_method: invoice.payment_method || 'cash',
+        notes: invoice.notes || '',
+        date: invoice.date ? invoice.date.split(' ')[0] : getSystemDateForInput(),
+        time: invoice.date ? formatTime(invoice.date) : getSystemTimeForInput()
+      });
+
+      console.log('✅ [EDIT-MODE] Invoice loaded for editing:', invoiceId);
+      toast.success(`Invoice #${invoice.bill_number} loaded for editing`);
+
+    } catch (error) {
+      console.error('❌ [EDIT-MODE] Error loading invoice for edit:', error);
+      toast.error('Failed to load invoice for editing');
+      navigate('/billing/list');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Load payment channels
   const loadPaymentChannels = async () => {
@@ -1136,143 +1227,15 @@ const InvoiceForm: React.FC = () => {
     setCreating(true);
 
     try {
-      // Prepare invoice data
-      let payment_amount = formData.payment_amount;
-      let customer_id: number;
-      let customer_name = '';
-
-      if (isGuestMode) {
-        // For guest customers, use a special customer ID (-1) to satisfy NOT NULL constraint
-        customer_id = -1;
-        customer_name = guestCustomer.name;
-        payment_amount = formData.payment_amount; // Guest customers pay what they specify
+      if (isEditMode && editingInvoice) {
+        // UPDATE MODE - Edit existing invoice
+        await handleUpdateInvoice();
       } else {
-        // Regular customer - ensure we have a valid customer_id
-        if (!formData.customer_id && !selectedCustomer?.id) {
-          throw new Error('No customer selected. Please select a customer or switch to guest mode.');
-        }
-
-        // Use selectedCustomer.id as primary source, formData.customer_id as fallback
-        customer_id = selectedCustomer?.id || formData.customer_id!;
-
-        // Validate that customer_id is a valid positive integer
-        if (!customer_id || !Number.isInteger(customer_id) || customer_id <= 0) {
-          console.error('Invalid customer ID:', {
-            selectedCustomerId: selectedCustomer?.id,
-            formDataCustomerId: formData.customer_id,
-            resolvedCustomerId: customer_id
-          });
-          throw new Error('Invalid customer ID. Please select a valid customer.');
-        }
-
-        customer_name = selectedCustomer?.name || '';
-
-        // DO NOT auto-apply credit during invoice creation
-        // Credit will be applied post-invoice creation if payment < total
-        payment_amount = formData.payment_amount;
+        // CREATE MODE - Create new invoice
+        await handleCreateInvoice();
       }
-
-      const invoiceData = {
-        customer_id,
-        customer_name,
-        customer_phone: isGuestMode ? guestCustomer.phone : selectedCustomer?.phone || '',
-        customer_address: isGuestMode ? guestCustomer.address : selectedCustomer?.address || '',
-        items: formData.items.map(item => ({
-          product_id: item.product_id,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          total_price: item.total_price,
-          length: item.length,
-          pieces: item.pieces,
-          is_misc_item: item.is_misc_item,
-          misc_description: item.misc_description,
-          // T-Iron calculation fields
-          t_iron_pieces: item.t_iron_pieces,
-          t_iron_length_per_piece: item.t_iron_length_per_piece,
-          t_iron_total_feet: item.t_iron_total_feet,
-          t_iron_unit: item.t_iron_unit, // Add unit type
-          product_description: item.product_description,
-          is_non_stock_item: item.is_non_stock_item
-        })),
-        discount: formData.discount,
-        payment_amount,
-        payment_method: formData.payment_method,
-        payment_channel_id: selectedPaymentChannel?.id || null,
-        payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
-        notes: formData.notes,
-        date: formData.date, // User-selected or current system date
-        time: formData.time  // User-selected or current system time
-      };
-
-      // Debug: Log items with L/pcs data before sending to database
-      console.log('🔍 DEBUG: Creating invoice with items:', invoiceData.items);
-      invoiceData.items.forEach((item, index) => {
-        console.log(`🔍 Form Item ${index + 1}:`, {
-          product_name: item.product_name,
-          length: item.length,
-          pieces: item.pieces,
-          lengthType: typeof item.length,
-          piecesType: typeof item.pieces
-        });
-      });
-
-      // 🔥 ENHANCED INVOICE DATA: Include credit application during invoice creation
-      const enhancedInvoiceData = {
-        ...invoiceData,
-        // Add credit application if available and needed
-        applyCredit: (!isGuestMode && selectedCustomer && selectedCustomer.balance < 0 && creditPreview && creditPreview.willUseCredit > 0)
-          ? creditPreview.willUseCredit
-          : undefined
-      };
-
-      console.log('Creating invoice with integrated credit application:', enhancedInvoiceData);
-
-      // Create invoice - the database will handle credit application internally during creation
-      const result = await db.createInvoice(enhancedInvoiceData);
-
-      // 🎉 SUCCESS: Credit is now applied during invoice creation, no post-processing needed!
-      if (!isGuestMode && selectedCustomer && selectedCustomer.balance < 0 && creditPreview && creditPreview.willUseCredit > 0) {
-        console.log('✅ Customer credit applied during invoice creation:', {
-          invoiceId: result.id,
-          creditApplied: creditPreview.willUseCredit,
-          invoiceTotal: result.grand_total,
-          totalPaid: result.payment_amount
-        });
-
-        toast.success(`Invoice created! Credit applied: Rs. ${creditPreview.willUseCredit.toFixed(2)} from customer balance`, {
-          duration: 4000,
-          icon: '💳'
-        });
-      }
-
-      // Log activity
-      try {
-        await activityLogger.logInvoiceCreated(
-          result.bill_number,
-          customer_name,
-          calculations.grandTotal
-        );
-      } catch (error) {
-        console.error('Failed to log invoice creation activity:', error);
-        // Don't fail the main operation if logging fails
-      }
-
-      // Success
-      import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
-        triggerInvoiceCreatedRefresh(result);
-      });
-
-      const modeText = isGuestMode ? ' (Guest Customer)' : '';
-      toast.success(`Invoice created successfully${modeText}! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
-        duration: 5000
-      });
-
-      resetForm();
-      await loadInitialData(false);
-
     } catch (error: any) {
-      console.error('Invoice creation error:', error);
+      console.error('Invoice operation error:', error);
 
       // Enhanced error handling for database lock issues
       if (error.message?.includes('database is locked') || error.code === 5) {
@@ -1286,13 +1249,212 @@ const InvoiceForm: React.FC = () => {
           icon: '⚠️'
         });
       } else {
-        toast.error(error.message || 'Failed to create invoice', {
+        toast.error(error.message || `Failed to ${isEditMode ? 'update' : 'create'} invoice`, {
           duration: 4000,
           icon: '❌'
         });
       }
     } finally {
       setCreating(false);
+    }
+  };
+
+  // Handle invoice creation (original logic)
+  const handleCreateInvoice = async () => {
+    // Prepare invoice data
+    let payment_amount = formData.payment_amount;
+    let customer_id: number;
+    let customer_name = '';
+
+    if (isGuestMode) {
+      // For guest customers, use a special customer ID (-1) to satisfy NOT NULL constraint
+      customer_id = -1;
+      customer_name = guestCustomer.name;
+      payment_amount = formData.payment_amount; // Guest customers pay what they specify
+    } else {
+      // Regular customer - ensure we have a valid customer_id
+      if (!formData.customer_id && !selectedCustomer?.id) {
+        throw new Error('No customer selected. Please select a customer or switch to guest mode.');
+      }
+
+      // Use selectedCustomer.id as primary source, formData.customer_id as fallback
+      customer_id = selectedCustomer?.id || formData.customer_id!;
+
+      // Validate that customer_id is a valid positive integer
+      if (!customer_id || !Number.isInteger(customer_id) || customer_id <= 0) {
+        console.error('Invalid customer ID:', {
+          selectedCustomerId: selectedCustomer?.id,
+          formDataCustomerId: formData.customer_id,
+          resolvedCustomerId: customer_id
+        });
+        throw new Error('Invalid customer ID. Please select a valid customer.');
+      }
+
+      customer_name = selectedCustomer?.name || '';
+
+      // DO NOT auto-apply credit during invoice creation
+      // Credit will be applied post-invoice creation if payment < total
+      payment_amount = formData.payment_amount;
+    }
+
+    const invoiceData = {
+      customer_id,
+      customer_name,
+      customer_phone: isGuestMode ? guestCustomer.phone : selectedCustomer?.phone || '',
+      customer_address: isGuestMode ? guestCustomer.address : selectedCustomer?.address || '',
+      items: formData.items.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total_price: item.total_price,
+        length: item.length,
+        pieces: item.pieces,
+        is_misc_item: item.is_misc_item,
+        misc_description: item.misc_description,
+        // T-Iron calculation fields
+        t_iron_pieces: item.t_iron_pieces,
+        t_iron_length_per_piece: item.t_iron_length_per_piece,
+        t_iron_total_feet: item.t_iron_total_feet,
+        t_iron_unit: item.t_iron_unit, // Add unit type
+        product_description: item.product_description,
+        is_non_stock_item: item.is_non_stock_item
+      })),
+      discount: formData.discount,
+      payment_amount,
+      payment_method: formData.payment_method,
+      payment_channel_id: selectedPaymentChannel?.id || null,
+      payment_channel_name: selectedPaymentChannel?.name || formData.payment_method,
+      notes: formData.notes,
+      date: formData.date, // User-selected or current system date
+      time: formData.time  // User-selected or current system time
+    };
+
+    // Debug: Log items with L/pcs data before sending to database
+    console.log('🔍 DEBUG: Creating invoice with items:', invoiceData.items);
+    invoiceData.items.forEach((item, index) => {
+      console.log(`🔍 Form Item ${index + 1}:`, {
+        product_name: item.product_name,
+        length: item.length,
+        pieces: item.pieces,
+        lengthType: typeof item.length,
+        piecesType: typeof item.pieces
+      });
+    });
+
+    // 🔥 ENHANCED INVOICE DATA: Include credit application during invoice creation
+    const enhancedInvoiceData = {
+      ...invoiceData,
+      // Add credit application if available and needed
+      applyCredit: (!isGuestMode && selectedCustomer && selectedCustomer.balance < 0 && creditPreview && creditPreview.willUseCredit > 0)
+        ? creditPreview.willUseCredit
+        : undefined
+    };
+
+    console.log('Creating invoice with integrated credit application:', enhancedInvoiceData);
+
+    // Create invoice - the database will handle credit application internally during creation
+    const result = await db.createInvoice(enhancedInvoiceData);
+
+    // 🎉 SUCCESS: Credit is now applied during invoice creation, no post-processing needed!
+    if (!isGuestMode && selectedCustomer && selectedCustomer.balance < 0 && creditPreview && creditPreview.willUseCredit > 0) {
+      console.log('✅ Customer credit applied during invoice creation:', {
+        invoiceId: result.id,
+        creditApplied: creditPreview.willUseCredit,
+        invoiceTotal: result.grand_total,
+        totalPaid: result.payment_amount
+      });
+
+      toast.success(`Invoice created! Credit applied: Rs. ${creditPreview.willUseCredit.toFixed(2)} from customer balance`, {
+        duration: 4000,
+        icon: '💳'
+      });
+    }
+
+    // Log activity
+    try {
+      await activityLogger.logInvoiceCreated(
+        result.bill_number,
+        customer_name,
+        calculations.grandTotal
+      );
+    } catch (error) {
+      console.error('Failed to log invoice creation activity:', error);
+      // Don't fail the main operation if logging fails
+    }
+
+    // Success
+    import('../../utils/eventBus').then(({ triggerInvoiceCreatedRefresh }) => {
+      triggerInvoiceCreatedRefresh(result);
+    });
+
+    const modeText = isGuestMode ? ' (Guest Customer)' : '';
+    toast.success(`Invoice created successfully${modeText}! Bill Number: ${formatInvoiceNumber(result.bill_number)}`, {
+      duration: 5000
+    });
+
+    resetForm();
+    await loadInitialData(false);
+  };
+
+  // Handle invoice update (new logic)
+  const handleUpdateInvoice = async () => {
+    if (!editingInvoice) return;
+
+    const updateData = {
+      discount: formData.discount,
+      notes: formData.notes,
+      payment_amount: formData.payment_amount,
+      payment_method: formData.payment_method,
+      items: formData.items.map(item => ({
+        id: item.id.startsWith('item-') ? parseInt(item.id.replace('item-', '')) : undefined,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total_price: item.total_price,
+        unit: item.unit,
+        length: item.length,
+        pieces: item.pieces,
+        is_misc_item: item.is_misc_item,
+        misc_description: item.misc_description,
+        t_iron_pieces: item.t_iron_pieces,
+        t_iron_length_per_piece: item.t_iron_length_per_piece,
+        t_iron_total_feet: item.t_iron_total_feet,
+        t_iron_unit: item.t_iron_unit,
+        is_non_stock_item: item.is_non_stock_item
+      }))
+    };
+
+    console.log('🔄 [EDIT-MODE] Updating invoice:', editingInvoice.id, updateData);
+
+    const result = await db.updateInvoice(editingInvoice.id, updateData);
+
+    if (result.success) {
+      // Log activity
+      try {
+        await activityLogger.logInvoiceUpdated(
+          editingInvoice.bill_number,
+          editingInvoice.customer_name,
+          { amount: calculations.grandTotal }
+        );
+      } catch (error) {
+        console.error('Failed to log invoice update activity:', error);
+      }
+
+      // Success
+      import('../../utils/eventBus').then(({ triggerInvoiceUpdatedRefresh }) => {
+        triggerInvoiceUpdatedRefresh(editingInvoice);
+      });
+
+      toast.success(`Invoice #${editingInvoice.bill_number} updated successfully!`, {
+        duration: 5000
+      });
+
+      // Navigate back to invoice view
+      navigate(`/billing/view/${editingInvoice.id}`);
+    } else {
+      throw new Error(result.error?.message || 'Failed to update invoice');
     }
   };
 
@@ -1340,9 +1502,9 @@ const InvoiceForm: React.FC = () => {
       if (retryCount > 0) {
         return `Retrying... (${retryCount}/3)`;
       }
-      return 'Creating Invoice...';
+      return isEditMode ? 'Updating Invoice...' : 'Creating Invoice...';
     }
-    return 'Create Invoice & Update Stock';
+    return isEditMode ? 'Update Invoice & Stock' : 'Create Invoice & Update Stock';
   };
 
   // And update your button text:
@@ -1355,7 +1517,7 @@ const InvoiceForm: React.FC = () => {
     ) : (
       <>
         <CheckCircle className="h-4 w-4 mr-2" />
-        Create Invoice & Update Stock
+        {isEditMode ? 'Update Invoice & Stock' : 'Create Invoice & Update Stock'}
       </>
     )
   }
@@ -1422,7 +1584,9 @@ const InvoiceForm: React.FC = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900">Create New Invoice</h1>
+            <h1 className="text-xl font-bold text-gray-900">
+              {isEditMode ? `Edit Invoice #${editingInvoice?.bill_number || ''}` : 'Create New Invoice'}
+            </h1>
             <p className="text-sm text-gray-500 mt-1">
               Total: Rs. {calculations.grandTotal.toFixed(2)} • Items: {formData.items.length}
             </p>
@@ -2404,7 +2568,7 @@ const InvoiceForm: React.FC = () => {
               ) : (
                 <>
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  Create Invoice & Update Stock
+                  {isEditMode ? 'Update Invoice & Stock' : 'Create Invoice & Update Stock'}
                 </>
               )}
             </button>

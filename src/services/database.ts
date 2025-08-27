@@ -2540,9 +2540,13 @@ export class DatabaseService {
 
       console.log(`✅ Deleted ${deletedCount} miscellaneous item ledger entries for invoice ${invoiceId}`);
 
-    } catch (error) {
-      console.error('❌ Error deleting miscellaneous item ledger entries:', error);
-      throw error;
+    } catch (error: any) {
+      if (error.message?.includes('no such table: ledger_entries')) {
+        console.warn('⚠️ [MISC-DELETE] ledger_entries table not found, skipping miscellaneous item cleanup');
+      } else {
+        console.error('❌ Error deleting miscellaneous item ledger entries:', error);
+        throw error;
+      }
     }
   }
 
@@ -6024,9 +6028,10 @@ export class DatabaseService {
             currentInvoice.customer_id,
             amount,
             operation,
-            `Invoice update ${invoiceId}`,
+            `Invoice update ${currentInvoice.bill_number || invoiceId}`,
             invoiceId,
-            `INV-${invoiceId}`
+            currentInvoice.bill_number || `INV-${invoiceId}`,
+            true // skipTransaction - we're already in a transaction
           );
 
           // Clear all customer caches to force fresh data
@@ -6044,35 +6049,58 @@ export class DatabaseService {
         }
 
         // CRITICAL: Update the corresponding ledger entry to keep it in sync
-        const ledgerEntries = await this.dbConnection.select(`
-          SELECT * FROM customer_ledger 
-          WHERE reference_type = 'invoice' AND reference_id = ?
-        `, [invoiceId]);
+        try {
+          // Ensure customer_ledger_entries table exists
+          await this.ensureTableExists('customer_ledger_entries');
 
-        if (ledgerEntries && ledgerEntries.length > 0) {
-          const ledgerEntry = ledgerEntries[0];
-          const newDebitAmount = (ledgerEntry.debit_amount || 0) + balanceDifference;
+          const ledgerEntries = await this.dbConnection.select(`
+            SELECT * FROM customer_ledger_entries 
+            WHERE reference_type = 'invoice' AND reference_id = ?
+          `, [invoiceId]);
 
-          await this.dbConnection.execute(`
-            UPDATE customer_ledger 
-            SET debit_amount = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `, [newDebitAmount, ledgerEntry.id]);
+          if (ledgerEntries && ledgerEntries.length > 0) {
+            const ledgerEntry = ledgerEntries[0];
+            const newDebitAmount = (ledgerEntry.debit_amount || 0) + balanceDifference;
 
-          // Recalculate running balances for all subsequent entries for this customer
-          await this.dbConnection.execute(`
-            UPDATE customer_ledger 
-            SET running_balance = (
-              SELECT COALESCE(SUM(debit_amount - credit_amount), 0)
-              FROM customer_ledger cl2 
-              WHERE cl2.customer_id = customer_ledger.customer_id 
-                AND (cl2.created_at < customer_ledger.created_at 
-                     OR (cl2.created_at = customer_ledger.created_at && cl2.id <= customer_ledger.id))
-            )
-            WHERE customer_id = ?
-          `, [currentInvoice.customer_id]);
+            await this.dbConnection.execute(`
+              UPDATE customer_ledger_entries 
+              SET debit_amount = ?, updated_at = CURRENT_TIMESTAMP
+              WHERE id = ?
+            `, [newDebitAmount, ledgerEntry.id]);
 
-          console.log(`📊 Updated ledger entry for invoice ${invoiceId}: debit amount changed by ${balanceDifference}`);
+            // Recalculate running balances for all subsequent entries for this customer
+            await this.dbConnection.execute(`
+              UPDATE customer_ledger_entries 
+              SET running_balance = (
+                SELECT COALESCE(SUM(debit_amount - credit_amount), 0)
+                FROM customer_ledger_entries cl2 
+                WHERE cl2.customer_id = customer_ledger_entries.customer_id 
+                  AND (cl2.created_at < customer_ledger_entries.created_at 
+                       OR (cl2.created_at = customer_ledger_entries.created_at && cl2.id <= customer_ledger_entries.id))
+              )
+              WHERE customer_id = ?
+            `, [currentInvoice.customer_id]);
+
+            console.log(`📊 Updated ledger entry for invoice ${invoiceId}: debit amount changed by ${balanceDifference}`);
+          }
+        } catch (ledgerError: any) {
+          if (ledgerError.message?.includes('no such table: customer_ledger')) {
+            console.warn('⚠️ [INVOICE-UPDATE] customer_ledger table not found, attempting to create it');
+            try {
+              await this.ensureTableExists('customer_ledger_entries');
+              console.log('✅ [INVOICE-UPDATE] customer_ledger_entries table created, retrying ledger update');
+              // Retry the operation now that the table exists
+              const retryLedgerEntries = await this.dbConnection.select(`
+                SELECT * FROM customer_ledger_entries 
+                WHERE reference_type = 'invoice' AND reference_id = ?
+              `, [invoiceId]);
+              // Continue with the logic...
+            } catch (createError) {
+              console.error('❌ [INVOICE-UPDATE] Failed to create customer_ledger_entries table:', createError);
+            }
+          } else {
+            throw ledgerError;
+          }
         }
 
         // ENHANCED: Emit customer balance update event
@@ -6585,7 +6613,8 @@ export class DatabaseService {
           operation,
           `Payment record - ${payment.payment_type}`,
           paymentId,
-          paymentCode
+          paymentCode,
+          true // skipTransaction - we're already in a transaction
         );
 
         // Clear all customer caches to force fresh data
@@ -6789,7 +6818,8 @@ export class DatabaseService {
               'subtract',
               `Payment via ${payment.payment_method}`,
               paymentId,
-              `PAY-${paymentId}`
+              `PAY-${paymentId}`,
+              true // skipTransaction - we're already in a transaction
             );
 
             // Clear all customer caches to force fresh data
@@ -7601,6 +7631,9 @@ export class DatabaseService {
         await this.initialize();
       }
 
+      // VALIDATION: Check if invoice can be edited (must be fully unpaid)
+      await this.validateInvoiceEditability(invoiceId);
+
       // 🔧 PERMANENT AUTO-HEALING: Ensure T-Iron schema exists before any item operations
       await this.permanentTIronHandler.ensureTIronSchema();
 
@@ -8048,7 +8081,8 @@ export class DatabaseService {
             'add',
             'Items added to invoice',
             invoiceId,
-            `INV-${invoiceId}`
+            `INV-${invoiceId}`,
+            true // skipTransaction - we're already in a transaction
           );
 
           // Clear all customer caches to force fresh data
@@ -8269,7 +8303,8 @@ export class DatabaseService {
         await this.initialize();
       }
 
-
+      // VALIDATION: Check if invoice can be edited (must be fully unpaid)
+      await this.validateInvoiceEditability(invoiceId);
 
       await this.dbConnection.execute('BEGIN TRANSACTION');
 
@@ -8305,9 +8340,55 @@ export class DatabaseService {
             // Restore stock for product items only (skip miscellaneous items)
             if (!Boolean(item.is_misc_item) && item.product_id) {
               const product = await this.getProduct(item.product_id);
-              if (product) {
-                const quantityData = parseUnit(item.quantity, product.unit_type || 'kg-grams');
-                await this.updateProductStock(item.product_id, quantityData.numericValue, 'in', 'adjustment', invoiceId, `Removed from ${invoice.bill_number}`);
+              if (product && product.track_inventory) {
+                console.log(`🔄 Restoring stock for ${product.name} - item removed from invoice ${invoice.bill_number}`);
+                const quantityData = parseUnit(item.quantity, product.unit_type || 'piece');
+
+                // Use the same approach as deleteInvoice for consistency
+                const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+                const newStock = currentStockData.numericValue + quantityData.numericValue;
+
+                const newStockString = formatUnitString(
+                  createUnitFromNumericValue(newStock, product.unit_type || 'piece'),
+                  product.unit_type || 'piece'
+                );
+
+                await this.dbConnection.execute(
+                  'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+                  [newStockString, getCurrentSystemDateTime().dbTimestamp, item.product_id]
+                );
+
+                // Create detailed stock movement with customer info
+                const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
+                await this.dbConnection.execute(
+                  `INSERT INTO stock_movements (
+                    product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+                    reason, reference_type, reference_id, reference_number, customer_id, customer_name,
+                    notes, date, time, created_by, created_at, updated_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    item.product_id,
+                    product.name,
+                    'in',
+                    quantityData.numericValue, // positive for IN movement
+                    currentStockData.numericValue, // previous_stock
+                    newStock, // new_stock
+                    'Stock restored - item removed from invoice',
+                    'adjustment',
+                    invoiceId,
+                    `REMOVED-${invoice.bill_number}-${invoice.customer_name}`, // reference_number for UI display
+                    invoice.customer_id, // customer_id
+                    invoice.customer_name, // customer_name
+                    `STOCK RESTORED: Item removed from Invoice ${invoice.bill_number} - restoring ${quantityData.numericValue} ${product.unit_type || 'piece'}`,
+                    date, time, 'system',
+                    getCurrentSystemDateTime().dbTimestamp,
+                    getCurrentSystemDateTime().dbTimestamp
+                  ]
+                );
+
+                console.log(`✅ Stock restored for ${product.name}: ${product.current_stock} → ${newStockString}`);
+              } else if (product && !product.track_inventory) {
+                console.log(`📋 Non-stock product ${product.name} - skipping stock restoration`);
               }
             }
 
@@ -8372,6 +8453,9 @@ export class DatabaseService {
         await this.initialize();
       }
 
+      // VALIDATION: Check if invoice can be edited (must be fully unpaid)
+      await this.validateInvoiceEditability(invoiceId);
+
       // 🔧 PERMANENT AUTO-HEALING: Ensure T-Iron schema exists before updating items
       await this.permanentTIronHandler.ensureTIronSchema();
 
@@ -8417,40 +8501,73 @@ export class DatabaseService {
           newTotalPrice = newQuantity * currentItem.unit_price;
         }
 
-        // CRITICAL FIX: Check if this is a T-Iron item and preserve T-Iron calculation data
-        const isTIronProduct = currentItem.product_name && (
-          currentItem.product_name.toLowerCase().includes('t-iron') ||
-          currentItem.product_name.toLowerCase().includes('tiron') ||
-          currentItem.product_name.toLowerCase().includes('t iron')
-        );
+        // Update item - all items can now be updated normally since T-Iron items
+        // are handled through the dedicated updateTIronItemCalculation method
+        const now = getCurrentSystemDateTime().dbTimestamp;
+        await this.dbConnection.execute(`
+          UPDATE invoice_items 
+          SET quantity = ?, total_price = ?, updated_at = ? 
+          WHERE id = ?
+        `, [newQuantityString, newTotalPrice, now, itemId]);
 
-        const hasTIronData = !!(currentItem.t_iron_pieces && currentItem.t_iron_length_per_piece);
-
-        if (isTIronProduct && hasTIronData) {
-          // For T-Iron items, preserve the T-Iron calculation data and don't allow simple quantity updates
-          console.log('⚠️ [T-IRON UPDATE] Cannot update T-Iron item quantity directly - use T-Iron calculator instead');
-          throw new Error('T-Iron items must be updated using the T-Iron calculator to maintain calculation data');
-        } else {
-          // For regular items, update normally
-          // Update updated_at to current timestamp
-          const now = getCurrentSystemDateTime().dbTimestamp;
-          await this.dbConnection.execute(`
-            UPDATE invoice_items 
-            SET quantity = ?, total_price = ?, updated_at = ? 
-            WHERE id = ?
-          `, [newQuantityString, newTotalPrice, now, itemId]);
-        }
-
-        // Update stock (negative means stock out, positive means stock back)
+        // Update stock with detailed movement tracking (negative means stock out, positive means stock back)
         if (quantityDifference !== 0) {
-          await this.updateProductStock(
-            currentItem.product_id,
-            -quantityDifference,
-            quantityDifference > 0 ? 'out' : 'in',
-            'adjustment',
-            invoiceId,
-            `Quantity update in ${invoice.bill_number}`
-          );
+          const product = await this.getProduct(currentItem.product_id);
+
+          if (product && product.track_inventory) {
+            console.log(`🔄 Creating detailed stock movement for quantity change: ${currentQuantityData.numericValue} → ${newQuantity} (${quantityDifference > 0 ? '+' : ''}${quantityDifference})`);
+
+            // Get current stock and calculate new stock
+            const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+            const stockChange = -quantityDifference; // Negative because increasing invoice quantity decreases stock
+            const newStockValue = currentStockData.numericValue + stockChange;
+
+            const newStockString = formatUnitString(
+              createUnitFromNumericValue(newStockValue, product.unit_type || 'piece'),
+              product.unit_type || 'piece'
+            );
+
+            // Update product stock
+            await this.dbConnection.execute(
+              'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+              [newStockString, getCurrentSystemDateTime().dbTimestamp, currentItem.product_id]
+            );
+
+            // Create detailed stock movement with customer info and scenario description
+            const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
+            const movementType = quantityDifference > 0 ? 'out' : 'in';
+            const scenario = quantityDifference > 0 ? 'INCREASED' : 'DECREASED';
+
+            await this.dbConnection.execute(
+              `INSERT INTO stock_movements (
+                product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+                reason, reference_type, reference_id, reference_number, customer_id, customer_name,
+                notes, date, time, created_by, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                currentItem.product_id,
+                product.name,
+                movementType,
+                Math.abs(stockChange), // Always positive quantity for movement
+                currentStockData.numericValue, // previous_stock
+                newStockValue, // new_stock
+                `Stock adjustment - invoice item quantity ${scenario.toLowerCase()}`,
+                'adjustment',
+                invoiceId,
+                `QTY-${scenario}-${invoice.bill_number}-${invoice.customer_name}`, // reference_number for UI display
+                invoice.customer_id, // customer_id
+                invoice.customer_name, // customer_name
+                `QUANTITY ${scenario}: Invoice ${invoice.bill_number} item quantity changed from ${currentQuantityData.numericValue} to ${newQuantity} ${product.unit_type || 'piece'} (${quantityDifference > 0 ? '+' : ''}${quantityDifference})`,
+                date, time, 'system',
+                getCurrentSystemDateTime().dbTimestamp,
+                getCurrentSystemDateTime().dbTimestamp
+              ]
+            );
+
+            console.log(`✅ Stock movement created for ${product.name}: ${product.current_stock} → ${newStockString} (${scenario})`);
+          } else if (product && !product.track_inventory) {
+            console.log(`📋 Non-stock product ${product.name} - skipping stock movement creation`);
+          }
         }
 
         // Recalculate invoice totals
@@ -8507,6 +8624,172 @@ export class DatabaseService {
     }
   }
 
+  /**
+   * Update T-Iron item calculation data and recalculate totals
+   */
+  async updateTIronItemCalculation(itemId: number, calculationData: {
+    pieces: number;
+    lengthPerPiece: number;
+    totalFeet: number;
+    unit: string;
+    pricePerFoot: number;
+    totalPrice: number;
+  }): Promise<void> {
+    try {
+      console.log('🔧 [T-IRON UPDATE] Starting T-Iron item calculation update for item:', itemId);
+      console.log('🔧 [T-IRON UPDATE] Calculation data:', calculationData);
+
+      await this.dbConnection.execute('BEGIN TRANSACTION');
+
+      try {
+        // Get current item to get invoice ID
+        const currentItems = await this.dbConnection.select('SELECT * FROM invoice_items WHERE id = ?', [itemId]);
+        if (!currentItems || currentItems.length === 0) {
+          throw new Error('Invoice item not found');
+        }
+
+        const currentItem = currentItems[0];
+        const invoiceId = currentItem.invoice_id;
+
+        // VALIDATION: Check if invoice can be edited (must be fully unpaid)
+        await this.validateInvoiceEditability(invoiceId);
+
+        // Get invoice details for customer information and stock movement tracking
+        const invoice = await this.getInvoiceDetails(invoiceId);
+        const currentQuantity = parseFloat(currentItem.quantity || '0');
+        const newQuantity = calculationData.totalFeet;
+        const quantityDifference = newQuantity - currentQuantity;
+
+        // Update the invoice item with new calculation data
+        const now = getCurrentSystemDateTime().dbTimestamp;
+        await this.dbConnection.execute(`
+          UPDATE invoice_items 
+          SET 
+            quantity = ?, 
+            unit_price = ?, 
+            total_price = ?,
+            t_iron_pieces = ?,
+            t_iron_length_per_piece = ?,
+            t_iron_total_feet = ?,
+            t_iron_unit = ?,
+            updated_at = ?
+          WHERE id = ?
+        `, [
+          calculationData.totalFeet.toString(),
+          calculationData.pricePerFoot,
+          calculationData.totalPrice,
+          calculationData.pieces,
+          calculationData.lengthPerPiece,
+          calculationData.totalFeet,
+          calculationData.unit,
+          now,
+          itemId
+        ]);
+
+        // Create stock movement if quantity changed (for T-Iron items that track inventory)
+        if (quantityDifference !== 0) {
+          const product = await this.getProduct(currentItem.product_id);
+
+          if (product && product.track_inventory) {
+            console.log(`🔄 [T-IRON UPDATE] Creating stock movement for T-Iron calculation update: ${currentQuantity} → ${newQuantity} (${quantityDifference > 0 ? '+' : ''}${quantityDifference})`);
+
+            // Get current stock and calculate new stock
+            const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+            const stockChange = -quantityDifference; // Negative because increasing invoice quantity decreases stock
+            const newStockValue = currentStockData.numericValue + stockChange;
+
+            if (newStockValue < 0) {
+              throw new Error(`Insufficient stock for ${product.name}. Available: ${currentStockData.numericValue}, Required: ${Math.abs(stockChange)}`);
+            }
+
+            // Create detailed stock movement with operation-specific reference
+            const referencePrefix = quantityDifference > 0 ? 'T-IRON-INCREASED-' : 'T-IRON-DECREASED-';
+            await this.dbConnection.execute(`
+              INSERT INTO stock_movements (
+                product_id, product_name, movement_type, quantity, new_stock_level, 
+                reference_type, reference_id, reference_number, notes, customer_id, customer_name, 
+                created_at, movement_date
+              )
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              product.id,
+              product.name,
+              quantityDifference > 0 ? 'OUT' : 'IN',
+              Math.abs(quantityDifference),
+              newStockValue,
+              'invoice',
+              invoiceId,
+              `${referencePrefix}${invoice.bill_number}`,
+              `T-Iron calculation update: ${currentQuantity}ft → ${newQuantity}ft (${quantityDifference > 0 ? '+' : ''}${quantityDifference}ft)`,
+              invoice.customer_id,
+              invoice.customer_name,
+              now,
+              now
+            ]);
+
+            // Update product stock
+            const newStockString = this.formatStockValue(newStockValue, product.unit_type || 'piece');
+            await this.dbConnection.execute('UPDATE products SET current_stock = ? WHERE id = ?', [newStockString, product.id]);
+
+            console.log(`✅ [T-IRON UPDATE] Stock movement created: ${product.name} ${quantityDifference > 0 ? 'OUT' : 'IN'} ${Math.abs(quantityDifference)} → ${newStockValue}`);
+          }
+        }
+
+        // Update invoice totals
+        await this.recalculateInvoiceTotals(invoiceId);
+
+        // Update customer ledger
+        await this.updateCustomerLedgerForInvoice(invoiceId);
+
+        await this.dbConnection.execute('COMMIT');
+
+        console.log('✅ [T-IRON UPDATE] T-Iron item calculation updated successfully');
+
+        // Emit events for real-time updates
+        try {
+          // Emit stock movement event if stock was affected
+          if (quantityDifference !== 0) {
+            const product = await this.getProduct(currentItem.product_id);
+            if (product && product.track_inventory) {
+              eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, {
+                productId: product.id,
+                productName: product.name,
+                movementType: quantityDifference > 0 ? 'OUT' : 'IN',
+                quantity: Math.abs(quantityDifference),
+                referenceType: 'invoice',
+                referenceId: invoiceId,
+                notes: `T-Iron calculation update: ${currentQuantity}ft → ${newQuantity}ft`
+              });
+            }
+          }
+
+          // Emit invoice update event
+          eventBus.emit(BUSINESS_EVENTS.INVOICE_UPDATED, {
+            invoiceId,
+            action: 't_iron_calculation_updated'
+          });
+
+          // Emit customer ledger update event
+          eventBus.emit(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, {
+            invoiceId,
+            customerId: invoice.customer_id,
+            action: 't_iron_calculation_updated'
+          });
+
+        } catch (error) {
+          console.warn('Could not emit T-Iron update events:', error);
+        }
+
+      } catch (error) {
+        await this.dbConnection.execute('ROLLBACK');
+        throw error;
+      }
+    } catch (error) {
+      console.error('Error updating T-Iron item calculation:', error);
+      throw error;
+    }
+  }
+
 
   /**
  * Update customer ledger for invoice changes (items add/update/remove)
@@ -8519,6 +8802,9 @@ export class DatabaseService {
       if (!this.isInitialized) {
         await this.initialize();
       }
+
+      // Ensure customer_ledger_entries table exists
+      await this.ensureTableExists('customer_ledger_entries');
 
       const invoice = await this.getInvoiceDetails(invoiceId);
       if (!invoice) {
@@ -8743,7 +9029,8 @@ export class DatabaseService {
               'subtract',
               `Payment for Invoice #${invoice.bill_number || invoiceId}`,
               paymentId,
-              invoice.bill_number || invoiceId.toString()
+              invoice.bill_number || invoiceId.toString(),
+              true // skipTransaction - we're already in a transaction
             );
             this.clearCustomerCaches();
             console.log('✅ [PRODUCTION-SAFE] Customer balance updated');
@@ -9141,54 +9428,6 @@ export class DatabaseService {
       );
     } catch (error) {
       console.error('Error getting invoice payments:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Update invoice details
-   */
-  async updateInvoice(invoiceId: number, updates: {
-    customer_id?: number;
-    customer_name?: string;
-    discount?: number;
-    payment_method?: string;
-    notes?: string;
-    status?: string;
-  }): Promise<void> {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      // Build dynamic update query
-      const fields = [];
-      const params = [];
-
-      for (const [key, value] of Object.entries(updates)) {
-        if (value !== undefined) {
-          fields.push(`${key} = ?`);
-          params.push(value);
-        }
-      }
-
-      if (fields.length === 0) {
-        throw new Error('No fields to update');
-      }
-
-      // Add updated_at timestamp
-      fields.push('updated_at = ?');
-      params.push(getCurrentSystemDateTime().dbTimestamp);
-      params.push(invoiceId);
-
-      await this.dbConnection.execute(
-        `UPDATE invoices SET ${fields.join(', ')} WHERE id = ?`,
-        params
-      );
-
-      console.log(`✅ Invoice ${invoiceId} updated successfully`);
-    } catch (error) {
-      console.error('Error updating invoice:', error);
       throw error;
     }
   }
@@ -9775,13 +10014,13 @@ export class DatabaseService {
         baseQuery += `
           LEFT JOIN (
             SELECT 
-              reference_invoice_id,
+              invoice_id,
               COUNT(*) as payment_count,
               SUM(amount) as total_payments
             FROM payments 
-            WHERE payment_type = 'bill_payment'
-            GROUP BY reference_invoice_id
-          ) p ON i.id = p.reference_invoice_id
+            WHERE payment_type = 'incoming'
+            GROUP BY invoice_id
+          ) p ON i.id = p.invoice_id
         `;
       }
 
@@ -10511,6 +10750,43 @@ export class DatabaseService {
   }
 
   /**
+   * Check if an invoice can be edited or deleted (must be fully unpaid)
+   */
+  private async validateInvoiceEditability(invoiceId: number): Promise<void> {
+    try {
+      const invoice = await this.getInvoiceDetails(invoiceId);
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // Check if invoice has any payments
+      const paymentAmount = parseFloat(invoice.payment_amount?.toString() || '0');
+
+      if (paymentAmount > 0) {
+        throw new Error(`Cannot edit or delete invoice ${invoice.bill_number} because it has payments of Rs.${paymentAmount.toFixed(2)}. Only fully unpaid invoices can be modified.`);
+      }
+
+      // Double-check by querying payments table directly
+      const payments = await this.dbConnection.select(
+        'SELECT SUM(amount) as total_payments FROM payments WHERE invoice_id = ?',
+        [invoiceId]
+      );
+
+      const totalPayments = parseFloat(payments[0]?.total_payments?.toString() || '0');
+
+      if (totalPayments > 0) {
+        throw new Error(`Cannot edit or delete invoice ${invoice.bill_number} because it has payments of Rs.${totalPayments.toFixed(2)}. Only fully unpaid invoices can be modified.`);
+      }
+
+      console.log(`✅ [VALIDATION] Invoice ${invoice.bill_number} is fully unpaid and can be edited/deleted`);
+
+    } catch (error) {
+      console.error('❌ [VALIDATION] Invoice editability check failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Delete invoice and all related records
    */
   async deleteInvoice(invoiceId: number): Promise<void> {
@@ -10518,6 +10794,9 @@ export class DatabaseService {
       if (!this.isInitialized) {
         await this.initialize();
       }
+
+      // VALIDATION: Check if invoice can be deleted (must be fully unpaid)
+      await this.validateInvoiceEditability(invoiceId);
 
       // Start transaction for safe deletion
       await this.dbConnection.execute('BEGIN TRANSACTION');
@@ -10535,7 +10814,8 @@ export class DatabaseService {
         // Restore stock for each item
         for (const item of items) {
           const product = await this.getProduct(item.product_id);
-          if (product) {
+
+          if (product && product.track_inventory) {
             // Parse current stock and item quantity
             const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
             const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'piece');
@@ -10557,11 +10837,13 @@ export class DatabaseService {
 
             // Create stock movement record for audit trail
             const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
-            await this.dbConnection.execute(
+
+            const stockMovementResult = await this.dbConnection.execute(
               `INSERT INTO stock_movements (
                 product_id, product_name, movement_type, quantity, previous_stock, new_stock,
-                reason, reference_type, reference_id, notes, date, time, created_by, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                reason, reference_type, reference_id, reference_number, customer_id, customer_name,
+                notes, date, time, created_by, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 item.product_id,
                 product.name,
@@ -10573,10 +10855,16 @@ export class DatabaseService {
                 })(),
                 currentStock, // previous_stock as numeric
                 newStock, // new_stock as numeric
-                'Stock restored due to invoice deletion',
-                'invoice_deleted',
+                'Stock restoration from deleted invoice',
+                'adjustment',
                 invoiceId,
-                `Stock restored due to invoice deletion (Bill: ${invoice.bill_number})`,
+                `DELETED-${invoice.bill_number}-${invoice.customer_name}`, // reference_number for UI display
+                invoice.customer_id, // customer_id
+                invoice.customer_name, // customer_name
+                `STOCK RESTORED: Invoice ${invoice.bill_number} deleted - restoring ${(() => {
+                  const quantityData = parseUnit(item.quantity, product.unit_type || 'piece');
+                  return quantityData.numericValue;
+                })()} ${product.unit_type || 'piece'}`,
                 date, // date
                 time, // time
                 'system', // created_by
@@ -10584,21 +10872,24 @@ export class DatabaseService {
                 getCurrentSystemDateTime().dbTimestamp // updated_at
               ]
             );
+
+          } else {
+            // Product not found, skip stock restoration
           }
         }
 
         // CRITICAL FIX: Update customer balance using CustomerBalanceManager if needed
         if (invoice.remaining_balance > 0) {
-          console.log(`🔄 [DELETE-INVOICE] Subtracting Rs. ${invoice.remaining_balance.toFixed(2)} for customer ${invoice.customer_id}`);
 
           try {
             await this.customerBalanceManager.updateBalance(
               invoice.customer_id,
               invoice.remaining_balance,
               'subtract',
-              `Invoice ${invoiceId} deleted`,
+              `Invoice ${invoice.bill_number || invoice.invoice_number} deleted`,
               invoiceId,
-              `DEL-${invoiceId}`
+              `DEL-${invoice.bill_number || invoice.invoice_number}`,
+              true // Skip transaction since we're already in one
             );
 
             // Clear all customer caches to force fresh data
@@ -10618,13 +10909,44 @@ export class DatabaseService {
 
         // Delete related records in correct order
         await this.dbConnection.execute('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
-        await this.dbConnection.execute('DELETE FROM stock_movements WHERE reference_type = "invoice" AND reference_id = ?', [invoiceId]);
-        await this.dbConnection.execute('DELETE FROM ledger_entries WHERE reference_type = "invoice" AND reference_id = ?', [invoiceId]);
+
+        // Mark original stock movements as CANCELLED instead of deleting them for better audit trail
+        try {
+          await this.dbConnection.execute(`
+            UPDATE stock_movements 
+            SET notes = CASE 
+              WHEN notes IS NULL OR notes = '' THEN 'CANCELLED - Invoice deleted' 
+              ELSE notes || ' (CANCELLED - Invoice deleted)' 
+            END,
+            reason = 'cancelled'
+            WHERE reference_type = "invoice" AND reference_id = ? AND movement_type = ?
+          `, [invoiceId, 'out']);
+        } catch (error) {
+          // Could not mark movements as cancelled, delete instead
+          await this.dbConnection.execute('DELETE FROM stock_movements WHERE reference_type = "invoice" AND reference_id = ? AND movement_type = ?', [invoiceId, 'out']);
+        }        // Try to delete ledger entries if table exists
+        try {
+          await this.dbConnection.execute('DELETE FROM ledger_entries WHERE reference_type = "invoice" AND reference_id = ?', [invoiceId]);
+        } catch (error: any) {
+          if (error.message?.includes('no such table: customer_ledger') || error.message?.includes('no such table: ledger_entries')) {
+            console.warn('⚠️ [DELETE-INVOICE] Ledger table not found, skipping ledger cleanup');
+          } else {
+            throw error;
+          }
+        }
 
         // PERMANENT SOLUTION: Delete miscellaneous item ledger entries
-        await this.deleteMiscellaneousItemLedgerEntries(invoiceId);
+        try {
+          await this.deleteMiscellaneousItemLedgerEntries(invoiceId);
+        } catch (error: any) {
+          if (error.message?.includes('no such table')) {
+            console.warn('⚠️ [DELETE-INVOICE] Miscellaneous ledger table not found, skipping misc cleanup');
+          } else {
+            throw error;
+          }
+        }
 
-        await this.dbConnection.execute('DELETE FROM payments WHERE reference_invoice_id = ?', [invoiceId]);
+        await this.dbConnection.execute('DELETE FROM payments WHERE invoice_id = ?', [invoiceId]);
 
         // Finally delete the invoice
         await this.dbConnection.execute('DELETE FROM invoices WHERE id = ?', [invoiceId]);
@@ -10674,6 +10996,467 @@ export class DatabaseService {
       console.log(`🚀 Real-time deletion events emitted for invoice ${invoice.bill_number}`);
     } catch (error) {
       console.warn('Could not emit invoice deleted events:', error);
+    }
+  }
+
+  /**
+   * PRODUCTION-READY: Enhanced Edit Invoice functionality
+   * Handles all aspects of invoice editing with data integrity
+   */
+  async updateInvoice(invoiceId: number, updateData: {
+    discount?: number;
+    notes?: string;
+    payment_amount?: number;
+    payment_method?: string;
+    items?: Array<{
+      id?: number;
+      product_id: number | null;
+      product_name: string;
+      quantity: string | number;
+      unit_price: number;
+      total_price: number;
+      unit?: string;
+      length?: number;
+      pieces?: number;
+      is_misc_item?: boolean;
+      misc_description?: string;
+      t_iron_pieces?: number;
+      t_iron_length_per_piece?: number;
+      t_iron_total_feet?: number;
+      t_iron_unit?: string;
+      is_non_stock_item?: boolean;
+    }>;
+  }): Promise<DatabaseOperationResult> {
+    const startTime = Date.now();
+
+    console.log(`🔥 [INVOICE-DEBUG] updateInvoice called for invoice ${invoiceId} with data:`, updateData);
+
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // VALIDATION: Check if invoice can be edited (must be fully unpaid)
+      await this.validateInvoiceEditability(invoiceId);
+
+      // Start transaction for atomicity
+      await this.dbConnection.execute('BEGIN TRANSACTION');
+      console.log(`🔥 [INVOICE-DEBUG] Transaction started for invoice ${invoiceId}`);
+
+      try {
+        // Get existing invoice details
+        const existingInvoice = await this.getInvoiceDetails(invoiceId);
+        if (!existingInvoice) {
+          throw new Error('Invoice not found');
+        }
+
+        // BUSINESS RULE: Check if invoice can be edited
+        if (existingInvoice.payment_amount > 0 && existingInvoice.status === 'paid') {
+          throw new Error('Cannot edit fully paid invoices');
+        }
+
+        // Get existing items for comparison
+        const existingItems = await this.getInvoiceItems(invoiceId);
+        const existingItemsMap = new Map(existingItems.map(item => [item.id, item]));
+
+        let totalItemsValue = 0;
+
+        // Process item changes if provided
+        if (updateData.items) {
+          // 1. Handle removed items (restore stock)
+          for (const existingItem of existingItems) {
+            const stillExists = updateData.items.some(newItem => newItem.id === existingItem.id);
+            if (!stillExists && existingItem.product_id) {
+              const product = await this.getProduct(existingItem.product_id);
+              if (product && product.track_inventory) {
+                // Restore stock for removed item
+                const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+                const itemQuantityData = parseUnit(existingItem.quantity, product.unit_type || 'piece');
+
+                const newStock = currentStockData.numericValue + itemQuantityData.numericValue;
+                const newStockString = formatUnitString(
+                  createUnitFromNumericValue(newStock, product.unit_type || 'piece'),
+                  product.unit_type || 'piece'
+                );
+
+                await this.dbConnection.execute(
+                  'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+                  [newStockString, getCurrentSystemDateTime().dbTimestamp, existingItem.product_id]
+                );
+
+                // Record stock movement
+                const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
+                await this.dbConnection.execute(
+                  `INSERT INTO stock_movements (
+                    product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+                    reason, reference_type, reference_id, notes, date, time, created_by, created_at, updated_at
+                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    existingItem.product_id,
+                    product.name,
+                    'in',
+                    itemQuantityData.numericValue,
+                    currentStockData.numericValue,
+                    newStock,
+                    'Stock restored due to invoice item removal',
+                    'invoice',
+                    invoiceId,
+                    `Item removed from invoice ${existingInvoice.bill_number}`,
+                    date, time, 'system',
+                    getCurrentSystemDateTime().dbTimestamp,
+                    getCurrentSystemDateTime().dbTimestamp
+                  ]
+                );
+              }
+
+              // Delete the item
+              await this.dbConnection.execute('DELETE FROM invoice_items WHERE id = ?', [existingItem.id]);
+            }
+          }
+
+          // 2. Handle updated and new items
+          for (const newItem of updateData.items) {
+            if (newItem.id && existingItemsMap.has(newItem.id)) {
+              // Update existing item
+              const existingItem = existingItemsMap.get(newItem.id)!;
+
+              // Handle stock changes for inventory items
+              if (newItem.product_id && !newItem.is_misc_item && !newItem.is_non_stock_item) {
+                const product = await this.getProduct(newItem.product_id);
+                console.log(`🔍 [STOCK-DEBUG] Checking product ${newItem.product_id}: ${product?.name}, track_inventory: ${product?.track_inventory}`);
+
+                if (product && product.track_inventory) {
+                  const oldQuantityData = parseUnit(existingItem.quantity, product.unit_type || 'piece');
+                  const newQuantityData = parseUnit(newItem.quantity, product.unit_type || 'piece');
+                  const quantityDiff = newQuantityData.numericValue - oldQuantityData.numericValue;
+
+                  console.log(`📊 [STOCK-DEBUG] Quantity change: ${oldQuantityData.numericValue} → ${newQuantityData.numericValue} (diff: ${quantityDiff})`);
+
+                  if (quantityDiff !== 0) {
+                    // Check stock availability for increases
+                    if (quantityDiff > 0) {
+                      const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+                      if (currentStockData.numericValue < quantityDiff) {
+                        throw new Error(`Insufficient stock for ${product.name}. Available: ${product.current_stock}, Required: ${quantityDiff}`);
+                      }
+                    }
+
+                    // Update stock
+                    const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+                    const newStock = currentStockData.numericValue - quantityDiff;
+                    const newStockString = formatUnitString(
+                      createUnitFromNumericValue(newStock, product.unit_type || 'piece'),
+                      product.unit_type || 'piece'
+                    );
+
+                    await this.dbConnection.execute(
+                      'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+                      [newStockString, getCurrentSystemDateTime().dbTimestamp, newItem.product_id]
+                    );
+
+                    console.log(`📦 [STOCK-DEBUG] Stock updated: ${product.current_stock} → ${newStockString}`);
+
+                    // Record stock movement
+                    const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
+                    console.log(`🔄 [STOCK-DEBUG] Creating stock movement: ${quantityDiff > 0 ? 'out' : 'in'} ${Math.abs(quantityDiff)} for ${product.name}`);
+
+                    const stockMovementResult = await this.dbConnection.execute(
+                      `INSERT INTO stock_movements (
+                        product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+                        reason, reference_type, reference_id, notes, date, time, created_by, created_at, updated_at
+                      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                      [
+                        newItem.product_id,
+                        product.name,
+                        quantityDiff > 0 ? 'out' : 'in',
+                        Math.abs(quantityDiff),
+                        currentStockData.numericValue,
+                        newStock,
+                        `Stock ${quantityDiff > 0 ? 'deducted' : 'restored'} due to invoice edit`,
+                        'invoice',
+                        invoiceId,
+                        `Invoice ${existingInvoice.bill_number} edited`,
+                        date, time, 'system',
+                        getCurrentSystemDateTime().dbTimestamp,
+                        getCurrentSystemDateTime().dbTimestamp
+                      ]
+                    );
+
+                    console.log(`✅ [STOCK-DEBUG] Stock movement created successfully with ID: ${stockMovementResult.lastInsertId}`);
+                  } else {
+                    console.log(`⏭️ [STOCK-DEBUG] No quantity change, skipping stock movement`);
+                  }
+                } else {
+                  console.log(`⚠️ [STOCK-DEBUG] Product ${newItem.product_id} does not have inventory tracking enabled or product not found`);
+                }
+              } else {
+                console.log(`⏭️ [STOCK-DEBUG] Skipping stock update - misc item or non-stock item`);
+              }
+
+              // Update the item
+              await this.dbConnection.execute(
+                `UPDATE invoice_items SET 
+                  product_id = ?, product_name = ?, quantity = ?, unit_price = ?, total_price = ?,
+                  unit = ?, length = ?, pieces = ?, is_misc_item = ?, misc_description = ?,
+                  t_iron_pieces = ?, t_iron_length_per_piece = ?, t_iron_total_feet = ?, t_iron_unit = ?,
+                  is_non_stock_item = ?, updated_at = ?
+                WHERE id = ?`,
+                [
+                  newItem.product_id, newItem.product_name, newItem.quantity, newItem.unit_price, newItem.total_price,
+                  newItem.unit, newItem.length, newItem.pieces, newItem.is_misc_item ? 1 : 0, newItem.misc_description,
+                  newItem.t_iron_pieces, newItem.t_iron_length_per_piece, newItem.t_iron_total_feet, newItem.t_iron_unit,
+                  newItem.is_non_stock_item ? 1 : 0, getCurrentSystemDateTime().dbTimestamp,
+                  newItem.id
+                ]
+              );
+            } else {
+              // Add new item
+              // Check stock for new inventory items
+              if (newItem.product_id && !newItem.is_misc_item && !newItem.is_non_stock_item) {
+                const product = await this.getProduct(newItem.product_id);
+                if (product && product.track_inventory) {
+                  const quantityData = parseUnit(newItem.quantity, product.unit_type || 'piece');
+                  const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+
+                  if (currentStockData.numericValue < quantityData.numericValue) {
+                    throw new Error(`Insufficient stock for ${product.name}. Available: ${product.current_stock}, Required: ${newItem.quantity}`);
+                  }
+
+                  // Deduct stock
+                  const newStock = currentStockData.numericValue - quantityData.numericValue;
+                  const newStockString = formatUnitString(
+                    createUnitFromNumericValue(newStock, product.unit_type || 'piece'),
+                    product.unit_type || 'piece'
+                  );
+
+                  await this.dbConnection.execute(
+                    'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+                    [newStockString, getCurrentSystemDateTime().dbTimestamp, newItem.product_id]
+                  );
+
+                  // Record stock movement
+                  const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
+                  await this.dbConnection.execute(
+                    `INSERT INTO stock_movements (
+                      product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+                      reason, reference_type, reference_id, notes, date, time, created_by, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                      newItem.product_id,
+                      product.name,
+                      'out',
+                      quantityData.numericValue,
+                      currentStockData.numericValue,
+                      newStock,
+                      'Stock deducted for new invoice item',
+                      'invoice',
+                      invoiceId,
+                      `New item added to invoice ${existingInvoice.bill_number}`,
+                      date, time, 'system',
+                      getCurrentSystemDateTime().dbTimestamp,
+                      getCurrentSystemDateTime().dbTimestamp
+                    ]
+                  );
+                }
+              }
+
+              // Insert new item
+              await this.dbConnection.execute(
+                `INSERT INTO invoice_items (
+                  invoice_id, product_id, product_name, quantity, unit_price, total_price,
+                  unit, length, pieces, is_misc_item, misc_description,
+                  t_iron_pieces, t_iron_length_per_piece, t_iron_total_feet, t_iron_unit,
+                  is_non_stock_item, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  invoiceId, newItem.product_id, newItem.product_name, newItem.quantity, newItem.unit_price, newItem.total_price,
+                  newItem.unit, newItem.length, newItem.pieces, newItem.is_misc_item ? 1 : 0, newItem.misc_description,
+                  newItem.t_iron_pieces, newItem.t_iron_length_per_piece, newItem.t_iron_total_feet, newItem.t_iron_unit,
+                  newItem.is_non_stock_item ? 1 : 0, getCurrentSystemDateTime().dbTimestamp, getCurrentSystemDateTime().dbTimestamp
+                ]
+              );
+            }
+
+            totalItemsValue += newItem.total_price;
+          }
+        } else {
+          // No items updated, calculate total from existing items
+          totalItemsValue = existingItems.reduce((sum, item) => sum + item.total_price, 0);
+        }
+
+        // Update invoice header
+        const discount = updateData.discount !== undefined ? updateData.discount : existingInvoice.discount;
+        const grandTotal = totalItemsValue - discount;
+        const paymentAmount = updateData.payment_amount !== undefined ? updateData.payment_amount : existingInvoice.payment_amount;
+        const remainingBalance = grandTotal - paymentAmount;
+
+        await this.dbConnection.execute(
+          `UPDATE invoices SET 
+            subtotal = ?, discount = ?, grand_total = ?, payment_amount = ?, remaining_balance = ?,
+            payment_method = ?, notes = ?, 
+            status = CASE 
+              WHEN ? >= ? THEN 'paid'
+              WHEN ? > 0 THEN 'partially_paid'
+              ELSE 'pending'
+            END,
+            updated_at = ?
+          WHERE id = ?`,
+          [
+            totalItemsValue, discount, grandTotal, paymentAmount, remainingBalance,
+            updateData.payment_method || existingInvoice.payment_method,
+            updateData.notes !== undefined ? updateData.notes : existingInvoice.notes,
+            paymentAmount, grandTotal, paymentAmount,
+            getCurrentSystemDateTime().dbTimestamp,
+            invoiceId
+          ]
+        );
+
+        // Update customer balance if total changed
+        const totalChange = grandTotal - existingInvoice.grand_total;
+        const paymentChange = paymentAmount - existingInvoice.payment_amount;
+        const balanceChange = totalChange - paymentChange;
+
+        if (balanceChange !== 0) {
+          try {
+            await this.customerBalanceManager.updateBalance(
+              existingInvoice.customer_id,
+              Math.abs(balanceChange),
+              balanceChange > 0 ? 'add' : 'subtract',
+              `Invoice ${invoiceId} edited - balance adjustment`,
+              invoiceId,
+              `EDIT-${invoiceId}`,
+              true // Skip transaction since we're already in one
+            );
+
+            this.clearCustomerCaches();
+            console.log(`✅ [EDIT-INVOICE] Customer balance updated by ${balanceChange > 0 ? '+' : ''}${balanceChange.toFixed(2)}`);
+          } catch (balanceError) {
+            console.error('❌ [EDIT-INVOICE] Failed to update balance through CustomerBalanceManager:', balanceError);
+            // Fallback to direct update
+            await this.dbConnection.execute(
+              'UPDATE customers SET balance = balance + ?, updated_at = ? WHERE id = ?',
+              [balanceChange, getCurrentSystemDateTime().dbTimestamp, existingInvoice.customer_id]
+            );
+            console.log('⚠️ [EDIT-INVOICE] Used fallback direct balance update');
+          }
+        }
+
+        // Commit transaction
+        await this.dbConnection.execute('COMMIT');
+
+        // Emit real-time update events
+        this.emitInvoiceUpdatedEvents(invoiceId, existingInvoice);
+
+        const executionTime = Date.now() - startTime;
+        console.log(`✅ [EDIT-INVOICE] Invoice ${invoiceId} updated successfully in ${executionTime}ms`);
+
+        return {
+          success: true,
+          data: { invoiceId, executionTime },
+          executionTime,
+          affectedRows: 1
+        };
+
+      } catch (error) {
+        // Rollback on error
+        await this.dbConnection.execute('ROLLBACK');
+        throw error;
+      }
+
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      console.error(`❌ [EDIT-INVOICE] Failed to update invoice ${invoiceId}:`, error);
+
+      return {
+        success: false,
+        error: error as DatabaseError,
+        executionTime
+      };
+    }
+  }
+
+  /**
+   * Emit events for invoice updates
+   */
+  private emitInvoiceUpdatedEvents(invoiceId: number, originalInvoice: any): void {
+    try {
+      eventBus.emit(BUSINESS_EVENTS.INVOICE_UPDATED, {
+        invoiceId: invoiceId,
+        billNumber: originalInvoice.bill_number,
+        customerId: originalInvoice.customer_id,
+        customerName: originalInvoice.customer_name,
+        timestamp: getCurrentSystemDateTime().dbTimestamp
+      });
+
+      eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+        message: `Stock updated from invoice ${originalInvoice.bill_number} edit`
+      });
+
+      eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+        customerId: originalInvoice.customer_id,
+        customerName: originalInvoice.customer_name
+      });
+
+      console.log(`🚀 Real-time update events emitted for invoice ${originalInvoice.bill_number}`);
+    } catch (error) {
+      console.warn('Could not emit invoice updated events:', error);
+    }
+  }
+
+  /**
+   * Enhanced delete with validation
+   */
+  async deleteInvoiceWithValidation(invoiceId: number): Promise<DatabaseOperationResult> {
+    const startTime = Date.now();
+
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Get invoice details for validation
+      const invoice = await this.getInvoiceDetails(invoiceId);
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // BUSINESS RULE: Cannot delete paid or partially paid invoices
+      if (invoice.payment_amount > 0) {
+        throw new Error('Cannot delete invoices with payments. Please process refunds first.');
+      }
+
+      // Check for associated returns
+      const returns = await this.dbConnection.select(
+        'SELECT COUNT(*) as count FROM returns WHERE original_invoice_id = ?',
+        [invoiceId]
+      );
+
+      if (returns[0]?.count > 0) {
+        throw new Error('Cannot delete invoice with associated returns. Please handle returns first.');
+      }
+
+      // Proceed with deletion
+      await this.deleteInvoice(invoiceId);
+
+      const executionTime = Date.now() - startTime;
+      console.log(`✅ [DELETE-INVOICE] Invoice ${invoiceId} deleted successfully in ${executionTime}ms`);
+
+      return {
+        success: true,
+        data: { invoiceId, executionTime },
+        executionTime,
+        affectedRows: 1
+      };
+
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      console.error(`❌ [DELETE-INVOICE] Failed to delete invoice ${invoiceId}:`, error);
+
+      return {
+        success: false,
+        error: error as DatabaseError,
+        executionTime
+      };
     }
   }
 
@@ -11059,7 +11842,8 @@ export class DatabaseService {
             'subtract',
             `Payment for invoice ${sanitizedPayment.invoice_id}`,
             paymentId,
-            `PAY-${paymentId}`
+            `PAY-${paymentId}`,
+            true // skipTransaction - we're already in a transaction
           );
 
           // Clear all customer caches to force fresh data
@@ -15946,10 +16730,10 @@ export class DatabaseService {
             COALESCE(c.name, p.customer_name) as actual_customer_name,
             COALESCE(i.bill_number, p.reference, CAST(p.id as TEXT)) as reference_number,
             i.bill_number as invoice_number,
-            p.reference_invoice_id
+            p.invoice_id
           FROM payments p
           LEFT JOIN customers c ON p.customer_id = c.id
-          LEFT JOIN invoices i ON p.reference_invoice_id = i.id
+          LEFT JOIN invoices i ON p.invoice_id = i.id
           WHERE p.payment_channel_id = ?
           ORDER BY p.date DESC, p.time DESC
           LIMIT ?

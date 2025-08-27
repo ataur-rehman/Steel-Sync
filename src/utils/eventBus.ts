@@ -13,7 +13,7 @@ class EventBus {
       this.events[event] = [];
     }
     this.events[event].push(callback);
-    
+
     if (this.debug) {
       console.log(`🔔 EventBus: Registered listener for '${event}' (${this.events[event].length} total listeners)`);
     }
@@ -23,7 +23,7 @@ class EventBus {
     if (this.events[event]) {
       const originalLength = this.events[event].length;
       this.events[event] = this.events[event].filter(cb => cb !== callback);
-      
+
       if (this.debug) {
         console.log(`🔇 EventBus: Removed listener for '${event}' (${originalLength} -> ${this.events[event].length} listeners)`);
       }
@@ -34,18 +34,18 @@ class EventBus {
     if (this.debug) {
       console.log(`🚀 EventBus: Emitting '${event}'`, data);
     }
-    
+
     if (this.events[event]) {
       const listeners = this.events[event];
-      
+
       if (this.debug) {
         console.log(`📢 EventBus: Notifying ${listeners.length} listeners for '${event}'`);
       }
-      
+
       listeners.forEach((callback, index) => {
         try {
           callback(data);
-          
+
           if (this.debug) {
             console.log(`✅ EventBus: Listener ${index + 1}/${listeners.length} executed successfully for '${event}'`);
           }
@@ -63,7 +63,7 @@ class EventBus {
     if (event) {
       return this.events[event]?.length || 0;
     }
-    
+
     const counts: { [key: string]: number } = {};
     Object.keys(this.events).forEach(eventName => {
       counts[eventName] = this.events[eventName].length;
@@ -90,23 +90,23 @@ export const BUSINESS_EVENTS = {
   INVOICE_UPDATED: 'invoice:updated',
   INVOICE_DELETED: 'invoice:deleted',
   INVOICE_PAYMENT_RECEIVED: 'invoice:payment_received',
-  
+
   // Stock events
   STOCK_UPDATED: 'stock:updated',
   STOCK_MOVEMENT_CREATED: 'stock:movement_created',
   STOCK_ADJUSTMENT_MADE: 'stock:adjustment_made',
-  
+
   // Customer events
   CUSTOMER_CREATED: 'customer:created',
   CUSTOMER_UPDATED: 'customer:updated',
   CUSTOMER_DELETED: 'customer:deleted',
   CUSTOMER_BALANCE_UPDATED: 'customer:balance_updated',
-  
+
   // Product events
   PRODUCT_CREATED: 'product:created',
   PRODUCT_UPDATED: 'product:updated',
   PRODUCT_DELETED: 'product:deleted',
-  
+
   // Vendor events
   VENDOR_CREATED: 'vendor:created',
   VENDOR_UPDATED: 'vendor:updated',
@@ -114,7 +114,7 @@ export const BUSINESS_EVENTS = {
   VENDOR_PAYMENT_CREATED: 'vendor:payment_created',
   VENDOR_BALANCE_UPDATED: 'vendor:balance_updated',
   VENDOR_FINANCIAL_UPDATED: 'vendor:financial_updated',
-  
+
   // Staff events
   STAFF_CREATED: 'staff:created',
   STAFF_UPDATED: 'staff:updated',
@@ -122,12 +122,12 @@ export const BUSINESS_EVENTS = {
   STAFF_STATUS_CHANGED: 'staff:status_changed',
   STAFF_LOGIN: 'staff:login',
   STAFF_LOGOUT: 'staff:logout',
-  
+
   // Ledger events
   CUSTOMER_LEDGER_UPDATED: 'customer_ledger:updated',
   DAILY_LEDGER_UPDATED: 'daily_ledger:updated',
   PAYMENT_RECORDED: 'payment:recorded',
-  
+
   // Return events (existing)
   RETURN_CREATED: 'return:created',
   RETURN_PROCESSED: 'return:processed',
@@ -157,16 +157,16 @@ registerDefaultListeners();
 // Helper function to trigger refresh for all relevant components after invoice creation
 export const triggerInvoiceCreatedRefresh = (invoiceData: any) => {
   console.log('🔄 Triggering refresh for all components after invoice creation...');
-  
+
   // Emit events to refresh different components
   eventBus.emit(BUSINESS_EVENTS.INVOICE_CREATED, invoiceData);
-  eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, { 
-    reason: 'invoice_created', 
+  eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+    reason: 'invoice_created',
     invoiceId: invoiceData.id,
     billNumber: invoiceData.bill_number,
     products: invoiceData.items?.map((item: any) => item.product_id) || []
   });
-  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, { 
+  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
     customerId: invoiceData.customer_id,
     customerName: invoiceData.customer_name,
     amount: invoiceData.remaining_balance
@@ -180,7 +180,7 @@ export const triggerInvoiceCreatedRefresh = (invoiceData: any) => {
     type: 'invoice_created',
     amount: invoiceData.payment_amount || 0
   });
-  
+
   if (invoiceData.payment_amount > 0) {
     eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, {
       customerId: invoiceData.customer_id,
@@ -189,14 +189,70 @@ export const triggerInvoiceCreatedRefresh = (invoiceData: any) => {
       invoiceId: invoiceData.id
     });
   }
-  
+
   console.log('✅ All refresh events emitted for invoice creation');
+};
+
+// Helper function to trigger refresh for invoice updates
+export const triggerInvoiceUpdatedRefresh = (invoiceData: any) => {
+  console.log('🔄 Triggering refresh for all components after invoice update...');
+
+  // Emit events to refresh different components
+  eventBus.emit(BUSINESS_EVENTS.INVOICE_UPDATED, invoiceData);
+  eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+    reason: 'invoice_updated',
+    invoiceId: invoiceData.id,
+    billNumber: invoiceData.bill_number,
+    products: invoiceData.items?.map((item: any) => item.product_id) || []
+  });
+  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+    customerId: invoiceData.customer_id,
+    customerName: invoiceData.customer_name
+  });
+  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, {
+    customerId: invoiceData.customer_id,
+    invoiceId: invoiceData.id
+  });
+  eventBus.emit(BUSINESS_EVENTS.DAILY_LEDGER_UPDATED, {
+    date: new Date().toISOString().split('T')[0],
+    type: 'invoice_updated'
+  });
+
+  console.log('✅ All refresh events emitted for invoice update');
+};
+
+// Helper function to trigger refresh for invoice deletion
+export const triggerInvoiceDeletedRefresh = (invoiceData: any) => {
+  console.log('🔄 Triggering refresh for all components after invoice deletion...');
+
+  // Emit events to refresh different components
+  eventBus.emit(BUSINESS_EVENTS.INVOICE_DELETED, invoiceData);
+  eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
+    reason: 'invoice_deleted',
+    invoiceId: invoiceData.id,
+    billNumber: invoiceData.bill_number,
+    products: invoiceData.items?.map((item: any) => item.product_id) || []
+  });
+  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+    customerId: invoiceData.customer_id,
+    customerName: invoiceData.customer_name
+  });
+  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, {
+    customerId: invoiceData.customer_id,
+    invoiceId: invoiceData.id
+  });
+  eventBus.emit(BUSINESS_EVENTS.DAILY_LEDGER_UPDATED, {
+    date: new Date().toISOString().split('T')[0],
+    type: 'invoice_deleted'
+  });
+
+  console.log('✅ All refresh events emitted for invoice deletion');
 };
 
 // Helper function to trigger refresh for payment updates
 export const triggerPaymentReceivedRefresh = (paymentData: any) => {
   console.log('🔄 Triggering refresh for payment received...');
-  
+
   eventBus.emit(BUSINESS_EVENTS.INVOICE_PAYMENT_RECEIVED, paymentData);
   eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, paymentData);
   eventBus.emit(BUSINESS_EVENTS.CUSTOMER_LEDGER_UPDATED, paymentData);
@@ -207,7 +263,7 @@ export const triggerPaymentReceivedRefresh = (paymentData: any) => {
 // Helper function to trigger refresh for stock adjustments
 export const triggerStockAdjustmentRefresh = (adjustmentData: any) => {
   console.log('🔄 Triggering refresh for stock adjustment...');
-  
+
   eventBus.emit(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, adjustmentData);
   eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, adjustmentData);
   eventBus.emit(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, adjustmentData);
@@ -216,30 +272,30 @@ export const triggerStockAdjustmentRefresh = (adjustmentData: any) => {
 // Helper function to trigger refresh for all relevant components after return processing
 export const triggerReturnProcessedRefresh = (returnData: any) => {
   console.log('🔄 Triggering refresh for all components after return processing...');
-  
+
   // Emit events to refresh different components
   eventBus.emit(BUSINESS_EVENTS.RETURN_PROCESSED, returnData);
-  eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, { 
+  eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
     productIds: returnData.items?.map((item: any) => item.product_id) || []
   });
-  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, { 
-    customerId: returnData.customer_id 
+  eventBus.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+    customerId: returnData.customer_id
   });
-  eventBus.emit(BUSINESS_EVENTS.DAILY_LEDGER_UPDATED, { 
-    date: new Date().toISOString().split('T')[0] 
+  eventBus.emit(BUSINESS_EVENTS.DAILY_LEDGER_UPDATED, {
+    date: new Date().toISOString().split('T')[0]
   });
-  
+
   console.log('✅ Refresh events triggered for all components');
 };
 
 // Helper function to trigger refresh for vendor payments
 export const triggerVendorPaymentRefresh = (paymentData: any) => {
   console.log('🔄 Triggering refresh for vendor payment...');
-  
+
   eventBus.emit(BUSINESS_EVENTS.VENDOR_PAYMENT_CREATED, paymentData);
   eventBus.emit(BUSINESS_EVENTS.VENDOR_BALANCE_UPDATED, paymentData);
   eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, paymentData);
-  
+
   console.log('✅ All refresh events emitted for vendor payment');
 };
 

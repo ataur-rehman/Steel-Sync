@@ -117,24 +117,58 @@ export default function InvoiceView() {
   };
 
   const handleEdit = () => {
+    if (!invoice) return;
+
+    // Check if invoice can be edited
+    if (invoice.amount_paid > 0 && invoice.payment_status === 'paid') {
+      toast.error('Cannot edit fully paid invoices');
+      return;
+    }
     navigate(`/billing/edit/${id}`);
   };
 
   const handleDelete = async () => {
     if (!invoice) return;
 
+    // Enhanced validation before deletion
+    if (invoice.amount_paid > 0) {
+      toast.error('Cannot delete invoices with payments. Please process refunds first.');
+      return;
+    }
+
     const confirmed = window.confirm(
-      `Are you sure you want to delete Invoice #${formatInvoiceNumber(invoice.bill_number)}? This action cannot be undone.`
+      `⚠️ PERMANENT DELETE WARNING ⚠️\n\nInvoice: #${formatInvoiceNumber(invoice.bill_number)}\nCustomer: ${invoice.customer_name}\nAmount: ${formatCurrency(invoice.grand_total)}\n\nThis will:\n• Delete the invoice permanently\n• Restore product stock\n• Adjust customer balance\n• Cannot be undone\n\nAre you absolutely sure?`
     );
 
     if (confirmed) {
+      const loadingToast = toast.loading('Deleting invoice...');
+
       try {
-        await db.deleteInvoice(invoice.id);
-        toast.success('Invoice deleted successfully');
-        navigate('/billing/list');
-      } catch (err) {
+        const result = await db.deleteInvoiceWithValidation(invoice.id);
+
+        if (result.success) {
+          // Trigger refresh events for all components
+          import('../../utils/eventBus').then(({ triggerInvoiceDeletedRefresh }) => {
+            triggerInvoiceDeletedRefresh({
+              id: invoice.id,
+              bill_number: invoice.bill_number,
+              customer_id: invoice.customer_id,
+              customer_name: invoice.customer_name,
+              items: invoiceItems
+            });
+          });
+
+          toast.dismiss(loadingToast);
+          toast.success('Invoice deleted successfully');
+          navigate('/billing/list');
+        } else {
+          toast.dismiss(loadingToast);
+          toast.error(result.error?.message || 'Failed to delete invoice');
+        }
+      } catch (err: any) {
+        toast.dismiss(loadingToast);
         console.error('Error deleting invoice:', err);
-        toast.error('Failed to delete invoice');
+        toast.error(err.message || 'Failed to delete invoice');
       }
     }
   };
