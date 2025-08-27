@@ -40,10 +40,11 @@ export default function InvoiceDetailsPage() {
   }
 
   return (
-    <InvoiceDetails 
-      invoiceId={invoiceId} 
+    <InvoiceDetails
+      invoiceId={invoiceId}
       onClose={handleClose}
       onUpdate={handleUpdate}
+      mode="edit"
     />
   );
 }

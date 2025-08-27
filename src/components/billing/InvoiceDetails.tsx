@@ -37,6 +37,7 @@ interface InvoiceDetailsProps {
   invoiceId: number;
   onClose: () => void;
   onUpdate?: () => void;
+  mode?: 'view' | 'edit'; // New prop to control edit/view mode
 }
 
 interface InvoiceItem {
@@ -107,7 +108,7 @@ interface Product {
   grade?: string;
 }
 
-const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onUpdate }) => {
+const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onUpdate, mode = 'edit' }) => {
   const [invoice, setInvoice] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1234,14 +1235,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 <h3 className="font-medium text-gray-900">
                   Items ({invoice.items?.length || 0})
                 </h3>
-                <button
-                  onClick={() => setShowAddItem(true)}
-                  disabled={saving}
-                  className="flex items-center space-x-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>Add Item</span>
-                </button>
+                {mode === 'edit' && (
+                  <button
+                    onClick={() => setShowAddItem(true)}
+                    disabled={saving}
+                    className="flex items-center space-x-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add Item</span>
+                  </button>
+                )}
               </div>
 
               <div className="overflow-x-auto">
@@ -1489,7 +1492,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                     }
                                     return <span className="text-sm">{item.quantity}</span>;
                                   })()}
-                                  {(() => {
+                                  {mode === 'edit' && (() => {
                                     // Check if this is a T-Iron item with calculation data
                                     const isTIronProduct = item.product_name && (
                                       item.product_name.toLowerCase().includes('t-iron') ||
@@ -1543,7 +1546,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           <td className="px-4 py-3">
                             <div className="flex items-center space-x-1">
                               {/* Return button - only for non-misc items with product_id */}
-                              {!item.is_misc_item && item.product_id && (
+                              {mode === 'edit' && !item.is_misc_item && item.product_id && (
                                 <button
                                   onClick={() => openReturnModal(item)}
                                   disabled={saving}
@@ -1554,14 +1557,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                 </button>
                               )}
                               {/* Remove button */}
-                              <button
-                                onClick={() => handleRemoveItem(item.id)}
-                                disabled={saving}
-                                className="p-1 text-red-600 hover:text-red-800 disabled:opacity-50"
-                                title="Remove Item"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              {mode === 'edit' && (
+                                <button
+                                  onClick={() => handleRemoveItem(item.id)}
+                                  disabled={saving}
+                                  className="p-1 text-red-600 hover:text-red-800 disabled:opacity-50"
+                                  title="Remove Item"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1615,7 +1620,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   Payments ({invoice.payments?.length || 0})
                 </h3>
                 <div className="flex items-center space-x-2">
-                  {invoice.remaining_balance > 0 && (
+                  {mode === 'edit' && invoice.remaining_balance > 0 && (
                     <button
                       onClick={() => setShowAddPayment(true)}
                       disabled={saving}
@@ -1707,7 +1712,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 <div className="px-4 py-8 text-center">
                   <CreditCard className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500 mb-4">No payments recorded</p>
-                  {invoice.remaining_balance > 0 && (
+                  {mode === 'edit' && invoice.remaining_balance > 0 && (
                     <button
                       onClick={() => setShowAddPayment(true)}
                       className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"

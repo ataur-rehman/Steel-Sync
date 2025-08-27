@@ -13,6 +13,7 @@ import {
   Search,
   Filter,
   Eye,
+  Edit,
   FileText,
   User,
 
@@ -108,6 +109,9 @@ const InvoiceList: React.FC = () => {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Invoice mode state
+  const [invoiceMode, setInvoiceMode] = useState<'view' | 'edit'>('view');
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -403,10 +407,27 @@ const InvoiceList: React.FC = () => {
   // YOUR ORIGINAL viewInvoiceDetails function
   const viewInvoiceDetails = async (invoice: Invoice) => {
     try {
-      console.log('Loading invoice details for ID:', invoice.id);
       const invoiceDetails = await db.getInvoiceDetails(invoice.id);
       if (invoiceDetails) {
         setSelectedInvoice(invoiceDetails);
+        setInvoiceMode('view');
+        setShowInvoiceModal(true);
+      } else {
+        toast.error('Invoice details not found');
+      }
+    } catch (error) {
+      console.error('Failed to load invoice details:', error);
+      toast.error('Failed to load invoice details');
+    }
+  };
+
+  // Edit invoice details function
+  const editInvoiceDetails = async (invoice: Invoice) => {
+    try {
+      const invoiceDetails = await db.getInvoiceDetails(invoice.id);
+      if (invoiceDetails) {
+        setSelectedInvoice(invoiceDetails);
+        setInvoiceMode('edit');
         setShowInvoiceModal(true);
       } else {
         toast.error('Invoice details not found');
@@ -883,6 +904,18 @@ const InvoiceList: React.FC = () => {
                         <Eye className="h-3 w-3 mr-1" />
                         View
                       </button>
+
+                      {/* Edit button - only show for unpaid invoices */}
+                      {invoice.remaining_balance > 0 && (
+                        <button
+                          onClick={() => editInvoiceDetails(invoice)}
+                          className="flex-1 flex items-center justify-center px-3 py-2 text-xs font-medium text-orange-600 bg-orange-50 rounded-lg hover:bg-orange-100 transition-colors"
+                        >
+                          <Edit className="h-3 w-3 mr-1" />
+                          Edit
+                        </button>
+                      )}
+
                       <button
                         onClick={() => printInvoice(invoice)}
                         className="flex-1 flex items-center justify-center px-3 py-2 text-xs font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
@@ -1048,6 +1081,17 @@ const InvoiceList: React.FC = () => {
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
+
+                              {/* Edit button - only show for unpaid invoices */}
+                              {invoice.remaining_balance > 0 && (
+                                <button
+                                  onClick={() => editInvoiceDetails(invoice)}
+                                  className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                                  title="Edit Invoice"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </button>
+                              )}
 
                               <button
                                 onClick={() => viewInvoiceStockImpact(invoice.id)}
@@ -1297,7 +1341,9 @@ const InvoiceList: React.FC = () => {
       {/* Invoice Details Modal - Direct render without nested Modal */}
       {showInvoiceModal && selectedInvoice && (
         <InvoiceDetails
+          key={`${selectedInvoice.id}-${invoiceMode}`}
           invoiceId={selectedInvoice.id}
+          mode={invoiceMode}
           onUpdate={async () => {
             console.log('🔄 [InvoiceList] Invoice details updated, refreshing list...');
             await refreshData();
