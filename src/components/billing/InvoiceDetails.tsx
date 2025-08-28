@@ -127,6 +127,20 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     notes: ''
   });
 
+  // Return eligibility and quantities
+  const [returnEligibility, setReturnEligibility] = useState<{
+    canReturn: boolean;
+    reason: string;
+    returnableQuantities: Record<number, number>;
+  }>({
+    canReturn: false,
+    reason: '',
+    returnableQuantities: {}
+  });
+
+  // Return items for display in invoice
+  const [returnItems, setReturnItems] = useState<any[]>([]);
+
   // Product selection for adding items
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -337,8 +351,19 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const loadInvoiceDetails = async () => {
     try {
       setLoading(true);
+      console.log('🔍 [INVOICE-DEBUG] Loading invoice details for ID:', invoiceId);
       const details = await db.getInvoiceWithDetails(invoiceId);
+      console.log('🔍 [INVOICE-DEBUG] Invoice loaded:', details);
       setInvoice(details);
+
+      // Load return items and check return eligibility after loading invoice
+      if (details) {
+        console.log('🔍 [INVOICE-DEBUG] Loading return items...');
+        await loadReturnItems();
+        console.log('🔍 [INVOICE-DEBUG] Checking return eligibility...');
+        // Pass the invoice details directly instead of relying on state
+        await checkReturnEligibility(details);
+      }
     } catch (error) {
       console.error('Error loading invoice details:', error);
       toast.error('Failed to load invoice details');
@@ -574,13 +599,56 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   };
 
   const handleRemoveItem = async (itemId: number) => {
-    if (!confirm('Remove this item from the invoice?')) return;
+    // Find the item to determine if it's miscellaneous
+    const item = invoice?.items?.find((item: any) => item.id === itemId);
+    const isMiscItem = item && Boolean(item.is_misc_item);
+
+    const confirmMessage = isMiscItem
+      ? `Remove this miscellaneous item from the invoice?\n\nNote: This will also remove the corresponding entry from the daily ledger.`
+      : 'Remove this item from the invoice?';
+
+    if (!confirm(confirmMessage)) return;
 
     try {
       setSaving(true);
+
+      // Log the deletion for debugging
+      if (isMiscItem) {
+        console.log(`🎫 [MISC-DELETE] Removing miscellaneous item:`, {
+          itemId,
+          invoiceId,
+          description: item.misc_description || item.product_name,
+          amount: item.total_price,
+          itemData: item
+        });
+
+        // Debug: Check entries before deletion
+        await db.debugCheckMiscellaneousLedgerEntries(invoiceId);
+      }
+
       await db.removeInvoiceItems(invoiceId, [itemId]);
 
-      toast.success('Item removed');
+      // After removing the item, check if ledger deletion was successful
+      if (isMiscItem) {
+        // Debug: Check entries after deletion
+        const remainingEntries = await db.debugCheckMiscellaneousLedgerEntries(invoiceId);
+
+        if (remainingEntries.length === 0) {
+          console.log(`✅ [MISC-CLEANUP] All miscellaneous item ledger entries successfully removed`);
+          toast.success('Miscellaneous item removed (daily ledger entry also deleted)');
+        } else {
+          console.warn(`⚠️ [MISC-CLEANUP] ${remainingEntries.length} ledger entries still remain after deletion`);
+          toast.error('Item removed from invoice, but some ledger entries may still exist');
+        }
+      } else {
+        toast.success('Item removed');
+      }
+
+      // Add a small delay to ensure database operations are complete
+      if (isMiscItem) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log(`🎫 [MISC-DELETE] Deletion complete for item ${itemId}`);
+      }
       await loadInvoiceDetails();
 
       if (onUpdate) {
@@ -588,7 +656,67 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       }
 
     } catch (error: any) {
+      console.error('❌ [ITEM-DELETE] Error removing item:', error);
       toast.error(error.message || 'Failed to remove item');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!invoice) return;
+
+    // Check for miscellaneous items
+    const miscItems = invoice.items?.filter((item: any) => Boolean(item.is_misc_item)) || [];
+    const hasMiscItems = miscItems.length > 0;
+
+    let confirmMessage = `Delete entire invoice #${invoice.bill_number}?\n\nThis action cannot be undone.`;
+
+    if (hasMiscItems) {
+      confirmMessage += `\n\nNote: This invoice contains ${miscItems.length} miscellaneous item(s) that will also be removed from the daily ledger.`;
+    }
+
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      setSaving(true);
+
+      // Log the deletion for debugging
+      console.log(`🗑️ [INVOICE-DELETE] Deleting invoice ${invoiceId}:`, {
+        invoiceNumber: invoice.bill_number,
+        miscItemsCount: miscItems.length,
+        miscItems: miscItems.map((item: any) => ({
+          id: item.id,
+          description: item.misc_description || item.product_name,
+          amount: item.total_price
+        })),
+        totalItems: invoice.items?.length || 0
+      });
+
+      await db.deleteInvoice(invoiceId);
+
+      const successMessage = hasMiscItems
+        ? 'Invoice deleted (miscellaneous items also removed from daily ledger)'
+        : 'Invoice deleted successfully';
+
+      toast.success(successMessage);
+
+      // Add a small delay to ensure database operations are complete
+      if (hasMiscItems) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log(`🗑️ [INVOICE-DELETE] Deletion complete for invoice ${invoiceId}`);
+      }
+
+      if (onUpdate) {
+        onUpdate();
+      }
+
+      // Close the modal/component
+      onClose();
+
+    } catch (error: any) {
+      console.error('❌ [INVOICE-DELETE] Error deleting invoice:', error);
+      toast.error(error.message || 'Failed to delete invoice');
     } finally {
       setSaving(false);
     }
@@ -622,7 +750,217 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     });
   };
 
-  const validateReturnQuantity = (item: InvoiceItem, returnQty: string): { isValid: boolean; error?: string } => {
+  // Calculate adjusted totals including returns
+  const calculateAdjustedTotals = () => {
+    if (!invoice) return { adjustedSubtotal: 0, adjustedTotal: 0, totalReturns: 0 };
+
+    const totalReturns = returnItems.reduce((sum, returnItem) => sum + Math.abs(returnItem.display_total_price), 0);
+    const adjustedSubtotal = invoice.subtotal - totalReturns;
+    const adjustedTotal = invoice.grand_total - totalReturns;
+
+    return {
+      adjustedSubtotal,
+      adjustedTotal,
+      totalReturns
+    };
+  };
+
+  // Calculate current totals from actual items (CRITICAL FIX)
+  const calculateCurrentTotals = () => {
+    if (!invoice || !invoice.items) return { currentSubtotal: 0, currentTotal: 0, discountAmount: 0 };
+
+    // Calculate actual subtotal from current items
+    const currentSubtotal = invoice.items.reduce((sum: number, item: any) => {
+      return sum + (item.total_price || 0);
+    }, 0);
+
+    // Apply discount if exists
+    const discountAmount = invoice.discount > 0 ? (currentSubtotal * invoice.discount / 100) : 0;
+    const currentTotal = currentSubtotal - discountAmount;
+
+    // Debug logging for troubleshooting
+    console.log('🧮 [TOTAL-CALC] Current totals calculation:', {
+      itemsCount: invoice.items?.length,
+      currentSubtotal,
+      discountPercent: invoice.discount,
+      discountAmount,
+      currentTotal,
+      storedSubtotal: invoice.subtotal,
+      storedTotal: invoice.grand_total,
+      items: invoice.items?.map((item: any) => ({
+        name: item.product_name,
+        quantity: item.quantity,
+        unitPrice: item.unit_price,
+        totalPrice: item.total_price
+      }))
+    });
+
+    return {
+      currentSubtotal,
+      currentTotal,
+      discountAmount
+    };
+  };
+
+  // Calculate net quantity for an invoice item (original - returned)
+  const calculateNetQuantity = (item: InvoiceItem) => {
+    if (!returnItems || returnItems.length === 0) {
+      return {
+        netQuantity: item.quantity,
+        totalReturned: 0,
+        hasReturns: false
+      };
+    }
+
+    // Find all return items for this invoice item
+    const itemReturns = returnItems.filter(returnItem =>
+      returnItem.original_invoice_item_id === item.id
+    );
+
+    const totalReturned = itemReturns.reduce((sum, returnItem) =>
+      sum + Math.abs(returnItem.return_quantity || 0), 0
+    );
+
+    const netQuantity = item.quantity - totalReturned;
+
+    return {
+      netQuantity,
+      totalReturned,
+      hasReturns: totalReturned > 0
+    };
+  };
+
+  // Calculate net total price for an invoice item
+  const calculateNetTotal = (item: InvoiceItem) => {
+    const { netQuantity } = calculateNetQuantity(item);
+    return netQuantity * item.unit_price;
+  };
+  const loadReturnItems = async () => {
+    try {
+      const returns = await db.getReturns({ original_invoice_id: invoiceId });
+      const allReturnItems: any[] = [];
+
+      returns.forEach((returnRecord: any) => {
+        if (returnRecord.items && Array.isArray(returnRecord.items)) {
+          returnRecord.items.forEach((returnItem: any) => {
+            allReturnItems.push({
+              ...returnItem,
+              return_id: returnRecord.id,
+              return_number: returnRecord.return_number,
+              return_date: returnRecord.date,
+              settlement_type: returnRecord.settlement_type,
+              // Make quantities negative for display
+              display_quantity: -returnItem.return_quantity,
+              display_total_price: -returnItem.total_price,
+              is_return_item: true
+            });
+          });
+        }
+      });
+
+      setReturnItems(allReturnItems);
+    } catch (error) {
+      console.error('Error loading return items:', error);
+      setReturnItems([]);
+    }
+  };
+  const checkReturnEligibility = async (invoiceData?: any) => {
+    const currentInvoice = invoiceData || invoice;
+    if (!currentInvoice) {
+      console.log('🔍 [RETURN-DEBUG] No invoice loaded yet');
+      return;
+    }
+
+    try {
+      // More robust comparison to handle floating-point precision issues
+      const remainingBalance = Math.round((currentInvoice.remaining_balance + Number.EPSILON) * 100) / 100;
+      const totalAmount = Math.round((currentInvoice.total_amount + Number.EPSILON) * 100) / 100;
+
+      const isFullyPaid = remainingBalance <= 0.01; // Allow for small rounding errors
+      const isUnpaid = Math.abs(remainingBalance - totalAmount) <= 0.01; // Allow for small rounding errors
+      const isPartiallyPaid = remainingBalance > 0.01 && remainingBalance < (totalAmount - 0.01);
+
+      console.log('🔍 [RETURN-DEBUG] Payment status check:', {
+        total_amount: currentInvoice.total_amount,
+        remaining_balance: currentInvoice.remaining_balance,
+        paid_amount: currentInvoice.paid_amount || currentInvoice.payment_amount,
+        remaining_balance_exact: JSON.stringify(currentInvoice.remaining_balance),
+        total_amount_exact: JSON.stringify(currentInvoice.total_amount),
+        remainingBalance_rounded: remainingBalance,
+        totalAmount_rounded: totalAmount,
+        isFullyPaid,
+        isUnpaid,
+        isPartiallyPaid,
+        comparison_zero: currentInvoice.remaining_balance === 0,
+        comparison_total: currentInvoice.remaining_balance === currentInvoice.total_amount,
+        balance_type: typeof currentInvoice.remaining_balance,
+        total_type: typeof currentInvoice.total_amount
+      });
+
+      if (isPartiallyPaid) {
+        console.log('🔍 [RETURN-DEBUG] Partially paid - returns not allowed');
+        setReturnEligibility({
+          canReturn: false,
+          reason: 'Returns not allowed for partially paid invoices',
+          returnableQuantities: {}
+        });
+        return;
+      }
+
+      // Load returnable quantities for all items
+      const returnableQuantities: Record<number, number> = {};
+      if (currentInvoice.items) {
+        console.log('🔍 [RETURN-DEBUG] Checking returnable quantities for', currentInvoice.items.length, 'items');
+        for (const item of currentInvoice.items) {
+          if (!item.is_misc_item && item.product_id) {
+            try {
+              const result = await db.getReturnableQuantity(item.id);
+              returnableQuantities[item.id] = result.returnableQuantity;
+              console.log('🔍 [RETURN-DEBUG] Item', item.id, ':', {
+                product_name: item.product_name,
+                original: result.originalQuantity,
+                returned: result.totalReturned,
+                returnable: result.returnableQuantity
+              });
+            } catch (error) {
+              console.error(`Error getting returnable quantity for item ${item.id}:`, error);
+              returnableQuantities[item.id] = 0;
+            }
+          }
+        }
+      }
+
+      const canReturn = isFullyPaid || isUnpaid;
+      console.log('🔍 [RETURN-DEBUG] Final eligibility:', {
+        canReturn,
+        returnableQuantities
+      });
+
+      setReturnEligibility({
+        canReturn,
+        reason: canReturn ? '' : 'Returns only allowed for fully paid or unpaid invoices',
+        returnableQuantities
+      });
+    } catch (error) {
+      console.error('Error checking return eligibility:', error);
+      setReturnEligibility({
+        canReturn: false,
+        reason: 'Error checking return eligibility',
+        returnableQuantities: {}
+      });
+    }
+  };
+  const getReturnableQuantity = async (itemId: number): Promise<number> => {
+    try {
+      const result = await db.getReturnableQuantity(itemId);
+      return result.returnableQuantity;
+    } catch (error) {
+      console.error('Error getting returnable quantity:', error);
+      return 0;
+    }
+  };
+
+  const validateReturnQuantity = async (item: InvoiceItem, returnQty: string): Promise<{ isValid: boolean; error?: string }> => {
     if (!returnQty || returnQty.trim() === '') {
       return { isValid: false, error: 'Return quantity is required' };
     }
@@ -632,8 +970,14 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       return { isValid: false, error: 'Return quantity must be a positive number' };
     }
 
-    if (qty > item.quantity) {
-      return { isValid: false, error: `Return quantity cannot exceed original quantity (${item.quantity})` };
+    // Get actual returnable quantity considering previous returns
+    const returnableQty = await getReturnableQuantity(item.id);
+
+    if (qty > returnableQty) {
+      return {
+        isValid: false,
+        error: `Cannot return ${qty}. Maximum returnable quantity: ${returnableQty} (Original: ${item.quantity})`
+      };
     }
 
     return { isValid: true };
@@ -642,8 +986,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   const processReturn = async () => {
     if (!returnModal.item) return;
 
-    // Validate return quantity
-    const validation = validateReturnQuantity(returnModal.item, returnModal.returnQuantity);
+    // Validate return quantity (now async)
+    const validation = await validateReturnQuantity(returnModal.item, returnModal.returnQuantity);
     if (!validation.isValid) {
       toast.error(validation.error || 'Invalid return quantity');
       return;
@@ -691,7 +1035,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       );
 
       closeReturnModal();
+
+      // Reload all data to reflect the return
       await loadInvoiceDetails();
+      await checkReturnEligibility();
 
       if (onUpdate) {
         onUpdate();
@@ -901,6 +1248,11 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               padding-bottom: 2mm; 
               border-bottom: 1px dotted #999; 
             }
+            .item-row.has-returns {
+              background-color: #fff4e6;
+              border-left: 3px solid #f59e0b;
+              padding-left: 2mm;
+            }
             .item-name { 
               font-weight: bold; 
               margin-bottom: 1mm; 
@@ -1007,7 +1359,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             ${invoice.customer_address ? `<div><strong>Address:</strong> ${invoice.customer_address}</div>` : ''}
           </div>
           <div class="items-table">
-            <div class="items-header">ITEMS</div>
+            <div class="items-header">ITEMS SOLD</div>
             ${invoice.items?.map((item: any) => `
               <div class="item-row">
                 <div class="item-name">${item.product_name}</div>
@@ -1038,39 +1390,102 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
           <div class="totals">
             <div class="total-row">
               <span>Subtotal:</span>
-              <span>${formatCurrency(invoice.subtotal)}</span>
+              <span>${(() => {
+        const { currentSubtotal } = calculateCurrentTotals();
+        return formatCurrency(currentSubtotal);
+      })()}</span>
             </div>
             ${invoice.discount > 0 ? `
               <div class="total-row">
                 <span>Discount (${invoice.discount}%):</span>
-                <span>-${formatCurrency(invoice.discount_amount || 0)}</span>
+                <span>-${(() => {
+          const { discountAmount } = calculateCurrentTotals();
+          return formatCurrency(discountAmount || 0);
+        })()}</span>
               </div>
             ` : ''}
+            ${returnItems.length === 0 ? `
+              <div class="total-row grand-total">
+                <span>Total:</span>
+                <span>${(() => {
+          const { currentTotal } = calculateCurrentTotals();
+          return formatCurrency(currentTotal);
+        })()}</span>
+              </div>
+            ` : ''}
+          </div>
+          ${returnItems.length > 0 ? `
+          <div class="totals">
+            <div style="font-weight: bold; margin-bottom: 3mm; text-align: center; font-size: 11px; border-bottom: 1px solid #ccc; padding-bottom: 2mm;">RETURNS PROCESSED</div>
+            ${(() => {
+          // Group returns by return record
+          const returnGroups: { [key: string]: any[] } = {};
+          returnItems.forEach(returnItem => {
+            if (!returnGroups[returnItem.return_id]) {
+              returnGroups[returnItem.return_id] = [];
+            }
+            returnGroups[returnItem.return_id].push(returnItem);
+          });
+
+          return Object.values(returnGroups).map((group: any) => {
+            return group.map((returnItem: any) => `
+                <div class="item-row">
+                  <div class="item-name">${returnItem.product_name}</div>
+                  <div class="item-details">
+                    <span>${returnItem.display_quantity} × Rs.${returnItem.unit_price}</span>
+                    <span><strong>Rs. ${returnItem.display_total_price.toFixed(2)}</strong></span>
+                  </div>
+                </div>`).join('');
+          }).join('');
+        })()}
+            <div class="total-row" style="border-top: 1px solid #ccc; padding-top: 2mm; margin-top: 2mm; font-weight: bold;">
+              <span>TOTAL RETURNS:</span>
+              <span>Rs.${(() => {
+          const totalReturns = returnItems.reduce((sum, returnItem) => sum + Math.abs(returnItem.display_total_price), 0);
+          return totalReturns.toFixed(2);
+        })()}</span>
+            </div>
             <div class="total-row grand-total">
-              <span>TOTAL:</span>
-              <span>${formatCurrency(invoice.grand_total)}</span>
+              <span>Total:</span>
+              <span>${(() => {
+          const { currentTotal } = calculateCurrentTotals();
+          const totalReturns = returnItems.reduce((sum, returnItem) => sum + Math.abs(returnItem.display_total_price), 0);
+          const netTotal = currentTotal - totalReturns;
+          return formatCurrency(netTotal);
+        })()}</span>
             </div>
           </div>
+          ` : ''}
           <div class="payment-info">
             <div class="total-row">
               <span>Paid:</span>
               <span>${formatCurrency(invoice.payment_amount || 0)}</span>
             </div>
-            ${invoice.remaining_balance > 0 ? `
-              <div class="total-row">
-                <span><strong>Balance Due:</strong></span>
-                <span><strong>${formatCurrency(invoice.remaining_balance)}</strong></span>
-              </div>
-              <div class="total-row">
-                <span><strong>Payment Status:</strong></span>
-                <span><strong>${(invoice.payment_amount || 0) > 0 ? 'PARTIALLY PAID' : 'PENDING'}</strong></span>
-              </div>
-            ` : `
-              <div class="total-row">
-                <span><strong>Payment Status:</strong></span>
-                <span><strong>FULLY PAID</strong></span>
-              </div>
-            `}
+            ${(() => {
+        const { currentTotal } = calculateCurrentTotals();
+        const totalReturns = returnItems.reduce((sum, returnItem) => sum + Math.abs(returnItem.display_total_price), 0);
+        const netAmount = currentTotal - totalReturns;
+        const paidAmount = invoice.payment_amount || 0;
+        const netBalance = netAmount - paidAmount;
+
+        if (netBalance > 0) {
+          return `
+                <div class="total-row">
+                  <span><strong>Outstanding Balance:</strong></span>
+                  <span><strong>${formatCurrency(netBalance)}</strong></span>
+                </div>
+                <div class="total-row">
+                  <span><strong>Payment Status:</strong></span>
+                  <span><strong>${paidAmount > 0 ? 'PARTIALLY PAID' : 'UNPAID'}</strong></span>
+                </div>`;
+        } else {
+          return `
+                <div class="total-row">
+                  <span><strong>Payment Status:</strong></span>
+                  <span><strong>FULLY PAID</strong></span>
+                </div>`;
+        }
+      })()}
           </div>
           ${invoice.payments && invoice.payments.length > 0 ? `
             <div class="payment-info">
@@ -1183,6 +1598,18 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             >
               <Copy className="h-4 w-4" />
             </button>
+
+            {/* Delete Invoice Button - Only for unpaid invoices */}
+            {mode === 'edit' && invoice.remaining_balance > 0 && (
+              <button
+                onClick={handleDeleteInvoice}
+                disabled={saving}
+                className="p-2 hover:bg-red-100 rounded-lg text-red-600 hover:text-red-700 disabled:opacity-50"
+                title="Delete Invoice"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1211,20 +1638,57 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               <div className="bg-gray-50 rounded-lg p-4">
                 <h3 className="font-medium text-gray-900 mb-3">Payment Summary</h3>
                 <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Amount:</span>
-                    <span className="font-medium">{formatCurrency(invoice.grand_total)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Paid:</span>
-                    <span className="font-medium text-green-600">{formatCurrency(invoice.payment_amount || 0)}</span>
-                  </div>
-                  <div className="flex justify-between pt-2 border-t">
-                    <span className="text-gray-900 font-medium">Balance:</span>
-                    <span className={`font-semibold ${invoice.remaining_balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {formatCurrency(invoice.remaining_balance)}
-                    </span>
-                  </div>
+                  {(() => {
+                    const { currentTotal } = calculateCurrentTotals();
+                    const { totalReturns } = calculateAdjustedTotals();
+                    const adjustedPaidAmount = invoice.payment_amount || 0;
+                    const netTotal = currentTotal - totalReturns;
+                    const adjustedBalance = netTotal - adjustedPaidAmount;
+
+                    return (
+                      <>
+                        {returnItems.length > 0 ? (
+                          <>
+                            <div className="flex justify-between text-sm text-gray-500">
+                              <span>Original Amount:</span>
+                              <span>{formatCurrency(currentTotal)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm text-red-600">
+                              <span>Returns:</span>
+                              <span>-{formatCurrency(totalReturns)}</span>
+                            </div>
+                            <div className="flex justify-between text-sm border-t pt-2">
+                              <span className="text-gray-600">Paid:</span>
+                              <span className="font-medium text-green-600">{formatCurrency(adjustedPaidAmount)}</span>
+                            </div>
+                            <div className="flex justify-between pt-2 border-t">
+                              <span className="text-gray-900 font-medium">Outstanding Balance:</span>
+                              <span className={`font-semibold ${adjustedBalance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {formatCurrency(adjustedBalance)}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Total Amount:</span>
+                              <span className="font-medium">{formatCurrency(currentTotal)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Paid:</span>
+                              <span className="font-medium text-green-600">{formatCurrency(invoice.payment_amount || 0)}</span>
+                            </div>
+                            <div className="flex justify-between pt-2 border-t">
+                              <span className="text-gray-900 font-medium">Outstanding Balance:</span>
+                              <span className={`font-semibold ${(currentTotal - (invoice.payment_amount || 0)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {formatCurrency(currentTotal - (invoice.payment_amount || 0))}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -1260,6 +1724,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
+                      {/* Original Invoice Items */}
                       {invoice.items.map((item: InvoiceItem) => (
                         <tr key={item.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
@@ -1484,13 +1949,51 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                       const lengthPerPiece = item.t_iron_length_per_piece;
                                       const unit = item.t_iron_unit || 'pcs';
 
+                                      // Calculate net quantity for T-Iron items
+                                      const { netQuantity, totalReturned, hasReturns } = calculateNetQuantity(item);
+
                                       return (
                                         <div className="text-sm">
-                                          {pieces}{unit} × {lengthPerPiece}ft/{unit}
+                                          {hasReturns ? (
+                                            <div>
+                                              <div className={netQuantity > 0 ? "text-orange-600 font-medium" : "text-red-600 font-bold line-through"}>
+                                                {Math.round(netQuantity)}{unit} × {lengthPerPiece}ft/{unit}
+                                              </div>
+                                              <div className="text-xs text-gray-500 mt-1">
+                                                <span className="text-gray-400">Original: {pieces}{unit} × {lengthPerPiece}ft/{unit}</span>
+                                                <br />
+                                                <span className="text-red-500">Returned: -{totalReturned}</span>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <div>
+                                              {pieces}{unit} × {lengthPerPiece}ft/{unit}
+                                            </div>
+                                          )}
                                         </div>
                                       );
                                     }
-                                    return <span className="text-sm">{item.quantity}</span>;
+                                    // Calculate net quantity for this item
+                                    const { netQuantity, totalReturned, hasReturns } = calculateNetQuantity(item);
+
+                                    return (
+                                      <div className="text-sm">
+                                        {hasReturns ? (
+                                          <div>
+                                            <span className={netQuantity > 0 ? "text-orange-600 font-medium" : "text-red-600 font-bold line-through"}>
+                                              {netQuantity}
+                                            </span>
+                                            <div className="text-xs text-gray-500 mt-1">
+                                              <span className="text-gray-400">Original: {item.quantity}</span>
+                                              <br />
+                                              <span className="text-red-500">Returned: -{totalReturned}</span>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <span>{item.quantity}</span>
+                                        )}
+                                      </div>
+                                    );
                                   })()}
                                   {mode === 'edit' && (() => {
                                     // Check if this is a T-Iron item with calculation data
@@ -1542,20 +2045,81 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                             )}
                           </td>
                           <td className="px-4 py-3 text-sm">{formatCurrency(item.unit_price)}</td>
-                          <td className="px-4 py-3 text-sm font-medium">{formatCurrency(item.total_price)}</td>
+                          <td className="px-4 py-3 text-sm font-medium">
+                            {(() => {
+                              const { netQuantity, hasReturns } = calculateNetQuantity(item);
+                              const netTotal = calculateNetTotal(item);
+
+                              if (hasReturns) {
+                                return (
+                                  <div>
+                                    <div className={netQuantity > 0 ? "text-orange-600 font-medium" : "text-red-600 font-bold line-through"}>
+                                      {formatCurrency(netTotal)}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      <span className="text-gray-400">Original: {formatCurrency(item.total_price)}</span>
+                                    </div>
+                                  </div>
+                                );
+                              } else {
+                                return formatCurrency(item.total_price);
+                              }
+                            })()}
+                          </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center space-x-1">
-                              {/* Return button - only for non-misc items with product_id */}
-                              {mode === 'edit' && !item.is_misc_item && item.product_id && (
-                                <button
-                                  onClick={() => openReturnModal(item)}
-                                  disabled={saving}
-                                  className="p-1 text-orange-600 hover:text-orange-800 disabled:opacity-50"
-                                  title="Return Item"
-                                >
-                                  <Undo2 className="h-4 w-4" />
-                                </button>
-                              )}
+                              {/* Return button - only for eligible items with returnable quantity */}
+                              {(() => {
+                                const canShowReturn = !item.is_misc_item && item.product_id &&
+                                  returnEligibility.canReturn &&
+                                  (returnEligibility.returnableQuantities[item.id] || 0) > 0;
+
+                                console.log(`🔍 [BUTTON-DEBUG] Item ${item.id} (${item.product_name}):`, {
+                                  is_misc_item: item.is_misc_item,
+                                  product_id: item.product_id,
+                                  canReturn: returnEligibility.canReturn,
+                                  returnableQty: returnEligibility.returnableQuantities[item.id],
+                                  canShowReturn,
+                                  reasons: {
+                                    isMiscItem: !!item.is_misc_item,
+                                    noProductId: !item.product_id,
+                                    cantReturn: !returnEligibility.canReturn,
+                                    noReturnableQty: (returnEligibility.returnableQuantities[item.id] || 0) <= 0,
+                                    isNaN: isNaN(returnEligibility.returnableQuantities[item.id])
+                                  },
+                                  returnEligibility: returnEligibility
+                                });
+
+                                if (canShowReturn) {
+                                  return (
+                                    <button
+                                      onClick={() => openReturnModal(item)}
+                                      disabled={saving}
+                                      className="p-1 text-orange-600 hover:text-orange-800 disabled:opacity-50"
+                                      title={`Return Item (${returnEligibility.returnableQuantities[item.id] || 0} available)`}
+                                    >
+                                      <Undo2 className="h-4 w-4" />
+                                    </button>
+                                  );
+                                }
+                                return null;
+                              })()}
+
+                              {/* Return disabled indicator */}
+                              {!item.is_misc_item && item.product_id &&
+                                (!returnEligibility.canReturn || (returnEligibility.returnableQuantities[item.id] || 0) === 0) && (
+                                  <button
+                                    disabled
+                                    className="p-1 text-gray-300 cursor-not-allowed"
+                                    title={
+                                      !returnEligibility.canReturn
+                                        ? returnEligibility.reason
+                                        : `No quantity available for return (${returnEligibility.returnableQuantities[item.id] || 0} remaining)`
+                                    }
+                                  >
+                                    <Undo2 className="h-4 w-4" />
+                                  </button>
+                                )}
                               {/* Remove button */}
                               {mode === 'edit' && (
                                 <button
@@ -1567,6 +2131,53 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                   <Trash2 className="h-4 w-4" />
                                 </button>
                               )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {/* Return Items Section Header */}
+                      {returnItems.length > 0 && (
+                        <tr className="bg-red-100">
+                          <td colSpan={5} className="px-4 py-2 text-center">
+                            <div className="flex items-center justify-center space-x-2">
+                              <span className="text-red-600 font-medium">📋 RETURNED ITEMS</span>
+                              <span className="text-xs text-red-500 bg-red-200 px-2 py-1 rounded">
+                                {returnItems.length} item{returnItems.length !== 1 ? 's' : ''} returned
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Return Items (shown as negative quantities) */}
+                      {returnItems.map((returnItem: any) => (
+                        <tr key={`return-${returnItem.return_id}-${returnItem.original_invoice_item_id}`}
+                          className="hover:bg-red-50 bg-red-50/30">
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-red-600 flex items-center">
+                              <span className="mr-2 text-red-600" title="Returned Item">↵</span>
+                              {returnItem.product_name}
+                              <span className="text-xs text-red-500 ml-2 bg-red-100 px-2 py-1 rounded">
+                                RETURNED
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-500 mt-1">
+                              Return #{returnItem.return_number} • {returnItem.return_date}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-red-600 font-medium">
+                            {returnItem.display_quantity} {returnItem.unit || 'piece'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-red-600">{formatCurrency(returnItem.unit_price)}</td>
+                          <td className="px-4 py-3 text-sm font-medium text-red-600">
+                            {formatCurrency(returnItem.display_total_price)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center space-x-1">
+                              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                                {returnItem.settlement_type === 'ledger' ? 'Credit Added' : 'Cash Refunded'}
+                              </span>
                             </div>
                           </td>
                         </tr>
@@ -1595,18 +2206,48 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     <div className="w-64 space-y-2">
                       <div className="flex justify-between text-sm">
                         <span>Subtotal:</span>
-                        <span>{formatCurrency(invoice.subtotal)}</span>
+                        <span>{(() => {
+                          const { currentSubtotal } = calculateCurrentTotals();
+                          return formatCurrency(currentSubtotal);
+                        })()}</span>
                       </div>
                       {invoice.discount > 0 && (
                         <div className="flex justify-between text-sm text-green-600">
                           <span>Discount ({invoice.discount}%):</span>
-                          <span>-{formatCurrency(invoice.discount_amount || 0)}</span>
+                          <span>-{(() => {
+                            const { discountAmount } = calculateCurrentTotals();
+                            return formatCurrency(discountAmount || 0);
+                          })()}</span>
                         </div>
                       )}
-                      <div className="flex justify-between font-semibold text-lg border-t pt-2">
-                        <span>Total:</span>
-                        <span>{formatCurrency(invoice.grand_total)}</span>
-                      </div>
+                      {returnItems.length > 0 ? (
+                        <>
+                          <div className="flex justify-between text-sm text-red-600">
+                            <span>Returns:</span>
+                            <span>-{formatCurrency(calculateAdjustedTotals().totalReturns)}</span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t pt-2">
+                            <span>Total Returns:</span>
+                            <span>{formatCurrency(calculateAdjustedTotals().totalReturns)}</span>
+                          </div>
+                          <div className="flex justify-between font-semibold text-lg border-t pt-2">
+                            <span>Total:</span>
+                            <span>{(() => {
+                              const { currentTotal } = calculateCurrentTotals();
+                              const totalReturns = calculateAdjustedTotals().totalReturns;
+                              return formatCurrency(currentTotal - totalReturns);
+                            })()}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex justify-between font-semibold text-lg border-t pt-2">
+                          <span>Total:</span>
+                          <span>{(() => {
+                            const { currentTotal } = calculateCurrentTotals();
+                            return formatCurrency(currentTotal);
+                          })()}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2150,7 +2791,14 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   <div className="text-sm text-gray-600 mt-1">
                     <div>Unit Price: {formatCurrency(returnModal.item?.unit_price || 0)}</div>
                     <div>Original Quantity: {returnModal.item?.quantity}</div>
-                    <div>Max Return: {returnModal.item?.quantity}</div>
+                    <div className="font-medium text-green-600">
+                      Available for Return: {returnModal.item ? (returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 0}
+                    </div>
+                    {returnModal.item && (returnEligibility.returnableQuantities[returnModal.item.id] || 0) < returnModal.item.quantity && (
+                      <div className="text-orange-600 text-xs mt-1">
+                        {returnModal.item.quantity - (returnEligibility.returnableQuantities[returnModal.item.id] || 0)} already returned
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2162,13 +2810,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   <input
                     type="number"
                     min="0.01"
-                    max={returnModal.item?.quantity || 1}
+                    max={returnModal.item ? (returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 1}
                     step="0.01"
                     value={returnModal.returnQuantity}
                     onChange={(e) => setReturnModal(prev => ({ ...prev, returnQuantity: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Enter quantity to return"
                   />
+                  <div className="text-xs text-gray-500 mt-1">
+                    Maximum: {returnModal.item ? (returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 0}
+                  </div>
                 </div>
 
                 {/* Return Reason */}

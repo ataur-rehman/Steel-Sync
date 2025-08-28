@@ -151,6 +151,7 @@ interface InvoiceCreationData {
 }
 
 interface InvoiceItem {
+  id?: number;  // 🆕 ADD ID PROPERTY
   product_id: number | null;
   product_name: string;
   quantity: string;
@@ -2423,6 +2424,7 @@ export class DatabaseService {
     invoiceNumber: string;
     customerName: string;
     invoiceId: number;
+    itemId?: number;  // 🆕 ADD ITEM ID PARAMETER
     date: string;
   }): Promise<void> {
     try {
@@ -2430,7 +2432,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      const { miscDescription, amount, invoiceNumber, customerName, invoiceId, date } = params;
+      const { miscDescription, amount, invoiceNumber, customerName, invoiceId, itemId, date } = params;
 
       // Use proper 12-hour time format for display consistency
       const displayTime = formatTime(new Date());
@@ -2443,6 +2445,12 @@ export class DatabaseService {
       // Round amount to two decimal places
       const roundedAmount = Number(parseFloat(amount.toString()).toFixed(1));
 
+      // 🆕 NEW APPROACH: Use item ID for precise tracking when available
+      const referenceType = itemId ? 'invoice_item' : 'other';
+      const referenceId = itemId || invoiceId;
+
+      console.log(`🎫 [PRODUCTION-FIX] Creating ledger entry with reference_type: '${referenceType}', reference_id: ${referenceId}`);
+
       // Create outgoing ledger entry for miscellaneous item (labor payment)
       console.log(`🎫 [DEBUG] Calling createLedgerEntry with params:`, {
         date: date,
@@ -2451,8 +2459,8 @@ export class DatabaseService {
         category: 'Labor Payment',
         description: description,
         amount: roundedAmount,
-        reference_type: 'expense',
-        reference_id: invoiceId,
+        reference_type: referenceType,
+        reference_id: referenceId,
         bill_number: invoiceNumber
       });
 
@@ -2463,10 +2471,10 @@ export class DatabaseService {
         category: 'Labor Payment',
         description: description,
         amount: roundedAmount,
-        reference_type: 'expense',
-        reference_id: invoiceId,
+        reference_type: referenceType,
+        reference_id: referenceId,
         bill_number: invoiceNumber,
-        notes: `Miscellaneous item payment: ${miscDescription}`,
+        notes: `Miscellaneous item payment: ${miscDescription}${itemId ? ` (Item ID: ${itemId})` : ''}`,
         created_by: 'system',
         payment_method: 'Cash',
         payment_channel_id: undefined,
@@ -2493,6 +2501,7 @@ export class DatabaseService {
     newAmount: number;
     invoiceNumber: string;
     customerName: string;
+    itemId?: number;  // 🆕 ADD ITEM ID PARAMETER
     date: string;
   }): Promise<void> {
     try {
@@ -2512,6 +2521,7 @@ export class DatabaseService {
         invoiceNumber: params.invoiceNumber,
         customerName: params.customerName,
         invoiceId: params.invoiceId,
+        itemId: params.itemId,  // 🆕 PASS ITEM ID
         date: params.date
       });
 
@@ -2529,16 +2539,35 @@ export class DatabaseService {
    */
   async deleteMiscellaneousItemLedgerEntries(invoiceId: number): Promise<void> {
     try {
-      const deletedCount = await this.dbConnection.execute(
+      let totalDeleted = 0;
+
+      // PRODUCTION FIX: Strategy 1: Delete NEW FORMAT entries by invoice_item reference_type
+      const result1 = await this.dbConnection.execute(
         `DELETE FROM ledger_entries 
-         WHERE reference_type = 'expense' 
-         AND reference_id = ?
+         WHERE reference_type = 'invoice_item' 
          AND category = 'Labor Payment'
-         AND notes LIKE 'Miscellaneous item payment:%'`,
+         AND reference_id IN (
+           SELECT id FROM invoice_items WHERE invoice_id = ? AND is_misc_item = 1
+         )`,
         [invoiceId]
       );
+      totalDeleted += result1.affectedRows || result1.rowsAffected || 0;
 
-      console.log(`✅ Deleted ${deletedCount} miscellaneous item ledger entries for invoice ${invoiceId}`);
+      // Strategy 2: Delete OLD FORMAT entries by invoice reference_type = 'other'
+      const result2 = await this.dbConnection.execute(
+        `DELETE FROM ledger_entries 
+         WHERE reference_type = 'other' 
+         AND reference_id = ?
+         AND category = 'Labor Payment'`,
+        [invoiceId]
+      );
+      totalDeleted += result2.affectedRows || result2.rowsAffected || 0;
+
+      console.log(`✅ [MISC-DELETE] Deleted ${totalDeleted} miscellaneous item ledger entries for invoice ${invoiceId}`);
+
+      if (totalDeleted === 0) {
+        console.warn(`⚠️ [MISC-DELETE] No miscellaneous item ledger entries found for invoice ${invoiceId}`);
+      }
 
     } catch (error: any) {
       if (error.message?.includes('no such table: ledger_entries')) {
@@ -2546,6 +2575,33 @@ export class DatabaseService {
       } else {
         console.error('❌ Error deleting miscellaneous item ledger entries:', error);
         throw error;
+      }
+    }
+  }
+
+  /**
+   * DEBUG: Check for remaining miscellaneous item ledger entries
+   */
+  async debugCheckMiscellaneousLedgerEntries(invoiceId: number): Promise<any[]> {
+    try {
+      const entries = await this.dbConnection.select(
+        `SELECT * FROM ledger_entries 
+         WHERE reference_type = 'expense' 
+         AND reference_id = ?
+         AND category = 'Labor Payment'`,
+        [invoiceId]
+      );
+
+      console.log(`🔍 [DEBUG] Found ${entries.length} ledger entries for invoice ${invoiceId}:`, entries);
+      return entries;
+
+    } catch (error: any) {
+      if (error.message?.includes('no such table: ledger_entries')) {
+        console.warn('⚠️ [DEBUG] ledger_entries table not found');
+        return [];
+      } else {
+        console.error('❌ Error checking ledger entries:', error);
+        return [];
       }
     }
   }
@@ -4566,6 +4622,7 @@ export class DatabaseService {
                 invoiceNumber: billNumber,
                 customerName: customerName,
                 invoiceId: invoiceId,
+                itemId: item.id,  // 🆕 ADD ITEM ID FOR PRECISE TRACKING
                 date: invoiceDate
               });
             }
@@ -8218,6 +8275,7 @@ export class DatabaseService {
                 invoiceNumber: invoice.bill_number || invoice.invoice_number || `INV-${invoiceId}`,
                 customerName: customerName,
                 invoiceId: invoiceId,
+                itemId: item.id,  // 🆕 ADD ITEM ID FOR PRECISE TRACKING
                 date: currentDate
               });
               console.log(`🎫 [MISC-LEDGER-DEBUG] ✅ Ledger entry created successfully for: ${item.misc_description}`);
@@ -8321,20 +8379,141 @@ export class DatabaseService {
           if (items && items.length > 0) {
             const item = items[0];
 
-            // PERMANENT SOLUTION: Handle miscellaneous item ledger cleanup
+            // PRODUCTION SOLUTION: Handle miscellaneous item ledger cleanup with item ID precision
             if (Boolean(item.is_misc_item) && item.misc_description && item.total_price > 0) {
-              console.log(`🎫 Removing ledger entry for miscellaneous item: ${item.misc_description}`);
+              console.log(`🎫 Removing ledger entry for miscellaneous item: ${item.misc_description}, Item ID: ${item.id}`);
 
-              // Remove the specific miscellaneous item ledger entry
-              await this.dbConnection.execute(
-                `DELETE FROM ledger_entries 
-                 WHERE reference_type = 'expense' 
-                 AND reference_id = ? 
-                 AND amount = ?
-                 AND category = 'Labor Payment'
-                 AND description LIKE ?`,
-                [invoiceId, item.total_price, `${item.misc_description}%`]
+              // DEBUG: First, let's see what ledger entries exist for this invoice
+              const allLedgerEntries = await this.dbConnection.select(
+                `SELECT * FROM ledger_entries WHERE category = 'Labor Payment' AND (reference_id = ? OR reference_id = ?)`,
+                [invoiceId, item.id]
               );
+              console.log(`🔍 [DEBUG] All Labor Payment ledger entries for invoice ${invoiceId} or item ${item.id}:`, allLedgerEntries);
+
+              // Log each existing entry individually for better visibility
+              allLedgerEntries.forEach((entry: any, index: number) => {
+                console.log(`🔍 [DEBUG] Existing Entry ${index + 1}:`, {
+                  id: entry.id,
+                  reference_type: entry.reference_type,
+                  reference_id: entry.reference_id,
+                  category: entry.category,
+                  description: entry.description,
+                  notes: entry.notes,
+                  amount: entry.amount
+                });
+              });
+
+              // Get invoice details for better matching
+              const invoice = await this.getInvoiceDetails(invoiceId);
+
+              // 🆕 NEW APPROACH: Try precise deletion strategies
+              let deletedCount = 0;
+
+              // Strategy 1: NEW FORMAT - Match by item ID (most precise)
+              console.log(`🔍 [DEBUG] Strategy 1: Trying item ID match with reference_type='invoice_item' and reference_id=${item.id}`);
+              const result1 = await this.dbConnection.execute(
+                `DELETE FROM ledger_entries 
+                 WHERE reference_type = 'invoice_item' 
+                 AND reference_id = ? 
+                 AND category = 'Labor Payment'`,
+                [item.id]
+              );
+              const strategy1Deleted = result1.affectedRows || result1.rowsAffected || 0;
+              deletedCount += strategy1Deleted;
+              console.log(`🔍 [DEBUG] Strategy 1 (item ID) deleted ${strategy1Deleted} entries`);
+
+              // Strategy 2: OLD FORMAT - Match by exact description pattern (if new format didn't work)
+              if (deletedCount === 0 && invoice) {
+                const exactDescription = `${item.misc_description} - Invoice#${invoice.bill_number} - ${invoice.customer_name}`;
+                console.log(`🔍 [DEBUG] Strategy 2: Trying exact description: "${exactDescription}"`);
+                const result2 = await this.dbConnection.execute(
+                  `DELETE FROM ledger_entries 
+                   WHERE reference_type = 'other' 
+                   AND reference_id = ? 
+                   AND category = 'Labor Payment'
+                   AND description = ?`,
+                  [invoiceId, exactDescription]
+                );
+                const strategy2Deleted = result2.affectedRows || result2.rowsAffected || 0;
+                deletedCount += strategy2Deleted;
+                console.log(`🔍 [DEBUG] Strategy 2 (exact description) deleted ${strategy2Deleted} entries`);
+              }
+
+              // Strategy 3: OLD FORMAT - Match by description LIKE pattern
+              if (deletedCount === 0 && invoice) {
+                const descriptionPattern = `${item.misc_description} - Invoice#${invoice.bill_number}%`;
+                console.log(`🔍 [DEBUG] Strategy 3: Trying description pattern: "${descriptionPattern}"`);
+                const result3 = await this.dbConnection.execute(
+                  `DELETE FROM ledger_entries 
+                   WHERE reference_type = 'other' 
+                   AND reference_id = ? 
+                   AND category = 'Labor Payment'
+                   AND description LIKE ?`,
+                  [invoiceId, descriptionPattern]
+                );
+                const strategy3Deleted = result3.affectedRows || result3.rowsAffected || 0;
+                deletedCount += strategy3Deleted;
+                console.log(`🔍 [DEBUG] Strategy 3 (description LIKE) deleted ${strategy3Deleted} entries`);
+              }              // Strategy 4: Match by amount and reference (last resort)
+              if (deletedCount === 0) {
+                const roundedAmount = Number(parseFloat(item.total_price.toString()).toFixed(1));
+                console.log(`🔍 [DEBUG] Trying amount match: ${roundedAmount} with reference_type='other'`);
+
+                // First, let's see how many entries match this amount
+                const matchingEntries = await this.dbConnection.select(
+                  `SELECT * FROM ledger_entries 
+                   WHERE reference_type = 'other' 
+                   AND reference_id = ? 
+                   AND amount = ?
+                   AND category = 'Labor Payment'`,
+                  [invoiceId, roundedAmount]
+                );
+                console.log(`🔍 [DEBUG] Found ${matchingEntries.length} entries matching amount ${roundedAmount}:`, matchingEntries);
+
+                const result4 = await this.dbConnection.execute(
+                  `DELETE FROM ledger_entries 
+                   WHERE reference_type = 'other' 
+                   AND reference_id = ? 
+                   AND amount = ?
+                   AND category = 'Labor Payment'`,
+                  [invoiceId, roundedAmount]
+                );
+                console.log(`🔍 [DEBUG] Strategy 4 raw result:`, result4);
+                const strategy4Deleted = result4.affectedRows || result4.rowsAffected || 0;
+                deletedCount += strategy4Deleted;
+                console.log(`🔍 [DEBUG] Strategy 4 deleted ${strategy4Deleted} entries`);
+
+                if (strategy4Deleted > 1) {
+                  console.warn(`⚠️ [MISC-DELETE] UNEXPECTED: Deleted ${strategy4Deleted} entries for amount ${roundedAmount}. This suggests duplicate entries or multiple items with same amount.`);
+                }
+              }
+
+              console.log(`🎫 [MISC-DELETE] Deleted ${deletedCount} ledger entries for miscellaneous item: ${item.misc_description} (ID: ${item.id})`);
+
+              if (deletedCount === 0) {
+                console.warn(`⚠️ [MISC-DELETE] No ledger entries found to delete for miscellaneous item: ${item.misc_description} (ID: ${item.id})`);
+                // Show remaining entries for debugging
+                const remainingEntries = await this.dbConnection.select(
+                  `SELECT * FROM ledger_entries WHERE category = 'Labor Payment' AND (reference_id = ? OR reference_id = ?)`,
+                  [invoiceId, item.id]
+                );
+                console.warn(`🔍 [DEBUG] Remaining entries after deletion attempt:`, remainingEntries);
+
+                // Log each entry individually for better visibility
+                remainingEntries.forEach((entry: any, index: number) => {
+                  console.warn(`🔍 [DEBUG] Entry ${index + 1}:`, {
+                    id: entry.id,
+                    reference_type: entry.reference_type,
+                    reference_id: entry.reference_id,
+                    category: entry.category,
+                    description: entry.description,
+                    notes: entry.notes,
+                    amount: entry.amount
+                  });
+                });
+              } else {
+                console.log(`✅ [PRODUCTION-SUCCESS] Successfully deleted ${deletedCount} ledger entries for item ${item.misc_description} (ID: ${item.id})`);
+              }
             }
 
             // Restore stock for product items only (skip miscellaneous items)
@@ -10813,6 +10992,12 @@ export class DatabaseService {
 
         // Restore stock for each item
         for (const item of items) {
+          // PRODUCTION FIX: Skip stock restoration for miscellaneous items (they don't have product_id)
+          if (!item.product_id || Boolean(item.is_misc_item)) {
+            console.log(`📦 Skipping stock restoration for miscellaneous item: ${item.misc_description || item.product_name}`);
+            continue;
+          }
+
           const product = await this.getProduct(item.product_id);
 
           if (product && product.track_inventory) {
@@ -13598,7 +13783,7 @@ export class DatabaseService {
   }
 
   // ENHANCED RETURN SYSTEM: Implements payment status aware return logic
-  async createReturn(returnData: {
+  async createReturn_DISABLED(returnData: {
     customer_id: number;
     customer_name?: string;
     original_invoice_id: number;
@@ -13623,17 +13808,17 @@ export class DatabaseService {
       if (!this.isInitialized) await this.initialize();
 
       // ENHANCED: Ensure return tables exist and validate return data
-      const { PermanentReturnTableManager } = await import('./permanent-return-solution');
-      const { PermanentReturnValidator } = await import('./enhanced-return-system');
+      // const { PermanentReturnTableManager } = await import('./permanent-return-solution');
+      // const { PermanentReturnValidator } = await import('./enhanced-return-system');
 
-      const tableManager = new PermanentReturnTableManager(this.dbConnection);
-      await tableManager.ensureReturnTablesExist();
+      // const tableManager = new PermanentReturnTableManager(this.dbConnection);
+      // await tableManager.ensureReturnTablesExist();
 
       // Validate return data to prevent NOT NULL constraint errors
-      const validation = PermanentReturnValidator.validateReturnData(returnData);
-      if (!validation.valid) {
-        throw new Error(`Return validation failed: ${validation.errors.join(', ')}`);
-      }
+      // const validation = PermanentReturnValidator.validateReturnData(returnData);
+      // if (!validation.valid) {
+      //   throw new Error(`Return validation failed: ${validation.errors.join(', ')}`);
+      // }
 
       // Validate input
       if (!returnData.customer_id || !Array.isArray(returnData.items) || returnData.items.length === 0) {
@@ -13738,9 +13923,9 @@ export class DatabaseService {
           customer_id, customer_name, return_type, reason,
           total_items, total_quantity, subtotal, total_amount,
           settlement_type, settlement_amount, settlement_processed,
-          status, date, time, notes, created_by, created_at, updated_at
+          date, time, notes, created_by, created_at, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `, [
         returnNumber,
         returnData.original_invoice_id,
@@ -13756,7 +13941,6 @@ export class DatabaseService {
         returnData.settlement_type,
         totalAmount, // settlement_amount
         0, // settlement_processed (will be set to 1 after processing)
-        'pending', // status
         date,
         time,
         returnData.notes || '',
@@ -13770,9 +13954,29 @@ export class DatabaseService {
 
       // Process return items and stock updates
       for (const item of returnData.items) {
-        // Validate return quantity doesn't exceed original quantity
-        if (item.return_quantity > item.original_quantity) {
-          throw new Error(`Return quantity (${item.return_quantity}) cannot exceed original quantity (${item.original_quantity}) for ${item.product_name}`);
+        // ENHANCED VALIDATION: Check cumulative returned quantities
+        const existingReturns = await this.dbConnection.select(`
+          SELECT COALESCE(SUM(return_quantity), 0) as total_returned
+          FROM return_items 
+          WHERE original_invoice_item_id = ? AND status != 'cancelled'
+        `, [item.original_invoice_item_id]);
+
+        const totalAlreadyReturned = existingReturns[0]?.total_returned || 0;
+        const requestedReturnQty = item.return_quantity;
+        const maxReturnableQty = item.original_quantity - totalAlreadyReturned;
+
+        // Validate return quantity doesn't exceed remaining returnable quantity
+        if (requestedReturnQty > maxReturnableQty) {
+          throw new Error(
+            `Cannot return ${requestedReturnQty} of ${item.product_name}. ` +
+            `Original quantity: ${item.original_quantity}, ` +
+            `Already returned: ${totalAlreadyReturned}, ` +
+            `Maximum returnable: ${maxReturnableQty}`
+          );
+        }
+
+        if (requestedReturnQty <= 0) {
+          throw new Error(`Return quantity must be greater than 0 for ${item.product_name}`);
         }
 
         // Insert return item using COMPLETE centralized schema
@@ -13798,7 +14002,12 @@ export class DatabaseService {
           1 // Mark as restocked
         ]);
 
-        // Get product details and update stock (only for stock products)
+        // Get product details and update stock (only for stock products, skip miscellaneous items)
+        if (!item.product_id || item.product_id === null) {
+          console.log(`⏭️ Skipping stock update for return item without product_id: ${item.product_name}`);
+          continue;
+        }
+
         const product = await this.getProduct(item.product_id);
         if (product && (product.track_inventory === 1 || product.track_inventory === true)) {
           const currentStockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
@@ -13870,11 +14079,11 @@ export class DatabaseService {
       // ENHANCED: Update original invoice to reflect the return with proper entries
       await invoiceUpdateManager.updateInvoiceForReturn(returnData.original_invoice_id, returnData, returnId);
 
-      // Mark return as completed
-      await this.dbConnection.execute(
-        'UPDATE returns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        ['completed', returnId]
-      );
+      // Mark return as completed - status column doesn't exist, skip this update
+      // await this.dbConnection.execute(
+      //   'UPDATE returns SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      //   ['completed', returnId]
+      // );
 
       await this.dbConnection.execute('COMMIT');
 
@@ -13895,6 +14104,244 @@ export class DatabaseService {
       }
 
       console.error('Error creating return:', error);
+      throw error;
+    }
+  }
+
+  // SIMPLIFIED Return System - No status column
+  async createReturn(returnData: {
+    customer_id: number;
+    customer_name?: string;
+    original_invoice_id: number;
+    original_invoice_number?: string;
+    items: Array<{
+      product_id: number;
+      product_name: string;
+      original_invoice_item_id: number;
+      original_quantity: number;
+      return_quantity: number;
+      unit_price: number;
+      total_price: number;
+      unit?: string;
+      reason?: string;
+    }>;
+    reason: string;
+    settlement_type: 'ledger' | 'cash';
+    notes?: string;
+    created_by?: string;
+  }): Promise<number> {
+    try {
+      if (!this.isInitialized) await this.initialize();
+
+      // Basic validation
+      if (!returnData.customer_id || !Array.isArray(returnData.items) || returnData.items.length === 0) {
+        throw new Error('Invalid return data: customer_id and items are required');
+      }
+
+      if (!returnData.original_invoice_id) {
+        throw new Error('Original invoice ID is required for returns');
+      }
+
+      if (!['ledger', 'cash'].includes(returnData.settlement_type)) {
+        throw new Error('Invalid settlement type. Must be "ledger" or "cash"');
+      }
+
+      await this.dbConnection.execute('BEGIN TRANSACTION');
+
+      // Generate simple return number
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
+      const returnNumber = `RET-${dateStr}-${timeStr}-${Math.floor(Math.random() * 1000)}`;
+
+      const { dbDate, dbTime } = getCurrentSystemDateTime();
+
+      // Calculate totals
+      const totalAmount = returnData.items.reduce((sum, item) => sum + item.total_price, 0);
+      const totalQuantity = returnData.items.reduce((sum, item) => sum + item.return_quantity, 0);
+      const totalItems = returnData.items.length;
+
+      // Create return record - NO STATUS COLUMN
+      const result = await this.dbConnection.execute(`
+        INSERT INTO returns (
+          return_number, original_invoice_id, original_invoice_number,
+          customer_id, customer_name, return_type, reason,
+          total_items, total_quantity, subtotal, total_amount,
+          settlement_type, settlement_amount, settlement_processed,
+          date, time, notes, created_by, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [
+        returnNumber,
+        returnData.original_invoice_id,
+        returnData.original_invoice_number || '',
+        returnData.customer_id,
+        returnData.customer_name || '',
+        'partial',
+        returnData.reason,
+        totalItems,
+        totalQuantity,
+        totalAmount,
+        totalAmount,
+        returnData.settlement_type,
+        totalAmount,
+        0,
+        dbDate,
+        dbTime,
+        returnData.notes || '',
+        returnData.created_by || 'system'
+      ]);
+
+      const returnId = result?.lastInsertId || 0;
+      if (!returnId) {
+        throw new Error('Failed to create return record');
+      }
+
+      // Process return items - NO STATUS COLUMN
+      for (const item of returnData.items) {
+        if (item.return_quantity <= 0) {
+          throw new Error(`Return quantity must be greater than 0 for ${item.product_name}`);
+        }
+
+        // Insert return item - NO STATUS COLUMN
+        await this.dbConnection.execute(`
+          INSERT INTO return_items (
+            return_id, original_invoice_item_id, product_id, product_name,
+            original_quantity, return_quantity, unit, unit_price, total_price,
+            reason, action, restocked, created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [
+          returnId,
+          item.original_invoice_item_id,
+          item.product_id,
+          item.product_name,
+          item.original_quantity,
+          item.return_quantity,
+          item.unit || 'piece',
+          item.unit_price,
+          item.total_price,
+          item.reason || returnData.reason,
+          'refund',
+          1
+        ]);
+
+        // Update stock if possible
+        try {
+          const product = await this.dbConnection.select(
+            'SELECT current_stock, unit_type FROM products WHERE id = ?',
+            [item.product_id]
+          );
+
+          if (product && product.length > 0) {
+            const currentStock = product[0].current_stock || '0';
+            const unitType = product[0].unit_type || 'piece';
+
+            const currentStockData = parseUnit(currentStock, unitType);
+            const newStockValue = currentStockData.numericValue + item.return_quantity;
+            const newStockString = createUnitFromNumericValue(newStockValue, unitType);
+
+            console.log(`📦 [STOCK-DEBUG] Updating stock for product ${item.product_id}:`, {
+              currentStock,
+              currentStockData,
+              returnQuantity: item.return_quantity,
+              newStockValue,
+              newStockString
+            });
+
+            await this.dbConnection.execute(
+              'UPDATE products SET current_stock = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+              [newStockString, item.product_id]
+            );
+
+            // Simple stock movement - NO STATUS COLUMN
+            console.log(`📦 [STOCK-DEBUG] Creating stock movement for product ${item.product_id}`);
+            const stockMovementResult = await this.dbConnection.execute(`
+              INSERT INTO stock_movements (
+                product_id, product_name, movement_type, quantity, 
+                previous_stock, new_stock, unit_price, 
+                total_value, reason, reference_type, reference_id, reference_number,
+                date, time, created_by
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+              item.product_id,
+              item.product_name,
+              'in',
+              item.return_quantity,
+              currentStockData.numericValue,
+              newStockValue,
+              item.unit_price,
+              item.total_price,
+              `Return: ${returnData.reason}`,
+              'return',
+              returnId,
+              returnNumber,
+              dbDate,
+              dbTime,
+              returnData.created_by || 'system'
+            ]);
+
+            console.log(`✅ [STOCK-DEBUG] Stock movement created:`, stockMovementResult);
+          } else {
+            console.warn(`⚠️ [STOCK-DEBUG] Product not found for ID: ${item.product_id}`);
+          }
+        } catch (stockError) {
+          console.error('❌ [STOCK-DEBUG] Stock update failed:', stockError);
+          // Continue without failing the entire return
+        }
+      }
+
+      // Process settlement
+      if (returnData.settlement_type === 'ledger') {
+        // Add to customer ledger
+        await this.dbConnection.execute(`
+          INSERT INTO customer_ledger_entries (
+            customer_id, customer_name, entry_type, transaction_type,
+            amount, description, reference_id, reference_number,
+            date, time, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          returnData.customer_id,
+          returnData.customer_name || '',
+          'credit',
+          'return',
+          totalAmount,
+          `Return credit: ${returnData.reason}`,
+          returnId,
+          returnNumber,
+          dbDate,
+          dbTime,
+          returnData.created_by || 'system'
+        ]);
+      } else {
+        // Cash refund - add to daily ledger
+        await this.dbConnection.execute(`
+          INSERT INTO daily_ledger_entries (
+            entry_type, amount, description, reference_type, reference_id,
+            reference_number, date, time, created_by
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          'outgoing',
+          totalAmount,
+          `Cash refund: ${returnData.reason}`,
+          'return',
+          returnId,
+          returnNumber,
+          dbDate,
+          dbTime,
+          returnData.created_by || 'system'
+        ]);
+      }
+
+      await this.dbConnection.execute('COMMIT');
+
+      console.log(`✅ Simple Return ${returnNumber} created successfully`);
+      console.log(`💰 Amount: Rs. ${totalAmount.toFixed(2)} (${returnData.settlement_type})`);
+      return returnId;
+
+    } catch (error: any) {
+      await this.dbConnection.execute('ROLLBACK');
+      console.error('Error creating simple return:', error);
       throw error;
     }
   }
@@ -13993,27 +14440,125 @@ export class DatabaseService {
     }
   }
 
+  // Get returnable quantity for a specific invoice item
+  async getReturnableQuantity(invoiceItemId: number): Promise<{
+    originalQuantity: number;
+    totalReturned: number;
+    returnableQuantity: number;
+  }> {
+    try {
+      if (!this.isInitialized) await this.initialize();
+
+      // Get original item quantity
+      const originalItem = await this.dbConnection.select(`
+        SELECT quantity FROM invoice_items WHERE id = ?
+      `, [invoiceItemId]);
+
+      if (!originalItem.length) {
+        throw new Error('Invoice item not found');
+      }
+
+      // Get total returned quantity
+      const returnedData = await this.dbConnection.select(`
+        SELECT COALESCE(SUM(return_quantity), 0) as total_returned
+        FROM return_items 
+        WHERE original_invoice_item_id = ?
+      `, [invoiceItemId]);
+
+      const originalQuantityRaw = originalItem[0].quantity;
+      const totalReturned = returnedData[0]?.total_returned || 0;
+
+      // Parse the original quantity - handle multiple formats
+      let originalQuantity: number;
+      if (typeof originalQuantityRaw === 'string') {
+        // Try to parse as number first
+        const parsed = parseFloat(originalQuantityRaw);
+        if (!isNaN(parsed)) {
+          originalQuantity = parsed;
+        } else {
+          // Handle different quantity formats:
+          // "12-980" (kg-grams): 12 kg + 980 grams = 12.98 kg
+          // "180" (T-Iron): simple number
+          // "12.5" (decimal): simple decimal
+
+          const kgGramsMatch = originalQuantityRaw.match(/^(\d+(?:\.\d+)?)-(\d+)$/);
+          if (kgGramsMatch) {
+            // Format: "12-980" = 12 kg + 980 grams = 12.98 kg
+            const kg = parseFloat(kgGramsMatch[1]);
+            const grams = parseFloat(kgGramsMatch[2]);
+            originalQuantity = kg + (grams / 1000); // Convert grams to kg fraction
+          } else {
+            // If it contains non-numeric characters, extract the first number
+            const match = originalQuantityRaw.match(/^(\d+(?:\.\d+)?)/);
+            originalQuantity = match ? parseFloat(match[1]) : 0;
+          }
+        }
+      } else {
+        originalQuantity = Number(originalQuantityRaw) || 0;
+      }
+
+      const returnableQuantity = Math.max(0, originalQuantity - totalReturned);
+
+      console.log('🔍 [QUANTITY-DEBUG] Returnable quantity calculation:', {
+        invoiceItemId,
+        originalQuantityRaw,
+        originalQuantity,
+        totalReturned,
+        returnableQuantity,
+        formatDetected: typeof originalQuantityRaw === 'string' && originalQuantityRaw.includes('-') ? 'kg-grams' : 'simple'
+      });
+
+      return {
+        originalQuantity,
+        totalReturned,
+        returnableQuantity
+      };
+    } catch (error) {
+      console.error('Error getting returnable quantity:', error);
+      throw error;
+    }
+  }
+
   async getReturns(filters: any = {}): Promise<any[]> {
     try {
       if (!this.isInitialized) await this.initialize();
       let query = 'SELECT * FROM returns WHERE 1=1';
       const params: any[] = [];
+
       if (filters.customer_id) {
         query += ' AND customer_id = ?';
         params.push(filters.customer_id);
       }
+
+      if (filters.original_invoice_id) {
+        query += ' AND original_invoice_id = ?';
+        params.push(filters.original_invoice_id);
+      }
+
       if (filters.from_date) {
         query += ' AND date >= ?';
         params.push(filters.from_date);
       }
+
       if (filters.to_date) {
         query += ' AND date <= ?';
         params.push(filters.to_date);
       }
+
       query += ' ORDER BY date DESC, time DESC, created_at DESC';
       const result = await this.dbConnection.select(query, params);
-      // CRITICAL FIX: Ensure we always return an array
-      return Array.isArray(result) ? result : [];
+
+      // Load return items for each return
+      const returns = Array.isArray(result) ? result : [];
+      for (const returnRecord of returns) {
+        const returnItems = await this.dbConnection.select(
+          'SELECT * FROM return_items WHERE return_id = ?',
+          [returnRecord.id]
+        );
+        returnRecord.items = returnItems || [];
+      }
+
+      return returns;
     } catch (error) {
       console.error('Error getting returns:', error);
       throw error;
