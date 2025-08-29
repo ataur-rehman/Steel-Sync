@@ -2343,8 +2343,8 @@ export class DatabaseService {
 
       const { dbTime } = getCurrentSystemDateTime();
 
-      // Always round amount to two decimal places for ledger
-      const roundedAmount = Number(parseFloat(entry.amount.toString()).toFixed(1));      // Only add payment inflow/outflow to daily ledger (exclude sales/invoice)
+      // CRITICAL FIX: Use 2-decimal precision for ledger amounts
+      const roundedAmount = Number(parseFloat(entry.amount.toString()).toFixed(2));      // Only add payment inflow/outflow to daily ledger (exclude sales/invoice)
       // Allow only if category contains 'Payment', 'payment', 'Paid', 'paid', 'Receipt', 'receipt', 'Advance', 'advance', 'Refund', 'refund', 'Cash', 'cash', 'Bank', 'bank', 'Cheque', 'cheque', 'Card', 'card', 'UPI', 'upi', 'Online', 'online', 'Other', 'other'
       const allowedCategories = [
         'Payment', 'payment', 'Paid', 'paid', 'Receipt', 'receipt', 'Advance', 'advance', 'Refund', 'refund',
@@ -2442,8 +2442,8 @@ export class DatabaseService {
 
       console.log(`🎫 Creating daily ledger entry for miscellaneous item: ${description}`);
 
-      // Round amount to two decimal places
-      const roundedAmount = Number(parseFloat(amount.toString()).toFixed(1));
+      // CRITICAL FIX: Use 2-decimal precision for misc item amounts
+      const roundedAmount = Number(parseFloat(amount.toString()).toFixed(2));
 
       // 🆕 NEW APPROACH: Use item ID for precise tracking when available
       const referenceType = itemId ? 'invoice_item' : 'other';
@@ -4290,8 +4290,10 @@ export class DatabaseService {
           const total_amount = invoiceData.items.reduce((sum, item) =>
             addCurrency(sum, item.total_price), 0
           );
-          const discountAmount = Number(((total_amount * (invoiceData.discount || 0)) / 100).toFixed(1));
-          const grandTotal = Number((total_amount - discountAmount).toFixed(1));
+          // CRITICAL FIX: Use consistent 2-decimal precision for discount calculation
+          const discountAmount = Number(((total_amount * (invoiceData.discount || 0)) / 100).toFixed(2));
+          // CRITICAL FIX: Use consistent 2-decimal precision to prevent rounding mismatches
+          const grandTotal = Number((total_amount - discountAmount).toFixed(2));
 
           // 🔥 CRITICAL CREDIT INTEGRATION: Handle credit application during invoice creation
           let creditApplied = 0;
@@ -4317,9 +4319,10 @@ export class DatabaseService {
           }
 
           // Calculate final payment amounts including credit
-          const cashPayment = Number((invoiceData.payment_amount || 0).toFixed(1));
-          const totalPaidAmount = Number((cashPayment + creditApplied).toFixed(1));
-          const remainingBalance = Number((grandTotal - totalPaidAmount).toFixed(1));
+          const cashPayment = Number((invoiceData.payment_amount || 0).toFixed(2));
+          const totalPaidAmount = Number((cashPayment + creditApplied).toFixed(2));
+          // CRITICAL FIX: Use same precision for both grandTotal and remainingBalance
+          const remainingBalance = Number((grandTotal - totalPaidAmount).toFixed(2));
 
           console.log(`💰 [PAYMENT-CALC] Invoice: Rs. ${grandTotal}, Cash: Rs. ${cashPayment}, Credit: Rs. ${creditApplied}, Total Paid: Rs. ${totalPaidAmount}, Remaining: Rs. ${remainingBalance}`);
 
@@ -6059,7 +6062,8 @@ export class DatabaseService {
 
       // Calculate new totals with proper rounding to 1 decimal place
       const discountAmount = Math.round(((total_amount * (currentInvoice.discount || 0)) / 100 + Number.EPSILON) * 10) / 10;
-      const grandTotal = Math.round((total_amount - discountAmount + Number.EPSILON) * 10) / 10;
+      // CRITICAL FIX: Use consistent 2-decimal precision  
+      const grandTotal = Math.round((total_amount - discountAmount + Number.EPSILON) * 100) / 100;
       const remainingBalance = Math.round((grandTotal - paymentAmount + Number.EPSILON) * 10) / 10;
 
       // Update invoice with new totals including recalculated payment_amount
@@ -8453,7 +8457,8 @@ export class DatabaseService {
                 console.log(`🔍 [DEBUG] Strategy 3 (description LIKE) deleted ${strategy3Deleted} entries`);
               }              // Strategy 4: Match by amount and reference (last resort)
               if (deletedCount === 0) {
-                const roundedAmount = Number(parseFloat(item.total_price.toString()).toFixed(1));
+                // CRITICAL FIX: Use 2-decimal precision for amount matching
+                const roundedAmount = Number(parseFloat(item.total_price.toString()).toFixed(2));
                 console.log(`🔍 [DEBUG] Trying amount match: ${roundedAmount} with reference_type='other'`);
 
                 // First, let's see how many entries match this amount
@@ -9084,12 +9089,12 @@ export class DatabaseService {
         remaining_balance: invoice.remaining_balance
       });
 
-      // Validate payment amount doesn't exceed remaining balance
-      const roundedPaymentAmount = Math.round((paymentData.amount + Number.EPSILON) * 10) / 10;
-      const roundedRemainingBalance = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
+      // CRITICAL FIX: Use 2-decimal precision for payment validation
+      const roundedPaymentAmount = Math.round((paymentData.amount + Number.EPSILON) * 100) / 100;
+      const roundedRemainingBalance = Math.round((invoice.remaining_balance + Number.EPSILON) * 100) / 100;
 
       if (roundedPaymentAmount > roundedRemainingBalance + 0.01) {
-        throw new Error(`Payment amount (${roundedPaymentAmount.toFixed(1)}) cannot exceed remaining balance (${roundedRemainingBalance.toFixed(1)})`);
+        throw new Error(`Payment amount (${roundedPaymentAmount.toFixed(2)}) cannot exceed remaining balance (${roundedRemainingBalance.toFixed(2)})`);
       }
 
       // Map payment method to valid values
@@ -14386,7 +14391,7 @@ export class DatabaseService {
 
         console.log(`✅ [RETURN-LEDGER] Added Rs. ${totalAmount.toFixed(2)} credit to customer ledger`);
       } else {
-        // Cash refund - add to general ledger only, update customer balance directly
+        // Cash refund - add to general ledger only, update customer balance directly WITHOUT customer ledger entry
         const ledgerDescription = `Cash refund - ${returnData.customer_name || 'Customer'} - Invoice ${returnData.original_invoice_number || returnData.original_invoice_id}`;
         await this.dbConnection.execute(`
           INSERT INTO ledger_entries (
@@ -14409,18 +14414,16 @@ export class DatabaseService {
           returnData.customer_name
         ]);
 
-        // Update customer balance directly (they received cash, so their outstanding balance reduces)
-        await this.updateCustomerBalanceAtomic(
-          returnData.customer_id,
-          totalAmount,
-          'subtract',
-          `Cash refund - Invoice ${returnData.original_invoice_number || returnData.original_invoice_id}`,
-          returnId,
-          returnNumber,
-          true // NESTED TRANSACTION FIX: Skip transaction since we're already in one
+        // FIXED: Update customer balance directly WITHOUT creating customer ledger entry (cash was given)
+        const currentBalance = await this.customerBalanceManager.getCurrentBalance(returnData.customer_id);
+        const newBalance = Math.max(0, currentBalance - totalAmount); // Reduce outstanding balance (cash received)
+
+        await this.dbConnection.execute(
+          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [newBalance, returnData.customer_id]
         );
 
-        console.log(`✅ [RETURN-CASH] Recorded Rs. ${totalAmount.toFixed(2)} cash refund and updated customer balance`);
+        console.log(`✅ [RETURN-CASH] Recorded Rs. ${totalAmount.toFixed(2)} cash refund and updated customer balance ${currentBalance.toFixed(2)} → ${newBalance.toFixed(2)} (NO customer ledger entry)`);
       }
 
       // CRITICAL FIX: Update invoice totals properly to reflect returns
@@ -14529,9 +14532,10 @@ export class DatabaseService {
         console.log(`✅ Added Rs. ${amount.toFixed(2)} credit to customer ledger`);
 
       } else if (settlementType === 'cash') {
-        // Cash refund processing - need both general ledger AND customer ledger entries
+        // Cash refund processing - ONLY general ledger entry (outgoing cash)
+        // NO customer ledger entry because cash is physically given to customer
 
-        // 1. Create cash ledger entry (outgoing expense)
+        // Create cash ledger entry (outgoing expense)
         await this.createLedgerEntry({
           date: details.date,
           time: details.time,
@@ -14544,51 +14548,13 @@ export class DatabaseService {
           reference_id: returnId,
           reference_type: 'other',
           bill_number: details.return_number,
-          notes: `Cash refund: Rs. ${amount.toFixed(2)}`,
+          notes: `Cash refund: Rs. ${amount.toFixed(2)} - Physical cash given to customer`,
           created_by: details.created_by,
           payment_method: 'cash',
           is_manual: false
         });
 
-        // 2. CRITICAL FIX: Add customer ledger credit entry for cash refund
-        const currentBalance = await this.calculateCustomerBalanceFromLedger(details.customer_id);
-        const balanceAfterCredit = currentBalance + amount; // Add credit (increases customer's credit balance)
-
-        console.log(`💰 [CASH-REFUND] Current customer balance: Rs. ${currentBalance.toFixed(2)}`);
-        console.log(`💰 [CASH-REFUND] Balance after cash refund credit: Rs. ${balanceAfterCredit.toFixed(2)}`);
-
-        // Create customer ledger entry for cash refund credit
-        await this.dbConnection.execute(`
-          INSERT INTO customer_ledger_entries (
-            customer_id, customer_name, entry_type, transaction_type,
-            amount, description, reference_id, reference_number,
-            balance_before, balance_after, date, time, created_by, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
-          details.customer_id,
-          details.customer_name,
-          'credit',
-          'return',
-          amount,
-          `Cash Refund Credit - ${details.return_number}`,
-          returnId,
-          details.return_number,
-          currentBalance,
-          balanceAfterCredit,
-          details.date,
-          details.time,
-          details.created_by,
-          `Cash refund credit: Rs. ${amount.toFixed(2)} added to customer ledger`
-        ]);
-
-        // Update customer balance
-        await this.dbConnection.execute(
-          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-          [balanceAfterCredit, details.customer_id]
-        );
-
-        console.log(`✅ Created cash refund ledger entry for Rs. ${amount.toFixed(2)}`);
-        console.log(`✅ Added Rs. ${amount.toFixed(2)} credit to customer ledger`);
+        console.log(`✅ Cash refund processed: Rs. ${amount.toFixed(2)} - Daily ledger entry created, NO customer ledger entry (cash given physically)`);
       }
 
       // CRITICAL FIX: Update invoice outstanding balance (for both ledger and cash settlements)

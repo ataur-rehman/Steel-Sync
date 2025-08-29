@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Return Button Real-time Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .debug-section {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+        }
+
+        .console-output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .debug-log {
+            margin: 5px 0;
+            padding: 5px;
+            border-radius: 3px;
+        }
+
+        .debug-info {
+            background: #e7f3ff;
+            color: #0066cc;
+        }
+
+        .debug-error {
+            background: #ffe7e7;
+            color: #cc0000;
+        }
+
+        .debug-success {
+            background: #e7ffe7;
+            color: #006600;
+        }
+
+        .debug-warning {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        .return-button {
+            background: #ff9800;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 2px;
+        }
+
+        .return-button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        .invoice-item {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 5px;
+            background: #fafafa;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔧 Live Return Button Debug</h1>
+        <p>This simulates the exact conditions that occur in the InvoiceDetails component when return buttons are
+            evaluated.</p>
+
+        <div class="debug-section">
+            <h3>📋 Current Invoice State</h3>
+            <div id="invoice-state"></div>
+            <button onclick="simulateInvoiceLoad()">🔄 Simulate Invoice Load</button>
+            <button onclick="clearLogs()">🗑️ Clear Logs</button>
+        </div>
+
+        <div class="debug-section">
+            <h3>🔍 Return Eligibility Check</h3>
+            <div id="eligibility-state"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>📦 Invoice Items with Return Buttons</h3>
+            <div id="items-display"></div>
+        </div>
+
+        <div class="debug-section">
+            <h3>🖥️ Console Output</h3>
+            <div id="console-output" class="console-output"></div>
+        </div>
+    </div>
+
+    <script>
+        let logs = [];
+        let currentInvoice = null;
+        let returnEligibility = {
+            canReturn: false,
+            reason: '',
+            returnableQuantities: {}
+        };
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}`;
+            logs.push({ message: logEntry, type });
+            updateConsoleOutput();
+            console.log(logEntry);
+        }
+
+        function updateConsoleOutput() {
+            const console = document.getElementById('console-output');
+            console.innerHTML = logs.map(log =>
+                `<div class="debug-log debug-${log.type}">${log.message}</div>`
+            ).join('');
+            console.scrollTop = console.scrollHeight;
+        }
+
+        function clearLogs() {
+            logs = [];
+            updateConsoleOutput();
+        }
+
+        // Simulate the exact checkReturnEligibility function
+        async function checkReturnEligibility(invoiceData) {
+            const currentInvoice = invoiceData || currentInvoice;
+            if (!currentInvoice) {
+                log('🔍 [RETURN-DEBUG] No invoice loaded yet', 'warning');
+                return;
+            }
+
+            log('🔍 [RETURN-DEBUG] Starting return eligibility check...', 'info');
+
+            try {
+                // More robust comparison to handle floating-point precision issues
+                const remainingBalance = Math.round((currentInvoice.remaining_balance + Number.EPSILON) * 100) / 100;
+                const totalAmount = Math.round((currentInvoice.total_amount + Number.EPSILON) * 100) / 100;
+
+                const isFullyPaid = remainingBalance <= 0.01; // Allow for small rounding errors
+                const isUnpaid = Math.abs(remainingBalance - totalAmount) <= 0.01; // Allow for small rounding errors
+                const isPartiallyPaid = remainingBalance > 0.01 && remainingBalance < (totalAmount - 0.01);
+
+                log(`🔍 [RETURN-DEBUG] Payment status check: total=${currentInvoice.total_amount}, remaining=${currentInvoice.remaining_balance}`, 'info');
+                log(`🔍 [RETURN-DEBUG] Rounded: total=${totalAmount}, remaining=${remainingBalance}`, 'info');
+                log(`🔍 [RETURN-DEBUG] Status: isFullyPaid=${isFullyPaid}, isUnpaid=${isUnpaid}, isPartiallyPaid=${isPartiallyPaid}`, 'info');
+
+                if (isPartiallyPaid) {
+                    log('🔍 [RETURN-DEBUG] Partially paid - returns not allowed', 'warning');
+                    returnEligibility = {
+                        canReturn: false,
+                        reason: 'Returns not allowed for partially paid invoices',
+                        returnableQuantities: {}
+                    };
+                    updateEligibilityDisplay();
+                    updateItemsDisplay();
+                    return;
+                }
+
+                // Simulate loading returnable quantities for all items
+                const returnableQuantities = {};
+                if (currentInvoice.items) {
+                    log(`🔍 [RETURN-DEBUG] Checking returnable quantities for ${currentInvoice.items.length} items`, 'info');
+                    for (const item of currentInvoice.items) {
+                        if (!item.is_misc_item && item.product_id) {
+                            try {
+                                // Simulate getReturnableQuantity call
+                                const result = await simulateGetReturnableQuantity(item.id, item.quantity);
+                                returnableQuantities[item.id] = result.returnableQuantity;
+                                log(`🔍 [RETURN-DEBUG] Item ${item.id} (${item.product_name}): original=${result.originalQuantity}, returned=${result.totalReturned}, returnable=${result.returnableQuantity}`, 'info');
+                            } catch (error) {
+                                log(`Error getting returnable quantity for item ${item.id}: ${error.message}`, 'error');
+                                returnableQuantities[item.id] = 0;
+                            }
+                        } else {
+                            log(`🔍 [RETURN-DEBUG] Item ${item.id} (${item.product_name}): skipped (misc_item=${item.is_misc_item}, product_id=${item.product_id})`, 'warning');
+                        }
+                    }
+                }
+
+                const canReturn = isFullyPaid || isUnpaid;
+                log(`🔍 [RETURN-DEBUG] Final eligibility: canReturn=${canReturn}`, canReturn ? 'success' : 'error');
+
+                returnEligibility = {
+                    canReturn,
+                    reason: canReturn ? '' : 'Returns only allowed for fully paid or unpaid invoices',
+                    returnableQuantities
+                };
+
+                updateEligibilityDisplay();
+                updateItemsDisplay();
+
+            } catch (error) {
+                log(`Error checking return eligibility: ${error.message}`, 'error');
+                returnEligibility = {
+                    canReturn: false,
+                    reason: 'Error checking return eligibility',
+                    returnableQuantities: {}
+                };
+                updateEligibilityDisplay();
+                updateItemsDisplay();
+            }
+        }
+
+        // Simulate the database getReturnableQuantity function
+        async function simulateGetReturnableQuantity(itemId, quantity) {
+            // Simulate network delay
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            let originalQuantity;
+            if (typeof quantity === 'string') {
+                const kgGramsMatch = quantity.match(/^(\d+(?:\.\d+)?)-(\d+)$/);
+                if (kgGramsMatch) {
+                    const kg = parseFloat(kgGramsMatch[1]);
+                    const grams = parseFloat(kgGramsMatch[2]);
+                    if (grams >= 1000) {
+                        originalQuantity = kg;
+                    } else {
+                        originalQuantity = kg + (grams / 1000);
+                    }
+                } else {
+                    const parsed = parseFloat(quantity);
+                    originalQuantity = isNaN(parsed) ? 0 : parsed;
+                }
+            } else {
+                originalQuantity = Number(quantity) || 0;
+            }
+
+            const totalReturned = 0; // Simulate no returns yet
+            const returnableQuantity = Math.max(0, Number((originalQuantity - totalReturned).toFixed(3)));
+
+            return {
+                originalQuantity,
+                totalReturned,
+                returnableQuantity
+            };
+        }
+
+        function updateInvoiceDisplay() {
+            const display = document.getElementById('invoice-state');
+            if (!currentInvoice) {
+                display.innerHTML = '<div class="debug-log debug-warning">No invoice loaded</div>';
+                return;
+            }
+
+            display.innerHTML = `
+                <div class="debug-log debug-info">
+                    <strong>Invoice ID:</strong> ${currentInvoice.id}<br>
+                    <strong>Total Amount:</strong> $${currentInvoice.total_amount}<br>
+                    <strong>Remaining Balance:</strong> $${currentInvoice.remaining_balance}<br>
+                    <strong>Paid Amount:</strong> $${currentInvoice.paid_amount || 0}<br>
+                    <strong>Items Count:</strong> ${currentInvoice.items ? currentInvoice.items.length : 0}
+                </div>
+            `;
+        }
+
+        function updateEligibilityDisplay() {
+            const display = document.getElementById('eligibility-state');
+            display.innerHTML = `
+                <div class="debug-log debug-${returnEligibility.canReturn ? 'success' : 'error'}">
+                    <strong>Can Return:</strong> ${returnEligibility.canReturn}<br>
+                    <strong>Reason:</strong> ${returnEligibility.reason || 'N/A'}<br>
+                    <strong>Returnable Quantities:</strong> ${JSON.stringify(returnEligibility.returnableQuantities, null, 2)}
+                </div>
+            `;
+        }
+
+        function updateItemsDisplay() {
+            const display = document.getElementById('items-display');
+            if (!currentInvoice || !currentInvoice.items) {
+                display.innerHTML = '<div class="debug-log debug-warning">No items to display</div>';
+                return;
+            }
+
+            let html = '';
+            currentInvoice.items.forEach(item => {
+                const canShowReturn = !item.is_misc_item && item.product_id &&
+                    returnEligibility.canReturn &&
+                    (returnEligibility.returnableQuantities[item.id] || 0) > 0;
+
+                const buttonDisabledReason = [];
+                if (item.is_misc_item) buttonDisabledReason.push('is_misc_item');
+                if (!item.product_id) buttonDisabledReason.push('no_product_id');
+                if (!returnEligibility.canReturn) buttonDisabledReason.push('cannot_return');
+                if ((returnEligibility.returnableQuantities[item.id] || 0) <= 0) buttonDisabledReason.push('no_returnable_qty');
+
+                html += `
+                    <div class="invoice-item">
+                        <div><strong>${item.product_name}</strong> (ID: ${item.id})</div>
+                        <div>Quantity: ${item.quantity}</div>
+                        <div>Returnable: ${returnEligibility.returnableQuantities[item.id] || 0}</div>
+                        <div>Is Misc: ${item.is_misc_item}</div>
+                        <div>Product ID: ${item.product_id || 'null'}</div>
+                        <div>
+                            <button class="return-button" ${canShowReturn ? '' : 'disabled'}>
+                                Return Item
+                            </button>
+                            <span style="margin-left: 10px; color: ${canShowReturn ? 'green' : 'red'};">
+                                ${canShowReturn ? '✅ ENABLED' : '❌ DISABLED'}
+                                ${!canShowReturn ? `(${buttonDisabledReason.join(', ')})` : ''}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            });
+
+            display.innerHTML = html;
+        }
+
+        // Test scenarios
+        const testScenarios = [
+            {
+                name: "Unpaid Invoice with Regular Items",
+                invoice: {
+                    id: 1,
+                    total_amount: 1000,
+                    remaining_balance: 1000,
+                    paid_amount: 0,
+                    items: [
+                        { id: 1, product_id: 101, product_name: "Regular Item 1", quantity: "5", is_misc_item: false },
+                        { id: 2, product_id: 102, product_name: "Regular Item 2", quantity: "2.5", is_misc_item: false },
+                        { id: 3, product_id: null, product_name: "Misc Item", quantity: "1", is_misc_item: true }
+                    ]
+                }
+            },
+            {
+                name: "Fully Paid Invoice",
+                invoice: {
+                    id: 2,
+                    total_amount: 1000,
+                    remaining_balance: 0,
+                    paid_amount: 1000,
+                    items: [
+                        { id: 4, product_id: 103, product_name: "Paid Item", quantity: "10", is_misc_item: false }
+                    ]
+                }
+            },
+            {
+                name: "Partially Paid Invoice",
+                invoice: {
+                    id: 3,
+                    total_amount: 1000,
+                    remaining_balance: 500,
+                    paid_amount: 500,
+                    items: [
+                        { id: 5, product_id: 104, product_name: "Partial Item", quantity: "3", is_misc_item: false }
+                    ]
+                }
+            },
+            {
+                name: "kg-grams Format Invoice",
+                invoice: {
+                    id: 4,
+                    total_amount: 500,
+                    remaining_balance: 500,
+                    paid_amount: 0,
+                    items: [
+                        { id: 6, product_id: 105, product_name: "T-Iron", quantity: "12-980", is_misc_item: false }
+                    ]
+                }
+            }
+        ];
+
+        async function simulateInvoiceLoad() {
+            // Show scenario selector
+            const scenarioIndex = Math.floor(Math.random() * testScenarios.length);
+            const scenario = testScenarios[scenarioIndex];
+
+            log(`🔄 Loading scenario: ${scenario.name}`, 'info');
+
+            currentInvoice = scenario.invoice;
+            updateInvoiceDisplay();
+
+            // Simulate the invoice loading process
+            log('📋 Invoice loaded, checking return eligibility...', 'info');
+            await checkReturnEligibility(currentInvoice);
+
+            log('✅ Return eligibility check completed', 'success');
+        }
+
+        // Auto-run on page load
+        window.onload = function () {
+            log('🔧 Return Button Real-time Debug loaded', 'success');
+            updateInvoiceDisplay();
+            updateEligibilityDisplay();
+            updateItemsDisplay();
+
+            setTimeout(() => {
+                simulateInvoiceLoad();
+            }, 1000);
+        };
+    </script>
+</body>
+
+</html>

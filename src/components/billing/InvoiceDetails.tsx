@@ -888,29 +888,42 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     }
 
     try {
-      // More robust comparison to handle floating-point precision issues
-      const remainingBalance = Math.round((currentInvoice.remaining_balance + Number.EPSILON) * 100) / 100;
-      const totalAmount = Math.round((currentInvoice.total_amount + Number.EPSILON) * 100) / 100;
+      // CRITICAL FIX: Use proper 2-decimal precision matching database calculations
+      const totalAmount = Math.round((Number(currentInvoice.total_amount || currentInvoice.grand_total || 0) + Number.EPSILON) * 100) / 100;
+      const remainingBalance = Math.round((Number(currentInvoice.remaining_balance || 0) + Number.EPSILON) * 100) / 100;
+      const paidAmount = Math.round((Number(currentInvoice.paid_amount || currentInvoice.payment_amount || 0) + Number.EPSILON) * 100) / 100;
 
-      const isFullyPaid = remainingBalance <= 0.01; // Allow for small rounding errors
-      const isUnpaid = Math.abs(remainingBalance - totalAmount) <= 0.01; // Allow for small rounding errors
-      const isPartiallyPaid = remainingBalance > 0.01 && remainingBalance < (totalAmount - 0.01);
+      // Check for data integrity issues (should not happen with precision fix)
+      if (remainingBalance > totalAmount && paidAmount === 0) {
+        console.error('🚨 [CRITICAL] Data integrity issue detected!', {
+          invoice_id: currentInvoice.id,
+          total_amount: totalAmount,
+          remaining_balance: remainingBalance,
+          difference: remainingBalance - totalAmount,
+          issue: 'REMAINING_BALANCE_EXCEEDS_TOTAL'
+        });
+      }
 
-      console.log('🔍 [RETURN-DEBUG] Payment status check:', {
-        total_amount: currentInvoice.total_amount,
-        remaining_balance: currentInvoice.remaining_balance,
-        paid_amount: currentInvoice.paid_amount || currentInvoice.payment_amount,
+      // FIXED: Proper payment status detection with consistent precision
+      const isFullyPaid = remainingBalance <= 0.01;
+      const isUnpaid = Math.abs(remainingBalance - totalAmount) <= 0.01; // Back to strict precision
+      const isPartiallyPaid = !isFullyPaid && !isUnpaid; console.log('🔍 [RETURN-DEBUG] Payment status check:', {
+        invoice_id: currentInvoice.id,
+        total_amount: totalAmount,
+        remaining_balance: remainingBalance,
+        paid_amount: paidAmount,
         remaining_balance_exact: JSON.stringify(currentInvoice.remaining_balance),
-        total_amount_exact: JSON.stringify(currentInvoice.total_amount),
-        remainingBalance_rounded: remainingBalance,
-        totalAmount_rounded: totalAmount,
+        total_amount_exact: JSON.stringify(currentInvoice.total_amount || currentInvoice.grand_total),
+        difference: Math.abs(remainingBalance - totalAmount),
         isFullyPaid,
         isUnpaid,
         isPartiallyPaid,
-        comparison_zero: currentInvoice.remaining_balance === 0,
-        comparison_total: currentInvoice.remaining_balance === currentInvoice.total_amount,
+        comparison_zero: remainingBalance === 0,
+        comparison_total: remainingBalance === totalAmount,
         balance_type: typeof currentInvoice.remaining_balance,
-        total_type: typeof currentInvoice.total_amount
+        total_type: typeof (currentInvoice.total_amount || currentInvoice.grand_total),
+        precision_fixed: true,
+        data_integrity_status: remainingBalance > totalAmount && paidAmount === 0 ? 'CRITICAL_ISSUE' : 'OK'
       });
 
       if (isPartiallyPaid) {
@@ -1166,7 +1179,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     if (paymentAmount > remainingBalance + 0.01) {
       const safePaymentAmount = isNaN(paymentAmount) ? 0 : paymentAmount;
       const safeRemainingBalance = isNaN(remainingBalance) ? 0 : remainingBalance;
-      toast.error(`Payment amount (${safePaymentAmount.toFixed(1)}) cannot exceed remaining balance (${safeRemainingBalance.toFixed(1)})`);
+      // CRITICAL FIX: Use 2-decimal precision for error messages
+      toast.error(`Payment amount (${safePaymentAmount.toFixed(2)}) cannot exceed remaining balance (${safeRemainingBalance.toFixed(2)})`);
       return;
     }
 
@@ -1483,10 +1497,27 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
           const unitPrice = typeof item.unit_price === 'number' && !isNaN(item.unit_price) ? item.unit_price : 0;
           return `<span>${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${unitPrice}</span>`;
         }
-        // Regular items
-        const quantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
+        // Regular items - calculate original quantity like in the main display
+        let originalQuantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
+
+        // If quantity is 0, try to back-calculate from total_price / unit_price
+        if (originalQuantity === 0 && item.total_price && item.unit_price) {
+          originalQuantity = item.total_price / item.unit_price;
+        }
+
+        // Find the product to get unit_type for proper formatting
+        const product = item.product_id ? products.find(p => p.id === item.product_id) : null;
+
+        // Format quantity based on product unit type
+        let formattedQuantity;
+        if (product && (product.unit_type === 'kg-grams' || product.unit_type === 'kg')) {
+          formattedQuantity = formatQuantityDisplay(originalQuantity, true);
+        } else {
+          formattedQuantity = originalQuantity;
+        }
+
         const unitPrice = typeof item.unit_price === 'number' && !isNaN(item.unit_price) ? item.unit_price : 0;
-        return `<span>${quantity} × Rs.${unitPrice}</span>`;
+        return `<span>${formattedQuantity} × Rs.${unitPrice}</span>`;
       })()}
                   <span><strong>Rs.${typeof item.total_price === 'number' && !isNaN(item.total_price) ? item.total_price.toFixed(2) : '0.00'}</strong></span>
                 </div>
@@ -2098,6 +2129,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                         // Use original_quantity from the first return record (they should all be the same)
                                         originalQuantity = itemReturns[0].original_quantity || originalQuantity;
                                       }
+                                    } else if (originalQuantity === 0 && item.total_price && item.unit_price) {
+                                      // Fallback: If quantity is 0 but we have total_price and unit_price, back-calculate
+                                      // This handles cases where quantity was incorrectly set to 0
+                                      originalQuantity = item.total_price / item.unit_price;
                                     }
 
                                     return (
@@ -2105,14 +2140,36 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                         {hasReturns ? (
                                           <div>
                                             <span className="text-gray-900 font-medium">
-                                              {originalQuantity}
+                                              {(() => {
+                                                // Find the product to get unit_type for proper formatting
+                                                const product = item.product_id ? products.find(p => p.id === item.product_id) : null;
+
+                                                // Format quantity based on product unit type
+                                                if (product && (product.unit_type === 'kg-grams' || product.unit_type === 'kg')) {
+                                                  return formatQuantityDisplay(originalQuantity, true);
+                                                }
+
+                                                return originalQuantity;
+                                              })()}
                                             </span>
                                             <div className="text-xs text-gray-500 mt-1">
                                               <span className="text-red-500">Returned: -{typeof totalReturned === 'number' && !isNaN(totalReturned) ? totalReturned : 0}</span>
                                             </div>
                                           </div>
                                         ) : (
-                                          <span>{originalQuantity}</span>
+                                          <span>
+                                            {(() => {
+                                              // Find the product to get unit_type for proper formatting
+                                              const product = item.product_id ? products.find(p => p.id === item.product_id) : null;
+
+                                              // Format quantity based on product unit type
+                                              if (product && (product.unit_type === 'kg-grams' || product.unit_type === 'kg')) {
+                                                return formatQuantityDisplay(originalQuantity, true);
+                                              }
+
+                                              return originalQuantity;
+                                            })()}
+                                          </span>
                                         )}
                                       </div>
                                     );
@@ -2201,6 +2258,12 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                   canReturn: returnEligibility.canReturn,
                                   returnableQty: returnEligibility.returnableQuantities[item.id],
                                   canShowReturn,
+                                  invoice_id: invoice?.id,
+                                  invoice_status: invoice ? {
+                                    total: invoice.total_amount,
+                                    remaining: invoice.remaining_balance,
+                                    paid: invoice.paid_amount || invoice.payment_amount
+                                  } : 'no invoice',
                                   reasons: {
                                     isMiscItem: !!item.is_misc_item,
                                     noProductId: !item.product_id,
@@ -2750,9 +2813,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           <button
                             type="button"
                             onClick={() => {
-                              // Always round to one decimal place to avoid floating point artifacts
-                              const half = Math.round((adjustedBalance / 2 + Number.EPSILON) * 10) / 10;
-                              setNewPayment({ ...newPayment, amount: isNaN(half) ? '0.0' : half.toFixed(1) });
+                              // CRITICAL FIX: Use 2-decimal precision for payment buttons
+                              const half = Math.round((adjustedBalance / 2 + Number.EPSILON) * 100) / 100;
+                              setNewPayment({ ...newPayment, amount: isNaN(half) ? '0.00' : half.toFixed(2) });
                             }}
                             className="flex-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                           >
@@ -2761,9 +2824,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           <button
                             type="button"
                             onClick={() => {
-                              // Always round to one decimal place to avoid floating point artifacts
-                              const full = Math.round((adjustedBalance + Number.EPSILON) * 10) / 10;
-                              setNewPayment({ ...newPayment, amount: isNaN(full) ? '0.0' : full.toFixed(1) });
+                              // CRITICAL FIX: Use 2-decimal precision for full payment button
+                              const full = Math.round((adjustedBalance + Number.EPSILON) * 100) / 100;
+                              setNewPayment({ ...newPayment, amount: isNaN(full) ? '0.00' : full.toFixed(2) });
                             }}
                             className="flex-1 text-xs px-3 py-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
                           >
