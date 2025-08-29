@@ -515,11 +515,17 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       let totalPrice: number;
       if (selectedProduct.unit_type === 'kg-grams' || selectedProduct.unit_type === 'kg') {
         // For weight-based units, convert grams to kg for pricing (divide by 1000)
-        totalPrice = (parsedQuantity.numericValue / 1000) * unitPrice;
+        const numericValue = isNaN(parsedQuantity.numericValue) ? 0 : parsedQuantity.numericValue;
+        const price = isNaN(unitPrice) ? 0 : unitPrice;
+        totalPrice = (numericValue / 1000) * price;
       } else {
         // For simple units (piece, bag, etc.), use the numeric value directly
-        totalPrice = parsedQuantity.numericValue * unitPrice;
+        const numericValue = isNaN(parsedQuantity.numericValue) ? 0 : parsedQuantity.numericValue;
+        const price = isNaN(unitPrice) ? 0 : unitPrice;
+        totalPrice = numericValue * price;
       }
+      // Ensure totalPrice is not NaN
+      totalPrice = isNaN(totalPrice) ? 0 : totalPrice;
 
       const newItem = {
         product_id: selectedProduct.id,
@@ -775,8 +781,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     }, 0);
 
     // Apply discount if exists
-    const discountAmount = invoice.discount > 0 ? (currentSubtotal * invoice.discount / 100) : 0;
-    const currentTotal = currentSubtotal - discountAmount;
+    const subtotal = isNaN(currentSubtotal) ? 0 : currentSubtotal;
+    const discountPercent = isNaN(invoice.discount) ? 0 : invoice.discount;
+    const discountAmount = discountPercent > 0 ? (subtotal * discountPercent / 100) : 0;
+    const currentTotal = subtotal - discountAmount;
 
     // Debug logging for troubleshooting
     console.log('🧮 [TOTAL-CALC] Current totals calculation:', {
@@ -805,8 +813,10 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   // Calculate net quantity for an invoice item (original - returned)
   const calculateNetQuantity = (item: InvoiceItem) => {
     if (!returnItems || returnItems.length === 0) {
+      // Ensure quantity is a valid number - handle potential undefined/null values
+      const quantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
       return {
-        netQuantity: item.quantity,
+        netQuantity: quantity,
         totalReturned: 0,
         hasReturns: false
       };
@@ -817,14 +827,18 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       returnItem.original_invoice_item_id === item.id
     );
 
-    const totalReturned = itemReturns.reduce((sum, returnItem) =>
-      sum + Math.abs(returnItem.return_quantity || 0), 0
-    );
+    const totalReturned = itemReturns.reduce((sum, returnItem) => {
+      const returnQty = returnItem.return_quantity;
+      const validReturnQty = typeof returnQty === 'number' && !isNaN(returnQty) ? Math.abs(returnQty) : 0;
+      return sum + validReturnQty;
+    }, 0);
 
-    const netQuantity = item.quantity - totalReturned;
+    // Ensure item.quantity is a valid number before calculation
+    const itemQuantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
+    const netQuantity = itemQuantity - totalReturned;
 
     return {
-      netQuantity,
+      netQuantity: isNaN(netQuantity) ? 0 : netQuantity, // Prevent NaN from being returned
       totalReturned,
       hasReturns: totalReturned > 0
     };
@@ -833,7 +847,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   // Calculate net total price for an invoice item
   const calculateNetTotal = (item: InvoiceItem) => {
     const { netQuantity } = calculateNetQuantity(item);
-    return netQuantity * item.unit_price;
+    const unitPrice = isNaN(item.unit_price) ? 0 : item.unit_price;
+    const total = netQuantity * unitPrice;
+    return isNaN(total) ? 0 : total;
   };
   const loadReturnItems = async () => {
     try {
@@ -1085,7 +1101,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         parsed: returnQuantity
       });
 
-      const totalPrice = returnQuantity * returnModal.item.unit_price;
+      const itemUnitPrice = isNaN(returnModal.item.unit_price) ? 0 : returnModal.item.unit_price;
+      const safeReturnQuantity = isNaN(returnQuantity) ? 0 : returnQuantity;
+      const totalPrice = safeReturnQuantity * itemUnitPrice;
 
       const returnData: ReturnData = {
         customer_id: invoice.customer_id,
@@ -1146,7 +1164,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
     // Use epsilon for floating point comparison to avoid precision issues
     if (paymentAmount > remainingBalance + 0.01) {
-      toast.error(`Payment amount (${paymentAmount.toFixed(1)}) cannot exceed remaining balance (${remainingBalance.toFixed(1)})`);
+      const safePaymentAmount = isNaN(paymentAmount) ? 0 : paymentAmount;
+      const safeRemainingBalance = isNaN(remainingBalance) ? 0 : remainingBalance;
+      toast.error(`Payment amount (${safePaymentAmount.toFixed(1)}) cannot exceed remaining balance (${safeRemainingBalance.toFixed(1)})`);
       return;
     }
 
@@ -1457,15 +1477,18 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         );
 
         if (isTIronProduct && item.t_iron_pieces && item.t_iron_length_per_piece) {
-          const pieces = item.t_iron_pieces;
-          const lengthPerPiece = item.t_iron_length_per_piece;
+          const pieces = typeof item.t_iron_pieces === 'number' && !isNaN(item.t_iron_pieces) ? item.t_iron_pieces : 0;
+          const lengthPerPiece = typeof item.t_iron_length_per_piece === 'number' && !isNaN(item.t_iron_length_per_piece) ? item.t_iron_length_per_piece : 0;
           const unit = item.t_iron_unit || 'pcs';
-          return `<span>${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${item.unit_price}</span>`;
+          const unitPrice = typeof item.unit_price === 'number' && !isNaN(item.unit_price) ? item.unit_price : 0;
+          return `<span>${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${unitPrice}</span>`;
         }
         // Regular items
-        return `<span>${item.quantity} × Rs.${item.unit_price}</span>`;
+        const quantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
+        const unitPrice = typeof item.unit_price === 'number' && !isNaN(item.unit_price) ? item.unit_price : 0;
+        return `<span>${quantity} × Rs.${unitPrice}</span>`;
       })()}
-                  <span><strong>Rs.${item.total_price.toFixed(2)}</strong></span>
+                  <span><strong>Rs.${typeof item.total_price === 'number' && !isNaN(item.total_price) ? item.total_price.toFixed(2) : '0.00'}</strong></span>
                 </div>
               </div>
             `).join('') || '<div>No items</div>'}
@@ -1516,7 +1539,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   <div class="item-name">${returnItem.product_name}</div>
                   <div class="item-details">
                     <span>${returnItem.display_quantity} × Rs.${returnItem.unit_price}</span>
-                    <span><strong>Rs. ${returnItem.display_total_price.toFixed(2)}</strong></span>
+                    <span><strong>Rs. ${typeof returnItem.display_total_price === 'number' && !isNaN(returnItem.display_total_price) ? returnItem.display_total_price.toFixed(2) : '0.00'}</strong></span>
                   </div>
                 </div>`).join('');
           }).join('');
@@ -1525,7 +1548,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               <span>TOTAL RETURNS:</span>
               <span>Rs.${(() => {
           const totalReturns = returnItems.reduce((sum, returnItem) => sum + Math.abs(returnItem.display_total_price), 0);
-          return totalReturns.toFixed(2);
+          return isNaN(totalReturns) ? '0.00' : totalReturns.toFixed(2);
         })()}</span>
             </div>
             <div class="total-row grand-total">
@@ -1932,8 +1955,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                   // Regular products
                                   return (
                                     <>
-                                      {item.length && ` • ${item.length}/L`}
-                                      {item.pieces && ` • ${item.pieces}/pcs`}
+                                      {item.length && !isNaN(item.length) && ` • ${item.length}/L`}
+                                      {item.pieces && !isNaN(item.pieces) && ` • ${item.pieces}/pcs`}
                                     </>
                                   );
                                 }
@@ -2033,47 +2056,63 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                       const unit = item.t_iron_unit || 'pcs';
 
                                       // Calculate net quantity for T-Iron items
-                                      const { netQuantity, totalReturned, hasReturns } = calculateNetQuantity(item);
+                                      const { totalReturned, hasReturns } = calculateNetQuantity(item);
+
+                                      // Ensure safe display values for T-Iron
+                                      const displayTotalReturned = typeof totalReturned === 'number' && !isNaN(totalReturned) ? totalReturned : 0;
+                                      const displayPieces = typeof pieces === 'number' && !isNaN(pieces) ? pieces : 0;
+                                      const displayLengthPerPiece = typeof lengthPerPiece === 'number' && !isNaN(lengthPerPiece) ? lengthPerPiece : 0;
 
                                       return (
                                         <div className="text-sm">
                                           {hasReturns ? (
                                             <div>
-                                              <div className={netQuantity > 0 ? "text-orange-600 font-medium" : "text-red-600 font-bold line-through"}>
-                                                {Math.round(netQuantity)}{unit} × {lengthPerPiece}ft/{unit}
+                                              <div className="text-gray-900 font-medium">
+                                                {displayPieces}{unit} × {displayLengthPerPiece}ft/{unit}
                                               </div>
                                               <div className="text-xs text-gray-500 mt-1">
-                                                <span className="text-gray-400">Original: {pieces}{unit} × {lengthPerPiece}ft/{unit}</span>
-                                                <br />
-                                                <span className="text-red-500">Returned: -{totalReturned}</span>
+                                                <span className="text-red-500">Returned: -{displayTotalReturned}</span>
                                               </div>
                                             </div>
                                           ) : (
                                             <div>
-                                              {pieces}{unit} × {lengthPerPiece}ft/{unit}
+                                              {typeof pieces === 'number' && !isNaN(pieces) ? pieces : 0}{unit} × {typeof lengthPerPiece === 'number' && !isNaN(lengthPerPiece) ? lengthPerPiece : 0}ft/{unit}
                                             </div>
                                           )}
                                         </div>
                                       );
                                     }
                                     // Calculate net quantity for this item
-                                    const { netQuantity, totalReturned, hasReturns } = calculateNetQuantity(item);
+                                    const { totalReturned, hasReturns } = calculateNetQuantity(item);
+
+                                    // Calculate original quantity from return records if available, otherwise use current quantity
+                                    let originalQuantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
+
+                                    if (hasReturns && returnItems && returnItems.length > 0) {
+                                      // Find return records for this item to get the original quantity
+                                      const itemReturns = returnItems.filter(returnItem =>
+                                        returnItem.original_invoice_item_id === item.id
+                                      );
+
+                                      if (itemReturns.length > 0) {
+                                        // Use original_quantity from the first return record (they should all be the same)
+                                        originalQuantity = itemReturns[0].original_quantity || originalQuantity;
+                                      }
+                                    }
 
                                     return (
                                       <div className="text-sm">
                                         {hasReturns ? (
                                           <div>
-                                            <span className={netQuantity > 0 ? "text-orange-600 font-medium" : "text-red-600 font-bold line-through"}>
-                                              {netQuantity}
+                                            <span className="text-gray-900 font-medium">
+                                              {originalQuantity}
                                             </span>
                                             <div className="text-xs text-gray-500 mt-1">
-                                              <span className="text-gray-400">Original: {item.quantity}</span>
-                                              <br />
-                                              <span className="text-red-500">Returned: -{totalReturned}</span>
+                                              <span className="text-red-500">Returned: -{typeof totalReturned === 'number' && !isNaN(totalReturned) ? totalReturned : 0}</span>
                                             </div>
                                           </div>
                                         ) : (
-                                          <span>{item.quantity}</span>
+                                          <span>{originalQuantity}</span>
                                         )}
                                       </div>
                                     );
@@ -2130,17 +2169,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           <td className="px-4 py-3 text-sm">{formatCurrency(item.unit_price)}</td>
                           <td className="px-4 py-3 text-sm font-medium">
                             {(() => {
-                              const { netQuantity, hasReturns } = calculateNetQuantity(item);
-                              const netTotal = calculateNetTotal(item);
+                              const { hasReturns } = calculateNetQuantity(item);
 
                               if (hasReturns) {
                                 return (
                                   <div>
-                                    <div className={netQuantity > 0 ? "text-orange-600 font-medium" : "text-red-600 font-bold line-through"}>
-                                      {formatCurrency(netTotal)}
+                                    <div className="text-gray-900 font-medium">
+                                      {formatCurrency(item.total_price)}
                                     </div>
                                     <div className="text-xs text-gray-500 mt-1">
-                                      <span className="text-gray-400">Original: {formatCurrency(item.total_price)}</span>
+                                      <span className="text-red-500">Has returns</span>
                                     </div>
                                   </div>
                                 );
@@ -2687,13 +2725,13 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   const { totalReturns } = calculateAdjustedTotals();
                   const adjustedPaidAmount = invoice.payment_amount || 0;
                   const netTotal = currentTotal - totalReturns;
-                  const actualOutstandingBalance = netTotal - adjustedPaidAmount;
+                  const adjustedBalance = netTotal - adjustedPaidAmount;
 
                   return (
                     <>
                       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                         <div className="text-xs sm:text-sm text-yellow-800">
-                          <strong>Outstanding Balance:</strong> {formatCurrency(actualOutstandingBalance)}
+                          <strong>Outstanding Balance:</strong> {formatCurrency(adjustedBalance)}
                         </div>
                       </div>
 
@@ -2705,7 +2743,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                           step="0.1"
-                          max={actualOutstandingBalance}
+                          max={adjustedBalance}
                           placeholder="0.0"
                         />
                         <div className="flex flex-col sm:flex-row justify-between mt-2 space-y-2 sm:space-y-0 sm:space-x-2">
@@ -2713,8 +2751,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                             type="button"
                             onClick={() => {
                               // Always round to one decimal place to avoid floating point artifacts
-                              const half = Math.round((actualOutstandingBalance / 2 + Number.EPSILON) * 10) / 10;
-                              setNewPayment({ ...newPayment, amount: half.toFixed(1) });
+                              const half = Math.round((adjustedBalance / 2 + Number.EPSILON) * 10) / 10;
+                              setNewPayment({ ...newPayment, amount: isNaN(half) ? '0.0' : half.toFixed(1) });
                             }}
                             className="flex-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
                           >
@@ -2724,8 +2762,8 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                             type="button"
                             onClick={() => {
                               // Always round to one decimal place to avoid floating point artifacts
-                              const full = Math.round((actualOutstandingBalance + Number.EPSILON) * 10) / 10;
-                              setNewPayment({ ...newPayment, amount: full.toFixed(1) });
+                              const full = Math.round((adjustedBalance + Number.EPSILON) * 10) / 10;
+                              setNewPayment({ ...newPayment, amount: isNaN(full) ? '0.0' : full.toFixed(1) });
                             }}
                             className="flex-1 text-xs px-3 py-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
                           >
@@ -2995,7 +3033,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
                   <button
                     onClick={closeReturnModal}
-                    className="w-full sm:w-auto px-4 py-2 sm:py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base font-medium"
+                    className="w-full sm:w-auto px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm"
                   >
                     Cancel
                   </button>

@@ -143,10 +143,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { name: 'Payment Channels', href: '/payment/channels', icon: CreditCard, category: 'management' },
     { name: 'Business Finance', href: '/finance', icon: BarChart3, category: 'management' },
 
-    // Administration
-    { name: 'Root Cause Analysis', href: '/admin/root-cause-analysis', icon: AlertTriangle, category: 'admin' },
-    { name: 'Invoice Balance Fix', href: '/admin/invoice-diagnostic', icon: Settings, category: 'admin' },
-    { name: 'Data Integrity', href: '/admin/data-integrity', icon: Settings, category: 'admin' },
 
   ];
 
