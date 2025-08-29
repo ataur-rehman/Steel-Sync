@@ -950,6 +950,70 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       });
     }
   };
+
+  // Utility function to parse kg-grams format quantities
+  const parseQuantityInput = (input: string): number => {
+    if (!input || input.trim() === '') {
+      return 0;
+    }
+
+    const trimmedInput = input.trim();
+    console.log('🔍 [PARSE-DEBUG] Input:', trimmedInput);
+
+    // Check for kg-grams format: "12-990"
+    const kgGramsMatch = trimmedInput.match(/^(\d+(?:\.\d+)?)-(\d+)$/);
+    if (kgGramsMatch) {
+      const kg = parseFloat(kgGramsMatch[1]);
+      const grams = parseFloat(kgGramsMatch[2]);
+
+      console.log('🔍 [PARSE-DEBUG] Matched kg-grams:', { kg, grams });
+
+      // Validate grams should be less than 1000
+      if (grams >= 1000) {
+        throw new Error(`Invalid grams value: ${grams}. Grams should be less than 1000.`);
+      }
+
+      const result = kg + (grams / 1000);
+      console.log('🔍 [PARSE-DEBUG] Calculated result:', result);
+      return result;
+    } else {
+      // Handle regular decimal input
+      const parsed = parseFloat(trimmedInput);
+      console.log('🔍 [PARSE-DEBUG] Parsed as decimal:', parsed);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+  };
+
+  // Utility function to format quantity for display (especially kg-grams)
+  const formatQuantityDisplay = (quantity: number | string, showUnit: boolean = true): string => {
+    if (typeof quantity === 'string' && quantity.includes('-')) {
+      // Already in kg-grams format like "12-990"
+      return showUnit ? `${quantity} kg` : quantity;
+    }
+
+    const numericQuantity = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+
+    // For decimal quantities, convert back to kg-grams format when appropriate
+    if (numericQuantity > 0) {
+      const kg = Math.floor(numericQuantity);
+      const gramsDecimal = numericQuantity - kg;
+
+      if (gramsDecimal > 0.001) { // Add small tolerance for floating point precision
+        const grams = Math.round(gramsDecimal * 1000);
+        if (grams > 0 && grams < 1000) {
+          // Format with proper zero padding for grams
+          const gramsStr = grams.toString().padStart(3, '0');
+          return showUnit ? `${kg}-${gramsStr} kg` : `${kg}-${gramsStr}`;
+        }
+      }
+
+      // If grams is 0 or very small, just show kg
+      return showUnit ? `${kg} kg` : `${kg}`;
+    }
+
+    return showUnit ? `${numericQuantity} kg` : `${numericQuantity}`;
+  };
+
   const getReturnableQuantity = async (itemId: number): Promise<number> => {
     try {
       const result = await db.getReturnableQuantity(itemId);
@@ -965,7 +1029,14 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       return { isValid: false, error: 'Return quantity is required' };
     }
 
-    const qty = parseFloat(returnQty);
+    // Parse quantity using utility function with error handling
+    let qty: number;
+    try {
+      qty = parseQuantityInput(returnQty);
+    } catch (error) {
+      return { isValid: false, error: (error as Error).message };
+    }
+
     if (isNaN(qty) || qty <= 0) {
       return { isValid: false, error: 'Return quantity must be a positive number' };
     }
@@ -973,17 +1044,22 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     // Get actual returnable quantity considering previous returns
     const returnableQty = await getReturnableQuantity(item.id);
 
+    console.log('🔍 [RETURN-VALIDATION] Quantity comparison:', {
+      returnQty: returnQty,
+      parsedQty: qty,
+      returnableQty: returnableQty,
+      originalQty: item.quantity
+    });
+
     if (qty > returnableQty) {
       return {
         isValid: false,
-        error: `Cannot return ${qty}. Maximum returnable quantity: ${returnableQty} (Original: ${item.quantity})`
+        error: `Cannot return ${returnQty} (${qty} kg). Maximum returnable quantity: ${formatQuantityDisplay(returnableQty)} (Original: ${formatQuantityDisplay(item.quantity)})`
       };
     }
 
     return { isValid: true };
-  };
-
-  const processReturn = async () => {
+  }; const processReturn = async () => {
     if (!returnModal.item) return;
 
     // Validate return quantity (now async)
@@ -1001,7 +1077,14 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     try {
       setSaving(true);
 
-      const returnQuantity = parseFloat(returnModal.returnQuantity);
+      // Parse return quantity using utility function
+      const returnQuantity = parseQuantityInput(returnModal.returnQuantity);
+
+      console.log('🔍 [RETURN-PROCESS] Processing return:', {
+        input: returnModal.returnQuantity,
+        parsed: returnQuantity
+      });
+
       const totalPrice = returnQuantity * returnModal.item.unit_price;
 
       const returnData: ReturnData = {
@@ -2199,59 +2282,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 )}
               </div>
 
-              {/* Invoice Total */}
-              {invoice.items?.length > 0 && (
-                <div className="bg-gray-50 px-4 py-3 border-t">
-                  <div className="flex justify-end">
-                    <div className="w-64 space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <span>Subtotal:</span>
-                        <span>{(() => {
-                          const { currentSubtotal } = calculateCurrentTotals();
-                          return formatCurrency(currentSubtotal);
-                        })()}</span>
-                      </div>
-                      {invoice.discount > 0 && (
-                        <div className="flex justify-between text-sm text-green-600">
-                          <span>Discount ({invoice.discount}%):</span>
-                          <span>-{(() => {
-                            const { discountAmount } = calculateCurrentTotals();
-                            return formatCurrency(discountAmount || 0);
-                          })()}</span>
-                        </div>
-                      )}
-                      {returnItems.length > 0 ? (
-                        <>
-                          <div className="flex justify-between text-sm text-red-600">
-                            <span>Returns:</span>
-                            <span>-{formatCurrency(calculateAdjustedTotals().totalReturns)}</span>
-                          </div>
-                          <div className="flex justify-between text-sm border-t pt-2">
-                            <span>Total Returns:</span>
-                            <span>{formatCurrency(calculateAdjustedTotals().totalReturns)}</span>
-                          </div>
-                          <div className="flex justify-between font-semibold text-lg border-t pt-2">
-                            <span>Total:</span>
-                            <span>{(() => {
-                              const { currentTotal } = calculateCurrentTotals();
-                              const totalReturns = calculateAdjustedTotals().totalReturns;
-                              return formatCurrency(currentTotal - totalReturns);
-                            })()}</span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex justify-between font-semibold text-lg border-t pt-2">
-                          <span>Total:</span>
-                          <span>{(() => {
-                            const { currentTotal } = calculateCurrentTotals();
-                            return formatCurrency(currentTotal);
-                          })()}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
 
             {/* Payments Section */}
@@ -2651,48 +2682,60 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
               </div>
 
               <div className="p-4 sm:p-6 space-y-3 sm:space-y-4">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                  <div className="text-xs sm:text-sm text-yellow-800">
-                    <strong>Outstanding Balance:</strong> {formatCurrency(invoice.remaining_balance)}
-                  </div>
-                </div>
+                {(() => {
+                  const { currentTotal } = calculateCurrentTotals();
+                  const { totalReturns } = calculateAdjustedTotals();
+                  const adjustedPaidAmount = invoice.payment_amount || 0;
+                  const netTotal = currentTotal - totalReturns;
+                  const actualOutstandingBalance = netTotal - adjustedPaidAmount;
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Payment Amount (Rs.)</label>
-                  <input
-                    type="number"
-                    value={newPayment.amount}
-                    onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
-                    step="0.1"
-                    max={invoice.remaining_balance}
-                    placeholder="0.0"
-                  />
-                  <div className="flex flex-col sm:flex-row justify-between mt-2 space-y-2 sm:space-y-0 sm:space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Always round to one decimal place to avoid floating point artifacts
-                        const half = Math.round((invoice.remaining_balance / 2 + Number.EPSILON) * 10) / 10;
-                        setNewPayment({ ...newPayment, amount: half.toFixed(1) });
-                      }}
-                      className="flex-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
-                    >
-                      Half
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // Always round to one decimal place to avoid floating point artifacts
-                        const full = Math.round((invoice.remaining_balance + Number.EPSILON) * 10) / 10;
-                        setNewPayment({ ...newPayment, amount: full.toFixed(1) });
-                      }}
-                      className="flex-1 text-xs px-3 py-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
-                    >
-                      Full Amount
-                    </button>
-                  </div>
-                </div>
+                  return (
+                    <>
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                        <div className="text-xs sm:text-sm text-yellow-800">
+                          <strong>Outstanding Balance:</strong> {formatCurrency(actualOutstandingBalance)}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Payment Amount (Rs.)</label>
+                        <input
+                          type="number"
+                          value={newPayment.amount}
+                          onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                          step="0.1"
+                          max={actualOutstandingBalance}
+                          placeholder="0.0"
+                        />
+                        <div className="flex flex-col sm:flex-row justify-between mt-2 space-y-2 sm:space-y-0 sm:space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Always round to one decimal place to avoid floating point artifacts
+                              const half = Math.round((actualOutstandingBalance / 2 + Number.EPSILON) * 10) / 10;
+                              setNewPayment({ ...newPayment, amount: half.toFixed(1) });
+                            }}
+                            className="flex-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+                          >
+                            Half
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // Always round to one decimal place to avoid floating point artifacts
+                              const full = Math.round((actualOutstandingBalance + Number.EPSILON) * 10) / 10;
+                              setNewPayment({ ...newPayment, amount: full.toFixed(1) });
+                            }}
+                            className="flex-1 text-xs px-3 py-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"
+                          >
+                            Full Amount
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Payment Channel</label>
@@ -2770,33 +2813,53 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
         {/* Return Modal */}
         {returnModal.isOpen && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
-              <div className="border-b border-gray-200 px-6 py-4">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-2 sm:p-4">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md sm:max-w-lg lg:max-w-xl max-h-[95vh] overflow-y-auto">
+              <div className="border-b border-gray-200 px-4 sm:px-6 py-4 sticky top-0 bg-white rounded-t-lg">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-900">Return Item</h3>
+                  <h3 className="text-lg sm:text-xl font-semibold text-gray-900">Return Item</h3>
                   <button
                     onClick={closeReturnModal}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-gray-400 hover:text-gray-600 p-1"
                   >
                     <X className="h-5 w-5" />
                   </button>
                 </div>
               </div>
 
-              <div className="px-6 py-4 space-y-4">
+              <div className="px-4 sm:px-6 py-4 space-y-4 sm:space-y-6">
                 {/* Item Details */}
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <h4 className="font-medium text-gray-900">{returnModal.item?.product_name}</h4>
-                  <div className="text-sm text-gray-600 mt-1">
-                    <div>Unit Price: {formatCurrency(returnModal.item?.unit_price || 0)}</div>
-                    <div>Original Quantity: {returnModal.item?.quantity}</div>
-                    <div className="font-medium text-green-600">
-                      Available for Return: {returnModal.item ? (returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 0}
+                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                  <h4 className="font-medium text-gray-900 text-sm sm:text-base mb-2">{returnModal.item?.product_name}</h4>
+                  <div className="text-sm text-gray-600 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Unit Price:</span>
+                      <span className="font-medium">{formatCurrency(returnModal.item?.unit_price || 0)}</span>
                     </div>
-                    {returnModal.item && (returnEligibility.returnableQuantities[returnModal.item.id] || 0) < returnModal.item.quantity && (
-                      <div className="text-orange-600 text-xs mt-1">
-                        {returnModal.item.quantity - (returnEligibility.returnableQuantities[returnModal.item.id] || 0)} already returned
+                    <div className="flex justify-between">
+                      <span>Original Quantity:</span>
+                      <span className="font-medium">{formatQuantityDisplay(returnModal.item?.quantity || 0)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Available for Return:</span>
+                      <span className="font-medium text-green-600">
+                        {returnModal.item ? formatQuantityDisplay(returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 0}
+                      </span>
+                    </div>
+                    {returnModal.item && (returnEligibility.returnableQuantities[returnModal.item.id] || 0) < parseFloat(String(returnModal.item.quantity)) && (
+                      <div className="text-orange-600 text-xs mt-1 p-2 bg-orange-50 rounded">
+                        {formatQuantityDisplay(parseFloat(String(returnModal.item.quantity)) - (returnEligibility.returnableQuantities[returnModal.item.id] || 0))} already returned
+                      </div>
+                    )}
+
+                    {/* Debug information for troubleshooting */}
+                    {process.env.NODE_ENV === 'development' && returnModal.item && (
+                      <div className="text-xs text-blue-600 mt-2 p-2 bg-blue-50 rounded border">
+                        <strong>Debug Info:</strong><br />
+                        Raw quantity: {JSON.stringify(returnModal.item.quantity)}<br />
+                        Parsed quantity: {parseFloat(String(returnModal.item.quantity))}<br />
+                        Returnable: {returnEligibility.returnableQuantities[returnModal.item.id]}<br />
+                        Format type: {typeof returnModal.item.quantity}
                       </div>
                     )}
                   </div>
@@ -2808,17 +2871,34 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     Return Quantity *
                   </label>
                   <input
-                    type="number"
-                    min="0.01"
-                    max={returnModal.item ? (returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 1}
-                    step="0.01"
+                    type="text"
                     value={returnModal.returnQuantity}
                     onChange={(e) => setReturnModal(prev => ({ ...prev, returnQuantity: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter quantity to return"
+                    className="w-full px-3 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
+                    placeholder="e.g., 12-990 for 12kg 990g or 5.5 for 5.5kg"
                   />
-                  <div className="text-xs text-gray-500 mt-1">
-                    Maximum: {returnModal.item ? (returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 0}
+                  <div className="text-xs sm:text-sm text-gray-500 mt-2 space-y-1">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
+                      <span>Maximum: {returnModal.item ? formatQuantityDisplay(returnEligibility.returnableQuantities[returnModal.item.id] || 0) : 0}</span>
+                      <span className="text-blue-600">Format: "12-990" for kg-grams or "5.5" for decimal</span>
+                    </div>
+                    {returnModal.returnQuantity && (
+                      <div className="mt-2 p-2 sm:p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-1">
+                          <strong className="text-xs sm:text-sm">Parsed Value:</strong>
+                          <span className="text-xs sm:text-sm">
+                            {(() => {
+                              try {
+                                const parsed = parseQuantityInput(returnModal.returnQuantity);
+                                return `${parsed} kg`;
+                              } catch (error) {
+                                return `Error: ${(error as Error).message}`;
+                              }
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2830,7 +2910,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                   <select
                     value={returnModal.reason}
                     onChange={(e) => setReturnModal(prev => ({ ...prev, reason: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
                   >
                     <option value="Customer Request">Customer Request</option>
                     <option value="Defective Item">Defective Item</option>
@@ -2844,34 +2924,34 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
 
                 {/* Settlement Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">
                     Settlement Method *
                   </label>
-                  <div className="space-y-2">
-                    <label className="flex items-center">
+                  <div className="space-y-3">
+                    <label className="flex items-start cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                       <input
                         type="radio"
                         value="ledger"
                         checked={returnModal.settlementType === 'ledger'}
                         onChange={(e) => setReturnModal(prev => ({ ...prev, settlementType: e.target.value as 'ledger' | 'cash' }))}
-                        className="mr-3 text-blue-600"
+                        className="mt-1 mr-3 text-blue-600"
                       />
-                      <div>
-                        <div className="text-sm font-medium">Add to Customer Ledger</div>
-                        <div className="text-xs text-gray-500">Credit will be added to customer's account</div>
+                      <div className="flex-1">
+                        <div className="text-sm sm:text-base font-medium text-gray-900">Add to Customer Ledger</div>
+                        <div className="text-xs sm:text-sm text-gray-500 mt-1">Credit will be added to customer's account</div>
                       </div>
                     </label>
-                    <label className="flex items-center">
+                    <label className="flex items-start cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
                       <input
                         type="radio"
                         value="cash"
                         checked={returnModal.settlementType === 'cash'}
                         onChange={(e) => setReturnModal(prev => ({ ...prev, settlementType: e.target.value as 'ledger' | 'cash' }))}
-                        className="mr-3 text-blue-600"
+                        className="mt-1 mr-3 text-blue-600"
                       />
-                      <div>
-                        <div className="text-sm font-medium">Cash Refund</div>
-                        <div className="text-xs text-gray-500">Cash will be refunded to customer</div>
+                      <div className="flex-1">
+                        <div className="text-sm sm:text-base font-medium text-gray-900">Cash Refund</div>
+                        <div className="text-xs sm:text-sm text-gray-500 mt-1">Cash will be refunded to customer</div>
                       </div>
                     </label>
                   </div>
@@ -2886,42 +2966,54 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                     value={returnModal.notes}
                     onChange={(e) => setReturnModal(prev => ({ ...prev, notes: e.target.value }))}
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm sm:text-base"
                     placeholder="Additional notes about the return..."
                   />
                 </div>
 
                 {/* Return Total */}
-                {returnModal.returnQuantity && !isNaN(parseFloat(returnModal.returnQuantity)) && (
-                  <div className="bg-blue-50 rounded-lg p-3">
-                    <div className="text-sm font-medium text-blue-900">
-                      Return Total: {formatCurrency(parseFloat(returnModal.returnQuantity) * (returnModal.item?.unit_price || 0))}
+                {returnModal.returnQuantity && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                      <span className="text-sm sm:text-base font-medium text-blue-900">Return Total:</span>
+                      <span className="text-lg sm:text-xl font-bold text-blue-900">
+                        {(() => {
+                          try {
+                            const parsedQty = parseQuantityInput(returnModal.returnQuantity);
+                            return formatCurrency(parsedQty * (returnModal.item?.unit_price || 0));
+                          } catch (error) {
+                            return formatCurrency(0);
+                          }
+                        })()}
+                      </span>
                     </div>
                   </div>
                 )}
               </div>
 
-              <div className="border-t border-gray-200 px-6 py-4 flex justify-end space-x-3">
-                <button
-                  onClick={closeReturnModal}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={processReturn}
-                  disabled={saving || !returnModal.returnQuantity || !returnModal.reason}
-                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {saving ? (
-                    <div className="flex items-center space-x-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                      <span>Processing...</span>
-                    </div>
-                  ) : (
-                    'Process Return'
-                  )}
-                </button>
+              <div className="border-t border-gray-200 px-4 sm:px-6 py-4 sticky bottom-0 bg-white rounded-b-lg">
+                <div className="flex flex-col sm:flex-row gap-3 sm:justify-end">
+                  <button
+                    onClick={closeReturnModal}
+                    className="w-full sm:w-auto px-4 py-2 sm:py-3 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-sm sm:text-base font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={processReturn}
+                    disabled={saving || !returnModal.returnQuantity || !returnModal.reason}
+                    className="w-full sm:w-auto px-4 py-2 sm:py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm sm:text-base font-medium"
+                  >
+                    {saving ? (
+                      <div className="flex items-center justify-center space-x-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        <span>Processing...</span>
+                      </div>
+                    ) : (
+                      'Process Return'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>

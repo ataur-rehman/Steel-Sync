@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Cash Refund Complete Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .log {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+
+        .success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+
+        .error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .warning {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .summary {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 Test Cash Refund Complete Fix</h1>
+    <p>This test verifies that cash refund returns properly update:</p>
+    <ul>
+        <li>✅ Daily ledger entries (cash outflow)</li>
+        <li>✅ Customer ledger (credit to customer)</li>
+        <li>✅ Invoice outstanding balance (reduction)</li>
+    </ul>
+
+    <button onclick="testCompleteCashRefund()">🔄 Test Complete Cash Refund</button>
+    <button onclick="clearLog()">🧹 Clear Log</button>
+
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+            results.appendChild(div);
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function displayTable(data, title) {
+            if (!data || data.length === 0) {
+                log(`No data to display for ${title}`, 'warning');
+                return;
+            }
+
+            let html = `<h3>${title}</h3><table><thead><tr>`;
+
+            // Create headers
+            const keys = Object.keys(data[0]);
+            keys.forEach(key => {
+                html += `<th>${key}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            // Create rows
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    html += `<td>${row[key] || ''}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            results.appendChild(div);
+        }
+
+        function displaySummary(title, data) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = 'summary';
+            div.innerHTML = `<h3>${title}</h3><pre>${data}</pre>`;
+            results.appendChild(div);
+        }
+
+        async function testCompleteCashRefund() {
+            try {
+                log('🚀 Starting complete cash refund test...', 'info');
+
+                const { db } = await import('/src/services/database.ts');
+
+                // Step 1: Create a test invoice with customer
+                log('📝 Creating test invoice with customer...', 'info');
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Test Customer',
+                    invoice_number: 'TEST-CASH-REFUND-COMPLETE-001',
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toLocaleTimeString(),
+                    discount: 0,
+                    payment_amount: 0, // Unpaid invoice
+                    payment_method: 'cash',
+                    notes: 'Test invoice for complete cash refund test',
+                    items: [
+                        {
+                            product_id: 1,
+                            product_name: 'Test Product for Refund',
+                            quantity: 10,
+                            unit_price: 150,
+                            total_price: 1500
+                        }
+                    ]
+                };
+
+                const invoiceResult = await db.createInvoice(testInvoice);
+                const invoiceId = invoiceResult.id;
+                log(`✅ Test invoice created with ID: ${invoiceId}`, 'success');
+
+                // Step 2: Get initial states
+                log('📊 Recording initial states...', 'info');
+
+                // Get initial invoice balance
+                const initialInvoice = await db.getInvoiceDetails(invoiceId);
+                const initialInvoiceBalance = initialInvoice.remaining_balance || (initialInvoice.grand_total - (initialInvoice.payment_amount || 0));
+
+                // Get initial customer balance
+                const initialCustomer = await db.executeRawQuery(
+                    'SELECT balance FROM customers WHERE id = ?',
+                    [1]
+                );
+                const initialCustomerBalance = initialCustomer[0]?.balance || 0;
+
+                // Get initial ledger entry count
+                const today = new Date().toISOString().split('T')[0];
+                const initialLedger = await db.getDailyLedgerEntries(today, { customer_id: null });
+                const initialLedgerCount = initialLedger.entries.length;
+
+                // Get initial customer ledger entry count
+                const initialCustomerLedger = await db.executeRawQuery(
+                    'SELECT COUNT(*) as count FROM customer_ledger_entries WHERE customer_id = ? AND date = ?',
+                    [1, today]
+                );
+                const initialCustomerLedgerCount = initialCustomerLedger[0]?.count || 0;
+
+                displaySummary('Initial States', `Invoice ID: ${invoiceId}
+Invoice Balance: Rs. ${initialInvoiceBalance}
+Customer Balance: Rs. ${initialCustomerBalance}
+Daily Ledger Entries: ${initialLedgerCount}
+Customer Ledger Entries: ${initialCustomerLedgerCount}`);
+
+                // Step 3: Create cash refund return
+                log('💰 Creating cash refund return...', 'info');
+                const testItem = initialInvoice.items[0];
+                const returnData = {
+                    original_invoice_id: invoiceId,
+                    customer_id: 1,
+                    customer_name: 'Test Customer',
+                    return_number: 'RET-COMPLETE-TEST-001',
+                    date: today,
+                    time: new Date().toLocaleTimeString(),
+                    settlement_type: 'cash',
+                    reason: 'Complete testing - cash refund',
+                    notes: 'Testing complete cash refund functionality',
+                    created_by: 'test_user',
+                    items: [
+                        {
+                            original_invoice_item_id: testItem.id,
+                            product_id: testItem.product_id,
+                            product_name: testItem.product_name,
+                            return_quantity: 3,
+                            unit_price: testItem.unit_price,
+                            total_price: 450, // 3 * 150
+                            condition: 'defective',
+                            reason: 'Testing complete functionality'
+                        }
+                    ]
+                };
+
+                log('🔄 Processing cash refund return...', 'warning');
+                const returnId = await db.createReturn(returnData);
+                log(`✅ Cash refund return created successfully! Return ID: ${returnId}`, 'success');
+
+                // Step 4: Verify all updates
+                log('🔍 Verifying all updates...', 'info');
+
+                // 4a. Check invoice balance update
+                const updatedInvoice = await db.getInvoiceDetails(invoiceId);
+                const updatedInvoiceBalance = updatedInvoice.remaining_balance || (updatedInvoice.grand_total - (updatedInvoice.payment_amount || 0));
+                const expectedInvoiceBalance = initialInvoiceBalance - 450;
+
+                if (Math.abs(updatedInvoiceBalance - expectedInvoiceBalance) < 0.01) {
+                    log(`✅ Invoice balance updated correctly: ${initialInvoiceBalance} -> ${updatedInvoiceBalance}`, 'success');
+                } else {
+                    log(`❌ Invoice balance update FAILED: Expected ${expectedInvoiceBalance}, got ${updatedInvoiceBalance}`, 'error');
+                }
+
+                // 4b. Check customer balance update (credit should increase balance)
+                const updatedCustomer = await db.executeRawQuery(
+                    'SELECT balance FROM customers WHERE id = ?',
+                    [1]
+                );
+                const updatedCustomerBalance = updatedCustomer[0]?.balance || 0;
+                const expectedCustomerBalance = initialCustomerBalance + 450; // Credit increases balance
+
+                if (Math.abs(updatedCustomerBalance - expectedCustomerBalance) < 0.01) {
+                    log(`✅ Customer balance updated correctly: ${initialCustomerBalance} -> ${updatedCustomerBalance}`, 'success');
+                } else {
+                    log(`❌ Customer balance update FAILED: Expected ${expectedCustomerBalance}, got ${updatedCustomerBalance}`, 'error');
+                }
+
+                // 4c. Check daily ledger entry (cash outflow)
+                const updatedLedger = await db.getDailyLedgerEntries(today, { customer_id: null });
+                const refundEntries = updatedLedger.entries.filter(entry =>
+                    entry.description && entry.description.includes('Cash refund') &&
+                    entry.reference_id === returnId
+                );
+
+                if (refundEntries.length > 0) {
+                    log(`✅ Daily ledger entry created: ${refundEntries.length} cash refund entries found`, 'success');
+                    displayTable(refundEntries, 'Cash Refund Daily Ledger Entries');
+                } else {
+                    log('❌ Daily ledger entry MISSING for cash refund', 'error');
+                }
+
+                // 4d. Check customer ledger entry (credit to customer)
+                const customerLedgerEntries = await db.executeRawQuery(
+                    'SELECT * FROM customer_ledger_entries WHERE customer_id = ? AND reference_id = ? AND transaction_type = ?',
+                    [1, returnId, 'return']
+                );
+
+                if (customerLedgerEntries.length > 0) {
+                    log(`✅ Customer ledger entry created: ${customerLedgerEntries.length} return credit entries found`, 'success');
+                    displayTable(customerLedgerEntries, 'Customer Ledger Credit Entries');
+                } else {
+                    log('❌ Customer ledger entry MISSING for return credit', 'error');
+                }
+
+                // Step 5: Final summary
+                displaySummary('Final States', `Invoice ID: ${invoiceId}
+Original Invoice Balance: Rs. ${initialInvoiceBalance}
+Updated Invoice Balance: Rs. ${updatedInvoiceBalance}
+Invoice Balance Change: Rs. ${updatedInvoiceBalance - initialInvoiceBalance}
+
+Original Customer Balance: Rs. ${initialCustomerBalance}
+Updated Customer Balance: Rs. ${updatedCustomerBalance}
+Customer Balance Change: Rs. ${updatedCustomerBalance - initialCustomerBalance}
+
+Daily Ledger Entries: ${initialLedgerCount} -> ${updatedLedger.entries.length}
+Customer Ledger Entries: ${initialCustomerLedgerCount} -> ${customerLedgerEntries.length}
+
+Return Amount: Rs. 450
+Return ID: ${returnId}`);
+
+                // Step 6: Cleanup
+                log('🧹 Cleaning up test data...', 'info');
+                await db.executeRawQuery('DELETE FROM customer_ledger_entries WHERE reference_id = ?', [returnId]);
+                await db.executeRawQuery('DELETE FROM ledger_entries WHERE reference_id = ? AND reference_type = ?', ['other', returnId]);
+                await db.executeRawQuery('DELETE FROM return_items WHERE return_id = ?', [returnId]);
+                await db.executeRawQuery('DELETE FROM returns WHERE id = ?', [returnId]);
+                await db.executeRawQuery('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
+                await db.executeRawQuery('DELETE FROM invoices WHERE id = ?', [invoiceId]);
+
+                // Reset customer balance
+                await db.executeRawQuery('UPDATE customers SET balance = ? WHERE id = ?', [initialCustomerBalance, 1]);
+
+                log('✅ Test data cleaned up', 'success');
+
+                log('🎉 COMPLETE CASH REFUND TEST FINISHED!', 'success');
+                log('📋 All components should now be working: daily ledger, customer ledger, and invoice balance updates', 'success');
+
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+                console.error('Full error:', error);
+            }
+        }
+
+        // Auto-run message when page loads
+        window.addEventListener('load', () => {
+            log('🧪 Complete Cash Refund Test Ready', 'info');
+            log('📋 This test verifies all aspects of cash refund processing.', 'info');
+        });
+    </script>
+</body>
+
+</html>

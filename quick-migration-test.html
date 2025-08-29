@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 Quick Migration Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #1a1a1a;
+            color: #fff;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #2d3748, #4a5568);
+            border-radius: 10px;
+        }
+
+        .button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            font-family: inherit;
+        }
+
+        .button:hover {
+            background-color: #0056b3;
+        }
+
+        .button.success {
+            background-color: #28a745;
+        }
+
+        .button.success:hover {
+            background-color: #218838;
+        }
+
+        .output {
+            background-color: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .success {
+            color: #28a745;
+        }
+
+        .error {
+            color: #dc3545;
+        }
+
+        .warning {
+            color: #ffc107;
+        }
+
+        .info {
+            color: #17a2b8;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔧 Quick Migration Test</h1>
+            <p>Testing the corrected migration with schema fixes</p>
+        </div>
+
+        <div>
+            <button class="button success" onclick="testMigrationDirect()">
+                🚀 Test Migration Now
+            </button>
+            <button class="button" onclick="clearOutput()">
+                🗑️ Clear Output
+            </button>
+        </div>
+
+        <div id="output" class="output">
+            Ready to test migration. Click "Test Migration Now" to start.
+
+            This will test the fixed migration system with corrected schema references.
+        </div>
+    </div>
+
+    <script type="module">
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            let className = '';
+
+            if (type === 'error') className = 'error';
+            else if (type === 'success') className = 'success';
+            else if (type === 'warning') className = 'warning';
+            else if (type === 'info') className = 'info';
+
+            output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        window.testMigrationDirect = async function () {
+            log('🔧 === DIRECT MIGRATION TEST ===', 'info');
+
+            try {
+                // Import migration
+                const { runAutomaticProductionMigration } = await import('./src/utils/automatic-production-migration.ts');
+                log('✅ Migration module imported successfully', 'success');
+
+                // Import database
+                const { db } = await import('./src/services/database.ts');
+                log('✅ Database module imported successfully', 'success');
+
+                if (!db?.dbConnection) {
+                    log('❌ Database connection not available', 'error');
+                    return;
+                }
+                log('✅ Database connection available', 'success');
+
+                // Test a simple query first
+                log('🔍 Testing basic database query...', 'info');
+                try {
+                    const testQuery = await db.dbConnection.select('SELECT COUNT(*) as count FROM invoices');
+                    log(`✅ Found ${testQuery[0]?.count || 0} invoices`, 'success');
+                } catch (queryError) {
+                    log(`❌ Basic query failed: ${queryError.message}`, 'error');
+                    return;
+                }
+
+                // Run migration
+                log('🚀 Starting automatic migration...', 'info');
+                const startTime = Date.now();
+
+                const result = await runAutomaticProductionMigration(db.dbConnection);
+                const duration = Date.now() - startTime;
+
+                log('📊 === MIGRATION RESULTS ===', 'info');
+                log(`✅ Success: ${result.success}`, result.success ? 'success' : 'error');
+                log(`⏱️ Duration: ${duration}ms`, 'info');
+                log(`🔧 Triggers updated: ${result.operations?.triggersUpdated}`, 'info');
+                log(`📄 Invoices fixed: ${result.operations?.invoicesFixed}`, 'info');
+                log(`👥 Customers fixed: ${result.operations?.customersFixed}`, 'info');
+                log(`✅ Validation passed: ${result.operations?.validationPassed}`, 'info');
+
+                if (result.errors && result.errors.length > 0) {
+                    log('⚠️ Errors encountered:', 'warning');
+                    result.errors.forEach(error => {
+                        log(`   ${error}`, 'warning');
+                    });
+                } else {
+                    log('🎯 No errors encountered', 'success');
+                }
+
+                if (result.success) {
+                    log('🎉 MIGRATION COMPLETED SUCCESSFULLY!', 'success');
+                    log('💡 All production issues should now be resolved', 'success');
+                } else {
+                    log('❌ MIGRATION FAILED', 'error');
+                    if (result.message) {
+                        log(`📝 Message: ${result.message}`, 'error');
+                    }
+                }
+
+            } catch (error) {
+                log(`❌ Migration test failed: ${error.message}`, 'error');
+                console.error('Migration error details:', error);
+
+                // Show stack trace for debugging
+                if (error.stack) {
+                    log(`📋 Stack trace:`, 'error');
+                    log(error.stack, 'error');
+                }
+            }
+        };
+
+        window.clearOutput = function () {
+            document.getElementById('output').innerHTML = 'Output cleared. Ready for next test.\n';
+        };
+
+        // Initialize
+        log('🚀 Quick migration test ready', 'success');
+        log('💡 Click "Test Migration Now" to run the fixed migration system', 'info');
+    </script>
+</body>
+
+</html>

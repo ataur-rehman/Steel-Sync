@@ -301,15 +301,39 @@ const DailyLedger: React.FC = () => {
 
       // FIXED: Apply customer and payment channel filters if selected
       let filteredEntries = finalEntries;
-      if (selectedCustomerId) {
-        filteredEntries = filteredEntries.filter(entry =>
-          entry.customer_id === selectedCustomerId
-        );
-      }
 
-      // Apply payment channel filter if channels are selected
+      if (selectedCustomerId) {
+        filteredEntries = filteredEntries.filter(entry => {
+          // Include entries for the selected customer
+          if (entry.customer_id === selectedCustomerId) return true;
+
+          // CRITICAL FIX: Include system entries (refunds, salary, manual transactions, etc.)
+          // These should be visible regardless of customer filter
+          if (!entry.customer_id || entry.customer_id === 0) return true;
+
+          // Include cash refunds and return-related entries for any customer
+          // since they affect overall daily cash flow
+          if (entry.category === 'refunds' ||
+            entry.category === 'Cash Refund' ||
+            entry.description?.includes('Cash refund') ||
+            entry.reference_type === 'other') return true;
+
+          // Exclude other customer entries
+          return false;
+        });
+      }      // Apply payment channel filter if channels are selected
       if (selectedPaymentChannels.length > 0) {
         filteredEntries = filteredEntries.filter(entry => {
+          // CRITICAL FIX: Always include system entries (refunds, salary, etc.) regardless of payment channel filter
+          if (entry.category === 'refunds' ||
+            entry.category === 'Cash Refund' ||
+            entry.description?.includes('Cash refund') ||
+            entry.reference_type === 'other' ||
+            !entry.customer_id ||
+            entry.customer_id === 0) {
+            return true;
+          }
+
           // If entry has payment_channel_id, check if it's in selected channels
           if (entry.payment_channel_id) {
             return selectedPaymentChannels.includes(entry.payment_channel_id);
@@ -384,9 +408,7 @@ const DailyLedger: React.FC = () => {
       const dailyLedgerData = await db.getDailyLedgerEntries(date, { customer_id: selectedCustomerId });
       const ledgerEntries = dailyLedgerData.entries || [];
 
-      console.log(`� [DailyLedger] Centralized ledger entries:`, ledgerEntries.length);
-
-      // Phase 2: Load vendor payments directly from vendor_payments table
+      console.log(`📊 [DailyLedger] Centralized ledger entries:`, ledgerEntries.length);      // Phase 2: Load vendor payments directly from vendor_payments table
       const vendorPayments = await db.executeRawQuery(`
         SELECT vp.*, 
                COALESCE(v.name, vp.vendor_name, 'Unknown Vendor') as vendor_name
@@ -473,6 +495,7 @@ const DailyLedger: React.FC = () => {
           'Advance Payment',
           'Return Refund',
           'Cash Refund', // 🔧 CRITICAL FIX: Include cash refunds from returns
+          'refunds', // 🔧 CRITICAL FIX: Include lowercase refunds category
           'Staff Salary',
           'Salary Payment',
           'salary', // 🔧 CRITICAL FIX: Include lowercase salary category from staff management
@@ -1055,15 +1078,15 @@ const DailyLedger: React.FC = () => {
   };
 
   // Enhanced filter entries - now includes bill number search
-  const filteredEntries = entries.filter(entry =>
-    entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    entry.notes?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredEntries = entries.filter(entry => {
+    const searchMatch = entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      entry.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      entry.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      entry.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      entry.notes?.toLowerCase().includes(searchTerm.toLowerCase());
 
-  const incomingEntries = filteredEntries.filter(e => e.type === 'incoming');
+    return searchMatch;
+  }); const incomingEntries = filteredEntries.filter(e => e.type === 'incoming');
   const outgoingEntries = filteredEntries.filter(e => e.type === 'outgoing');
 
   const formatCurrency = (amount: number | undefined | null): string => {
@@ -1117,6 +1140,26 @@ const DailyLedger: React.FC = () => {
       ?.trim();
 
     switch (entry.category) {
+      case 'Cash Refund':
+      case 'refunds':
+      case 'Return Refund':
+        // CLEAR FORMAT: "Cash Refund - [Customer Name] - Invoice [Number]"
+        let refundText = 'Cash Refund';
+
+        if (cleanCustomerName) {
+          refundText += ` - ${cleanCustomerName}`;
+        }
+
+        // Add invoice reference if available (reference_id is the invoice ID)
+        if (entry.reference_id) {
+          refundText += ` - Invoice I${entry.reference_id}`;
+        } else if (entry.bill_number) {
+          refundText += ` - ${entry.bill_number}`;
+        }
+
+        primaryText = refundText;
+        break;
+
       case 'Customer Payment':
       case 'Payment Received':
       case 'Invoice Payment':

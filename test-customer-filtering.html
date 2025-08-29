@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Daily Ledger Customer Filtering</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .log {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+
+        .success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+
+        .error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .warning {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+        }
+
+        .highlight {
+            background-color: #fff3cd;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 Test Daily Ledger Customer Filtering</h1>
+    <p>This test checks if cash refund entries show up in the daily ledger UI when customer filters are applied.</p>
+
+    <button onclick="testSpecificEntry()">🔍 Test Entry ID 58</button>
+    <button onclick="testCustomerFiltering()">👤 Test Customer Filtering</button>
+    <button onclick="testWithoutFilter()">🌐 Test Without Filter</button>
+    <button onclick="clearLog()">🧹 Clear Log</button>
+
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+            results.appendChild(div);
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        function displayTable(data, title) {
+            if (!data || data.length === 0) {
+                log(`No data to display for ${title}`, 'warning');
+                return;
+            }
+
+            let html = `<h3>${title}</h3><table><thead><tr>`;
+
+            // Create headers
+            const keys = Object.keys(data[0]);
+            keys.forEach(key => {
+                html += `<th>${key}</th>`;
+            });
+            html += '</tr></thead><tbody>';
+
+            // Create rows
+            data.forEach(row => {
+                html += '<tr>';
+                keys.forEach(key => {
+                    const cellClass = (row.id === 58) ? 'highlight' : '';
+                    html += `<td class="${cellClass}">${row[key] || ''}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.innerHTML = html;
+            results.appendChild(div);
+        }
+
+        async function testSpecificEntry() {
+            try {
+                log('🔍 Testing specific entry ID 58...', 'info');
+
+                const { db } = await import('/src/services/database.ts');
+
+                // Get the specific entry details
+                const specificEntry = await db.executeRawQuery(
+                    'SELECT * FROM ledger_entries WHERE id = ?',
+                    [58]
+                );
+
+                if (specificEntry.length === 0) {
+                    log('❌ Entry with ID 58 not found in database', 'error');
+                    return;
+                }
+
+                const entry = specificEntry[0];
+                log(`📋 Found entry: customer_id=${entry.customer_id}, date=${entry.date}, category=${entry.category}`, 'info');
+                displayTable(specificEntry, 'Entry ID 58 Details');
+
+                const testDate = entry.date;
+
+                // Test 1: No customer filter
+                log('🧪 Test 1: Getting entries with NO customer filter...', 'info');
+                const noFilterResult = await db.getDailyLedgerEntries(testDate, { customer_id: null });
+                const foundNoFilter = noFilterResult.entries.find(e => e.id === 58);
+
+                if (foundNoFilter) {
+                    log('✅ Entry FOUND with no customer filter', 'success');
+                } else {
+                    log('❌ Entry NOT FOUND with no customer filter', 'error');
+                }
+
+                // Test 2: With matching customer filter
+                if (entry.customer_id && entry.customer_id > 0) {
+                    log(`🧪 Test 2: Getting entries with MATCHING customer filter (${entry.customer_id})...`, 'info');
+                    const matchingFilterResult = await db.getDailyLedgerEntries(testDate, { customer_id: entry.customer_id });
+                    const foundMatching = matchingFilterResult.entries.find(e => e.id === 58);
+
+                    if (foundMatching) {
+                        log('✅ Entry FOUND with matching customer filter', 'success');
+                    } else {
+                        log('❌ Entry NOT FOUND with matching customer filter', 'error');
+                    }
+                }
+
+                // Test 3: With different customer filter
+                const differentCustomerId = entry.customer_id === 1 ? 2 : 1;
+                log(`🧪 Test 3: Getting entries with DIFFERENT customer filter (${differentCustomerId})...`, 'info');
+                const differentFilterResult = await db.getDailyLedgerEntries(testDate, { customer_id: differentCustomerId });
+                const foundDifferent = differentFilterResult.entries.find(e => e.id === 58);
+
+                if (foundDifferent) {
+                    log('✅ Entry FOUND with different customer filter (cash refunds should be visible)', 'success');
+                } else {
+                    log('❌ Entry NOT FOUND with different customer filter (this was the bug!)', 'error');
+                }
+
+                // Show all entries for debugging
+                log(`📊 All entries found with different customer filter: ${differentFilterResult.entries.length}`, 'info');
+
+                if (differentFilterResult.entries.length > 0) {
+                    // Show only entries related to refunds or cash outflows
+                    const relevantEntries = differentFilterResult.entries.filter(e =>
+                        e.category === 'refunds' ||
+                        e.category === 'Cash Refund' ||
+                        e.description?.includes('refund') ||
+                        e.id === 58
+                    );
+
+                    if (relevantEntries.length > 0) {
+                        displayTable(relevantEntries, `Relevant Entries (Customer ${differentCustomerId} Filter)`);
+                    }
+                }
+
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+                console.error('Error:', error);
+            }
+        }
+
+        async function testCustomerFiltering() {
+            try {
+                log('👤 Testing customer filtering logic...', 'info');
+
+                const { db } = await import('/src/services/database.ts');
+                const today = new Date().toISOString().split('T')[0];
+
+                // Get all entries for today
+                const allEntries = await db.getDailyLedgerEntries(today, { customer_id: null });
+                log(`📊 Total entries for ${today}: ${allEntries.entries.length}`, 'info');
+
+                // Group entries by customer_id
+                const byCustomer = {};
+                const systemEntries = [];
+
+                allEntries.entries.forEach(entry => {
+                    if (!entry.customer_id || entry.customer_id === 0) {
+                        systemEntries.push(entry);
+                    } else {
+                        if (!byCustomer[entry.customer_id]) {
+                            byCustomer[entry.customer_id] = [];
+                        }
+                        byCustomer[entry.customer_id].push(entry);
+                    }
+                });
+
+                log(`📊 System entries (customer_id = NULL or 0): ${systemEntries.length}`, 'info');
+                log(`📊 Customer groups: ${Object.keys(byCustomer).length}`, 'info');
+
+                // Test with each customer filter
+                for (const customerId of Object.keys(byCustomer)) {
+                    const customerIdNum = parseInt(customerId);
+                    log(`🧪 Testing with customer filter: ${customerIdNum}`, 'info');
+
+                    const filteredResult = await db.getDailyLedgerEntries(today, { customer_id: customerIdNum });
+
+                    const customerEntries = filteredResult.entries.filter(e => e.customer_id === customerIdNum);
+                    const systemEntriesInResult = filteredResult.entries.filter(e => !e.customer_id || e.customer_id === 0);
+                    const refundEntries = filteredResult.entries.filter(e =>
+                        e.category === 'refunds' ||
+                        e.category === 'Cash Refund' ||
+                        e.description?.includes('Cash refund')
+                    );
+
+                    log(`   Customer ${customerIdNum} entries: ${customerEntries.length}`, 'info');
+                    log(`   System entries: ${systemEntriesInResult.length}`, 'info');
+                    log(`   Refund entries: ${refundEntries.length}`, 'info');
+                    log(`   Total: ${filteredResult.entries.length}`, 'info');
+
+                    if (refundEntries.length > 0) {
+                        log(`   ✅ Refund entries are visible with customer ${customerIdNum} filter`, 'success');
+                    }
+                }
+
+                if (systemEntries.length > 0) {
+                    displayTable(systemEntries.slice(0, 10), 'System Entries (Sample)');
+                }
+
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+                console.error('Error:', error);
+            }
+        }
+
+        async function testWithoutFilter() {
+            try {
+                log('🌐 Testing without any customer filter...', 'info');
+
+                const { db } = await import('/src/services/database.ts');
+                const today = new Date().toISOString().split('T')[0];
+
+                const result = await db.getDailyLedgerEntries(today, { customer_id: null });
+                log(`📊 Total entries without filter: ${result.entries.length}`, 'info');
+
+                // Look for entry 58 specifically
+                const entry58 = result.entries.find(e => e.id === 58);
+                if (entry58) {
+                    log('✅ Entry 58 FOUND without customer filter', 'success');
+                    displayTable([entry58], 'Entry 58 (No Filter)');
+                } else {
+                    log('❌ Entry 58 NOT FOUND even without customer filter', 'error');
+                }
+
+                // Show refund entries
+                const refundEntries = result.entries.filter(e =>
+                    e.category === 'refunds' ||
+                    e.category === 'Cash Refund' ||
+                    e.description?.includes('Cash refund')
+                );
+
+                log(`📊 Cash refund entries found: ${refundEntries.length}`, 'info');
+                if (refundEntries.length > 0) {
+                    displayTable(refundEntries, 'All Cash Refund Entries');
+                }
+
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+                console.error('Error:', error);
+            }
+        }
+
+        // Auto-run basic test when page loads
+        window.addEventListener('load', () => {
+            log('🧪 Daily Ledger Customer Filtering Test Ready', 'info');
+            log('📋 This test checks if entry ID 58 shows up properly with different customer filters.', 'info');
+        });
+    </script>
+</body>
+
+</html>

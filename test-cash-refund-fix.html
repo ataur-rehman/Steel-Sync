@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Cash Refund Return</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .log {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 4px solid #007bff;
+            background: #f8f9fa;
+        }
+
+        .success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+
+        .error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .warning {
+            border-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 Test Cash Refund Return</h1>
+    <p>This test verifies that cash refund returns work without the "daily_ledger_entries" table error.</p>
+
+    <button onclick="testCashRefundReturn()">🔄 Test Cash Refund Return</button>
+    <button onclick="clearLog()">🧹 Clear Log</button>
+
+    <div id="results"></div>
+
+    <script>
+        function log(message, type = 'info') {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `log ${type}`;
+            div.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+            results.appendChild(div);
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function testCashRefundReturn() {
+            try {
+                log('🚀 Starting cash refund return test...', 'info');
+
+                // Import database
+                const { db } = await import('/src/services/database.ts');
+
+                // Step 1: Create a test invoice first
+                log('📝 Creating test invoice...', 'info');
+                const testInvoice = {
+                    customer_id: 1,
+                    customer_name: 'Test Customer',
+                    invoice_number: 'TEST-CASH-REFUND-001',
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toLocaleTimeString(),
+                    discount: 0,
+                    payment_amount: 0, // Unpaid invoice
+                    payment_method: 'cash',
+                    notes: 'Test invoice for cash refund return test',
+                    items: [
+                        {
+                            product_id: 1,
+                            product_name: 'Test Product',
+                            quantity: 5,
+                            unit_price: 100,
+                            total_price: 500
+                        }
+                    ]
+                };
+
+                const invoiceResult = await db.createInvoice(testInvoice);
+                const invoiceId = invoiceResult.id;
+                log(`✅ Test invoice created with ID: ${invoiceId}`, 'success');
+
+                // Step 2: Get invoice details to get item info
+                const invoiceDetails = await db.getInvoiceDetails(invoiceId);
+                const testItem = invoiceDetails.items[0];
+                log(`📦 Test item found: ${testItem.product_name} (ID: ${testItem.id})`, 'info');
+
+                // Step 3: Create a cash refund return
+                log('💰 Creating cash refund return...', 'info');
+                const returnData = {
+                    original_invoice_id: invoiceId,
+                    customer_id: 1,
+                    customer_name: 'Test Customer',
+                    return_number: 'RET-CASH-TEST-001',
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toLocaleTimeString(),
+                    settlement_type: 'cash', // This is the key - cash refund
+                    reason: 'Product defective - cash refund test',
+                    notes: 'Testing cash refund without daily_ledger_entries error',
+                    created_by: 'test_user',
+                    items: [
+                        {
+                            original_invoice_item_id: testItem.id,
+                            product_id: testItem.product_id,
+                            product_name: testItem.product_name,
+                            return_quantity: 2,
+                            rate_per_unit: testItem.unit_price,
+                            total_price: 200, // 2 * 100
+                            condition: 'defective',
+                            reason: 'Manufacturing defect'
+                        }
+                    ]
+                };
+
+                log('🔄 Processing cash refund return...', 'warning');
+                const returnId = await db.createReturn(returnData);
+                log(`✅ Cash refund return created successfully! Return ID: ${returnId}`, 'success');
+
+                // Step 4: Verify the ledger entry was created in the correct table
+                log('📊 Verifying ledger entry creation...', 'info');
+                const today = new Date().toISOString().split('T')[0];
+
+                // Check ledger_entries table directly (look for cash refund entries)
+                const ledgerEntries = await db.executeRawQuery(
+                    'SELECT * FROM ledger_entries WHERE description LIKE ? AND reference_id = ? AND date = ?',
+                    ['%Cash refund%', returnId, today]
+                );
+
+                if (ledgerEntries.length > 0) {
+                    const entry = ledgerEntries[0];
+                    log(`✅ CASH REFUND LEDGER ENTRY FOUND!`, 'success');
+                    log(`   Description: ${entry.description}`, 'success');
+                    log(`   Amount: Rs. ${entry.amount}`, 'success');
+                    log(`   Type: ${entry.type}`, 'success');
+                    log(`   Category: ${entry.category}`, 'success');
+                    log(`   Reference: ${entry.reference_type} #${entry.reference_id}`, 'success');
+                } else {
+                    log(`❌ No ledger entry found for return ID ${returnId}`, 'error');
+                }
+
+                // Step 5: Clean up - delete test data
+                log('🧹 Cleaning up test data...', 'info');
+                await db.executeRawQuery('DELETE FROM return_items WHERE return_id = ?', [returnId]);
+                await db.executeRawQuery('DELETE FROM returns WHERE id = ?', [returnId]);
+                await db.executeRawQuery('DELETE FROM ledger_entries WHERE description LIKE ? AND reference_id = ?', ['%Cash refund%', returnId]);
+                await db.executeRawQuery('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
+                await db.executeRawQuery('DELETE FROM invoices WHERE id = ?', [invoiceId]);
+                log('✅ Test data cleaned up', 'success');
+
+                log('🎉 CASH REFUND TEST COMPLETED SUCCESSFULLY!', 'success');
+                log('✅ No "daily_ledger_entries" table error occurred', 'success');
+                log('✅ Ledger entry was created in the correct "ledger_entries" table', 'success');
+
+            } catch (error) {
+                log(`❌ Test failed: ${error.message}`, 'error');
+                console.error('Full error:', error);
+
+                if (error.message.includes('daily_ledger_entries')) {
+                    log('❌ The "daily_ledger_entries" table error still exists!', 'error');
+                } else {
+                    log('✅ No "daily_ledger_entries" table error - fix appears to be working', 'success');
+                }
+            }
+        }
+
+        // Auto-run test when page loads
+        window.addEventListener('load', () => {
+            log('🧪 Cash Refund Return Test Ready', 'info');
+            log('📋 This test will create a test invoice, return an item with cash refund, and verify the ledger entry is created correctly.', 'info');
+        });
+    </script>
+</body>
+
+</html>

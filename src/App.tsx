@@ -27,6 +27,7 @@ import StockReceivingList from './components/stock/StockReceivingList';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
 import DataIntegrityManager from './components/admin/DataIntegrityManager';
+import RootCauseAnalysisComponent from './components/admin/RootCauseAnalysisComponent';
 import StaffManagementIntegrated from './components/staff/StaffManagementIntegrated';
 import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
@@ -34,6 +35,7 @@ import Returns from "./components/returns/Returns";
 import DateTimeFormatTest from './components/test/DateTimeFormatTest';
 import DateTimeFormatAudit from './components/test/DateTimeFormatAudit';
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
+import InvoiceBalanceDiagnostic from './components/InvoiceBalanceDiagnostic';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
 import toast from 'react-hot-toast';
@@ -362,10 +364,24 @@ function AppContent() {
                 </ProtectedRoute>
               } />
 
-              {/* Balance Diagnostic Tool */}
+              {/* Invoice Balance Diagnostic Tool */}
               <Route path="/debug/balance" element={
                 <ProtectedRoute module="reports" level="view">
-                  <RootCauseAnalysis />
+                  <InvoiceBalanceDiagnostic />
+                </ProtectedRoute>
+              } />
+
+              {/* Invoice Balance Issues Diagnostic */}
+              <Route path="/admin/invoice-diagnostic" element={
+                <ProtectedRoute module="reports" level="view">
+                  <InvoiceBalanceDiagnostic />
+                </ProtectedRoute>
+              } />
+
+              {/* Root Cause Analysis */}
+              <Route path="/admin/root-cause-analysis" element={
+                <ProtectedRoute module="audit" level="view">
+                  <RootCauseAnalysisComponent />
                 </ProtectedRoute>
               } />
 

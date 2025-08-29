@@ -599,7 +599,7 @@ export default function CustomerList() {
               ) : (
                 /* ENTERPRISE PERFORMANCE: Optimized rendering with key-based reconciliation */
                 paginatedCustomers.map((customer) => {
-                  const hasBalance = customer.total_balance > 0;
+                  const hasBalance = customer.total_balance > 0.01; // Use threshold to handle rounding errors
                   const balanceStatus = hasBalance
                     ? { status: 'Outstanding', color: 'text-red-600 bg-red-100' }
                     : { status: 'Clear', color: 'text-green-600 bg-green-100' };
