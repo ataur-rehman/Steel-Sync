@@ -151,6 +151,7 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                                     step="1"
                                     value={pieces}
                                     onChange={(e) => setPieces(parseInt(e.target.value) || 1)}
+                                    onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                                     placeholder="12"
                                 />
@@ -166,6 +167,7 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                                     step="0.1"
                                     value={lengthPerPiece}
                                     onChange={(e) => setLengthPerPiece(parseFloat(e.target.value) || 12)}
+                                    onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                                     placeholder="12"
                                 />
@@ -181,6 +183,7 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                                     step="0.01"
                                     value={pricePerFoot}
                                     onChange={(e) => setPricePerFoot(parseFloat(e.target.value) || 120)}
+                                    onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                                     placeholder="120"
                                 />

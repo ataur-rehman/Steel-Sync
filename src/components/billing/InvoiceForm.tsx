@@ -1905,6 +1905,7 @@ const InvoiceForm: React.FC = () => {
                     type="number"
                     value={miscItemPrice || ''}
                     onChange={(e) => setMiscItemPrice(parseFloat(e.target.value) || 0)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder="Price"
                     min="0"
                     step="0.01"
@@ -2055,6 +2056,7 @@ const InvoiceForm: React.FC = () => {
                                           placeholder="Qty"
                                           value={nonStockCalculation[item.id]?.baseQuantity || '1'}
                                           onChange={(e) => updateNonStockCalculation(item.id, 'baseQuantity', e.target.value)}
+                                          onWheel={(e) => e.currentTarget.blur()}
                                           className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
                                         />
                                         <select
@@ -2072,6 +2074,7 @@ const InvoiceForm: React.FC = () => {
                                           placeholder="Length"
                                           value={nonStockCalculation[item.id]?.multiplierQuantity || '1'}
                                           onChange={(e) => updateNonStockCalculation(item.id, 'multiplierQuantity', e.target.value)}
+                                          onWheel={(e) => e.currentTarget.blur()}
                                           className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
                                         />
                                         <select
@@ -2089,6 +2092,7 @@ const InvoiceForm: React.FC = () => {
                                           placeholder="Price"
                                           value={nonStockCalculation[item.id]?.unitPrice || item.unit_price.toString()}
                                           onChange={(e) => updateNonStockCalculation(item.id, 'unitPrice', e.target.value)}
+                                          onWheel={(e) => e.currentTarget.blur()}
                                           className="w-full px-1 py-1 border border-gray-300 rounded text-xs"
                                         />
                                         <div className="text-xs text-gray-500 mt-1">per unit</div>
@@ -2251,6 +2255,7 @@ const InvoiceForm: React.FC = () => {
                               step="0.1"
                               value={item.unit_price}
                               onChange={(e) => updateItemPrice(item.id, parseCurrency(e.target.value))}
+                              onWheel={(e) => e.currentTarget.blur()}
                               className="w-20 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                             />
                           </td>
@@ -2406,6 +2411,7 @@ const InvoiceForm: React.FC = () => {
                     ...prev,
                     payment_amount: parseCurrency(e.target.value)
                   }))}
+                  onWheel={(e) => e.currentTarget.blur()}
                   className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-green-500 ${errors.payment_amount ? 'border-red-500' : 'border-gray-300'
                     } ${isGuestMode ? 'bg-red-50 border-red-300' : ''}`}
                   placeholder="0.0"

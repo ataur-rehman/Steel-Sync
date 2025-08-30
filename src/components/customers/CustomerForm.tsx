@@ -25,7 +25,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
-    
+
     // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
@@ -38,7 +38,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
     if (!formData.name.trim()) {
       newErrors.name = 'Customer name is required';
     }
-    
+
     if (!formData.phone.trim()) {
       newErrors.phone = 'Phone number is required';
     }
@@ -49,7 +49,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -60,18 +60,18 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
       if (customer) {
         // Update customer
         await db.updateCustomer(customer.id, formData);
-        
+
         // Log activity
         await activityLogger.logCustomerUpdated(customer.id, formData.name, formData);
-        
+
         toast.success('Customer updated successfully');
       } else {
         // Create customer
         const newCustomerId = await db.createCustomer(formData);
-        
+
         // Log activity
         await activityLogger.logCustomerCreated(newCustomerId, formData.name);
-        
+
         toast.success('Customer created successfully');
       }
       onSuccess();
@@ -84,13 +84,13 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
 
   return (
     <div className="max-w-2xl mx-auto">
-      <form onSubmit={handleSubmit} className="space-y-6" autoComplete="off">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {/* Customer Name */}
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-name">
             Customer Name <span className="text-red-500">*</span>
           </label>
-          <input autoComplete="off"
+          <input
             id="customer-name"
             type="text"
             name="name"
@@ -111,15 +111,13 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
           <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-phone">
             Phone Number <span className="text-red-500">*</span>
           </label>
-          <input autoComplete="off"
-          
+          <input
             id="customer-phone"
             type="tel"
             name="phone"
             value={formData.phone}
             onChange={handleChange}
             className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.phone ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-            
             required
             disabled={loading}
             placeholder="e.g., +92 300 1234567"
@@ -157,7 +155,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-address">
                   Address
                 </label>
-                <input autoComplete="off"
+                <input
                   id="customer-address"
                   type="text"
                   name="address"
@@ -172,7 +170,7 @@ export default function CustomerForm({ customer, onSuccess }: CustomerFormProps)
                 <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="customer-cnic">
                   CNIC
                 </label>
-                <input autoComplete="off"
+                <input
                   id="customer-cnic"
                   type="text"
                   name="cnic"

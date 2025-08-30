@@ -8,6 +8,7 @@ import { formatInvoiceNumber, formatInvoiceNumberForPrint } from '../../utils/nu
 import { formatDateTime, formatDate } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { TIronCalculator } from './TIronCalculator';
+import { ask } from '@tauri-apps/plugin-dialog';
 
 import {
   Plus,
@@ -613,7 +614,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       ? `Remove this miscellaneous item from the invoice?\n\nNote: This will also remove the corresponding entry from the daily ledger.`
       : 'Remove this item from the invoice?';
 
-    if (!confirm(confirmMessage)) return;
+    try {
+      const confirmed = await ask(confirmMessage, {
+        title: 'Confirm Item Removal'
+      });
+
+      if (!confirmed) return;
+    } catch (error) {
+      // Fallback to regular confirm if Tauri dialog fails
+      if (!confirm(confirmMessage)) return;
+    }
 
     try {
       setSaving(true);
@@ -682,7 +692,16 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       confirmMessage += `\n\nNote: This invoice contains ${miscItems.length} miscellaneous item(s) that will also be removed from the daily ledger.`;
     }
 
-    if (!confirm(confirmMessage)) return;
+    try {
+      const confirmed = await ask(confirmMessage, {
+        title: 'Confirm Invoice Deletion'
+      });
+
+      if (!confirmed) return;
+    } catch (error) {
+      // Fallback to regular confirm if Tauri dialog fails
+      if (!confirm(confirmMessage)) return;
+    }
 
     try {
       setSaving(true);
@@ -845,12 +864,6 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
   };
 
   // Calculate net total price for an invoice item
-  const calculateNetTotal = (item: InvoiceItem) => {
-    const { netQuantity } = calculateNetQuantity(item);
-    const unitPrice = isNaN(item.unit_price) ? 0 : item.unit_price;
-    const total = netQuantity * unitPrice;
-    return isNaN(total) ? 0 : total;
-  };
   const loadReturnItems = async () => {
     try {
       const returns = await db.getReturns({ original_invoice_id: invoiceId });
@@ -2616,6 +2629,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                             type="number"
                             value={newItemPrice}
                             onChange={(e) => setNewItemPrice(e.target.value)}
+                            onWheel={(e) => e.currentTarget.blur()}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             step="0.1"
                           />
@@ -2631,6 +2645,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                 type="number"
                                 value={newItemLength}
                                 onChange={(e) => setNewItemLength(e.target.value)}
+                                onWheel={(e) => e.currentTarget.blur()}
                                 className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 placeholder="e.g. 45"
                                 step="0.1"
@@ -2642,6 +2657,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                                 type="number"
                                 value={newItemPieces}
                                 onChange={(e) => setNewItemPieces(e.target.value)}
+                                onWheel={(e) => e.currentTarget.blur()}
                                 className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                                 placeholder="e.g. 87"
                                 step="1"
@@ -2705,6 +2721,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           console.log('🎫 [MISC-DEBUG] Price changed:', e.target.value);
                           setMiscItemPrice(e.target.value);
                         }}
+                        onWheel={(e) => e.currentTarget.blur()}
                         placeholder="Enter price"
                         min="0"
                         step="0.01"
@@ -2734,7 +2751,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                         handleAddItem();
                       } catch (error) {
                         console.error('❌ Error in button click:', error);
-                        alert('Error in button click: ' + error);
+                        toast.error('Error adding item: ' + error);
                       }
                     }}
                     disabled={isAddItemButtonDisabled()}
@@ -2804,6 +2821,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                           type="number"
                           value={newPayment.amount}
                           onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })}
+                          onWheel={(e) => e.currentTarget.blur()}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                           step="0.1"
                           max={adjustedBalance}

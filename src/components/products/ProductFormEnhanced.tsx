@@ -229,7 +229,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
 
     return (
         <div className="max-h-[80vh] overflow-y-auto">
-            <form onSubmit={handleSubmit} className="space-y-6 p-1" autoComplete="off">
+            <form onSubmit={handleSubmit} className="space-y-6 p-1">
                 {/* Essential Information */}
                 <div className="space-y-4">
 
@@ -240,7 +240,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                             <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="product-name">
                                 Product Name <span className="text-red-500">*</span>
                             </label>
-                            <input autoComplete="off"
+                            <input
                                 id="product-name"
                                 type="text"
                                 name="name"
@@ -261,7 +261,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                             <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="product-category">
                                 Category *
                             </label>
-                            <select autoComplete="off"
+                            <select
                                 id="product-category"
                                 name="category"
                                 value={formData.category}
@@ -282,7 +282,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                             <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="unit-type">
                                 Unit Type <span className="text-red-500">*</span>
                             </label>
-                            <select autoComplete="off"
+                            <select
                                 id="unit-type"
                                 name="unit_type"
                                 value={formData.unit_type}
@@ -304,7 +304,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                             <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="rate-per-unit">
                                 Rate per Unit <span className="text-red-500">*</span>
                             </label>
-                            <input autoComplete="off"
+                            <input
                                 id="rate-per-unit"
                                 type="number"
                                 name="rate_per_unit"
@@ -365,7 +365,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="current-stock">
                                         Current Stock
                                     </label>
-                                    <input autoComplete="off"
+                                    <input
                                         id="current-stock"
                                         type="text"
                                         name="current_stock"
@@ -388,7 +388,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="min-stock-alert">
                                         Min Stock Alert
                                     </label>
-                                    <input autoComplete="off"
+                                    <input
                                         id="min-stock-alert"
                                         type="text"
                                         name="min_stock_alert"
@@ -438,7 +438,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="size">
                                         Size
                                     </label>
-                                    <input autoComplete="off"
+                                    <input
                                         id="size"
                                         type="text"
                                         name="size"
@@ -455,7 +455,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     <label className="block text-sm font-medium text-gray-700 mb-2" htmlFor="grade">
                                         Grade
                                     </label>
-                                    <input autoComplete="off"
+                                    <input
                                         id="grade"
                                         type="text"
                                         name="grade"

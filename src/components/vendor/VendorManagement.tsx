@@ -4,6 +4,7 @@ import { Plus, Edit, Trash2, Search, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
 import { useActivityLogger } from '../../hooks/useActivityLogger';
+import { ask } from '@tauri-apps/plugin-dialog';
 
 interface Vendor {
   id: number;
@@ -37,7 +38,7 @@ const VendorManagement: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const activityLogger = useActivityLogger();
-  
+
   // State variables
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +46,7 @@ const VendorManagement: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState<Vendor | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
-  
+
   // Form state
   const [formData, setFormData] = useState<VendorFormData>({
     name: '',
@@ -133,19 +134,27 @@ const VendorManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this vendor?')) {
-      return;
+    try {
+      const confirmed = await ask('Are you sure you want to delete this vendor?\n\nThis action cannot be undone.', {
+        title: 'Confirm Vendor Deletion'
+      });
+
+      if (!confirmed) return;
+    } catch (error) {
+      // Fallback to regular confirm if Tauri dialog fails
+      if (!confirm('Are you sure you want to delete this vendor?')) return;
     }
+
     try {
       // Get vendor name before deletion for logging
       const vendor = vendors.find(v => v.id === id);
       const vendorName = vendor?.name || 'Unknown Vendor';
-      
+
       await db.deleteVendor(id);
-      
+
       // Log activity
       await activityLogger.logVendorDeleted(id, vendorName);
-      
+
       toast.success('Vendor deleted successfully');
       await loadVendors();
     } catch (error) {
@@ -167,10 +176,10 @@ const VendorManagement: React.FC = () => {
           notes: '',
           is_active: formData.is_active
         });
-        
+
         // Log activity
         await activityLogger.logVendorUpdated(editingVendor.id, formData.name, formData);
-        
+
         toast.success('Vendor updated successfully');
       } else {
         const result = await db.createVendor({
@@ -182,10 +191,10 @@ const VendorManagement: React.FC = () => {
           payment_terms: formData.payment_terms,
           notes: ''
         });
-        
+
         // Log activity
         await activityLogger.logVendorCreated(result, formData.name);
-        
+
         toast.success('Vendor created successfully');
       }
       await loadVendors();
@@ -206,10 +215,10 @@ const VendorManagement: React.FC = () => {
   const filteredVendors = vendors.filter(vendor => {
     const matchesSearch = [vendor.name, vendor.contact_person, vendor.phone, vendor.email]
       .some(field => field?.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchesStatus = filterStatus === 'all' || 
+
+    const matchesStatus = filterStatus === 'all' ||
       (filterStatus === 'active' ? vendor.is_active : !vendor.is_active);
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -401,9 +410,8 @@ const VendorManagement: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        vendor.is_active ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'
-                      }`}>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${vendor.is_active ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'
+                        }`}>
                         {vendor.is_active ? 'Active' : 'Inactive'}
                       </span>
                     </td>
@@ -423,13 +431,13 @@ const VendorManagement: React.FC = () => {
                         >
                           <Edit className="h-4 w-4" />
                         </button>
-                            <button
+                        <button
                           onClick={() => handleDelete(vendor.id)}
-                              className="btn btn-danger flex items-center px-2 py-1 text-xs"
-                              title="Delete Vendor"
-                            >
-                                <Trash2 className="h-4 w-4" />
-                            </button>
+                          className="btn btn-danger flex items-center px-2 py-1 text-xs"
+                          title="Delete Vendor"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>

@@ -542,6 +542,7 @@ export default function CustomerList() {
                     min={1}
                     max={totalPages}
                     className="input text-sm py-1 px-2 w-16"
+                    onWheel={(e) => e.currentTarget.blur()}
                     onKeyPress={(e) => {
                       if (e.key === 'Enter') {
                         const page = parseInt((e.target as HTMLInputElement).value);

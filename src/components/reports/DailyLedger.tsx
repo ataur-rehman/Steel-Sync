@@ -7,6 +7,7 @@ import { parseCurrency } from '../../utils/currency';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { formatDate, formatTime, formatDateForDatabase } from '../../utils/formatters';
 import { getSystemDateForInput } from '../../utils/systemDateTime';
+import { ask } from '@tauri-apps/plugin-dialog';
 import {
   Calendar,
   TrendingUp,
@@ -998,8 +999,15 @@ const DailyLedger: React.FC = () => {
         return;
       }
 
-      if (!confirm('Are you sure you want to delete this transaction?')) {
-        return;
+      try {
+        const confirmed = await ask('Are you sure you want to delete this transaction?\n\nThis action cannot be undone.', {
+          title: 'Confirm Transaction Deletion'
+        });
+
+        if (!confirmed) return;
+      } catch (error) {
+        // Fallback to regular confirm if Tauri dialog fails
+        if (!confirm('Are you sure you want to delete this transaction?')) return;
       }
 
       // PERMANENT SOLUTION: Delete entry from database directly
@@ -1802,6 +1810,7 @@ const DailyLedger: React.FC = () => {
                   step="0.1"
                   value={newTransaction.amount}
                   onChange={(e) => setNewTransaction(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
+                  onWheel={(e) => e.currentTarget.blur()}
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0.00"
                 />
@@ -1969,6 +1978,7 @@ const DailyLedger: React.FC = () => {
                   type="number"
                   value={editForm.amount || 0}
                   onChange={(e) => setEditForm(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
+                  onWheel={(e) => e.currentTarget.blur()}
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0.00"
                   step="0.01"
