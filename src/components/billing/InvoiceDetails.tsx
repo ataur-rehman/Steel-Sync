@@ -1200,7 +1200,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
     try {
       setSaving(true);
 
-      await db.addInvoicePayment(invoiceId, {
+      const paymentData = {
         amount: paymentAmount,
         payment_method: newPayment.payment_method,
         payment_channel_id: selectedPaymentChannel?.id || null,
@@ -1208,7 +1208,25 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
         reference: newPayment.reference,
         notes: newPayment.notes,
         date: newPayment.date
-      });
+      };
+
+      console.log('XYZA001-FRONTEND-START =============================== START FRONTEND-DEBUG ===============================');
+      console.log('XYZA002-FRONTEND-DEBUG 🔍 [FRONTEND-DEBUG] Payment data being sent to backend:');
+      console.log('XYZA003-FRONTEND-DEBUG    - Payment Amount:', paymentAmount);
+      console.log('XYZA004-FRONTEND-DEBUG    - New Payment Object:', newPayment);
+      console.log('XYZA005-FRONTEND-DEBUG    - Selected Payment Channel:', selectedPaymentChannel);
+      console.log('XYZA006-FRONTEND-DEBUG    - Final Payment Data:', paymentData);
+      console.log('XYZA007-FRONTEND-DEBUG    - Invoice ID:', invoiceId);
+      console.log('XYZA008-FRONTEND-END =============================== END FRONTEND-DEBUG ===============================');
+
+      console.log('XYZA009-FRONTEND-CALL 🔄 [FRONTEND-DEBUG] About to call db.addInvoicePayment...');
+      console.log('XYZA009B-DB-OBJECT 🔍 [FRONTEND-DEBUG] Database object:', db);
+      console.log('XYZA009C-DB-METHOD 🔍 [FRONTEND-DEBUG] addInvoicePayment method:', db.addInvoicePayment);
+      console.log('XYZA009D-DB-TYPE 🔍 [FRONTEND-DEBUG] typeof addInvoicePayment:', typeof db.addInvoicePayment);
+
+      await db.addInvoicePayment(invoiceId, paymentData);
+
+      console.log('XYZA010-FRONTEND-SUCCESS ✅ [FRONTEND-DEBUG] Payment submitted successfully to backend');
 
       toast.success('Payment recorded successfully');
       setShowAddPayment(false);
@@ -1226,6 +1244,9 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
       }
 
     } catch (error: any) {
+      console.log('XYZA011-FRONTEND-ERROR ❌ [FRONTEND-DEBUG] Error in payment submission:', error);
+      console.log('XYZA012-FRONTEND-ERROR ❌ [FRONTEND-DEBUG] Error message:', error.message);
+      console.log('XYZA013-FRONTEND-ERROR ❌ [FRONTEND-DEBUG] Error stack:', error.stack);
       toast.error(error.message || 'Failed to record payment');
     } finally {
       setSaving(false);

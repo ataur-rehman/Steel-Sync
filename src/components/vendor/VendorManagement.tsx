@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Edit, Trash2, Search, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import { ask } from '@tauri-apps/plugin-dialog';
+import StableSearchInput from '../common/StableSearchInput';
 
 interface Vendor {
   id: number;
@@ -37,7 +38,7 @@ interface VendorFormData {
 const VendorManagement: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const activityLogger = useActivityLogger();
+
 
   // State variables
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -153,7 +154,7 @@ const VendorManagement: React.FC = () => {
       await db.deleteVendor(id);
 
       // Log activity
-      await activityLogger.logVendorDeleted(id, vendorName);
+
 
       toast.success('Vendor deleted successfully');
       await loadVendors();
@@ -178,7 +179,6 @@ const VendorManagement: React.FC = () => {
         });
 
         // Log activity
-        await activityLogger.logVendorUpdated(editingVendor.id, formData.name, formData);
 
         toast.success('Vendor updated successfully');
       } else {
@@ -193,7 +193,7 @@ const VendorManagement: React.FC = () => {
         });
 
         // Log activity
-        await activityLogger.logVendorCreated(result, formData.name);
+
 
         toast.success('Vendor created successfully');
       }
@@ -310,14 +310,11 @@ const VendorManagement: React.FC = () => {
       <div className="card p-6 mb-6">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
-          <div className="relative">
-            <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search vendors..."
+          <div>
+            <StableSearchInput
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="input pl-10"
+              onChange={setSearchTerm}
+              placeholder="Search vendors..."
               aria-label="Search vendors"
             />
           </div>

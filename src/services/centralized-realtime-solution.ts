@@ -597,7 +597,22 @@ export class CentralizedRealtimeSolution {
     if (!this.db.addInvoicePayment) return;
 
     this.db.addInvoicePayment = async (invoiceId: number, paymentData: any, inTransaction = false, skipCustomerLedger = false) => {
+      console.log('XYZB000-METHOD-ENTRY !!!!! OVERRIDE addInvoicePayment method ENTERED !!!!');
+      console.log('XYZB001-BACKEND-ENTRY 🚀 [OVERRIDE DEBUG] addInvoicePayment method called with:', { invoiceId, paymentData });
       console.log('🔄 [PERMANENT FIX] Enhanced payment with correct direction');
+
+      // DEBUGGING: Log payment channel information
+      console.log('XYZB004-PAYMENT-START =============================== START PAYMENT-DEBUG ===============================');
+      console.log('XYZB005-PAYMENT-DEBUG 🔍 [PAYMENT-DEBUG] Payment Data Received from Frontend:');
+      console.log('XYZB006-PAYMENT-DEBUG    - Amount:', paymentData.amount);
+      console.log('XYZB007-PAYMENT-DEBUG    - Payment Method:', paymentData.payment_method);
+      console.log('XYZB008-PAYMENT-DEBUG    - Payment Channel ID:', paymentData.payment_channel_id);
+      console.log('XYZB009-PAYMENT-DEBUG    - Payment Channel Name:', paymentData.payment_channel_name);
+      console.log('XYZB010-PAYMENT-DEBUG    - Reference:', paymentData.reference);
+      console.log('XYZB011-PAYMENT-DEBUG    - Notes:', paymentData.notes);
+      console.log('XYZB012-PAYMENT-DEBUG    - Date:', paymentData.date);
+      console.log('XYZB013-PAYMENT-DEBUG    - Full Payment Data Object:', paymentData);
+      console.log('XYZB014-PAYMENT-END =============================== END PAYMENT-DEBUG ===============================');
 
       try {
         if (!inTransaction) {
@@ -704,24 +719,39 @@ export class CentralizedRealtimeSolution {
 
         // Create customer ledger entry only if not skipped
         if (!skipCustomerLedger) {
+          console.log('XYZC001-LEDGER-START =============================== START LEDGER-DEBUG ===============================');
+          console.log('XYZC002-LEDGER-DEBUG 🔍 [LEDGER-DEBUG] Creating customer ledger entry with payment method:', {
+            customer_id: invoice.customer_id,
+            payment_method: paymentData.payment_channel_name || mappedPaymentMethod,
+            invoice_bill_number: invoice.bill_number,
+            mapped_payment_method: mappedPaymentMethod,
+            original_payment_channel_name: paymentData.payment_channel_name
+          });
+
           await this.db.dbConnection.execute(`
             INSERT INTO customer_ledger_entries (
               customer_id, customer_name, entry_type, transaction_type, amount, description,
-              reference_type, reference_id, date, time, created_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              reference_type, reference_id, invoice_id, invoice_number, payment_method,
+              date, time, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
             invoice.customer_id,
             customer.name,
             'credit', // Credit entry reduces customer balance
             'payment',
             paymentData.amount,
-            `Payment for Invoice ${invoice.bill_number}`,
+            `Payment for ${invoice.bill_number}`,
             'payment',
             finalPaymentId,
+            invoiceId,
+            invoice.bill_number,
+            paymentData.payment_channel_name || mappedPaymentMethod, // FIXED: Add payment method
             currentDate,
             currentTime,
             'system'
           ]);
+
+          console.log('XYZC006-LEDGER-END =============================== END LEDGER-DEBUG ===============================');
         }
 
         if (!inTransaction) {

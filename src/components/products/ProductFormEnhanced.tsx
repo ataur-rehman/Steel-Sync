@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../../services/database';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import toast from 'react-hot-toast';
 import {
     validateUnit,
@@ -17,7 +17,7 @@ interface ProductFormProps {
 }
 
 const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel }) => {
-    const activityLogger = useActivityLogger();
+
     const [showOptional, setShowOptional] = useState(false);
 
     // Helper function to get display value for editing - using parseUnit for consistency
@@ -198,7 +198,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                     ]
                 );
 
-                await activityLogger.logProductUpdated(product.id, productData.name);
+
                 toast.success('Product updated successfully');
             } else {
                 // Create new product
@@ -214,7 +214,6 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                     ]
                 );
 
-                await activityLogger.logProductCreated((result as any).lastInsertRowId || 0, productData.name);
                 toast.success('Product added successfully');
             }
 
@@ -311,7 +310,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 value={formData.rate_per_unit}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm${errors.rate_per_unit ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                                placeholder="0.00"
+                                placeholder="Enter rate per unit"
                                 step="0.01"
                                 min="0"
                                 required

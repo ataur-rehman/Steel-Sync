@@ -4,7 +4,7 @@ import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, type UnitType } from '../../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import { formatDate, formatDateForDatabase } from '../../utils/formatters';
 import { getCurrentSystemDateTime, getRelativeDate } from '../../utils/systemDateTime';
 import {
@@ -110,7 +110,7 @@ const ADJUSTMENT_REASONS = [
 const StockReport: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const activityLogger = useActivityLogger();
+
 
   // State management
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
@@ -947,7 +947,7 @@ const StockReport: React.FC = () => {
     URL.revokeObjectURL(url);
 
     // Log activity
-    await activityLogger.logReportExported('Stock Report', 'CSV');
+
 
     toast.success('Stock report exported successfully');
   };
@@ -985,7 +985,7 @@ const StockReport: React.FC = () => {
     URL.revokeObjectURL(url);
 
     // Log activity
-    await activityLogger.logReportExported('Stock Movements Report', 'CSV');
+
 
     toast.success('Movements report exported successfully');
   };

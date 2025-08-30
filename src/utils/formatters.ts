@@ -163,3 +163,74 @@ export function formatCNIC(cnic: string): string {
   }
   return cnic;
 }
+
+/**
+ * Convert 12-hour time format (HH:MM AM/PM) to 24-hour format for proper sorting
+ * @param timeStr - Time string in format "02:10 AM" or "04:10 PM"
+ * @returns Time in 24-hour format "14:10" for sorting
+ */
+export function convertTo24HourFormat(timeStr: string): string {
+  if (!timeStr || timeStr.trim() === '') {
+    return '00:00';
+  }
+
+  try {
+    // Handle different time formats
+    const cleanTimeStr = timeStr.trim();
+
+    // If already in 24-hour format, return as is
+    if (!/AM|PM/i.test(cleanTimeStr)) {
+      return cleanTimeStr;
+    }
+
+    // Parse 12-hour format
+    const match = cleanTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!match) {
+      console.warn('Invalid time format:', timeStr);
+      return '00:00';
+    }
+
+    let hours = parseInt(match[1], 10);
+    const minutes = match[2];
+    const period = match[3].toUpperCase();
+
+    // Convert to 24-hour format
+    if (period === 'AM') {
+      if (hours === 12) {
+        hours = 0; // 12:XX AM becomes 00:XX
+      }
+    } else { // PM
+      if (hours !== 12) {
+        hours += 12; // 1:XX PM becomes 13:XX, but 12:XX PM stays 12:XX
+      }
+    }
+
+    return `${hours.toString().padStart(2, '0')}:${minutes}`;
+  } catch (error) {
+    console.warn('Error converting time format:', timeStr, error);
+    return '00:00';
+  }
+}
+
+/**
+ * Sort entries by date and time properly handling AM/PM format
+ * @param a - First entry with date and time properties
+ * @param b - Second entry with date and time properties
+ * @returns Comparison result for sorting
+ */
+export function sortByDateTime(a: any, b: any): number {
+  // First sort by date
+  const dateA = a.date || '1900-01-01';
+  const dateB = b.date || '1900-01-01';
+
+  const dateComparison = dateA.localeCompare(dateB);
+  if (dateComparison !== 0) {
+    return dateComparison;
+  }
+
+  // If dates are equal, sort by time (convert to 24-hour format first)
+  const timeA = convertTo24HourFormat(a.time || '00:00 AM');
+  const timeB = convertTo24HourFormat(b.time || '00:00 AM');
+
+  return timeA.localeCompare(timeB);
+}

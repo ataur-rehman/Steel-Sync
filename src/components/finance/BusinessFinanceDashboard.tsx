@@ -21,7 +21,7 @@ import {
 import { formatCurrency } from '../../utils/formatters';
 import { financeService, type FinancialSummary } from '../../services/financeService';
 import { useAuth } from '../../hooks/useAuth';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import { useAutoRefresh } from '../../services/autoRefreshService';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import toast from 'react-hot-toast';
@@ -125,7 +125,7 @@ const BusinessFinanceDashboard: React.FC = () => {
     user = { username: 'Unknown User', id: '0' };
   }
 
-  const activityLogger = useActivityLogger();
+
   const [financialData, setFinancialData] = useState<FinancialSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<'3' | '6' | '12'>('12');
@@ -334,14 +334,14 @@ const BusinessFinanceDashboard: React.FC = () => {
       window.URL.revokeObjectURL(url);
 
       // Log activity
-      await activityLogger.logReportExported('Financial Report', 'CSV');
+
 
       toast.success('Financial report exported successfully');
     } catch (error) {
       console.error('Error exporting report:', error);
       toast.error('Failed to export report');
     }
-  }, [activityLogger]);
+  }, []);
 
   if (loading) {
     return (

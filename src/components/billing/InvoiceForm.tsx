@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../../services/database';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, hasSufficientStock, getStockAsNumber, getAlertLevelAsNumber, type UnitType } from '../../utils/unitUtils';
 import { parseCurrency, roundCurrency, addCurrency, subtractCurrency } from '../../utils/currency';
@@ -120,7 +120,7 @@ const InvoiceForm: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const activityLogger = useActivityLogger();
+
 
   // Edit mode detection
   const isEditMode = !!id;
@@ -1373,11 +1373,7 @@ const InvoiceForm: React.FC = () => {
 
     // Log activity
     try {
-      await activityLogger.logInvoiceCreated(
-        result.bill_number,
-        customer_name,
-        calculations.grandTotal
-      );
+
     } catch (error) {
       console.error('Failed to log invoice creation activity:', error);
       // Don't fail the main operation if logging fails
@@ -1433,11 +1429,7 @@ const InvoiceForm: React.FC = () => {
     if (result.success) {
       // Log activity
       try {
-        await activityLogger.logInvoiceUpdated(
-          editingInvoice.bill_number,
-          editingInvoice.customer_name,
-          { amount: calculations.grandTotal }
-        );
+
       } catch (error) {
         console.error('Failed to log invoice update activity:', error);
       }
@@ -1904,9 +1896,9 @@ const InvoiceForm: React.FC = () => {
                   <input
                     type="number"
                     value={miscItemPrice || ''}
-                    onChange={(e) => setMiscItemPrice(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setMiscItemPrice(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                     onWheel={(e) => e.currentTarget.blur()}
-                    placeholder="Price"
+                    placeholder="Enter price"
                     min="0"
                     step="0.01"
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -2406,15 +2398,15 @@ const InvoiceForm: React.FC = () => {
                   min="0"
                   max={calculations.grandTotal}
                   step="0.1"
-                  value={formData.payment_amount}
+                  value={formData.payment_amount || ''}
                   onChange={(e) => setFormData(prev => ({
                     ...prev,
-                    payment_amount: parseCurrency(e.target.value)
+                    payment_amount: e.target.value === '' ? 0 : parseCurrency(e.target.value)
                   }))}
                   onWheel={(e) => e.currentTarget.blur()}
                   className={`w-full px-3 py-2 border rounded focus:ring-2 focus:ring-green-500 ${errors.payment_amount ? 'border-red-500' : 'border-gray-300'
                     } ${isGuestMode ? 'bg-red-50 border-red-300' : ''}`}
-                  placeholder="0.0"
+                  placeholder="Enter payment amount"
                   disabled={isGuestMode} // Disable editing in guest mode since it must be full amount
                 />
                 {isGuestMode && (

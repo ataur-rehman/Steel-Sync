@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
@@ -105,7 +105,7 @@ const OUTGOING_CATEGORIES = [
 
 const DailyLedger: React.FC = () => {
   const location = useLocation();
-  const activityLogger = useActivityLogger();
+
 
   // Core state
   // Use centralized system date/time formatting
@@ -300,6 +300,23 @@ const DailyLedger: React.FC = () => {
 
       console.log(`✅ [DailyLedger] Final entries: ${finalEntries.length} (pure database storage)`);
 
+      // DEBUG: Log all entries before filtering
+      console.log('🔍 [DailyLedger] All entries before filtering:', finalEntries.map(e => ({
+        id: e.id,
+        description: e.description,
+        amount: e.amount,
+        customer_id: e.customer_id,
+        payment_channel_id: e.payment_channel_id,
+        payment_method: e.payment_method,
+        category: e.category
+      })));
+
+      console.log('🔍 [DailyLedger] Current filters:', {
+        selectedCustomerId,
+        selectedPaymentChannels,
+        paymentChannelsCount: paymentChannels.length
+      });
+
       // FIXED: Apply customer and payment channel filters if selected
       let filteredEntries = finalEntries;
 
@@ -322,8 +339,13 @@ const DailyLedger: React.FC = () => {
           // Exclude other customer entries
           return false;
         });
+
+        console.log(`🔍 [DailyLedger] After customer filter (${selectedCustomerId}): ${filteredEntries.length} entries`);
       }      // Apply payment channel filter if channels are selected
       if (selectedPaymentChannels.length > 0) {
+        console.log(`🔍 [DailyLedger] Applying payment channel filter for channels: ${selectedPaymentChannels}`);
+
+        const beforeChannelFilter = filteredEntries.length;
         filteredEntries = filteredEntries.filter(entry => {
           // CRITICAL FIX: Always include system entries (refunds, salary, etc.) regardless of payment channel filter
           if (entry.category === 'refunds' ||
@@ -332,12 +354,15 @@ const DailyLedger: React.FC = () => {
             entry.reference_type === 'other' ||
             !entry.customer_id ||
             entry.customer_id === 0) {
+            console.log(`🔍 [DailyLedger] Including system entry: ${entry.id} - ${entry.description}`);
             return true;
           }
 
           // If entry has payment_channel_id, check if it's in selected channels
           if (entry.payment_channel_id) {
-            return selectedPaymentChannels.includes(entry.payment_channel_id);
+            const included = selectedPaymentChannels.includes(entry.payment_channel_id);
+            console.log(`🔍 [DailyLedger] Entry ${entry.id} payment_channel_id ${entry.payment_channel_id}: ${included ? 'INCLUDED' : 'EXCLUDED'}`);
+            return included;
           }
           // If entry only has payment_method, match by channel name
           if (entry.payment_method) {
@@ -345,14 +370,85 @@ const DailyLedger: React.FC = () => {
               channel.name.toLowerCase() === (entry.payment_method || '').toLowerCase() ||
               channel.type.toLowerCase() === (entry.payment_method || '').toLowerCase()
             );
-            return matchedChannel ? selectedPaymentChannels.includes(matchedChannel.id) : false;
+            const included = matchedChannel ? selectedPaymentChannels.includes(matchedChannel.id) : false;
+            console.log(`🔍 [DailyLedger] Entry ${entry.id} payment_method "${entry.payment_method}" matched channel ${matchedChannel?.id}: ${included ? 'INCLUDED' : 'EXCLUDED'}`);
+            return included;
           }
+          console.log(`🔍 [DailyLedger] Entry ${entry.id} no payment info: EXCLUDED`);
           return false;
         });
+
+        console.log(`🔍 [DailyLedger] After payment channel filter: ${beforeChannelFilter} -> ${filteredEntries.length} entries`);
       }
 
-      // Sort by time
-      filteredEntries.sort((a, b) => a.time.localeCompare(b.time));
+      // FIXED: Sort by date and time properly handling AM/PM format
+      console.log(`🕒 [DailyLedger] Sorting ${filteredEntries.length} entries by date and time`);
+
+      filteredEntries.sort((a, b) => {
+        // First sort by date
+        const dateA = a.date || '1900-01-01';
+        const dateB = b.date || '1900-01-01';
+
+        const dateComparison = dateA.localeCompare(dateB);
+        if (dateComparison !== 0) {
+          return dateComparison;
+        }
+
+        // If dates are equal, sort by time (convert to 24-hour format for proper sorting)
+        const convertTo24Hour = (timeStr: string): string => {
+          if (!timeStr || timeStr.trim() === '') return '00:00';
+
+          try {
+            const cleanTimeStr = timeStr.trim();
+
+            // If already in 24-hour format, return as is
+            if (!/AM|PM/i.test(cleanTimeStr)) {
+              return cleanTimeStr;
+            }
+
+            // Parse 12-hour format
+            const match = cleanTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+            if (!match) return '00:00';
+
+            let hours = parseInt(match[1], 10);
+            const minutes = match[2];
+            const period = match[3].toUpperCase();
+
+            // Convert to 24-hour format
+            if (period === 'AM') {
+              if (hours === 12) hours = 0; // 12:XX AM becomes 00:XX
+            } else { // PM
+              if (hours !== 12) hours += 12; // 1:XX PM becomes 13:XX, but 12:XX PM stays 12:XX
+            }
+
+            return `${hours.toString().padStart(2, '0')}:${minutes}`;
+          } catch (error) {
+            return '00:00';
+          }
+        };
+
+        const timeA = convertTo24Hour(a.time || '00:00 AM');
+        const timeB = convertTo24Hour(b.time || '00:00 AM');
+
+        return timeA.localeCompare(timeB);
+      });
+
+      // Debug: Show first few entries after sorting
+      if (filteredEntries.length > 0) {
+        console.log(`🕒 [DailyLedger] Sample sorted entries:`,
+          filteredEntries.slice(0, 3).map(e => ({
+            id: e.id,
+            date: e.date,
+            time: e.time,
+            description: e.description
+          }))
+        );
+      }
+
+      console.log(`🔍 [DailyLedger] Final filtered entries (${filteredEntries.length}) being set to state:`);
+      filteredEntries.forEach(entry => {
+        console.log(`🔍 [DailyLedger] Setting entry ${entry.id}: ${entry.description}, customer: ${entry.customer_id}, channel: ${entry.payment_channel_id}, method: ${entry.payment_method}`);
+      });
 
       setEntries(filteredEntries);
 
@@ -406,8 +502,41 @@ const DailyLedger: React.FC = () => {
       // This follows centralized approach - vendor payments stay in their own table
 
       // Phase 1: Load from centralized ledger_entries table (customer payments, salaries, etc.)
+      console.log(`🔍 [DailyLedger] Loading entries for date: "${date}", selectedCustomerId: ${selectedCustomerId}`);
+
+      // DEBUGGING: Check if FIFO payment ID 15 exists at all
+      try {
+        const fifoPaymentCheck = await db.executeRawQuery(
+          'SELECT id, date, time, description, amount, customer_id, payment_channel_id, payment_method FROM ledger_entries WHERE id = 15',
+          []
+        );
+        console.log(`🔍 [DailyLedger] FIFO Payment ID 15 check:`, fifoPaymentCheck);
+      } catch (error) {
+        console.log(`❌ [DailyLedger] Error checking FIFO payment:`, error);
+      }
+
+      // DEBUGGING: Check all entries for today
+      try {
+        const allTodayEntries = await db.executeRawQuery(
+          'SELECT id, date, time, description, amount, customer_id, payment_channel_id, payment_method FROM ledger_entries WHERE date = ?',
+          [date]
+        );
+        console.log(`🔍 [DailyLedger] All entries for ${date}:`, allTodayEntries);
+      } catch (error) {
+        console.log(`❌ [DailyLedger] Error checking all today entries:`, error);
+      }
+
       const dailyLedgerData = await db.getDailyLedgerEntries(date, { customer_id: selectedCustomerId });
       const ledgerEntries = dailyLedgerData.entries || [];
+
+      console.log(`📊 [DailyLedger] Raw ledger entries from database:`, ledgerEntries.map((e: any) => ({
+        id: e.id,
+        date: e.date,
+        description: e.description,
+        customer_id: e.customer_id,
+        payment_channel_id: e.payment_channel_id,
+        payment_method: e.payment_method
+      })));
 
       console.log(`📊 [DailyLedger] Centralized ledger entries:`, ledgerEntries.length);      // Phase 2: Load vendor payments directly from vendor_payments table
       const vendorPayments = await db.executeRawQuery(`
@@ -931,12 +1060,7 @@ const DailyLedger: React.FC = () => {
       }, 100);
 
       // Log activity using the correct method
-      await activityLogger.logCustomActivity(
-        'CREATE' as any,
-        'REPORTS' as any,
-        Date.now(),
-        `${newTransaction.type === 'incoming' ? 'Added income' : 'Added expense'}: ${autoCategory} - Amount: ₹${newTransaction.amount.toLocaleString()}`
-      );
+
 
     } catch (error: any) {
       console.error('❌ [DailyLedger] Transaction processing failed:', error);
@@ -1073,10 +1197,7 @@ const DailyLedger: React.FC = () => {
       URL.revokeObjectURL(url);
 
       // Log export activity
-      await activityLogger.logReportExported(
-        'Daily Ledger',
-        `Date: ${selectedDate}, Entries: ${entries.length}`
-      );
+
 
       toast.success('Data exported successfully');
     } catch (error) {
@@ -1808,11 +1929,11 @@ const DailyLedger: React.FC = () => {
                   type="number"
                   min="0"
                   step="0.1"
-                  value={newTransaction.amount}
-                  onChange={(e) => setNewTransaction(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
+                  value={newTransaction.amount || ''}
+                  onChange={(e) => setNewTransaction(prev => ({ ...prev, amount: e.target.value === '' ? 0 : parseCurrency(e.target.value) }))}
                   onWheel={(e) => e.currentTarget.blur()}
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0.00"
+                  placeholder="Enter amount"
                 />
               </div>
 
@@ -1976,11 +2097,11 @@ const DailyLedger: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
                 <input
                   type="number"
-                  value={editForm.amount || 0}
-                  onChange={(e) => setEditForm(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
+                  value={editForm.amount || ''}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, amount: e.target.value === '' ? 0 : parseCurrency(e.target.value) }))}
                   onWheel={(e) => e.currentTarget.blur()}
                   className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="0.00"
+                  placeholder="Enter amount"
                   step="0.01"
                   min="0"
                 />

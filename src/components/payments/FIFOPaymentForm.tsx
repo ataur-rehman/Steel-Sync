@@ -187,7 +187,8 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                 payment_channel_name: selectedChannel?.name || derivedPaymentMethod,
                 reference: reference.trim(),
                 notes: notes.trim(),
-                date: new Date().toISOString().split('T')[0],
+                // FIXED: Remove date parameter to let the database use current system date/time
+                // date: new Date().toISOString().split('T')[0], // This was causing date issues
                 created_by: 'fifo_payment_form'
             };
 
@@ -298,7 +299,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                     onChange={(e) => setAmount(e.target.value)}
                                     onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-lg font-medium"
-                                    placeholder="0.00"
+                                    placeholder="Enter payment amount"
                                     required
                                 />
                             </div>

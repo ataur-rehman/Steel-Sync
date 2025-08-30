@@ -4395,7 +4395,7 @@ export class DatabaseService {
             // Create ledger entries for regular customers only
             await this.createCustomerLedgerEntriesWithCredit(
               invoiceId, invoiceData.customer_id, customerName, grandTotal, cashPayment, creditApplied,
-              billNumber
+              billNumber, invoiceData.payment_method || 'Cash'
             );
 
             // 🔥 CRITICAL FIX: Create daily ledger entries for regular customer cash payments
@@ -5047,7 +5047,7 @@ export class DatabaseService {
 
     // PERMANENT FIX: Create comprehensive customer ledger entries 
     await this.createCustomerLedgerEntriesWithCredit(
-      invoiceId, customer.id, customer.name, grandTotal, cashPayment, creditApplied, billNumber
+      invoiceId, customer.id, customer.name, grandTotal, cashPayment, creditApplied, billNumber, paymentMethod
     );
 
     // PERMANENT FIX: Create general ledger entry ONLY for daily cash flow tracking (cash payments only)
@@ -6417,7 +6417,7 @@ export class DatabaseService {
         `SELECT DISTINCT
           id, customer_id, customer_name, entry_type, transaction_type, amount, description,
           reference_id, reference_number, balance_before, balance_after, date, time,
-          created_by, notes, created_at, updated_at,
+          created_by, notes, payment_method, created_at, updated_at,
           CASE 
             WHEN entry_type = 'debit' THEN amount 
             ELSE 0 
@@ -6431,6 +6431,23 @@ export class DatabaseService {
          ORDER BY date ASC, created_at ASC`,
         queryParams as any[]
       );
+
+      console.log(`📊 [DB-getCustomerLedger] Customer ${customerId} query returned ${allEntriesResult?.length || 0} entries`);
+
+      // Debug: Check for FIFO payments specifically
+      const fifoEntries = (allEntriesResult || []).filter((e: any) =>
+        e.payment_method && e.payment_method !== 'Cash' && e.payment_method !== ''
+      );
+      if (fifoEntries.length > 0) {
+        console.log(`💳 [DB-getCustomerLedger] FIFO entries found:`, fifoEntries.map((e: any) => ({
+          id: e.id,
+          description: e.description,
+          payment_method: e.payment_method,
+          transaction_type: e.transaction_type,
+          entry_type: e.entry_type,
+          amount: e.amount
+        })));
+      }
 
       // Calculate correct running balances in chronological order
       let runningBalance = 0;
@@ -6852,16 +6869,17 @@ export class DatabaseService {
               customer_id, customer_name, entry_type, transaction_type,
               amount, description, reference_id, reference_number,
               balance_before, balance_after, date, time,
-              created_by, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              created_by, notes, payment_method
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
             payment.customer_id, customerName, 'credit', 'payment',
             payment.amount,
-            `Payment - ${payment.payment_method}`,
+            `Payment for ${payment.reference || 'Account'}`,
             paymentId, `PAY-${paymentId}`,
             currentBalance, balanceAfterPayment,
             payment.date, paymentTime, 'system',
-            `Payment: Rs. ${payment.amount.toFixed(2)} via ${payment.payment_method}${payment.reference ? ' - ' + payment.reference : ''}`
+            `Payment via ${payment.payment_channel_name || payment.payment_method}${payment.reference ? ' - ' + payment.reference : ''}`,
+            payment.payment_channel_name || payment.payment_method
           ]);
 
           console.log(`✅ Created customer ledger entry: Payment Rs. ${payment.amount.toFixed(2)}`);
@@ -7057,8 +7075,13 @@ export class DatabaseService {
       // ===================================================================
       const paymentCode = await this.generatePaymentCode();
       const { dbDate: systemCurrentDate, dbTime: systemCurrentTime } = getCurrentSystemDateTime();
+
+      // FIXED: Always use current system date for new payments unless explicitly specified
+      // This ensures payments are recorded with correct dates and appear in daily ledger
       const currentDate = payment.date || systemCurrentDate;
       const currentTime = systemCurrentTime;
+
+      console.log(`📅 [FIFO-ALLOCATION] Payment dates - Provided: ${payment.date || 'none'}, System: ${systemCurrentDate}, Using: ${currentDate}`);
 
       const paymentResult = await this.dbConnection.execute(`
         INSERT INTO payments (
@@ -7240,8 +7263,8 @@ export class DatabaseService {
         INSERT INTO customer_ledger_entries (
           customer_id, customer_name, entry_type, transaction_type, amount,
           description, reference_id, reference_number, balance_before, balance_after,
-          date, time, created_by, notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          payment_method, date, time, created_by, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       `, [
         payment.customer_id,
         customerName,
@@ -7253,6 +7276,7 @@ export class DatabaseService {
         paymentCode,
         currentBalance,
         balanceAfter,
+        payment.payment_channel_name || payment.payment_method, // FIXED: Add payment method
         currentDate,
         currentTime,
         payment.created_by || 'system',
@@ -9068,8 +9092,26 @@ export class DatabaseService {
     notes?: string;
     date?: string;
   }): Promise<number> {
+    // THIS SHOULD ALWAYS SHOW IF METHOD IS CALLED
+    console.log('XYZB000-METHOD-ENTRY !!!!! addInvoicePayment method ENTERED !!!!');
+    console.log('XYZB001-BACKEND-ENTRY 🚀 [DEBUG] addInvoicePayment method called with:', { invoiceId, paymentData });
+
     try {
-      console.log('🔄 [PRODUCTION-SAFE] Starting invoice payment creation:', { invoiceId, paymentData });
+      console.log('XYZB002-BACKEND-START =================== START INVOICE PAYMENT CREATION ===================');
+      console.log('XYZB003-BACKEND-INIT 🔄 [PRODUCTION-SAFE] Starting invoice payment creation:', { invoiceId, paymentData });
+
+      // DEBUGGING: Log payment channel information
+      console.log('XYZB004-PAYMENT-START =============================== START PAYMENT-DEBUG ===============================');
+      console.log('XYZB005-PAYMENT-DEBUG 🔍 [PAYMENT-DEBUG] Payment Data Received from Frontend:');
+      console.log('XYZB006-PAYMENT-DEBUG    - Amount:', paymentData.amount);
+      console.log('XYZB007-PAYMENT-DEBUG    - Payment Method:', paymentData.payment_method);
+      console.log('XYZB008-PAYMENT-DEBUG    - Payment Channel ID:', paymentData.payment_channel_id);
+      console.log('XYZB009-PAYMENT-DEBUG    - Payment Channel Name:', paymentData.payment_channel_name);
+      console.log('XYZB010-PAYMENT-DEBUG    - Reference:', paymentData.reference);
+      console.log('XYZB011-PAYMENT-DEBUG    - Notes:', paymentData.notes);
+      console.log('XYZB012-PAYMENT-DEBUG    - Date:', paymentData.date);
+      console.log('XYZB013-PAYMENT-DEBUG    - Full Payment Data Object:', paymentData);
+      console.log('XYZB014-PAYMENT-END =============================== END PAYMENT-DEBUG ===============================');
 
       if (!paymentData.amount || paymentData.amount <= 0) {
         throw new Error('Payment amount must be greater than 0');
@@ -9230,28 +9272,52 @@ export class DatabaseService {
             const currentBalance = await this.calculateCustomerBalanceFromLedger(invoice.customer_id);
             const balanceAfter = currentBalance - paymentData.amount;
 
-            await this.dbConnection.execute(`
-              INSERT INTO customer_ledger_entries (
-                customer_id, customer_name, entry_type, transaction_type, amount, description,
-                reference_id, reference_number, balance_before, balance_after, 
-                date, time, created_by, notes, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-            `, [
+            const finalPaymentMethod = paymentData.payment_channel_name || mappedPaymentMethod;
+            const finalDescription = `Payment for ${invoice.bill_number || invoice.invoice_number || `Invoice #${invoiceId}`}`;
+
+            console.log('XYZC001-LEDGER-START =============================== START LEDGER-DEBUG ===============================');
+            console.log('XYZC002-LEDGER-DEBUG 🔍 [LEDGER-DEBUG] Creating customer ledger entry:', {
+              customer_id: invoice.customer_id,
+              description: finalDescription,
+              payment_method: finalPaymentMethod,
+              invoice_bill_number: invoice.bill_number,
+              invoice_invoice_number: invoice.invoice_number,
+              mapped_payment_method: mappedPaymentMethod,
+              original_payment_channel_name: paymentData.payment_channel_name
+            });
+
+            // Debug the exact parameters being sent
+            const ledgerParams = [
               invoice.customer_id,
               customerName,
               'credit',
               'payment',
               paymentData.amount,
-              `Payment received for Invoice ${invoice.bill_number || invoice.invoice_number}`,
+              finalDescription,
               paymentId,
               `PAY#${paymentId}`,
               currentBalance,
               balanceAfter,
+              invoiceId,
+              invoice.bill_number || invoice.invoice_number,
+              finalPaymentMethod,
               currentDate,
               currentTime,
               'system',
-              paymentData.notes || `Invoice payment via ${mappedPaymentMethod}`
-            ]);
+              paymentData.notes || `Invoice payment via ${finalPaymentMethod}`
+            ];
+
+            console.log('XYZC003-LEDGER-PARAMS 🔍 [LEDGER-DEBUG] SQL Parameters:', ledgerParams);
+            console.log('XYZC004-LEDGER-COUNT 🔍 [LEDGER-DEBUG] Parameter count:', ledgerParams.length);
+            console.log('XYZC005-LEDGER-METHOD 🔍 [LEDGER-DEBUG] Payment method parameter (index 12):', ledgerParams[12]);
+            console.log('XYZC006-LEDGER-END =============================== END LEDGER-DEBUG ==============================='); await this.dbConnection.execute(`
+              INSERT INTO customer_ledger_entries (
+                customer_id, customer_name, entry_type, transaction_type, amount, description,
+                reference_id, reference_number, balance_before, balance_after, 
+                invoice_id, invoice_number, payment_method,
+                date, time, created_by, notes, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+            `, ledgerParams);
 
             console.log('✅ [PRODUCTION-SAFE] Customer ledger entry created');
           } catch (ledgerError) {
@@ -13430,7 +13496,8 @@ export class DatabaseService {
     grandTotal: number,
     cashPayment: number,
     creditApplied: number,
-    billNumber: string
+    billNumber: string,
+    paymentMethod: string = 'Cash'
   ): Promise<void> {
     // CRITICAL FIX: Prevent guest customer ledger creation
     if (this.isGuestCustomer(customerId)) {
@@ -13495,14 +13562,15 @@ export class DatabaseService {
       await this.dbConnection.execute(
         `INSERT INTO customer_ledger_entries 
         (customer_id, customer_name, entry_type, transaction_type, amount, description, 
-         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         reference_id, reference_number, balance_before, balance_after, date, time, created_by, notes, payment_method)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           customerId, customerName, 'credit', 'payment', cashPayment,
-          `Cash payment for Invoice ${billNumber}`,
+          `Payment for Invoice ${billNumber}`,
           invoiceId, billNumber, balanceBefore, runningBalance,
           dbDate, dbTime, 'system',
-          `Cash payment: Rs. ${cashPayment.toFixed(2)}`
+          `Payment via ${paymentMethod}`,
+          paymentMethod // Use the passed payment method
         ]
       );
 
@@ -14393,12 +14461,18 @@ export class DatabaseService {
       } else {
         // Cash refund - add to general ledger only, update customer balance directly WITHOUT customer ledger entry
         const ledgerDescription = `Cash refund - ${returnData.customer_name || 'Customer'} - Invoice ${returnData.original_invoice_number || returnData.original_invoice_id}`;
+
+        // Get the proper cash payment channel
+        const cashPaymentChannel = await this.getPaymentChannelByMethod('cash');
+        const paymentMethod = cashPaymentChannel?.name || 'Cash';
+        const paymentChannelId = cashPaymentChannel?.id || null;
+
         await this.dbConnection.execute(`
           INSERT INTO ledger_entries (
             type, amount, description, reference_type, reference_id,
             reference_number, date, time, created_by, category,
-            customer_id, customer_name
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            customer_id, customer_name, payment_method, payment_channel_id, payment_channel_name
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           'outgoing',
           totalAmount,
@@ -14411,19 +14485,47 @@ export class DatabaseService {
           returnData.created_by || 'system',
           'refunds',
           returnData.customer_id,
-          returnData.customer_name
+          returnData.customer_name,
+          paymentMethod,
+          paymentChannelId,
+          paymentMethod
         ]);
 
-        // FIXED: Update customer balance directly WITHOUT creating customer ledger entry (cash was given)
+        // FIXED: Create customer ledger entry for cash refund to properly track balance reduction
         const currentBalance = await this.customerBalanceManager.getCurrentBalance(returnData.customer_id);
         const newBalance = Math.max(0, currentBalance - totalAmount); // Reduce outstanding balance (cash received)
 
+        // Create customer ledger entry to record the balance reduction
+        await this.dbConnection.execute(`
+          INSERT INTO customer_ledger_entries (
+            customer_id, customer_name, entry_type, transaction_type,
+            amount, description, reference_id, reference_number,
+            balance_before, balance_after, date, time, created_by, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          returnData.customer_id,
+          returnData.customer_name || '',
+          'credit', // Credit entry reduces customer's outstanding balance
+          'return',
+          totalAmount,
+          `Cash Refund - ${returnNumber}`,
+          returnId,
+          returnNumber,
+          currentBalance,
+          newBalance,
+          dbDate,
+          dbTime,
+          returnData.created_by || 'system',
+          `Cash refund: Rs. ${totalAmount.toFixed(2)} - Physical cash given, balance reduced`
+        ]);
+
+        // Update customer balance in customers table
         await this.dbConnection.execute(
           'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
           [newBalance, returnData.customer_id]
         );
 
-        console.log(`✅ [RETURN-CASH] Recorded Rs. ${totalAmount.toFixed(2)} cash refund and updated customer balance ${currentBalance.toFixed(2)} → ${newBalance.toFixed(2)} (NO customer ledger entry)`);
+        console.log(`✅ [RETURN-CASH] Recorded Rs. ${totalAmount.toFixed(2)} cash refund with customer ledger entry - balance ${currentBalance.toFixed(2)} → ${newBalance.toFixed(2)}`);
       }
 
       // CRITICAL FIX: Update invoice totals properly to reflect returns
@@ -14532,10 +14634,48 @@ export class DatabaseService {
         console.log(`✅ Added Rs. ${amount.toFixed(2)} credit to customer ledger`);
 
       } else if (settlementType === 'cash') {
-        // Cash refund processing - ONLY general ledger entry (outgoing cash)
-        // NO customer ledger entry because cash is physically given to customer
+        // Cash refund processing - Create BOTH customer ledger entry AND general ledger entry
+        // Customer ledger entry: reduces customer's outstanding balance
+        // General ledger entry: records cash outflow for business accounting
 
-        // Create cash ledger entry (outgoing expense)
+        // STEP 1: Create customer ledger entry to reduce customer's outstanding balance
+        const currentBalance = await this.calculateCustomerBalanceFromLedger(details.customer_id);
+        const balanceAfterRefund = Math.max(0, currentBalance - amount); // Reduce customer's outstanding balance
+
+        await this.dbConnection.execute(`
+          INSERT INTO customer_ledger_entries (
+            customer_id, customer_name, entry_type, transaction_type,
+            amount, description, reference_id, reference_number,
+            balance_before, balance_after, date, time, created_by, notes
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          details.customer_id,
+          details.customer_name,
+          'credit', // Credit entry reduces customer's outstanding balance
+          'return',
+          amount,
+          `Cash Refund - ${details.return_number}`,
+          returnId,
+          details.return_number,
+          currentBalance,
+          balanceAfterRefund,
+          details.date,
+          details.time,
+          details.created_by,
+          `Cash refund: Rs. ${amount.toFixed(2)} - Physical cash given, balance reduced`
+        ]);
+
+        // Update customer balance in customers table
+        await this.dbConnection.execute(
+          'UPDATE customers SET balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+          [balanceAfterRefund, details.customer_id]
+        );
+
+        // STEP 2: Create general ledger entry for cash outflow (business accounting)
+        const cashPaymentChannel = await this.getPaymentChannelByMethod('cash');
+        const paymentMethod = cashPaymentChannel?.name || 'Cash';
+        const paymentChannelId = cashPaymentChannel?.id || null;
+
         await this.createLedgerEntry({
           date: details.date,
           time: details.time,
@@ -14550,11 +14690,13 @@ export class DatabaseService {
           bill_number: details.return_number,
           notes: `Cash refund: Rs. ${amount.toFixed(2)} - Physical cash given to customer`,
           created_by: details.created_by,
-          payment_method: 'cash',
+          payment_method: paymentMethod,
+          payment_channel_id: paymentChannelId || undefined,
+          payment_channel_name: paymentMethod,
           is_manual: false
         });
 
-        console.log(`✅ Cash refund processed: Rs. ${amount.toFixed(2)} - Daily ledger entry created, NO customer ledger entry (cash given physically)`);
+        console.log(`✅ Cash refund processed: Rs. ${amount.toFixed(2)} - Customer ledger entry created (balance reduced), Daily ledger entry created with payment channel '${paymentMethod}'`);
       }
 
       // CRITICAL FIX: Update invoice outstanding balance (for both ledger and cash settlements)
@@ -18323,8 +18465,16 @@ export class DatabaseService {
           sr.received_date, sr.received_time, sr.date, sr.time, sr.status,
           sr.total_cost as total_amount,     -- Map centralized column to expected name
           sr.grand_total,                    -- Keep centralized name
-          sr.payment_status, sr.payment_method,
+          sr.payment_method,
           sr.truck_number, sr.reference_number, sr.notes, sr.created_by, sr.created_at,
+          -- Calculate payment_status dynamically from vendor payments
+          CASE 
+            WHEN COALESCE((SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0) >= sr.total_cost 
+            THEN 'paid'
+            WHEN COALESCE((SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0) > 0 
+            THEN 'partial'
+            ELSE 'pending'
+          END as payment_status,
           -- Calculate payment_amount dynamically from vendor payments
           COALESCE(
             (SELECT SUM(amount) FROM vendor_payments vp WHERE vp.receiving_id = sr.id), 0

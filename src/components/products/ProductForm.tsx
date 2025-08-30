@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { db } from '../../services/database';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import toast from 'react-hot-toast';
 import {
   validateUnit,
@@ -19,7 +19,7 @@ interface ProductFormProps {
 }
 
 const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel }) => {
-  const activityLogger = useActivityLogger();
+
   const [showOptional, setShowOptional] = useState(false);
 
   // Helper function to get display value for editing - using parseUnit for consistency
@@ -196,7 +196,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         await db.updateProduct(product.id, productData);
 
         // Log activity
-        await activityLogger.logProductUpdated(product.id, fullName, productData);
+
 
         toast.success('Product updated successfully!');
 
@@ -206,7 +206,7 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
         const result = await db.createProduct(productData);
 
         // Log activity
-        await activityLogger.logProductCreated(result, fullName);
+
 
         toast.success('Product added successfully!');
 
@@ -329,11 +329,18 @@ const ProductForm: React.FC<ProductFormProps> = ({ product, onSuccess, onCancel 
             type="number"
             name="rate_per_unit"
             value={formData.rate_per_unit}
-            onChange={handleChange}
+            onChange={(e) => {
+              const value = e.target.value;
+              setFormData(prev => ({ ...prev, rate_per_unit: value }));
+              if (errors.rate_per_unit) {
+                setErrors(prev => ({ ...prev, rate_per_unit: '' }));
+              }
+            }}
+            onWheel={(e) => e.currentTarget.blur()}
             step="0.1"
             min="0"
             className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors${errors.rate_per_unit ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-            placeholder="0.0"
+            placeholder="Enter rate per unit"
             required
             disabled={loading}
             aria-invalid={!!errors.rate_per_unit}

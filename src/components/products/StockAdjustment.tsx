@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import { ActivityType, ModuleType } from '../../services/activityLogger';
 import type { Product } from '../../types';
 import { toast } from 'react-hot-toast';
@@ -13,7 +13,7 @@ interface StockAdjustmentProps {
 
 export default function StockAdjustment({ product, onSuccess }: StockAdjustmentProps) {
   const { db } = useDatabase();
-  const activityLogger = useActivityLogger();
+
   const [loading, setLoading] = useState(false);
   const [adjustment, setAdjustment] = useState({
     type: 'add' as 'add' | 'subtract',
@@ -35,51 +35,46 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
         toast.error('Product unit type not set. Please update product first.');
         return;
       }
-      
+
       // CRITICAL FIX: Handle different unit types correctly
       let finalQuantity: number;
-      
+
       if (product.unit_type === 'bag' || product.unit_type === 'piece') {
         // For bags and pieces, use the number directly (no conversion to grams)
         const numericValue = parseFloat(adjustment.quantity) || 0;
         console.log("Simple unit - numeric value:", numericValue);
-        
+
         if (numericValue <= 0) {
           toast.error('Please enter a valid quantity');
           return;
         }
-        
+
         finalQuantity = adjustment.type === 'add' ? numericValue : -numericValue;
       } else {
         // For kg-grams and kg, use parseUnit to convert properly
         const adjustmentData = parseUnit(adjustment.quantity, product.unit_type);
         console.log("Weight unit - parse result:", adjustmentData);
-        
+
         if (adjustmentData.numericValue <= 0) {
           toast.error('Please enter a valid quantity');
           return;
         }
-        
+
         finalQuantity = adjustment.type === 'add' ? adjustmentData.numericValue : -adjustmentData.numericValue;
       }
-      
+
       console.log("Final quantity to pass to adjustStock:", finalQuantity);
-      
+
       await db.adjustStock(
-        product.id, 
+        product.id,
         finalQuantity,
-        'manual_adjustment', 
+        'manual_adjustment',
         adjustment.notes
       );
-      
+
       // Log the stock adjustment activity
-      activityLogger.logCustomActivity(
-        ActivityType.UPDATE,
-        ModuleType.STOCK,
-        product.id,
-        `${adjustment.type === 'add' ? 'Added' : 'Subtracted'} ${adjustment.quantity} of ${product.name} (${adjustment.notes || 'No notes'})`
-      );
-      
+
+
       toast.success('Stock adjusted successfully');
       onSuccess();
     } catch (error: any) {
@@ -125,8 +120,8 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
         />
         {adjustment.quantity && adjustment.quantity !== '0' && (
           <p className="mt-1 text-sm text-gray-500">
-            Preview: {product.unit_type === 'bag' || product.unit_type === 'piece' 
-              ? `${adjustment.quantity} ${product.unit_type}${parseFloat(adjustment.quantity) !== 1 ? 's' : ''}` 
+            Preview: {product.unit_type === 'bag' || product.unit_type === 'piece'
+              ? `${adjustment.quantity} ${product.unit_type}${parseFloat(adjustment.quantity) !== 1 ? 's' : ''}`
               : formatUnitString(adjustment.quantity, product.unit_type || 'kg-grams')}
           </p>
         )}
@@ -152,11 +147,11 @@ export default function StockAdjustment({ product, onSuccess }: StockAdjustmentP
                 // Get current stock as number
                 const currentStock = parseFloat(product.current_stock) || 0;
                 const adjustmentValue = parseFloat(adjustment.quantity) || 0;
-                
-                const newStock = adjustment.type === 'add' 
-                  ? currentStock + adjustmentValue 
+
+                const newStock = adjustment.type === 'add'
+                  ? currentStock + adjustmentValue
                   : currentStock - adjustmentValue;
-                
+
                 if (product.unit_type === 'bag' || product.unit_type === 'piece') {
                   return `${newStock} ${product.unit_type}${newStock !== 1 ? 's' : ''}`;
                 } else {

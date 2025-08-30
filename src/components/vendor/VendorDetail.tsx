@@ -3,12 +3,12 @@ import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
-import { ActivityType, ModuleType } from '../../services/activityLogger';
+
 import { formatReceivingNumber } from '../../utils/numberFormatting';
 import SmartDetailHeader from '../common/SmartDetailHeader';
 import { formatDate } from '../../utils/formatters';
-import { Trash2, FileText, Search } from 'lucide-react';
+import { Trash2, FileText } from 'lucide-react';
+import StableSearchInput from '../common/StableSearchInput';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('en-PK', {
@@ -21,7 +21,7 @@ const formatCurrency = (amount: number) => {
 const VendorDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { getFromPage, navigateTo } = useSmartNavigation();
-  const activityLogger = useActivityLogger();
+
   const [vendor, setVendor] = useState<any>(null);
   const [vendorPayments, setVendorPayments] = useState<any[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
@@ -41,13 +41,19 @@ const VendorDetail: React.FC = () => {
   const filteredReceivings = useMemo(() => {
     let filtered = vendorReceivings;
 
-    // Search filter
+    // Search filter - search both raw and formatted receiving number
     if (searchTerm) {
-      filtered = filtered.filter(r =>
-        r.receiving_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.notes?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        r.truck_number?.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      filtered = filtered.filter(r => {
+        // Search in raw receiving number
+        const rawMatch = r.receiving_number?.toLowerCase().includes(searchTerm.toLowerCase());
+        // Search in formatted receiving number (S0001 becomes S01)
+        const formattedMatch = formatReceivingNumber(r.receiving_number || '')?.toLowerCase().includes(searchTerm.toLowerCase());
+        // Search in other fields
+        const notesMatch = r.notes?.toLowerCase().includes(searchTerm.toLowerCase());
+        const truckMatch = r.truck_number?.toLowerCase().includes(searchTerm.toLowerCase());
+
+        return rawMatch || formattedMatch || notesMatch || truckMatch;
+      });
     }
 
     // Status filter
@@ -115,13 +121,7 @@ const VendorDetail: React.FC = () => {
       if (confirmed) {
         await db.deleteVendor(vendor.id);
 
-        // Log the vendor deletion activity
-        activityLogger.logCustomActivity(
-          ActivityType.DELETE,
-          ModuleType.VENDORS,
-          vendor.id,
-          `Deleted vendor: ${vendor.name} (Phone: ${vendor.phone || 'N/A'})`
-        );
+
 
         toast.success('Vendor deleted successfully');
         navigateTo('/vendors');
@@ -500,16 +500,14 @@ const VendorDetail: React.FC = () => {
           <div className="card p-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1 max-w-md">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search transactions..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2.5 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
+                <StableSearchInput
+                  value={searchTerm}
+                  onChange={setSearchTerm}
+                  placeholder="Search transactions..."
+                  debounceMs={500}
+                  aria-label="Search transactions"
+                  className="w-full py-2.5"
+                />
               </div>
 
               <div className="flex items-center space-x-3">

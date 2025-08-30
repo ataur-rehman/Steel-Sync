@@ -13,7 +13,7 @@ import InitialLoading from './components/common/InitialLoading';
 import { useAppPreloader } from './hooks/useAppPreloader';
 import AppLayout from './components/layout/AppLayout';
 import Dashboard from './components/dashboard/Dashboard';
-import ProductList from './components/products/ProductList';
+import ProductListNoRefresh from './components/products/ProductListNoRefresh';
 import CustomerList from './components/customers/CustomerList';
 import InvoiceForm from './components/billing/InvoiceForm';
 import InvoiceList from './components/billing/InvoiceList';
@@ -23,7 +23,7 @@ import CustomerLedger from './components/reports/CustomerLedger';
 import StockReport from './components/reports/StockReport';
 import StockHistory from './components/reports/StockHistory';
 import RootCauseAnalysis from './components/RootCauseAnalysis';
-import StockReceivingList from './components/stock/StockReceivingList';
+import StockReceivingListNoRefresh from './components/stock/StockReceivingListNoRefresh';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
 import DataIntegrityManager from './components/admin/DataIntegrityManager';
@@ -41,6 +41,8 @@ import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
 import StockReceivingPayment from "./components/stock/StockReceivingPayment";
 import { Activity } from 'lucide-react';
+import { useGlobalSearchFix } from './utils/searchFix';
+import './utils/searchRefreshDebugger'; // Auto-initializes in dev mode
 
 function LoginForm() {
   const { login } = useSafeAuth(); // Use safe auth hook to prevent crashes
@@ -256,7 +258,7 @@ function AppContent() {
               {/* Products Management */}
               <Route path="/products" element={
                 <ProtectedRoute module="products" level="view">
-                  <ProductList />
+                  <ProductListNoRefresh />
                 </ProtectedRoute>
               } />
 
@@ -422,7 +424,7 @@ function AppContent() {
               {/* Stock Management */}
               <Route path="/stock/receiving" element={
                 <ProtectedRoute module="inventory" level="view">
-                  <StockReceivingList />
+                  <StockReceivingListNoRefresh />
                 </ProtectedRoute>
               } />
               <Route path="/stock/receiving/new" element={
@@ -558,6 +560,9 @@ function App() {
   React.useEffect(() => {
     AuthContextErrorHandler.install();
   }, []);
+
+  // 🛡️ GLOBAL SEARCH FIX - Prevents page refreshes on search inputs
+  // useGlobalSearchFix(); // TEMPORARILY DISABLED TO DEBUG REFRESH ISSUE
 
   return (
     <React.Suspense fallback={

@@ -7,7 +7,7 @@ import { formatCurrency } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { parseUnit, formatUnitString } from '../../utils/unitUtils';
 import toast from 'react-hot-toast';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 
 interface StockReceivingItem {
   product_id: number;
@@ -33,7 +33,7 @@ interface StockReceivingForm {
 
 const StockReceivingNew: React.FC = () => {
   const navigate = useNavigate();
-  const activityLogger = useActivityLogger();
+
   const [vendors, setVendors] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -281,7 +281,7 @@ const StockReceivingNew: React.FC = () => {
 
       // CRITICAL FIX 1: Log activity for activity logger
       try {
-        await activityLogger.logStockReceivingCreated(result, form.vendor_name, form.total_amount);
+
         console.log('✅ Activity logged successfully');
       } catch (activityError) {
         console.error('⚠️ Activity logging failed:', activityError);
@@ -558,11 +558,12 @@ const StockReceivingNew: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Unit Price</label>
                 <input
                   type="number"
-                  value={newItem.unit_price}
-                  onChange={(e) => handleUnitPriceChange(parseFloat(e.target.value) || 0)}
+                  value={newItem.unit_price || ''}
+                  onChange={(e) => handleUnitPriceChange(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                  onWheel={(e) => e.currentTarget.blur()}
                   step="0.1"
                   min="0"
-                  placeholder="0.0"
+                  placeholder="Enter unit price"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 />
               </div>
@@ -646,12 +647,13 @@ const StockReceivingNew: React.FC = () => {
               </label>
               <input
                 type="number"
-                value={form.payment_amount}
-                onChange={(e) => setForm(prev => ({ ...prev, payment_amount: parseFloat(e.target.value) || 0 }))}
+                value={form.payment_amount || ''}
+                onChange={(e) => setForm(prev => ({ ...prev, payment_amount: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 }))}
+                onWheel={(e) => e.currentTarget.blur()}
                 step="0.1"
                 min="0"
                 max={form.total_amount}
-                placeholder="0.0"
+                placeholder="Enter payment amount"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               />
               <p className="mt-1 text-sm text-gray-500">

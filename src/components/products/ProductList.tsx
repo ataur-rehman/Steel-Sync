@@ -1,24 +1,25 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, startTransition, useReducer } from 'react';
 import { db } from '../../services/database';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
-import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+// import { useActivityLogger } from '../../hooks/useActivityLogger'; // Disabled to prevent page refresh
+// import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus'; // Disabled to prevent page refresh
 import {
   Package,
-  Search,
   Plus,
   Edit,
   Trash2,
   RefreshCw,
   AlertTriangle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Search
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Modal from '../common/Modal';
 import ProductFormEnhanced from './ProductFormEnhanced';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatCurrency } from '../../utils/calculations';
-import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
+// import { useAutoRefresh } from '../../hooks/useRealTimeUpdates'; // Disabled to prevent page refresh
+import StableSearchInput from '../common/StableSearchInput';
 
 // Production-grade interfaces for type safety
 interface Product {
@@ -102,8 +103,7 @@ const EmptyState = ({
 );
 
 const ProductList: React.FC = () => {
-  const activityLogger = useActivityLogger();
-
+  // State management
   // State management
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -132,9 +132,34 @@ const ProductList: React.FC = () => {
     totalPages: 0
   });
 
+  // Stable values to prevent circular dependencies
+  const currentPage = useMemo(() => pagination.currentPage, [pagination.currentPage]);
+  const itemsPerPage = useMemo(() => pagination.itemsPerPage, [pagination.itemsPerPage]);
+  const categoryFilter = useMemo(() => filters.category, [filters.category]);
+
   // Performance optimization: Refs
   const loadingRef = useRef(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const debouncedSearchRef = useRef('');
+  const categoryFilterRef = useRef('');
+  const currentPageRef = useRef(1);
+  const itemsPerPageRef = useRef(20);
+
+  // Update refs when values change
+  useEffect(() => {
+    debouncedSearchRef.current = debouncedSearchTerm;
+  }, [debouncedSearchTerm]);
+
+  useEffect(() => {
+    categoryFilterRef.current = categoryFilter;
+  }, [categoryFilter]);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
+  useEffect(() => {
+    itemsPerPageRef.current = itemsPerPage;
+  }, [itemsPerPage]);
 
   // Debounce search term to reduce database calls
   useEffect(() => {
@@ -152,27 +177,27 @@ const ProductList: React.FC = () => {
 
   useEffect(() => {
     loadProducts();
-  }, [debouncedSearchTerm, filters.category, pagination.currentPage]);
+  }, [debouncedSearchTerm, categoryFilter, currentPage]);
 
-  // Real-time updates with enhanced event handling
-  useAutoRefresh(
-    () => {
-      console.log('🔄 ProductList: Auto-refreshing due to real-time event');
-      // Force cache bypass by adding timestamp
-      loadProducts();
-    },
-    [
-      'PRODUCT_CREATED',
-      'PRODUCT_UPDATED',
-      'PRODUCT_DELETED',
-      'STOCK_UPDATED',
-      'PRODUCTS_UPDATED',
-      'UI_REFRESH_REQUESTED',
-      'FORCE_PRODUCT_RELOAD',
-      'PRODUCTS_CACHE_INVALIDATED',
-      'COMPREHENSIVE_DATA_REFRESH'
-    ]
-  );
+  // Real-time updates with enhanced event handling - DISABLED to prevent page refresh
+  // useAutoRefresh(
+  //   () => {
+  //     console.log('🔄 ProductList: Auto-refreshing due to real-time event');
+  //     // Force cache bypass by adding timestamp
+  //     loadProducts();
+  //   },
+  //   [
+  //     'PRODUCT_CREATED',
+  //     'PRODUCT_UPDATED',
+  //     'PRODUCT_DELETED',
+  //     'STOCK_UPDATED',
+  //     'PRODUCTS_UPDATED',
+  //     'UI_REFRESH_REQUESTED',
+  //     'FORCE_PRODUCT_RELOAD',
+  //     'PRODUCTS_CACHE_INVALIDATED',
+  //     'COMPREHENSIVE_DATA_REFRESH'
+  //   ]
+  // );
 
   const initializeData = useCallback(async () => {
     await Promise.all([
@@ -192,17 +217,17 @@ const ProductList: React.FC = () => {
       let whereConditions = [];
       let params: any[] = [];
 
-      // Search filter
-      if (debouncedSearchTerm) {
+      // Search filter - use ref values to avoid dependencies
+      if (debouncedSearchRef.current) {
         whereConditions.push('name LIKE ?');
-        const searchPattern = `%${debouncedSearchTerm}%`;
+        const searchPattern = `%${debouncedSearchRef.current}%`;
         params.push(searchPattern);
       }
 
-      // Category filter
-      if (filters.category) {
+      // Category filter - use ref values to avoid dependencies
+      if (categoryFilterRef.current) {
         whereConditions.push('category = ?');
-        params.push(filters.category);
+        params.push(categoryFilterRef.current);
       }
 
       const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
@@ -212,8 +237,8 @@ const ProductList: React.FC = () => {
       const countResult = await db.executeSmartQuery(countQuery, params);
       const totalItems = (countResult[0] as any)?.total || 0;
 
-      // Get paginated products
-      const offset = (pagination.currentPage - 1) * pagination.itemsPerPage;
+      // Get paginated products - use ref values to avoid dependencies
+      const offset = (currentPageRef.current - 1) * itemsPerPageRef.current;
       const query = `
         SELECT *,
           (CAST(current_stock AS REAL) * rate_per_unit) as stock_value
@@ -223,48 +248,55 @@ const ProductList: React.FC = () => {
         LIMIT ? OFFSET ?
       `;
 
-      const allParams = [...params, pagination.itemsPerPage, offset];
+      const allParams = [...params, itemsPerPageRef.current, offset];
       const result = await db.executeSmartQuery(query, allParams);
 
-      setProducts(result as Product[]);
-      setPagination(prev => ({
-        ...prev,
+      // 🔥 BATCH STATE UPDATES to prevent multiple re-renders
+      const newPagination = {
+        ...pagination,
         totalItems,
-        totalPages: Math.ceil(totalItems / prev.itemsPerPage)
-      }));
+        totalPages: Math.ceil(totalItems / itemsPerPageRef.current)
+      };
+
+      // Use startTransition to mark updates as non-urgent
+      startTransition(() => {
+        setProducts(result as Product[]);
+        setPagination(newPagination);
+      });
 
     } catch (error) {
       console.error('Error loading products:', error);
       setError('Failed to load products. Please try again.');
-      toast.error('Failed to load products');
+      // 🔥 REMOVE toast to prevent re-render triggers
+      // toast.error('Failed to load products');
     } finally {
       setLoading(false);
       loadingRef.current = false;
     }
-  }, [debouncedSearchTerm, filters.category, pagination.currentPage, pagination.itemsPerPage]);
+  }, []); // 🔥 NO DEPENDENCIES - uses refs instead
 
-  // Additional event listeners for comprehensive updates
-  useEffect(() => {
-    const handleProductEvents = (data: any) => {
-      console.log('🔄 ProductList: Product event received, refreshing...', data);
-      // Add delay to ensure database transaction is complete
-      setTimeout(() => loadProducts(), 100);
-    };
+  // Additional event listeners for comprehensive updates - DISABLED to prevent page refresh
+  // useEffect(() => {
+  //   const handleProductEvents = (data: any) => {
+  //     console.log('🔄 ProductList: Product event received, refreshing...', data);
+  //     // Add delay to ensure database transaction is complete
+  //     setTimeout(() => loadProducts(), 100);
+  //   };
 
-    eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductEvents);
-    eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductEvents);
-    eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleProductEvents);
-    eventBus.on('PRODUCTS_UPDATED', handleProductEvents);
-    eventBus.on('UI_REFRESH_REQUESTED', handleProductEvents);
+  //   eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductEvents);
+  //   eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductEvents);
+  //   eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleProductEvents);
+  //   eventBus.on('PRODUCTS_UPDATED', handleProductEvents);
+  //   eventBus.on('UI_REFRESH_REQUESTED', handleProductEvents);
 
-    return () => {
-      eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductEvents);
-      eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductEvents);
-      eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleProductEvents);
-      eventBus.off('PRODUCTS_UPDATED', handleProductEvents);
-      eventBus.off('UI_REFRESH_REQUESTED', handleProductEvents);
-    };
-  }, [loadProducts]);
+  //   return () => {
+  //     eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductEvents);
+  //     eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductEvents);
+  //     eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleProductEvents);
+  //     eventBus.off('PRODUCTS_UPDATED', handleProductEvents);
+  //     eventBus.off('UI_REFRESH_REQUESTED', handleProductEvents);
+  //   };
+  // }, [loadProducts]);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -310,14 +342,13 @@ const ProductList: React.FC = () => {
       setDeletingProduct(null);
       loadProducts();
 
-      activityLogger.logProductDeleted(deletingProduct.id, deletingProduct.name);
-    } catch (error) {
+
       console.error('Error deleting product:', error);
       toast.error('Failed to delete product');
     } finally {
       setIsDeleting(false);
     }
-  }, [deletingProduct, loadProducts, activityLogger]);
+  }, [deletingProduct, loadProducts]);
 
   // Form handlers
   const handleAddSuccess = useCallback(() => {
@@ -452,17 +483,23 @@ const ProductList: React.FC = () => {
           <div className="flex flex-col lg:flex-row gap-4">
             {/* Search */}
             <div className="flex-1 min-w-0">
+              {/* 🔧 SIMPLIFIED: Basic input with manual debouncing */}
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-gray-400" />
+                </div>
                 <input
-                  ref={searchInputRef}
                   type="text"
-                  placeholder="Search products by name..."
                   value={filters.search}
                   onChange={(e) => handleSearchChange(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
-                  autoComplete="off"
-                  spellCheck="false"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
+                  placeholder="Search products by name..."
+                  className="w-full py-3 text-base pl-10 pr-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>

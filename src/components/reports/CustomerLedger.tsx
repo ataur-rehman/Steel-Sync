@@ -5,14 +5,13 @@ import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import { formatCustomerCode, formatInvoiceNumber } from '../../utils/numberFormatting';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import { useNavigation } from '../../hooks/useNavigation';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import SmartDetailHeader from '../common/SmartDetailHeader';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
 import { formatDateForDatabase } from '../../utils/formatters';
 import {
-  Search,
   FileText,
   Plus,
   Users,
@@ -92,8 +91,6 @@ interface CustomerListViewProps {
   onSelectCustomerForPayment: (customer: Customer) => void;
   onNavigateToNewInvoice: (customer: Customer) => void;
   formatCurrency: (amount: number | undefined | null) => string;
-  searchTerm: string;
-  onSearchChange: (value: string) => void;
 }
 
 // Move CustomerListView outside the main component to prevent recreation on every render
@@ -103,9 +100,7 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
   onSelectCustomer,
   onSelectCustomerForPayment,
   onNavigateToNewInvoice,
-  formatCurrency,
-  searchTerm,
-  onSearchChange
+  formatCurrency
 }) => {
   return (
     <div className="space-y-6 p-6">
@@ -114,18 +109,6 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customer Ledger</h1>
           <p className="mt-1 text-sm text-gray-500">Manage customer accounts and transaction history <span className="font-medium text-gray-700">({customers.length} customers)</span></p>
-        </div>
-      </div>
-
-      {/* Search Input - Fixed to prevent recreation */}
-      <div className="mb-6">
-        <div className="relative max-w-md">
-          <UltraStableSearchInput
-            value={searchTerm}
-            onChange={onSearchChange}
-            placeholder="Search customers..."
-            inputId="customer-search-input"
-          />
         </div>
       </div>
 
@@ -233,47 +216,6 @@ const CustomerListView: React.FC<CustomerListViewProps> = React.memo(({
 // Add display name for debugging
 CustomerListView.displayName = 'CustomerListView';
 
-// FINAL SOLUTION: Ultra-stable search component that prevents any re-creation
-// FIXED: Ultra-stable search component that prevents focus loss
-const UltraStableSearchInput = React.memo(({
-  value,
-  onChange,
-  placeholder,
-  inputId
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  inputId: string;
-}) => {
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value;
-    onChange(newValue);
-  }, [onChange]);
-
-  return (
-    <div className="relative flex-1">
-      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-      <input
-        id={inputId}
-        type="text"
-        placeholder={placeholder}
-        value={value} // Use controlled input with value prop
-        onChange={handleChange}
-        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-      />
-    </div>
-  );
-}, (prevProps, nextProps) => {
-  // Only re-render if props actually changed
-  return prevProps.value === nextProps.value &&
-    prevProps.placeholder === nextProps.placeholder &&
-    prevProps.inputId === nextProps.inputId &&
-    prevProps.onChange === nextProps.onChange;
-});
-
-UltraStableSearchInput.displayName = 'UltraStableSearchInput';
-
 const CustomerLedger: React.FC = () => {
   // State management
   const navigate = useNavigate();
@@ -281,7 +223,7 @@ const CustomerLedger: React.FC = () => {
   const params = useParams<{ id: string }>();
   useNavigation(); // For navigation patterns
   useSmartNavigation(); // For enhanced navigation patterns
-  const activityLogger = useActivityLogger();
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerTransactions, setCustomerTransactions] = useState<CustomerTransaction[]>([]);
@@ -293,16 +235,18 @@ const CustomerLedger: React.FC = () => {
   const [showAddPayment, setShowAddPayment] = useState(false);
   const [currentView, setCurrentView] = useState<'customers' | 'ledger' | 'stock'>('customers');
 
-  // FIXED: Separate search terms to prevent conflicts
-  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-
   // Filters for transactions
   const [filters, setFilters] = useState({
     from_date: '',
     to_date: '',
-    type: '',
-    search: ''
+    type: ''
   });
+
+  // Archive management state
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedTransactions, setArchivedTransactions] = useState<CustomerTransaction[]>([]);
+  const [archivePeriods, setArchivePeriods] = useState<any[]>([]);
+  const [loadingArchived, setLoadingArchived] = useState(false);
 
   // Payment form
   const [newPayment, setNewPayment] = useState<PaymentEntry>({
@@ -323,40 +267,9 @@ const CustomerLedger: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
 
-  // FIXED: Stable customer search handler
-  const handleCustomerSearchChange = useCallback((value: string) => {
-    setCustomerSearchTerm(value);
-  }, []);
-
-  // Filtered customers based on search - using separate search term
-  const filteredCustomers = useMemo(() => {
-    if (!customerSearchTerm.trim()) {
-      return customers;
-    }
-
-    const searchLower = customerSearchTerm.toLowerCase();
-    return customers.filter(customer =>
-      customer.name.toLowerCase().includes(searchLower) ||
-      customer.phone?.toLowerCase().includes(searchLower) ||
-      customer.address?.toLowerCase().includes(searchLower)
-    );
-  }, [customers, customerSearchTerm]); // Fixed dependency
-
-  // Memoized filtered transactions
+  // Memoized filtered transactions - no search, just filters
   const filteredTransactions = useMemo(() => {
     let filtered = [...customerTransactions];
-
-    // Apply search filter
-    if (filters.search.trim()) {
-      const searchLower = filters.search.toLowerCase();
-      filtered = filtered.filter(tx =>
-        tx.description?.toLowerCase().includes(searchLower) ||
-        tx.notes?.toLowerCase().includes(searchLower) ||
-        tx.type?.toLowerCase().includes(searchLower) ||
-        tx.invoice_amount?.toString().includes(searchLower) ||
-        tx.payment_amount?.toString().includes(searchLower)
-      );
-    }
 
     // Apply type filter
     if (filters.type) {
@@ -373,16 +286,11 @@ const CustomerLedger: React.FC = () => {
     }
 
     return filtered;
-  }, [customerTransactions, filters]);
+  }, [customerTransactions, filters.type, filters.from_date, filters.to_date]);
 
   // FIXED: Stable filter change handler
   const handleFilterChange = useCallback((key: string, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }));
-  }, []);
-
-  // FIXED: Stable transaction search handler
-  const handleTransactionSearchChange = useCallback((value: string) => {
-    setFilters(prev => ({ ...prev, search: value }));
   }, []);
 
   // Helper functions for loading customer data - moved here to fix dependency order
@@ -605,34 +513,77 @@ const CustomerLedger: React.FC = () => {
 
       const ledgerData = await db.getCustomerLedger(selectedCustomer.id, apiFilters);
 
+      console.log(`📊 [CustomerLedger] Raw ledger data for customer ${selectedCustomer.id}:`,
+        ledgerData.transactions.slice(0, 5).map((t: any) => ({
+          id: t.id,
+          description: t.description,
+          payment_method: t.payment_method,
+          transaction_type: t.transaction_type,
+          entry_type: t.entry_type,
+          type: t.type,
+          amount: t.amount
+        }))
+      );
+
+      // Check specifically for FIFO payment entries
+      const fifoPayments = ledgerData.transactions.filter((t: any) =>
+        t.payment_method && t.payment_method !== 'Cash' && t.payment_method !== ''
+      );
+      console.log(`💳 [CustomerLedger] FIFO payments found:`, fifoPayments.map((t: any) => ({
+        id: t.id,
+        description: t.description,
+        payment_method: t.payment_method,
+        transaction_type: t.transaction_type,
+        entry_type: t.entry_type,
+        amount: t.amount
+      })));
+
       // Process transactions to show proper debit/credit entries
       const processedTransactions = ledgerData.transactions.map((transaction: any) => {
-        if (transaction.type === 'invoice') {
+        // Map transaction_type to type for consistency
+        const transactionType = transaction.transaction_type || transaction.type;
+
+        if (transactionType === 'invoice') {
           return {
             ...transaction,
+            type: 'invoice', // Ensure type is set
             debit_amount: transaction.debit_amount || 0,
             credit_amount: 0,
             invoice_amount: transaction.debit_amount || 0,
             balance_after: transaction.running_balance || 0,
             description: `Invoice ${transaction.reference_number} - Total: Rs. ${(transaction.debit_amount || 0).toFixed(2)}`
           };
-        } else if (transaction.type === 'payment') {
+        } else if (transactionType === 'payment') {
           return {
             ...transaction,
+            type: 'payment', // Ensure type is set
             debit_amount: 0,
             credit_amount: transaction.credit_amount || 0,
             payment_amount: transaction.credit_amount || 0,
             balance_after: transaction.running_balance || 0,
-            description: `Payment for ${transaction.reference_number || 'Account'} - Rs. ${(transaction.credit_amount || 0).toFixed(2)}`
+            description: `Payment for ${transaction.reference_number || 'Account'}`,
+            payment_method: transaction.payment_method || 'Cash' // Preserve payment method
           };
         }
         return {
           ...transaction,
+          type: transactionType, // Ensure type is set
           balance_after: transaction.running_balance || 0,
           invoice_amount: transaction.debit_amount || 0,
           payment_amount: transaction.credit_amount || 0
         };
       });
+
+      console.log(`🔄 [CustomerLedger] Processed transactions:`,
+        processedTransactions.slice(0, 5).map((t: any) => ({
+          id: t.id,
+          type: t.type,
+          description: t.description,
+          payment_method: t.payment_method,
+          credit_amount: t.credit_amount,
+          payment_amount: t.payment_amount
+        }))
+      );
 
       setCustomerTransactions(processedTransactions);
     } catch (error) {
@@ -757,8 +708,7 @@ const CustomerLedger: React.FC = () => {
     setFilters({
       from_date: '',
       to_date: '',
-      type: '',
-      search: ''
+      type: ''
     });
   }, []);
 
@@ -791,7 +741,6 @@ const CustomerLedger: React.FC = () => {
     URL.revokeObjectURL(url);
 
     // Log activity
-    await activityLogger.logReportExported(`Customer Ledger (${selectedCustomer.name})`, 'CSV');
 
     toast.success('Ledger exported successfully');
   };
@@ -1050,17 +999,16 @@ const CustomerLedger: React.FC = () => {
         {/* Filters */}
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <div className="flex flex-col md:flex-row gap-4">
-            <UltraStableSearchInput
-              value={filters.search}
-              onChange={handleTransactionSearchChange}
-              placeholder="Search transactions..."
-              inputId="transaction-search-input"
-            />
-
             <input
               type="date"
               value={filters.from_date}
               onChange={(e) => handleFilterChange('from_date', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="From Date"
             />
@@ -1069,6 +1017,12 @@ const CustomerLedger: React.FC = () => {
               type="date"
               value={filters.to_date}
               onChange={(e) => handleFilterChange('to_date', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="To Date"
             />
@@ -1084,7 +1038,7 @@ const CustomerLedger: React.FC = () => {
               <option value="adjustment">Adjustments</option>
             </select>
 
-            {(filters.search || filters.from_date || filters.to_date || filters.type) && (
+            {(filters.from_date || filters.to_date || filters.type) && (
               <button
                 onClick={clearFilters}
                 className="px-4 py-2 text-gray-600 hover:text-gray-800 text-sm"
@@ -1116,11 +1070,46 @@ const CustomerLedger: React.FC = () => {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {(() => {
-                    // Step 1: Sort ascending (oldest first)
+                    // Step 1: Sort ascending (oldest first) with proper AM/PM time handling
                     const sortedAsc = [...filteredTransactions].sort((a, b) => {
                       if (a.date === b.date) {
                         if (a.hasOwnProperty('time') && b.hasOwnProperty('time')) {
-                          return ((a as any).time ?? '').localeCompare((b as any).time ?? '');
+                          // FIXED: Proper time sorting with AM/PM conversion
+                          const convertTo24Hour = (timeStr: string): string => {
+                            if (!timeStr || timeStr.trim() === '') return '00:00';
+
+                            try {
+                              const cleanTimeStr = timeStr.trim();
+
+                              // If already in 24-hour format, return as is
+                              if (!/AM|PM/i.test(cleanTimeStr)) {
+                                return cleanTimeStr;
+                              }
+
+                              // Parse 12-hour format
+                              const match = cleanTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+                              if (!match) return '00:00';
+
+                              let hours = parseInt(match[1], 10);
+                              const minutes = match[2];
+                              const period = match[3].toUpperCase();
+
+                              // Convert to 24-hour format
+                              if (period === 'AM') {
+                                if (hours === 12) hours = 0; // 12:XX AM becomes 00:XX
+                              } else { // PM
+                                if (hours !== 12) hours += 12; // 1:XX PM becomes 13:XX, but 12:XX PM stays 12:XX
+                              }
+
+                              return `${hours.toString().padStart(2, '0')}:${minutes}`;
+                            } catch (error) {
+                              return '00:00';
+                            }
+                          };
+
+                          const timeA = convertTo24Hour((a as any).time ?? '');
+                          const timeB = convertTo24Hour((b as any).time ?? '');
+                          return timeA.localeCompare(timeB);
                         }
                         return 0;
                       }
@@ -1144,7 +1133,52 @@ const CustomerLedger: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900">
                           <div className="font-medium">{transaction.description}</div>
-                          {transaction.notes && (
+                          {/* FIXED: Show payment channel for payments - check multiple conditions and log for debugging */}
+                          {(() => {
+                            const tx = transaction as any;
+                            const isPayment = transaction.type === 'payment' ||
+                              tx.transaction_type === 'payment' ||
+                              tx.entry_type === 'credit';
+                            const hasPaymentMethod = tx.payment_method && tx.payment_method !== 'Cash';
+
+                            // Debug log for FIFO payments
+                            if (tx.payment_method && tx.payment_method !== 'Cash') {
+                              console.log(`💳 [CustomerLedger] Payment method found:`, {
+                                id: tx.id,
+                                description: tx.description,
+                                payment_method: tx.payment_method,
+                                type: transaction.type,
+                                transaction_type: tx.transaction_type,
+                                entry_type: tx.entry_type,
+                                isPayment,
+                                hasPaymentMethod,
+                                willShow: isPayment && hasPaymentMethod
+                              });
+                            }
+
+                            // Special debug for ID 28 (the latest FIFO payment)
+                            if (tx.id === 28 || tx.id === '28') {
+                              console.log(`🔍 [CustomerLedger] ID 28 Debug:`, {
+                                id: tx.id,
+                                description: tx.description,
+                                payment_method: tx.payment_method,
+                                type: transaction.type,
+                                transaction_type: tx.transaction_type,
+                                entry_type: tx.entry_type,
+                                isPayment,
+                                hasPaymentMethod,
+                                finalCondition: isPayment && hasPaymentMethod,
+                                paymentMethodCheck: tx.payment_method && tx.payment_method !== 'Cash'
+                              });
+                            }
+
+                            return isPayment && hasPaymentMethod;
+                          })() && (
+                              <div className="text-xs text-blue-600 mt-1 font-medium">
+                                via {(transaction as any).payment_method}
+                              </div>
+                            )}
+                          {transaction.notes && transaction.type !== 'payment' && (
                             <div className="text-xs text-gray-500 mt-1">{transaction.notes}</div>
                           )}
                         </td>
@@ -1178,7 +1212,7 @@ const CustomerLedger: React.FC = () => {
                 <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions found</h3>
                 <p className="text-gray-500">
-                  {filters.search || filters.type || filters.from_date || filters.to_date
+                  {filters.type || filters.from_date || filters.to_date
                     ? 'No transactions match your current filters. Try adjusting your search criteria.'
                     : 'This customer has no transaction history yet.'
                   }
@@ -1231,23 +1265,19 @@ const CustomerLedger: React.FC = () => {
 
   // FIXED: Use component reference instead of useMemo to prevent recreation
   const customerListViewProps = React.useMemo(() => ({
-    customers: filteredCustomers,
+    customers: customers,
     customersLoading,
     onSelectCustomer: selectCustomer,
     onSelectCustomerForPayment: handleSelectCustomerForPayment,
     onNavigateToNewInvoice: handleNavigateToNewInvoice,
-    formatCurrency,
-    searchTerm: customerSearchTerm,
-    onSearchChange: handleCustomerSearchChange
+    formatCurrency
   }), [
-    filteredCustomers,
+    customers,
     customersLoading,
     selectCustomer,
     handleSelectCustomerForPayment,
     handleNavigateToNewInvoice,
-    formatCurrency,
-    customerSearchTerm,
-    handleCustomerSearchChange
+    formatCurrency
   ]);
 
   return (
@@ -1320,6 +1350,12 @@ const CustomerLedger: React.FC = () => {
                   type="date"
                   value={newPayment.date}
                   onChange={(e) => setNewPayment(prev => ({ ...prev, date: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
@@ -1330,10 +1366,16 @@ const CustomerLedger: React.FC = () => {
                   type="number"
                   min="0"
                   step="0.1"
-                  value={newPayment.amount}
-                  onChange={(e) => setNewPayment(prev => ({ ...prev, amount: parseCurrency(e.target.value) }))}
+                  value={newPayment.amount || ''}
+                  onChange={(e) => setNewPayment(prev => ({ ...prev, amount: e.target.value === '' ? 0 : parseCurrency(e.target.value) }))}
                   onWheel={(e) => e.currentTarget.blur()}
-                  placeholder="0.00"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
+                  placeholder="Enter payment amount"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
@@ -1393,6 +1435,12 @@ const CustomerLedger: React.FC = () => {
                   type="text"
                   value={newPayment.reference}
                   onChange={(e) => setNewPayment(prev => ({ ...prev, reference: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
                   placeholder="Cheque number, transaction ID, etc."
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
@@ -1403,6 +1451,12 @@ const CustomerLedger: React.FC = () => {
                 <textarea
                   value={newPayment.notes}
                   onChange={(e) => setNewPayment(prev => ({ ...prev, notes: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }
+                  }}
                   placeholder="Payment notes..."
                   rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"

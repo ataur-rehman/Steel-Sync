@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDatabase } from '../../hooks/useDatabase';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import {
   staffService
 } from '../../services/staffService';
@@ -32,7 +32,7 @@ import SalaryHistory from './SalaryHistory';
 
 const StaffManagement: React.FC = () => {
   const { initialized } = useDatabase();
-  const activityLogger = useActivityLogger();
+
   const [staff, setStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
   const [statistics, setStatistics] = useState<StaffStatistics | null>(null);
@@ -154,8 +154,6 @@ const StaffManagement: React.FC = () => {
         });
 
         // Log activity
-        await activityLogger.logStaffUpdated(editingStaff.id, formData.full_name, formData);
-
         toast.success('Staff member updated successfully');
       } else {
         // Create new staff
@@ -165,7 +163,7 @@ const StaffManagement: React.FC = () => {
         });
 
         // Log activity
-        await activityLogger.logStaffCreated(result.id, formData.full_name, formData.role);
+
 
         toast.success('Staff member created successfully');
       }
@@ -207,7 +205,7 @@ const StaffManagement: React.FC = () => {
       await staffService.deleteStaff(id, 'admin'); // TODO: Get from current user session
 
       // Log activity
-      await activityLogger.logStaffDeleted(id, staffMember.full_name);
+
 
       toast.success('Staff member deleted successfully');
       await loadData(); // Refresh data

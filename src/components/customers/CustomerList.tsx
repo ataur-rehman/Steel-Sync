@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useDetailNavigation } from '../../hooks/useDetailNavigation';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import type { Customer } from '../../types';
 import { toast } from 'react-hot-toast';
 import { Plus, Edit, FileText, Trash2, Users, Search, ChevronLeft, ChevronRight, DollarSign } from 'lucide-react';
@@ -16,7 +16,7 @@ import FIFOPaymentForm from '../payments/FIFOPaymentForm';
 export default function CustomerList() {
   const { navigateToDetail } = useDetailNavigation();
   const { db } = useDatabase();
-  const activityLogger = useActivityLogger();
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -132,7 +132,7 @@ export default function CustomerList() {
       await db.deleteCustomer(customerToDelete.id);
 
       // Log activity
-      await activityLogger.logCustomerDeleted(customerToDelete.id, customerToDelete.name);
+
 
       toast.success('Customer deleted successfully');
       setShowDeleteModal(false);
@@ -642,12 +642,7 @@ export default function CustomerList() {
                         <div className="flex space-x-2">
                           <button
                             onClick={async () => {
-                              // Log customer ledger access activity
-                              try {
-                                await activityLogger.logCustomerViewed(customer.id, customer.name);
-                              } catch (error) {
-                                console.error('Failed to log customer ledger access activity:', error);
-                              }
+
 
                               console.log('🚀 [CustomerList] Navigating to Customer Ledger for:', {
                                 customerId: customer.id,

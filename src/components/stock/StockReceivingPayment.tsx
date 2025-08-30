@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
 import { formatCurrency, formatTime } from '../../utils/formatters';
 import { formatReceivingNumber } from '../../utils/numberFormatting';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
+
 import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { emitPaymentEvents } from '../../services/dashboardRealTimeUpdater';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
@@ -27,7 +27,7 @@ const StockReceivingPayment: React.FC = () => {
   const [showOptional, setShowOptional] = useState(false);
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const activityLogger = useActivityLogger();
+
 
   const [receiving, setReceiving] = useState<any>(null);
   const [, setVendor] = useState<any>(null);
@@ -320,16 +320,7 @@ const StockReceivingPayment: React.FC = () => {
       console.log('✅ Real-time events emitted successfully');
 
       // Log the payment recording activity
-      const paymentDescription = (paymentId && paymentId > 0)
-        ? `Recorded payment of ₹${form.amount.toFixed(1)} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''}`
-        : `Recorded payment of ₹${form.amount.toFixed(1)} for receiving order ${receiving.reference_number} from vendor ${receiving.vendor_name} via ${form.payment_method}${form.payment_channel_name ? ` (${form.payment_channel_name})` : ''} - Vendor not found, recorded in daily ledger`;
 
-      activityLogger.logCustomActivity(
-        ActivityType.PAYMENT,
-        ModuleType.PAYMENTS,
-        paymentId || 0,
-        paymentDescription
-      );
 
       if (!paymentId || paymentId === 0) {
         toast.success('Payment recorded successfully in daily ledger!', {
@@ -442,12 +433,14 @@ const StockReceivingPayment: React.FC = () => {
               </label>
               <input
                 type="number"
-                value={form.amount || 0}
-                onChange={(e) => setForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
+                value={form.amount || ''}
+                onChange={(e) => setForm(prev => ({ ...prev, amount: e.target.value === '' ? 0 : parseFloat(e.target.value) || 0 }))}
+                onWheel={(e) => e.currentTarget.blur()}
                 step="0.1"
                 min="0.1"
                 max={receiving?.remaining_balance || 0}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                placeholder="Enter payment amount"
                 required
               />
               <div className="mt-2 flex gap-2">

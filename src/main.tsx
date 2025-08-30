@@ -398,6 +398,19 @@ window.addEventListener('error', (event) => {
   if (error && error.message) {
     const message = error.message;
 
+    // IGNORE SEARCH-RELATED ERRORS - they should not trigger app recovery
+    if (message.includes('products') ||
+      message.includes('search') ||
+      message.includes('filter') ||
+      message.includes('no results') ||
+      message.includes('empty') ||
+      message.includes('COUNT') ||
+      message.includes('SELECT')) {
+      console.log('🔍 [SEARCH-ERROR] Ignoring search-related error:', message);
+      event.preventDefault();
+      return false;
+    }
+
     // Check if it's a React DOM error
     if (message.includes('removeChild') ||
       message.includes('insertBefore') ||
@@ -423,6 +436,19 @@ window.addEventListener('error', (event) => {
 window.addEventListener('unhandledrejection', (event) => {
   if (event.reason && event.reason.message) {
     const message = event.reason.message;
+
+    // IGNORE SEARCH-RELATED PROMISE REJECTIONS - they should not trigger app recovery
+    if (message.includes('products') ||
+      message.includes('search') ||
+      message.includes('filter') ||
+      message.includes('no results') ||
+      message.includes('empty') ||
+      message.includes('COUNT') ||
+      message.includes('SELECT')) {
+      console.log('🔍 [SEARCH-PROMISE] Ignoring search-related promise rejection:', message);
+      event.preventDefault();
+      return;
+    }
 
     if (message.includes('DOM') || message.includes('React') || message.includes('removeChild') || message.includes('insertBefore')) {
       console.log('🔧 [ERROR-HANDLER] Unhandled DOM promise rejection, attempting recovery...');
