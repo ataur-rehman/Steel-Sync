@@ -11,11 +11,14 @@ Users can manage products, vendors, customers, invoices, and payments, while als
 
 
 ## Screenshots
+## Screenshots
   <div style="display: flex; justify-content: space-between; gap: 20px;">
 <img src="dashboard.png" alt="Dashboard" width="400" />
-<img src="invoiceForm.png" alt="Inovice Form" width="400" />
-<img src="inoviceDetail.png" alt="Invoice Detail" width="400" />
+<img src="invoice.png" alt="Invoice" width="400" />
+<img src="invoiceDetail.png" alt="Invoice Detail" width="400" />
 <img src="dailyLedger.png" alt="Daily Ledger" width="400" />
+<img src="customerLedger.png" alt="Customers Page" width="400" />
+<img src="stockReport.png" alt="Stock Report" width="400" />
 </div>
 
 
