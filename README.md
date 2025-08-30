@@ -1,69 +1,91 @@
-# React + TypeScript + Vite
+# Steel Store Management System
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+✨ **Ittehad IMS** is a modern desktop application designed to streamline business operations for hardware and iron stores. From inventory and billing to customer/vendor management and financial reporting, the system provides a complete solution in one secure, responsive interface.
 
-Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Project Overview
 
-## Expanding the ESLint configuration
+The aim of Ittehad IMS is to digitize manual business processes in small-to-medium hardware and iron shops. Traditionally, these businesses rely on paper-based systems that are error-prone and inefficient. This application replaces them with a robust, desktop-based system built with React, TypeScript, and Tauri, ensuring reliability, speed, and ease of use. This system was developed as a freelance project for a local hardware business, tailored to their operational needs.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Users can manage products, vendors, customers, invoices, and payments, while also monitoring stock and financial performance through an interactive dashboard.
 
-```js
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
 
-      // Remove tseslint.configs.recommended and replace with this
-      ...tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      ...tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      ...tseslint.configs.stylisticTypeChecked,
+## Screenshots
+  <div style="display: flex; justify-content: space-between; gap: 20px;">
+<img src="dashboard.png" alt="Dashboard" width="400" />
+<img src="invoiceForm.png" alt="Inovice Form" width="400" />
+<img src="inoviceDetail.png" alt="Invoice Detail" width="400" />
+<img src="dailyLedger.png" alt="Daily Ledger" width="400" />
+</div>
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Features
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- **Interactive Dashboard** – Track sales, stock alerts, revenue, and cash flow at a glance  
+- **Inventory Management** – Add, update, and track products with unit management  
+- **Billing & Sales** – Generate invoices with automated numbering and payment tracking  
+- **Customer & Vendor Management** – Maintain ledgers, purchase history, and payment records  
+- **Financial Reporting** – Daily ledger, profit/loss, and stock valuation reports  
+- **Staff Module** – Record employees, track salaries, and manage roles  
+- **Security & Backup** – Authentication, data encryption, and automatic database backup  
 
-export default tseslint.config([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+
+## Problem Statement
+
+Many small and medium-sized iron and hardware stores still rely on manual registers or outdated software, leading to inefficiencies, human errors, and data loss risks. **Ittehad IMS** solves this by offering a reliable, all-in-one desktop management system that empowers store owners to make faster, data-driven decisions while reducing errors and saving time.
+
+
+## Tech Stack
+
+- **Frontend:** React 19, TypeScript, Tailwind CSS  
+- **Desktop Framework:** Tauri (Rust-based, lightweight, secure)  
+- **Database:** SQLite (fast, reliable, ACID-compliant)  
+- **State Management:** Zustand  
+- **Build Tool:** Vite  
+- **Testing:** Vitest  
+
+
+## Installation & Setup
+
+1. Clone the Repository
+
+git clone https://github.com/ataur-rehman/ittehad-iron-store.git
+
+2. Install Dependencies
+
+npm install
+
+
+3. Start Development Server
+
+npm run dev
+
+
+4. Run with Tauri
+
+npm run tauri dev
+
+
+5. Build for Production
+
+npm run tauri build
+
+
+## 🌱 Future Enhancements
+
+- Cloud sync for multi-branch stores
+- Barcode scanner support for faster billing
+- Mobile companion app for remote access
+
+## 🙌 Acknowledgements
+
+- Tauri community for enabling lightweight desktop apps
+- React & TypeScript ecosystem for powerful development tools
+- SQLite for a rock-solid embedded database
+
+## 📬 Contact & Support
+
+💼 GitHub: https://github.com/ataur-rehman  
+📩 Email: ataurrehman3636@gmail.com  
+
+⭐ If you like this project, consider giving it a star on GitHub! ⭐
