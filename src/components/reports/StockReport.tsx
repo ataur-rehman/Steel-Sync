@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
@@ -129,6 +129,9 @@ const StockReport: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // PERFORMANCE OPTIMIZATION: Debounced refresh timeout ref
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Filters
   const [filters, setFilters] = useState({
     search: '',
@@ -171,39 +174,35 @@ const StockReport: React.FC = () => {
     // FIXED: Proper event bus integration with correct event names
     const handleStockUpdate = (data: any) => {
       console.log('📦 Stock report refreshing due to stock update:', data);
-      // CRITICAL FIX: Add small delay to ensure database transaction is complete
-      setTimeout(() => {
-        loadStockData(); // Silent refresh with delay
-      }, 300); // Increased delay for complex operations
+      // OPTIMIZED: Use debounced refresh to prevent excessive calls
+      debouncedLoadStockData();
     };
 
     const handleInvoiceCreated = (data: any) => {
       console.log('📦 Stock report refreshing due to invoice creation:', data);
-      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
+      debouncedLoadStockData();
     };
 
     const handleStockAdjustment = (data: any) => {
       console.log('📦 Stock report refreshing due to stock adjustment:', data);
-      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
+      // OPTIMIZED: Use debounced refresh
+      debouncedLoadStockData();
     };
 
     const handleUIRefreshRequested = (data: any) => {
       console.log('📦 Stock report refreshing due to UI refresh request:', data);
-      // CRITICAL FIX: Multiple refresh attempts to ensure data is updated
-      setTimeout(() => loadStockData(), 100);
-      setTimeout(() => loadStockData(), 500);
-      setTimeout(() => loadStockData(), 1000);
-      setTimeout(() => loadStockData(), 2000);
+      // OPTIMIZED: Use debounced refresh
+      debouncedLoadStockData();
     };
 
     const handleProductsUpdated = (data: any) => {
-      console.log('📦 Stock report refreshing due to products updated:', data);
-      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
+      console.log('📦 StockReport: Product updated, refreshing stock data...', data);
+      debouncedLoadStockData();
     };
 
     const handleForceProductReload = (data: any) => {
-      console.log('📦 Stock report refreshing due to force product reload:', data);
-      setTimeout(() => loadStockData(), 300); // Silent refresh with delay
+      console.log('📦 StockReport: Force product reload requested, refreshing...', data);
+      debouncedLoadStockData();
     };
 
     // Register event listeners with correct event names
@@ -212,6 +211,11 @@ const StockReport: React.FC = () => {
     eventBus.on(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
     eventBus.on(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
 
+    // 🔄 PRODUCTION FIX: Listen to product events for real-time updates
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductsUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductsUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductsUpdated);
+
     // Listen for additional events emitted by stock receiving
     eventBus.on('UI_REFRESH_REQUESTED', handleUIRefreshRequested);
     eventBus.on('PRODUCTS_UPDATED', handleProductsUpdated);
@@ -219,19 +223,34 @@ const StockReport: React.FC = () => {
     eventBus.on('PRODUCTS_CACHE_INVALIDATED', handleProductsUpdated);
     eventBus.on('COMPREHENSIVE_DATA_REFRESH', handleForceProductReload);
 
-    // Set up auto-refresh every 30 seconds as backup
+    // OPTIMIZED: Set up auto-refresh every 2 minutes as backup (reduced from 30 seconds)
     const intervalId = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        loadStockData(); // silent refresh
+        debouncedLoadStockData(); // Use debounced refresh
       }
-    }, 30000);
+    }, 120000); // 2 minutes instead of 30 seconds
 
     return () => {
+      // Clean up timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+
+      // Clean up interval
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+
       // Clean up event listeners
       eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleStockUpdate);
       eventBus.off(BUSINESS_EVENTS.INVOICE_CREATED, handleInvoiceCreated);
       eventBus.off(BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handleStockAdjustment);
       eventBus.off(BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handleStockUpdate);
+
+      // 🔄 PRODUCTION FIX: Clean up product event listeners
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductsUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductsUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductsUpdated);
 
       // Clean up additional event listeners
       eventBus.off('UI_REFRESH_REQUESTED', handleUIRefreshRequested);
@@ -422,6 +441,17 @@ const StockReport: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // PERFORMANCE OPTIMIZATION: Debounced refresh to prevent excessive calls
+  const debouncedLoadStockData = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+
+    refreshTimeoutRef.current = setTimeout(() => {
+      loadStockData();
+    }, 300); // 300ms debounce delay
+  }, []);
 
   const loadStockMovements = async (productId?: number) => {
     try {

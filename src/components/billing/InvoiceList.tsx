@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
@@ -9,6 +9,7 @@ import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { formatDate, formatTime } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+import { useDebounce } from '../../hooks/useDebounce';
 import {
   Search,
   Filter,
@@ -97,7 +98,7 @@ const InvoiceList: React.FC = () => {
   // State management - KEEPING YOUR ORIGINAL STATE STRUCTURE
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
-  const [filteredInvoices, setFilteredInvoices] = useState<Invoice[]>([]);
+  // OPTIMIZATION: Remove filteredInvoices since server handles filtering
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
 
@@ -116,12 +117,18 @@ const InvoiceList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  // OPTIMIZATION: Enhanced loading states for 90k+ records
+  const [isFiltering, setIsFiltering] = useState(false);
+
   // View mode toggle
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
 
   // Pagination - KEEPING YOUR ORIGINAL
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(24);
+
+  // OPTIMIZATION: Add server-side pagination state
+  const [totalRecords, setTotalRecords] = useState(0);
 
   // Filters - KEEPING YOUR ORIGINAL
   const [filters, setFilters] = useState<InvoiceFilters>({
@@ -133,6 +140,9 @@ const InvoiceList: React.FC = () => {
     payment_method: ''
   });
 
+  // OPTIMIZATION: Debounced search to prevent excessive API calls with 90k+ records
+  const debouncedSearchTerm = useDebounce(filters.search, 500);
+
   // UI Enhancement additions (not changing your logic)
 
   const [sortField, setSortField] = useState('created_at');
@@ -140,6 +150,7 @@ const InvoiceList: React.FC = () => {
 
   // Load initial data - YOUR ORIGINAL FUNCTION
   useEffect(() => {
+    console.log('🔍 [INITIAL_LOAD] Loading initial data...');
     loadData();
 
     // FIXED: Proper event bus integration with correct event names
@@ -173,40 +184,93 @@ const InvoiceList: React.FC = () => {
     };
   }, []);
 
-  // Apply filters when they change - YOUR ORIGINAL
+  // OPTIMIZATION: Reload data when filters, page, or sorting changes
   useEffect(() => {
-    applyFilters();
-  }, [invoices, filters, sortField, sortDirection]);
+    console.log('🔍 [USEEFFECT] Triggering loadData due to dependency change:', {
+      sortField, sortDirection, currentPage, debouncedSearchTerm
+    });
+    loadData();
+  }, [debouncedSearchTerm, filters.customer_id, filters.status, filters.from_date, filters.to_date, filters.payment_method, sortField, sortDirection, currentPage, itemsPerPage]);
 
-  // YOUR ORIGINAL loadData function
+  // OPTIMIZATION: Updated loadData function with server-side pagination
   const loadData = async () => {
     try {
-      setLoading(true);
+      if (!loading) setIsFiltering(true); // Show filtering state if not initial load
+      if (loading) setLoading(true);
       await db.initialize();
 
-      const [invoiceList, customerList] = await Promise.all([
-        db.getInvoices(),
+      console.log('🔍 [SORT_DEBUG] Loading data with params:', {
+        page: currentPage,
+        limit: itemsPerPage,
+        sortField,
+        sortDirection,
+        debouncedSearchTerm
+      });
+
+      // OPTIMIZATION: Use paginated query with timeout for large datasets
+      const loadPromise = Promise.all([
+        db.getInvoicesPaginated(
+          currentPage,
+          itemsPerPage,
+          {
+            search: debouncedSearchTerm, // Use debounced search term
+            customer_id: filters.customer_id,
+            status: filters.status,
+            from_date: filters.from_date,
+            to_date: filters.to_date,
+            payment_method: filters.payment_method
+          },
+          sortField,
+          sortDirection
+        ),
         db.getAllCustomers()
       ]);
 
-      console.log('Loaded invoices:', invoiceList);
-      setInvoices(invoiceList);
+      // Add timeout for very large datasets
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout - database might be busy')), 30000)
+      );
+
+      const [paginatedResult, customerList] = await Promise.race([loadPromise, timeoutPromise]) as any;
+
+      console.log('Loaded paginated invoices:', paginatedResult);
+      setInvoices(paginatedResult.invoices);
+      setTotalRecords(paginatedResult.total);
       setCustomers(customerList);
 
     } catch (error) {
       console.error('Failed to load data:', error);
-      toast.error('Failed to load invoices');
+      if (error instanceof Error && error.message.includes('timeout')) {
+        toast.error('Loading is taking longer than expected. Please try refreshing or reducing filters.');
+      } else {
+        toast.error('Failed to load invoices');
+      }
     } finally {
       setLoading(false);
+      setIsFiltering(false);
     }
   };
 
-  // YOUR ORIGINAL refreshData function
+  // OPTIMIZATION: Updated refreshData function with server-side pagination
   const refreshData = async () => {
     try {
       setRefreshing(true);
-      const invoiceList = await db.getInvoices();
-      setInvoices(invoiceList);
+      const paginatedResult = await db.getInvoicesPaginated(
+        currentPage,
+        itemsPerPage,
+        {
+          search: debouncedSearchTerm, // Use debounced search term
+          customer_id: filters.customer_id,
+          status: filters.status,
+          from_date: filters.from_date,
+          to_date: filters.to_date,
+          payment_method: filters.payment_method
+        },
+        sortField,
+        sortDirection
+      );
+      setInvoices(paginatedResult.invoices);
+      setTotalRecords(paginatedResult.total);
       toast.success('Invoices refreshed');
     } catch (error) {
       console.error('Failed to refresh data:', error);
@@ -217,70 +281,8 @@ const InvoiceList: React.FC = () => {
   };
 
   // Apply filters to invoice list - YOUR ORIGINAL LOGIC with sorting enhancement
-  const applyFilters = useCallback(() => {
-    let filtered = [...invoices];
-
-    if (filters.search.trim()) {
-      const searchTerm = filters.search.toLowerCase();
-      filtered = filtered.filter(invoice =>
-        invoice.bill_number.toLowerCase().includes(searchTerm) ||
-        invoice.customer_name.toLowerCase().includes(searchTerm) ||
-        invoice.notes?.toLowerCase().includes(searchTerm)
-      );
-    }
-
-    if (filters.customer_id) {
-      filtered = filtered.filter(invoice => invoice.customer_id === filters.customer_id);
-    }
-
-    if (filters.status) {
-      filtered = filtered.filter(invoice => {
-        const status = getInvoiceStatus(invoice);
-        return status === filters.status;
-      });
-    }
-
-    if (filters.from_date) {
-      filtered = filtered.filter(invoice =>
-        new Date(invoice.created_at) >= new Date(filters.from_date)
-      );
-    }
-
-    if (filters.to_date) {
-      filtered = filtered.filter(invoice =>
-        new Date(invoice.created_at) <= new Date(filters.to_date + 'T23:59:59')
-      );
-    }
-
-    if (filters.payment_method) {
-      filtered = filtered.filter(invoice => invoice.payment_method === filters.payment_method);
-    }
-
-    // Enhanced sorting
-    filtered.sort((a, b) => {
-      let aValue: any = a[sortField as keyof Invoice];
-      let bValue: any = b[sortField as keyof Invoice];
-
-      if (sortField === 'created_at') {
-        aValue = new Date(aValue).getTime();
-        bValue = new Date(bValue).getTime();
-      }
-
-      if (typeof aValue === 'string') {
-        aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
-      }
-
-      if (sortDirection === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
-    });
-
-    setFilteredInvoices(filtered);
-    setCurrentPage(1);
-  }, [invoices, filters, sortField, sortDirection]);
+  // OPTIMIZATION: Server-side filtering eliminates need for applyFilters
+  // All filtering, sorting, and pagination now handled by database
 
   // Get invoice status based on payment - YOUR ORIGINAL FUNCTION
   const getInvoiceStatus = (invoice: Invoice): string => {
@@ -507,12 +509,10 @@ const InvoiceList: React.FC = () => {
     }
   };
 
-
-  // Pagination - YOUR ORIGINAL LOGIC
-  const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentInvoices = filteredInvoices.slice(startIndex, endIndex);
+  // OPTIMIZATION: Server-side pagination calculations
+  const totalPages = Math.ceil(totalRecords / itemsPerPage);
+  // Since server returns exactly the records for current page, no slicing needed
+  const currentInvoices = invoices;
 
   // Format currency - YOUR ORIGINAL FUNCTION
   // Format currency and always round to two decimal places
@@ -527,14 +527,14 @@ const InvoiceList: React.FC = () => {
   };
 
 
-  // Calculate stats for header
+  // OPTIMIZATION: Stats calculated from current page data and totalRecords
   const stats = React.useMemo(() => {
-    const totalInvoices = filteredInvoices.length;
-    const totalRevenue = Number(filteredInvoices.reduce((sum, inv) => sum + Number(inv.grand_total || 0), 0).toFixed(2));
-    const paidInvoices = filteredInvoices.filter(inv => getInvoiceStatus(inv) === 'paid').length;
-    const pendingAmount = Number(filteredInvoices.reduce((sum, inv) => sum + Number(inv.remaining_balance || 0), 0).toFixed(2));
+    const totalInvoices = totalRecords; // Use server-provided total count
+    const totalRevenue = Number(invoices.reduce((sum: number, inv: any) => sum + Number(inv.grand_total || 0), 0).toFixed(2));
+    const paidInvoices = invoices.filter((inv: any) => getInvoiceStatus(inv) === 'paid').length;
+    const pendingAmount = Number(invoices.reduce((sum: number, inv: any) => sum + Number(inv.remaining_balance || 0), 0).toFixed(2));
     return { totalInvoices, totalRevenue, paidInvoices, pendingAmount };
-  }, [filteredInvoices]);
+  }, [invoices, totalRecords]);
 
   if (loading) {
     return (
@@ -788,7 +788,11 @@ const InvoiceList: React.FC = () => {
               <option value="remaining_balance">Balance Due</option>
             </select>
             <button
-              onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
+              onClick={() => {
+                const newDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+                console.log('🔍 [SORT_BUTTON] Changing direction from', sortDirection, 'to', newDirection);
+                setSortDirection(newDirection);
+              }}
               className="p-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               title={`Sort ${sortDirection === 'asc' ? 'descending' : 'ascending'}`}
             >
@@ -813,8 +817,14 @@ const InvoiceList: React.FC = () => {
 
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-600">
-            Showing {startIndex + 1}-{Math.min(endIndex, filteredInvoices.length)} of {filteredInvoices.length}
+            Page {currentPage} of {totalPages} • {totalRecords} total records
           </span>
+          {isFiltering && (
+            <div className="flex items-center text-sm text-blue-600">
+              <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+              Filtering...
+            </div>
+          )}
         </div>
       </div>
 

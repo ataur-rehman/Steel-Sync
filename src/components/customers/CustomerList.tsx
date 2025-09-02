@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useDetailNavigation } from '../../hooks/useDetailNavigation';
+import { useDebounce } from '../../hooks/useDebounce';
 
 import type { Customer } from '../../types';
 import { toast } from 'react-hot-toast';
@@ -19,15 +20,19 @@ export default function CustomerList() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+
   const [showModal, setShowModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+
+  // OPTIMIZATION: Use debounced search for performance (250ms for responsive UX)
+  const debouncedSearchQuery = useDebounce(searchQuery, 250);
+
   const [balanceFilter, setBalanceFilter] = useState<'all' | 'clear' | 'outstanding'>('all');
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(24);
+  const [itemsPerPage, setItemsPerPage] = useState(50); // OPTIMIZATION: Increased from 24 to 50
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'balance'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -43,7 +48,6 @@ export default function CustomerList() {
   // Debounced search effect
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedSearchQuery(searchQuery);
       setCurrentPage(1); // Reset to first page when searching
     }, 300);
 
@@ -55,22 +59,7 @@ export default function CustomerList() {
     loadCustomers();
   }, []); // Only load once on mount
 
-  // Real-time updates: Refresh customer list when customers change
-  useAutoRefresh(
-    () => {
-      console.log('🔄 CustomerList: Auto-refreshing due to real-time event');
-      loadCustomers();
-    },
-    [
-      BUSINESS_EVENTS.CUSTOMER_CREATED,      // Using the actual event constants
-      BUSINESS_EVENTS.CUSTOMER_UPDATED,      // Instead of raw strings
-      BUSINESS_EVENTS.CUSTOMER_DELETED,
-      BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED
-    ],
-    [] // No dependencies to avoid unnecessary re-subscriptions
-  );
-
-  // PRODUCTION-GRADE PERFORMANCE: Optimized customer loading with caching and pagination
+  // PRODUCTION-GRADE PERFORMANCE: Optimized customer loading with caching
   const loadCustomers = useCallback(async () => {
     try {
       setLoading(true);
@@ -80,8 +69,8 @@ export default function CustomerList() {
 
       // For enterprise performance, we use the optimized query with intelligent caching
       const result = await db.getCustomersOptimized({
-        // Load more customers by default for better UX (virtualization handles rendering)
-        limit: 500, // Increased from default 50 for better user experience
+        // Load ALL customers for complete client-side filtering (no pagination on server)
+        limit: 50000, // Large limit to ensure we get ALL customers
         offset: 0,
         includeBalance: true, // Essential for customer list display
         includeStats: false, // Not needed for list view (optimization)
@@ -90,7 +79,7 @@ export default function CustomerList() {
       });
 
       const loadTime = performance.now() - startTime;
-      console.log(`⚡ Customer data loaded in ${loadTime.toFixed(2)}ms (${result.customers.length} customers) - Cache: ${result.performance.fromCache}`);
+      console.log(`⚡ Customer data loaded in ${loadTime.toFixed(2)}ms (${result.customers.length} customers) - Cache: ${result.performance?.fromCache}`);
 
       setCustomers(result.customers);
 
@@ -117,6 +106,21 @@ export default function CustomerList() {
       setLoading(false);
     }
   }, [db]);
+
+  // Real-time updates: Refresh customer list when customers change
+  useAutoRefresh(
+    () => {
+      console.log('🔄 CustomerList: Auto-refreshing due to real-time event');
+      loadCustomers();
+    },
+    [
+      BUSINESS_EVENTS.CUSTOMER_CREATED,
+      BUSINESS_EVENTS.CUSTOMER_UPDATED,
+      BUSINESS_EVENTS.CUSTOMER_DELETED,
+      BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED
+    ],
+    [] // No dependencies to avoid unnecessary re-subscriptions
+  );
 
   const handleDeleteClick = (customer: Customer) => {
     setCustomerToDelete(customer);
@@ -263,7 +267,7 @@ export default function CustomerList() {
     return filtered;
   }, [customers, debouncedSearchQuery, balanceFilter, sortBy, sortOrder]);
 
-  // ENTERPRISE-GRADE PAGINATION: Optimized for 100k+ customers
+  // ENTERPRISE-GRADE PAGINATION: Optimized for large customer lists
   const totalItems = filteredCustomers.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -351,13 +355,18 @@ export default function CustomerList() {
           {/* Search */}
           <div className="relative">
             <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
+            {searchQuery.length > 0 && (
+              <div className="absolute right-3 top-3">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              </div>
+            )}
             <input
               key="customer-search" // Stable key to prevent input losing focus
               type="text"
               placeholder="Search by name, phone, or CNIC..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className="input pl-10"
+              className="input pl-10 pr-10"
               aria-label="Search customers"
             />
           </div>
@@ -752,10 +761,11 @@ export default function CustomerList() {
       {process.env.NODE_ENV === 'development' && (
         <div className="mt-4 p-3 bg-gray-100 rounded text-xs text-gray-600">
           <strong>Performance Stats:</strong>
-          Customers: {customers.length} |
-          Filtered: {filteredCustomers.length} |
+          Total: {totalItems} |
+          Page: {currentPage}/{totalPages} |
           Displayed: {paginatedCustomers.length} |
-          Page: {currentPage}/{totalPages}
+          {(debouncedSearchQuery || balanceFilter !== 'all') && `Filtering: ${debouncedSearchQuery ? `"${debouncedSearchQuery}"` : ''}${balanceFilter !== 'all' ? ` ${balanceFilter}` : ''} | `}
+          Client-side Optimized ⚡
         </div>
       )}
     </div>

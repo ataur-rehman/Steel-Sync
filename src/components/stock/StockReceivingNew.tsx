@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Search } from 'lucide-react';
 import { db } from '../../services/database';
-import { eventBus } from '../../utils/eventBus';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { formatCurrency } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { parseUnit, formatUnitString } from '../../utils/unitUtils';
@@ -92,6 +92,49 @@ const StockReceivingNew: React.FC = () => {
   useEffect(() => {
     calculateTotal();
   }, [form.items]);
+
+  // 🔄 PRODUCTION FIX: Add real-time product event listeners
+  useEffect(() => {
+    const handleProductUpdated = async () => {
+      console.log('📦 StockReceivingNew: Product updated, refreshing product list...');
+      try {
+        const productData = await db.getProducts();
+        setProducts(productData);
+      } catch (error) {
+        console.error('❌ StockReceivingNew: Failed to refresh products:', error);
+      }
+    };
+
+    const handleProductDeleted = async () => {
+      console.log('🗑️ StockReceivingNew: Product deleted, refreshing product list...');
+      try {
+        const productData = await db.getProducts();
+        setProducts(productData);
+
+        // Clear selected product if it was deleted
+        if (newItem.product_id) {
+          const productExists = productData.find(p => p.id === newItem.product_id);
+          if (!productExists) {
+            setNewItem(prev => ({ ...prev, product_id: 0, product_name: '' }));
+          }
+        }
+      } catch (error) {
+        console.error('❌ StockReceivingNew: Failed to refresh products after deletion:', error);
+      }
+    };
+
+    // Register event listeners
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductDeleted);
+
+    // Cleanup
+    return () => {
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductDeleted);
+    };
+  }, [db, newItem.product_id]);
 
   const loadData = async () => {
     try {

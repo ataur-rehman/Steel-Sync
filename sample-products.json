@@ -1,0 +1,57 @@
+[
+    {
+        "name": "Steel Rod • 12mm • A-Grade",
+        "category": "Steel Products",
+        "unit_type": "kg-grams",
+        "rate_per_unit": 245.50,
+        "current_stock": "250kg",
+        "min_stock_alert": "25kg",
+        "track_inventory": 1,
+        "size": "12mm",
+        "grade": "A-Grade"
+    },
+    {
+        "name": "Iron Bar • Large • Premium",
+        "category": "Rods",
+        "unit_type": "piece-dozen",
+        "rate_per_unit": 1250.00,
+        "current_stock": "150",
+        "min_stock_alert": "20",
+        "track_inventory": 1,
+        "size": "Large",
+        "grade": "Premium"
+    },
+    {
+        "name": "Copper Wire • 8mm",
+        "category": "Wire",
+        "unit_type": "meter-cm",
+        "rate_per_unit": 85.75,
+        "current_stock": "500m",
+        "min_stock_alert": "50m",
+        "track_inventory": 1,
+        "size": "8mm",
+        "grade": null
+    },
+    {
+        "name": "Aluminum Sheet • Standard",
+        "category": "Building Material",
+        "unit_type": "kg-grams",
+        "rate_per_unit": 180.25,
+        "current_stock": "75kg",
+        "min_stock_alert": "15kg",
+        "track_inventory": 1,
+        "size": null,
+        "grade": "Standard"
+    },
+    {
+        "name": "Brass Pipe • 1 inch • High Carbon",
+        "category": "Other",
+        "unit_type": "piece-dozen",
+        "rate_per_unit": 450.00,
+        "current_stock": "80",
+        "min_stock_alert": "10",
+        "track_inventory": 1,
+        "size": "1 inch",
+        "grade": "High Carbon"
+    }
+]

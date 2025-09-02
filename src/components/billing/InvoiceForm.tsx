@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../../services/database';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, hasSufficientStock, getStockAsNumber, getAlertLevelAsNumber, type UnitType } from '../../utils/unitUtils';
@@ -115,12 +116,322 @@ interface PaymentChannel {
   is_active: boolean;
 }
 
+// 🚀 PRODUCTION FIX: Performance monitoring and optimization utilities
+const usePerformanceMonitor = () => {
+  const logOperation = useCallback((operation: string, duration: number, context?: any) => {
+    if (duration > 1000) {
+      console.warn(`🐌 InvoiceForm: Slow ${operation}: ${duration.toFixed(2)}ms`, context);
+    } else {
+      console.log(`⚡ InvoiceForm: ${operation}: ${duration.toFixed(2)}ms`);
+    }
+  }, []);
+
+  const measureOperation = useCallback(async (operation: string, fn: () => Promise<any>) => {
+    const start = performance.now();
+    try {
+      const result = await fn();
+      const duration = performance.now() - start;
+      logOperation(operation, duration);
+      return result;
+    } catch (error) {
+      console.error(`❌ InvoiceForm: ${operation} failed:`, error);
+      throw error;
+    }
+  }, [logOperation]);
+
+  return { measureOperation };
+};
+
+// 🛡️ PRODUCTION FIX: Input validation utilities
+const validateCustomerSearch = (value: string): { isValid: boolean; error?: string } => {
+  if (value.length > 100) return { isValid: false, error: 'Search term too long (max 100 characters)' };
+  if (value.length > 0 && value.length < 2) return { isValid: false, error: 'Minimum 2 characters required' };
+  if (!/^[a-zA-Z0-9\s\-\.@+()]*$/.test(value)) {
+    return { isValid: false, error: 'Invalid characters in search' };
+  }
+  return { isValid: true };
+};
+
+const validateProductSearch = (value: string): { isValid: boolean; error?: string } => {
+  if (value.length > 100) return { isValid: false, error: 'Search term too long (max 100 characters)' };
+  if (value.length > 0 && value.length < 2) return { isValid: false, error: 'Minimum 2 characters required' };
+  return { isValid: true };
+};
+
+// 🚀 PRODUCTION OPTIMIZATION: Virtual scrolling for large datasets (90k+ items)
+const VirtualizedDropdown = React.memo(({
+  items,
+  onItemSelect,
+  isVisible,
+  searchTerm,
+  onCreateNew,
+  itemHeight = 60,
+  maxVisibleItems = 6,
+  renderItem,
+  emptyMessage = "No items found",
+  createNewLabel = "Create New",
+  hasMore = false,
+  onLoadMore,
+  loadingMore = false
+}: {
+  items: any[],
+  onItemSelect: (item: any) => void,
+  isVisible: boolean,
+  searchTerm: string,
+  onCreateNew?: () => void,
+  itemHeight?: number,
+  maxVisibleItems?: number,
+  renderItem: (item: any) => React.ReactNode,
+  emptyMessage?: string,
+  createNewLabel?: string,
+  hasMore?: boolean,
+  onLoadMore?: () => void,
+  loadingMore?: boolean
+}) => {
+  const [scrollTop, setScrollTop] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // 🔧 FIX: Reset scroll position when dropdown becomes visible or search changes
+  useEffect(() => {
+    if (isVisible) {
+      setScrollTop(0);
+      // Reset container scroll position with small delay to ensure DOM is ready
+      setTimeout(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = 0;
+        }
+      }, 0);
+    }
+  }, [isVisible]);
+
+  // 🔧 FIX: Reset scroll when search term changes
+  useEffect(() => {
+    setScrollTop(0);
+    if (containerRef.current) {
+      containerRef.current.scrollTop = 0;
+    }
+  }, [searchTerm]);
+
+  if (!isVisible) return null;
+
+  // 🔧 FIX: Ensure we always have valid calculations
+  const safeItemCount = Math.max(0, items.length);
+  const containerHeight = maxVisibleItems * itemHeight;
+  const totalHeight = safeItemCount * itemHeight;
+
+  // 🔧 FIX: Protect against invalid scroll positions
+  const safeScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalHeight - containerHeight)));
+  const startIndex = Math.max(0, Math.floor(safeScrollTop / itemHeight));
+  const endIndex = Math.min(startIndex + maxVisibleItems + 2, safeItemCount);
+  const visibleItems = items.slice(startIndex, endIndex);
+  const offsetY = startIndex * itemHeight;
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const newScrollTop = e.currentTarget.scrollTop;
+    setScrollTop(newScrollTop);
+  };
+
+  return (
+    <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+      {safeItemCount > 0 ? (
+        <>
+          {/* Results Counter */}
+          {searchTerm.trim() && (
+            <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs">
+              <span className="text-gray-600">
+                Showing {safeItemCount} customer{safeItemCount !== 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+
+          <div
+            ref={containerRef}
+            className="overflow-auto"
+            style={{
+              height: Math.min(containerHeight, totalHeight),
+              minHeight: itemHeight // 🔧 FIX: Ensure minimum height
+            }}
+            onScroll={handleScroll}
+          >
+            <div style={{
+              height: totalHeight,
+              position: 'relative',
+              minHeight: itemHeight // 🔧 FIX: Ensure minimum height
+            }}>
+              <div style={{ transform: `translateY(${offsetY}px)` }}>
+                {visibleItems.map((item, index) => (
+                  <div
+                    key={item.id || `item-${startIndex + index}`}
+                    style={{ height: itemHeight }}
+                    className="flex items-center px-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                    onClick={() => onItemSelect(item)}
+                  >
+                    {renderItem(item)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Load More Button */}
+          {hasMore && onLoadMore && (
+            <div className="p-3 border-t border-gray-200">
+              <button
+                onClick={onLoadMore}
+                disabled={loadingMore}
+                className="w-full px-3 py-2 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors text-sm disabled:opacity-50"
+              >
+                {loadingMore ? '⏳ Loading...' : '📄 Load More Customers'}
+              </button>
+            </div>
+          )}
+        </>
+      ) : searchTerm.trim() && onCreateNew ? (
+        <div className="p-3">
+          <div className="text-gray-500 text-center mb-2">{emptyMessage}</div>
+          <button
+            onClick={onCreateNew}
+            className="w-full px-3 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-sm"
+          >
+            + {createNewLabel}
+          </button>
+        </div>
+      ) : (
+        <div className="p-3 text-gray-500 text-center" style={{ minHeight: itemHeight }}>
+          {searchTerm.trim() ? emptyMessage : "Recent & Most Used Customers"}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// 🚀 PRODUCTION OPTIMIZATION: Virtualized customer dropdown (handles 90k+ customers)
+const MemoizedCustomerDropdown = React.memo(({
+  customers,
+  onCustomerSelect,
+  isVisible,
+  searchTerm,
+  onCreateCustomer,
+  hasMoreCustomers,
+  loadMoreCustomers,
+  loadingMoreCustomers
+}: {
+  customers: any[],
+  onCustomerSelect: (customer: any) => void,
+  isVisible: boolean,
+  searchTerm: string,
+  onCreateCustomer: () => void,
+  hasMoreCustomers: boolean,
+  loadMoreCustomers: () => void,
+  loadingMoreCustomers: boolean
+}) => {
+  const renderCustomer = useCallback((customer: any) => (
+    <div className="flex items-center justify-between w-full">
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-gray-900 truncate">{customer.name}</div>
+        <div className="text-sm text-gray-600 truncate">
+          {customer.phone && <span className="mr-3">{customer.phone}</span>}
+          {customer.address && <span className="text-gray-500">  {customer.address}</span>}
+        </div>
+      </div>
+      <div className="text-right ml-2 flex-shrink-0">
+        <div className={`text-sm font-medium ${customer.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+          Rs. {Math.abs(customer.balance).toFixed(2)}
+        </div>
+      </div>
+    </div>
+  ), []);
+
+  return (
+    <VirtualizedDropdown
+      key={`customer-dropdown-${isVisible ? '1' : '0'}`}
+      items={customers}
+      onItemSelect={onCustomerSelect}
+      isVisible={isVisible}
+      searchTerm={searchTerm}
+      onCreateNew={onCreateCustomer}
+      itemHeight={70}
+      maxVisibleItems={5}
+      renderItem={renderCustomer}
+      emptyMessage="No customers found"
+      createNewLabel="Create New Customer"
+      hasMore={hasMoreCustomers}
+      onLoadMore={loadMoreCustomers}
+      loadingMore={loadingMoreCustomers}
+    />
+  );
+});
+
+// 🚀 PRODUCTION OPTIMIZATION: Virtualized product dropdown (handles 1000+ products)
+const MemoizedProductDropdown = React.memo(({
+  products,
+  onProductSelect,
+  isVisible,
+  searchTerm
+}: {
+  products: any[],
+  onProductSelect: (product: any) => void,
+  isVisible: boolean,
+  searchTerm: string
+}) => {
+  const renderProduct = useCallback((product: any) => {
+    const isOutOfStock = product.track_inventory !== 0 && getStockAsNumber(product.current_stock, product.unit_type) === 0;
+    const isLowStock = product.track_inventory !== 0 &&
+      getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type) &&
+      getStockAsNumber(product.current_stock, product.unit_type) > 0;
+
+    return (
+      <div className={`flex justify-between items-start w-full ${isOutOfStock ? 'opacity-50' : ''}`}>
+        <div className="flex-1">
+          <div className="font-medium text-gray-900 truncate">{product.name}</div>
+          <div className="text-sm text-gray-600 truncate">
+            {product.size ? `${product.size} • ` : ''}Rs. {product.rate_per_unit.toFixed(2)}/{formatUnitString(product.unit, product.unit_type || 'kg-grams')}
+          </div>
+        </div>
+        <div className="text-right ml-4 flex-shrink-0">
+          {product.track_inventory !== 0 ? (
+            <>
+              <div className={`text-sm font-medium ${getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)
+                ? 'text-red-600'
+                : 'text-green-600'
+                }`}>
+                {formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}
+              </div>
+              {isOutOfStock && (
+                <div className="text-xs text-red-500">Out of Stock</div>
+              )}
+              {isLowStock && (
+                <div className="text-xs text-yellow-600">Low Stock</div>
+              )}
+            </>
+          ) : (
+            <div className="text-sm font-medium text-blue-600">Non-Stock Item</div>
+          )}
+        </div>
+      </div>
+    );
+  }, []);
+
+  return (
+    <VirtualizedDropdown
+      key={`product-dropdown-${isVisible ? '1' : '0'}`}
+      items={products}
+      onItemSelect={onProductSelect}
+      isVisible={isVisible}
+      searchTerm={searchTerm}
+      itemHeight={75}
+      maxVisibleItems={6}
+      renderItem={renderProduct}
+      emptyMessage="No products found"
+    />
+  );
+});
+
 const InvoiceForm: React.FC = () => {
   const [showOptional, setShowOptional] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-
 
   // Edit mode detection
   const isEditMode = !!id;
@@ -164,12 +475,22 @@ const InvoiceForm: React.FC = () => {
   const [filteredCustomers, setFilteredCustomers] = useState<Customer[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
 
+  // 🚀 PRODUCTION FIX: Initialize performance monitoring
+  const { measureOperation } = usePerformanceMonitor();
+
   const [customerSearch, setCustomerSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
+
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [stockPreview, setStockPreview] = useState<StockPreview[]>([]);
+
+  // 🔄 PRODUCTION: Pagination state for infinite customer loading
+  const [customerSearchOffset, setCustomerSearchOffset] = useState(0);
+  const [hasMoreCustomers, setHasMoreCustomers] = useState(false);
+  const [loadingMoreCustomers, setLoadingMoreCustomers] = useState(false);
+  const [currentSearchQuery, setCurrentSearchQuery] = useState('');
 
   // Guest customer and quick creation states
   const [isGuestMode, setIsGuestMode] = useState(false);
@@ -182,6 +503,9 @@ const InvoiceForm: React.FC = () => {
 
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  // Ref for managing refresh timeouts
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showStockWarning, setShowStockWarning] = useState(false);
@@ -349,6 +673,116 @@ const InvoiceForm: React.FC = () => {
     updateCreditPreview();
   }, [formData.items, formData.payment_amount, selectedCustomer, products]);
 
+  // 🔄 PRODUCTION FIX: Real-time product updates for InvoiceForm
+  useEffect(() => {
+    console.log('🔄 InvoiceForm: Setting up real-time product event listeners...');
+
+    // Handle product events that affect available products and stock
+    const handleProductEvents = (data: any) => {
+      console.log('📦 InvoiceForm: Product event received:', data);
+      console.log('🔄 InvoiceForm: Triggering immediate product refresh...');
+
+      // Clear any existing timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+
+      // Immediate refresh with visible feedback
+      refreshTimeoutRef.current = setTimeout(async () => {
+        try {
+          console.log('🚀 InvoiceForm: Starting product refresh...');
+
+          // Force refresh by calling database directly, bypassing all caches
+          await db.initialize();
+          const productList = await db.executeSmartQuery(`
+            SELECT * FROM products WHERE status = 'active' ORDER BY name ASC
+          `) as Product[];
+
+          setProducts(productList);
+          setFilteredProducts(productList);
+          console.log(`✅ InvoiceForm: Refreshed ${productList.length} products directly from database`);
+
+          // Show toast notification for user feedback
+          toast.success('Product list updated', { duration: 2000 });
+        } catch (error) {
+          console.error('❌ InvoiceForm: Failed to refresh products:', error);
+          toast.error('Failed to refresh product list');
+        }
+      }, 100);
+    };
+
+    // Handle stock events that affect available quantities
+    const handleStockEvents = (data: any) => {
+      console.log('📊 InvoiceForm: Stock event received:', data);
+      console.log('🔄 InvoiceForm: Triggering immediate stock refresh...');
+
+      // Clear any existing timeout
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+
+      // Immediate refresh with visible feedback
+      refreshTimeoutRef.current = setTimeout(async () => {
+        try {
+          console.log('🚀 InvoiceForm: Starting stock refresh...');
+
+          // Force refresh by calling database directly, bypassing all caches
+          await db.initialize();
+          const productList = await db.executeSmartQuery(`
+            SELECT * FROM products WHERE status = 'active' ORDER BY name ASC
+          `) as Product[];
+
+          setProducts(productList);
+          setFilteredProducts(productList);
+          console.log(`✅ InvoiceForm: Refreshed stock for ${productList.length} products directly from database`);
+
+          // Show toast notification for user feedback
+          toast.success('Stock levels updated', { duration: 2000 });
+        } catch (error) {
+          console.error('❌ InvoiceForm: Failed to refresh stock:', error);
+          toast.error('Failed to refresh stock levels');
+        }
+      }, 150);
+    };
+
+    // Subscribe to all relevant events
+    const eventListeners = [
+      // Product events
+      { event: BUSINESS_EVENTS.PRODUCT_CREATED, handler: handleProductEvents },
+      { event: BUSINESS_EVENTS.PRODUCT_UPDATED, handler: handleProductEvents },
+      { event: BUSINESS_EVENTS.PRODUCT_DELETED, handler: handleProductEvents },
+
+      // Stock events that affect product availability
+      { event: BUSINESS_EVENTS.STOCK_UPDATED, handler: handleStockEvents },
+      { event: BUSINESS_EVENTS.STOCK_MOVEMENT_CREATED, handler: handleStockEvents },
+      { event: BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE, handler: handleStockEvents },
+
+      // Additional refresh events
+      { event: 'PRODUCTS_UPDATED', handler: handleProductEvents },
+      { event: 'UI_REFRESH_REQUESTED', handler: handleProductEvents },
+      { event: 'FORCE_PRODUCT_RELOAD', handler: handleProductEvents }
+    ];
+
+    // Register all event listeners
+    eventListeners.forEach(({ event, handler }) => {
+      eventBus.on(event, handler);
+      console.log(`✅ InvoiceForm: Registered listener for ${event}`);
+    });
+
+    console.log(`🎯 InvoiceForm: ${eventListeners.length} real-time event listeners active`);
+
+    // Cleanup function
+    return () => {
+      console.log('🧹 InvoiceForm: Cleaning up real-time event listeners...');
+
+      eventListeners.forEach(({ event, handler }) => {
+        eventBus.off(event, handler);
+      });
+
+      console.log('✅ InvoiceForm: All event listeners cleaned up');
+    };
+  }, []); // No dependencies needed - functions are stable
+
   // Guest Mode: Automatically set payment amount to full total when items change
   useEffect(() => {
     if (isGuestMode && formData.items.length > 0) {
@@ -373,17 +807,20 @@ const InvoiceForm: React.FC = () => {
       }
       await db.initialize();
 
-      const [customerList, productList] = await Promise.all([
-        db.getCustomers(),
-        db.getProducts()
-      ]);
+      // ⚡ PERFORMANCE FIX: Only load products on init, customers loaded on-demand via search
+      const productList = await db.getProducts();
 
-      setCustomers(customerList);
+      // 🚫 REMOVED: No longer loading all customers into memory
+      // const customerList = await db.getCustomers(); // This was loading 10k+ customers!
+
       setProducts(productList);
-      setFilteredCustomers(customerList);
       setFilteredProducts(productList);
 
-      console.log('Loaded data:', { customers: customerList.length, products: productList.length });
+      // ⚡ OPTIMIZATION: Start with empty customer arrays - populated by search only
+      setCustomers([]); // Empty - customers loaded via search
+      setFilteredCustomers([]); // Empty - populated by search results
+
+      console.log('Loaded data:', { products: productList.length, customers: 'loaded on-demand' });
       console.log('Current product stocks:', productList.map((p: Product) => `${p.name}: ${p.current_stock}`));
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -492,21 +929,66 @@ const InvoiceForm: React.FC = () => {
     }
   };
 
-  // Customer search and selection - YOUR ORIGINAL LOGIC
-  const handleCustomerSearch = useCallback((query: string) => {
+  // � PRODUCTION FIX: Database-optimized customer search (handles 90k+ customers)
+  const handleCustomerSearch = useCallback(async (query: string) => {
     setCustomerSearch(query);
-    if (query.trim() === '') {
-      setFilteredCustomers(customers);
-    } else {
-      const filtered = customers.filter(customer =>
-        customer.name.toLowerCase().includes(query.toLowerCase()) ||
-        customer.phone?.includes(query) ||
-        customer.cnic?.includes(query)
-      );
-      setFilteredCustomers(filtered);
+    setCurrentSearchQuery(query);
+
+    // Validate input
+    const validation = validateCustomerSearch(query);
+    if (!validation.isValid) {
+      console.warn('Customer search validation failed:', validation.error);
+      setFilteredCustomers([]);
+      return;
     }
-    setShowCustomerDropdown(true);
-  }, [customers]);
+
+    // Reset pagination state for new search
+    setCustomerSearchOffset(0);
+    setHasMoreCustomers(false);
+
+    // ⚡ CRITICAL OPTIMIZATION: Direct database query with pagination
+    if (query.trim() === '') {
+      // 🎯 UX IMPROVEMENT: Load recent customers when no search query
+      await loadRecentCustomers(setFilteredCustomers, setShowCustomerDropdown);
+    } else if (query.length >= 2) { // Only search after 2+ characters
+      try {
+        // Use new paginated search function
+        await searchCustomersPaginated(query, 0, false, setFilteredCustomers, setHasMoreCustomers, setCustomerSearchOffset);
+        setShowCustomerDropdown(true);
+
+      } catch (error) {
+        console.error('❌ Customer search failed:', error);
+        toast.error('Search failed. Please try again.');
+        setFilteredCustomers([]);
+      }
+    }
+  }, []);
+
+  // 🔄 PRODUCTION: Load more customers function for infinite scrolling
+  const loadMoreCustomers = useCallback(async () => {
+    if (loadingMoreCustomers || !hasMoreCustomers) return;
+
+    setLoadingMoreCustomers(true);
+    try {
+      const query = currentSearchQuery;
+      const newOffset = customerSearchOffset;
+
+      // Append new customers to existing list
+      await searchCustomersPaginated(
+        query,
+        newOffset,
+        true, // append mode
+        setFilteredCustomers,
+        setHasMoreCustomers,
+        setCustomerSearchOffset
+      );
+    } catch (error) {
+      console.error('❌ Load more customers failed:', error);
+      toast.error('Failed to load more customers');
+    } finally {
+      setLoadingMoreCustomers(false);
+    }
+  }, [loadingMoreCustomers, hasMoreCustomers, currentSearchQuery, customerSearchOffset]);
 
   const selectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -556,49 +1038,66 @@ const InvoiceForm: React.FC = () => {
     setShowCustomerModal(false);
 
     try {
-      // Store the original customer count to identify the new customer
-      const originalCount = customers.length;
+      // ⚡ PERFORMANCE FIX: Don't load all customers, just search for newly created one
+      // Instead of loading all customers, the search will find it when user types
 
-      // Refresh customer list
-      const updatedCustomers = await db.getCustomers();
-      setCustomers(updatedCustomers);
-      setFilteredCustomers(updatedCustomers);
+      toast.success('Customer created successfully! Search to find them.');
 
-      // Find the newly created customer by comparing with original list
-      // The new customer should be the one not in the original list
-      let newCustomer = null;
+      // Clear search to prepare for new search
+      setCustomerSearch('');
+      setFilteredCustomers([]);
 
-      if (updatedCustomers.length > originalCount) {
-        // Find customer that wasn't in the original list
-        const originalIds = new Set(customers.map(c => c.id));
-        newCustomer = updatedCustomers.find(c => !originalIds.has(c.id));
-      }
+      // 🚫 REMOVED: No longer loading all customers into memory
+      // const updatedCustomers = await db.getCustomers(); // This loaded 10k+ customers!
 
-      if (newCustomer) {
-        selectCustomer(newCustomer);
-        toast.success(`Customer "${newCustomer.name}" created and selected successfully!`);
-      } else {
-        toast.success('Customer created successfully! Please select from the list.');
-      }
     } catch (error) {
-      console.error('Error refreshing customers after creation:', error);
-      toast.error('Customer created but failed to refresh list');
+      console.error('Error after customer creation:', error);
+      toast.error('Customer created but failed to refresh');
     }
   };
 
-  // Product search and filtering - YOUR ORIGINAL LOGIC
-  const handleProductSearch = useCallback((query: string) => {
+  // 🔍 PRODUCTION FIX: Optimized product search with validation and performance monitoring
+  const handleProductSearch = useCallback(async (query: string) => {
     setProductSearch(query);
+
+    // Validate input
+    const validation = validateProductSearch(query);
+    if (!validation.isValid) {
+      console.warn('Product search validation failed:', validation.error);
+      setFilteredProducts([]);
+      return;
+    }
+
     if (query.trim() === '') {
       setFilteredProducts(products);
-    } else {
-      const filtered = products.filter(product =>
-        product.name.toLowerCase().includes(query.toLowerCase()) ||
-        product.name.toLowerCase().includes(query.toLowerCase())
-      );
-      setFilteredProducts(filtered);
+      setShowProductDropdown(false);
+    } else if (query.length >= 2) { // Only search after 2+ characters
+      try {
+        const result = await measureOperation('productSearch', async () => {
+          // Optimized filtering with multiple search criteria
+          const filtered = products.filter(product => {
+            const searchTerm = query.toLowerCase();
+            return (
+              product.name.toLowerCase().includes(searchTerm) ||
+              (product.size && product.size.toLowerCase().includes(searchTerm)) ||
+              (product.grade && product.grade.toLowerCase().includes(searchTerm)) ||
+              (product.unit && product.unit.toLowerCase().includes(searchTerm))
+            );
+          }).slice(0, 50); // Limit results for performance
+
+          return filtered;
+        });
+
+        setFilteredProducts(result);
+        setShowProductDropdown(true);
+
+      } catch (error) {
+        console.error('❌ Product search failed:', error);
+        toast.error('Product search failed. Please try again.');
+        setFilteredProducts([]);
+      }
     }
-  }, [products]);
+  }, [products, measureOperation]);
 
   // Enhanced non-stock calculation helper functions
   const initializeNonStockCalculation = (itemId: string, isNonStock: boolean) => {
@@ -1553,9 +2052,18 @@ const InvoiceForm: React.FC = () => {
 
 
   useEffect(() => {
-    const handleClickOutside = () => {
-      setShowCustomerDropdown(false);
-      setShowProductDropdown(false);
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
+      // 🔧 FIX: Don't close dropdown if clicking inside dropdown areas
+      const isClickInsideDropdown = target.closest('.dropdown-container') ||
+        target.closest('[data-dropdown]') ||
+        target.closest('.absolute.z-20'); // VirtualizedDropdown container
+
+      if (!isClickInsideDropdown) {
+        setShowCustomerDropdown(false);
+        setShowProductDropdown(false);
+      }
     };
 
     document.addEventListener('click', handleClickOutside);
@@ -1687,15 +2195,22 @@ const InvoiceForm: React.FC = () => {
             ) : !selectedCustomer ? (
               <div className="space-y-3">
                 {/* Customer Search */}
-                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <div className="relative dropdown-container" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="text"
                     value={customerSearch}
                     onChange={(e) => handleCustomerSearch(e.target.value)}
-                    onFocus={() => setShowCustomerDropdown(true)}
+                    onFocus={async () => {
+                      setShowCustomerDropdown(true);
+                      if (customerSearch.trim() === '') {
+                        // Load recent customers when focusing with empty search
+                        await loadRecentCustomers(setFilteredCustomers, setShowCustomerDropdown);
+                      }
+                    }}
                     placeholder="Search customers by name, phone, or CNIC..."
                     className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.customer_id ? 'border-red-500' : 'border-gray-300'
                       }`}
+                    data-dropdown="customer"
                   />
                   <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
 
@@ -1703,43 +2218,16 @@ const InvoiceForm: React.FC = () => {
                     <p className="mt-1 text-sm text-red-600">{errors.customer_id}</p>
                   )}
 
-                  {showCustomerDropdown && (
-                    <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                      {filteredCustomers.length > 0 ? (
-                        filteredCustomers.map(customer => (
-                          <div
-                            key={customer.id}
-                            onClick={() => selectCustomer(customer)}
-                            className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <div className="font-medium text-gray-900">{customer.name}</div>
-                                <div className="text-sm text-gray-600">{customer.phone}</div>
-                              </div>
-                              <div className="text-right">
-                                <div className={`text-sm font-medium ${customer.balance >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                  Balance: Rs. {customer.balance.toFixed(2)}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      ) : customerSearch.trim() ? (
-                        <div className="p-3">
-                          <div className="text-gray-500 text-center mb-2">No customers found</div>
-                          <button
-                            onClick={() => setShowCustomerModal(true)}
-                            className="w-full px-3 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-sm"
-                          >
-                            + Create New Customer
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="p-3 text-gray-500 text-center">Start typing to search</div>
-                      )}
-                    </div>
-                  )}
+                  <MemoizedCustomerDropdown
+                    customers={filteredCustomers}
+                    onCustomerSelect={selectCustomer}
+                    isVisible={showCustomerDropdown}
+                    searchTerm={customerSearch}
+                    onCreateCustomer={() => setShowCustomerModal(true)}
+                    hasMoreCustomers={hasMoreCustomers}
+                    loadMoreCustomers={loadMoreCustomers}
+                    loadingMoreCustomers={loadingMoreCustomers}
+                  />
                 </div>
 
                 {/* Create New Customer Button */}
@@ -1790,7 +2278,7 @@ const InvoiceForm: React.FC = () => {
             </h3>
 
             {/* Product Search */}
-            <div className="relative mb-4" onClick={(e) => e.stopPropagation()}>
+            <div className="relative mb-4 dropdown-container" onClick={(e) => e.stopPropagation()}>
               <input
                 type="text"
                 value={productSearch}
@@ -1801,54 +2289,16 @@ const InvoiceForm: React.FC = () => {
                 onFocus={() => setShowProductDropdown(true)}
                 placeholder="Search products by name or category..."
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                data-dropdown="product"
               />
               <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
 
-              {showProductDropdown && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                  {filteredProducts.length > 0 ? (
-                    filteredProducts.map(product => (
-                      <div
-                        key={product.id}
-                        onClick={() => addProduct(product)}
-                        className={`p-3 hover:bg-green-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${product.track_inventory !== 0 && getStockAsNumber(product.current_stock, product.unit_type) === 0 ? 'opacity-50' : ''
-                          }`}
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="flex-1">
-                            <div className="font-medium text-gray-900">{product.name}</div>
-                            <div className="text-sm text-gray-600">
-                              {product.size ? `${product.size} • ` : ''}Rs. {product.rate_per_unit.toFixed(2)}/{formatUnitString(product.unit, product.unit_type || 'kg-grams')}
-                            </div>
-                          </div>
-                          <div className="text-right ml-4">
-                            {product.track_inventory !== 0 ? (
-                              <>
-                                <div className={`text-sm font-medium ${getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type)
-                                  ? 'text-red-600'
-                                  : 'text-green-600'
-                                  }`}>
-                                  {formatUnitString(product.current_stock, product.unit_type || 'kg-grams')}
-                                </div>
-                                {getStockAsNumber(product.current_stock, product.unit_type) === 0 && (
-                                  <div className="text-xs text-red-500">Out of Stock</div>
-                                )}
-                                {getStockAsNumber(product.current_stock, product.unit_type) <= getAlertLevelAsNumber(product.min_stock_alert, product.unit_type) && getStockAsNumber(product.current_stock, product.unit_type) > 0 && (
-                                  <div className="text-xs text-yellow-600">Low Stock</div>
-                                )}
-                              </>
-                            ) : (
-                              <div className="text-sm font-medium text-blue-600">Non-Stock Item</div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-3 text-gray-500 text-center">No products found</div>
-                  )}
-                </div>
-              )}
+              <MemoizedProductDropdown
+                products={filteredProducts}
+                onProductSelect={addProduct}
+                isVisible={showProductDropdown}
+                searchTerm={productSearch}
+              />
             </div>
 
             {/* Miscellaneous Items Section */}
@@ -2681,6 +3131,98 @@ const InvoiceForm: React.FC = () => {
       )}
     </div>
   );
+};
+
+// 🎯 UX IMPROVEMENT: Load recent/most used customers function
+const loadRecentCustomers = async (setFilteredCustomers: any, setShowCustomerDropdown: any) => {
+  try {
+    const timer = performance.now();
+
+    // ⚡ SMART QUERY: Get most recent customers + most used customers
+    const recentCustomers = await db.executeSmartQuery(`
+      SELECT DISTINCT c.id, c.name, c.phone, c.balance, c.address,
+             COALESCE(inv.last_invoice_date, c.created_at) as last_activity,
+             COALESCE(inv.invoice_count, 0) as usage_count
+      FROM customers c
+      LEFT JOIN (
+        SELECT customer_id, 
+               MAX(date) as last_invoice_date,
+               COUNT(*) as invoice_count
+        FROM invoices 
+        WHERE date >= datetime('now', '-30 days')  -- Recent activity (SQLite compatible)
+        GROUP BY customer_id
+      ) inv ON c.id = inv.customer_id
+      ORDER BY 
+        CASE WHEN inv.invoice_count > 0 THEN inv.invoice_count ELSE 0 END DESC,
+        last_activity DESC,
+        c.name ASC
+      LIMIT 20
+    `);
+
+    setFilteredCustomers(recentCustomers as Customer[]);
+    setShowCustomerDropdown(true);
+
+    const duration = performance.now() - timer;
+    console.log(`✅ Loaded ${recentCustomers.length} recent customers in ${duration.toFixed(0)}ms`);
+
+  } catch (error) {
+    console.error('❌ Error loading recent customers:', error);
+    // Fallback: Load alphabetically first customers
+    try {
+      const fallbackCustomers = await db.executeSmartQuery(`
+        SELECT id, name, phone, balance, address
+        FROM customers 
+        ORDER BY name ASC 
+        LIMIT 20
+      `);
+      setFilteredCustomers(fallbackCustomers as Customer[]);
+      setShowCustomerDropdown(true);
+    } catch (fallbackError) {
+      console.error('❌ Fallback customer loading failed:', fallbackError);
+      setFilteredCustomers([]);
+    }
+  }
+};
+
+// 🔄 PRODUCTION: Paginated customer search functions
+const searchCustomersPaginated = async (query: string, offset: number = 0, append: boolean = false,
+  setFilteredCustomers: any, setHasMoreCustomers: any, setCustomerSearchOffset: any) => {
+  const BATCH_SIZE = 50; // Load 50 at a time for optimal performance
+
+  try {
+    const timer = performance.now();
+
+    const searchResults = await db.executeSmartQuery(`
+      SELECT id, name, phone, balance, address
+      FROM customers 
+      WHERE name LIKE '%${query}%' OR phone LIKE '%${query}%' 
+      ORDER BY name, phone, id
+      LIMIT ${BATCH_SIZE} OFFSET ${offset}
+    `);
+
+    // Check if there are more results
+    const hasMore = searchResults.length === BATCH_SIZE;
+    setHasMoreCustomers(hasMore);
+
+    if (append) {
+      // Append to existing results (Load More)
+      setFilteredCustomers((prev: any) => [...prev, ...searchResults]);
+      setCustomerSearchOffset(offset + BATCH_SIZE);
+    } else {
+      // Replace results (New search)
+      setFilteredCustomers(searchResults);
+      setCustomerSearchOffset(BATCH_SIZE);
+    }
+
+    const duration = performance.now() - timer;
+    console.log(`✅ Loaded ${searchResults.length} customers (offset: ${offset}) in ${duration.toFixed(0)}ms`);
+
+    return searchResults.length;
+  } catch (error) {
+    console.error('❌ Error in paginated customer search:', error);
+    if (!append) setFilteredCustomers([]);
+    return 0;
+  }
 };
 
 export default InvoiceForm;

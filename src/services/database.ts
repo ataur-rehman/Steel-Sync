@@ -1,7 +1,7 @@
 
 import { addCurrency } from '../utils/calculations';
 import { parseUnit, formatUnitString, getStockAsNumber, createUnitFromNumericValue } from '../utils/unitUtils';
-import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
+import { eventBus, BUSINESS_EVENTS, triggerStockAdjustmentRefresh } from '../utils/eventBus';
 import { getCurrentSystemDateTime, formatTime } from '../utils/formatters';
 import { DatabaseSchemaManager } from './database-schema-manager';
 import { DatabaseConnection } from './database-connection';
@@ -5832,30 +5832,23 @@ export class DatabaseService {
 
       // Emit events for real-time component updates
       try {
-        eventBus.emit(BUSINESS_EVENTS.STOCK_UPDATED, {
-          productId,
-          productName: product.name,
-          action: 'stock_adjusted',
-          previousStock: currentStockNumber,
-          newStock: newStockNumber,
-          adjustment: adjustmentQuantity
-        });
-        eventBus.emit('STOCK_ADJUSTMENT_MADE', {
+        // OPTIMIZED: Use centralized helper function only
+        triggerStockAdjustmentRefresh({
           productId,
           productName: product.name,
           reason,
-          adjustment: adjustmentQuantity
+          adjustment: adjustmentQuantity,
+          newStock: newStockNumber,
+          previousStock: currentStockNumber
         });
 
-        // Emit event for auto-refresh in React components
+        // Minimal additional events for compatibility
         window.dispatchEvent(new CustomEvent('DATABASE_UPDATED', {
           detail: { type: 'stock_adjusted', productId }
         }));
       } catch (error) {
         console.warn('Could not emit stock adjustment events:', error);
-      }
-
-      return true;
+      } return true;
     } catch (error) {
       try {
         await this.dbConnection.execute('ROLLBACK');
@@ -10709,7 +10702,7 @@ export class DatabaseService {
     try {
       const result = await this.getCustomersOptimized({
         search,
-        limit: options?.limit || 100,
+        limit: options?.limit || 10000, // FIXED: Default to large number to get all customers
         offset: options?.offset || 0,
         includeBalance: true
       });
@@ -10926,6 +10919,215 @@ export class DatabaseService {
     } catch (error) {
       console.error('Error getting invoices:', error);
       return []; // Always return empty array on error
+    }
+  }
+
+  // 🚀 PRODUCTION: Optimized paginated invoice query for 90,000+ invoices
+  async getInvoicesPaginated(
+    page: number = 1,
+    pageSize: number = 50,
+    filters: any = {},
+    sortField: string = 'created_at',
+    sortDirection: 'asc' | 'desc' = 'desc'
+  ): Promise<{ invoices: any[], total: number, totalPages: number, hasMore: boolean }> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      // Base query with optimized joins and indexing
+      let baseQuery = `
+        SELECT i.*, 
+               CASE 
+                 WHEN i.customer_id = -1 THEN i.customer_name || ' (Guest)'
+                 ELSE COALESCE(c.name, i.customer_name)
+               END as customer_name,
+               c.phone as customer_phone,
+               c.address as customer_address
+        FROM invoices i
+        LEFT JOIN customers c ON i.customer_id = c.id AND i.customer_id > 0
+        WHERE 1=1
+      `;
+
+      let countQuery = `
+        SELECT COUNT(*) as total
+        FROM invoices i
+        LEFT JOIN customers c ON i.customer_id = c.id AND i.customer_id > 0
+        WHERE 1=1
+      `;
+
+      const params: any[] = [];
+      let whereClause = '';
+
+      // Apply filters
+      if (filters.customer_id) {
+        whereClause += ' AND i.customer_id = ?';
+        params.push(filters.customer_id);
+      }
+
+      if (filters.from_date) {
+        whereClause += ' AND DATE(i.created_at) >= ?';
+        params.push(filters.from_date);
+      }
+
+      if (filters.to_date) {
+        whereClause += ' AND DATE(i.created_at) <= ?';
+        params.push(filters.to_date);
+      }
+
+      if (filters.search && filters.search.trim()) {
+        whereClause += ' AND (i.bill_number LIKE ? OR COALESCE(c.name, i.customer_name) LIKE ? OR i.notes LIKE ?)';
+        const searchParam = `%${filters.search.trim()}%`;
+        params.push(searchParam, searchParam, searchParam);
+      }
+
+      if (filters.status) {
+        switch (filters.status) {
+          case 'paid':
+            whereClause += ' AND i.remaining_balance <= 0';
+            break;
+          case 'partially_paid':
+            whereClause += ' AND i.payment_amount > 0 AND i.remaining_balance > 0';
+            break;
+          case 'pending':
+            whereClause += ' AND i.payment_amount <= 0';
+            break;
+        }
+      }
+
+      if (filters.payment_method) {
+        whereClause += ' AND i.payment_method = ?';
+        params.push(filters.payment_method);
+      }
+
+      // Add where clauses to both queries
+      baseQuery += whereClause;
+      countQuery += whereClause;
+
+      // Add sorting (validate sortField to prevent SQL injection)
+      const validSortFields = ['created_at', 'bill_number', 'customer_name', 'grand_total', 'payment_amount', 'remaining_balance'];
+      const safeSortField = validSortFields.includes(sortField) ? sortField : 'created_at';
+      const safeSortDirection = sortDirection === 'asc' ? 'ASC' : 'DESC';
+
+      if (safeSortField === 'customer_name') {
+        baseQuery += ` ORDER BY COALESCE(c.name, i.customer_name) ${safeSortDirection}`;
+      } else if (safeSortField === 'bill_number') {
+        // IMPROVED: Sort bill_number numerically by extracting the number part
+        baseQuery += ` ORDER BY 
+          CASE 
+            WHEN i.bill_number LIKE 'I%' THEN CAST(SUBSTR(i.bill_number, 2) AS INTEGER)
+            WHEN i.bill_number REGEXP '^[0-9]+$' THEN CAST(i.bill_number AS INTEGER)
+            ELSE 0
+          END ${safeSortDirection}, i.bill_number ${safeSortDirection}`;
+      } else if (safeSortField === 'created_at') {
+        // FIXED: Latest invoices first when DESC (higher ID = more recent)
+        baseQuery += ` ORDER BY i.id ${safeSortDirection}`;
+      } else {
+        baseQuery += ` ORDER BY i.${safeSortField} ${safeSortDirection}`;
+      }
+
+      console.log('🔍 [SQL_DEBUG] Final query:', baseQuery);
+      console.log('🔍 [SQL_DEBUG] Sort params:', { safeSortField, safeSortDirection, originalSortField: sortField });
+
+      // Add pagination
+      const offset = (page - 1) * pageSize;
+      baseQuery += ' LIMIT ? OFFSET ?';
+      const paginationParams = [...params, pageSize, offset];
+
+      // Execute both queries
+      console.log('🔍 [SQL_EXECUTION] About to execute query with params:', paginationParams.slice(0, -2));
+
+      const [invoicesResult, countResult] = await Promise.all([
+        this.safeSelect(baseQuery, paginationParams),
+        this.safeSelect(countQuery, params)
+      ]);
+
+      console.log('🔍 [QUERY_RESULT] Sample invoice data:', {
+        count: invoicesResult.length,
+        firstRecord: invoicesResult[0] ? {
+          id: invoicesResult[0].id,
+          bill_number: invoicesResult[0].bill_number,
+          created_at: invoicesResult[0].created_at,
+          customer_name: invoicesResult[0].customer_name
+        } : null
+      });
+
+      const total = countResult[0]?.total || 0;
+      const totalPages = Math.ceil(total / pageSize);
+      const hasMore = page < totalPages;
+
+      console.log(`🚀 [INVOICE_PAGINATION] Page ${page}/${totalPages}, ${invoicesResult.length}/${total} records, hasMore: ${hasMore}`);
+      console.log('🔍 [SORT_RESULT] First few results (to verify order):', invoicesResult.slice(0, 5).map(inv => ({
+        id: inv.id,
+        bill_number: inv.bill_number,
+        created_at: inv.created_at,
+        customer_name: inv.customer_name,
+        grand_total: inv.grand_total
+      }))); return {
+        invoices: invoicesResult || [],
+        total,
+        totalPages,
+        hasMore
+      };
+
+    } catch (error) {
+      console.error('🚨 Error in getInvoicesPaginated:', error);
+      return {
+        invoices: [],
+        total: 0,
+        totalPages: 0,
+        hasMore: false
+      };
+    }
+  }
+
+  // 🚀 PRODUCTION: Optimized paginated customer query for large customer bases
+  async getCustomersPaginated(
+    page: number = 1,
+    pageSize: number = 50,
+    filters: any = {},
+    sortField: string = 'name',
+    sortDirection: 'asc' | 'desc' = 'asc'
+  ): Promise<{ customers: any[], total: number, totalPages: number, hasMore: boolean }> {
+    try {
+      console.log('🔍 [CUSTOMER_PAGINATION] Request:', { page, pageSize, filters, sortField, sortDirection });
+
+      // Use the existing optimized customer function
+      const result = await this.getCustomersOptimized({
+        search: filters.search || '',
+        balanceFilter: filters.balance_filter || 'all',
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+        orderBy: sortField,
+        orderDirection: sortDirection.toUpperCase() as 'ASC' | 'DESC',
+        includeBalance: true,
+        includeStats: false
+      });
+
+      const totalPages = Math.ceil(result.total / pageSize);
+      const hasMore = page < totalPages;
+
+      console.log(`🚀 [CUSTOMER_PAGINATION] Page ${page}/${totalPages}, ${result.customers.length}/${result.total} customers, hasMore: ${hasMore}`);
+      console.log('🔍 [CUSTOMER_SORT_RESULT] First few results:', result.customers.slice(0, 3).map(cust => ({
+        id: cust.id,
+        name: cust.name,
+        balance: cust.balance
+      })));
+
+      return {
+        customers: result.customers,
+        total: result.total,
+        totalPages,
+        hasMore
+      };
+    } catch (error) {
+      console.error('🚨 Error in getCustomersPaginated:', error);
+      return {
+        customers: [],
+        total: 0,
+        totalPages: 0,
+        hasMore: false
+      };
     }
   }
 
@@ -20437,99 +20639,11 @@ if (typeof window !== 'undefined') {
     }
   };
 
-  // 🛡️ PERMANENT SOLUTION: Recalculate all invoice payment amounts from actual payments
-  (window as any).recalculateAllInvoicePayments = async () => {
-    try {
-      console.log('🔄 [PERMANENT] Starting comprehensive invoice payment fix...');
+  // REMOVED: Band-aid fixes that treated symptoms instead of root cause
+  // Root cause was test data generator creating invoices with payment_amount 
+  // but no corresponding payment records in payments table
 
-      // Get all invoices
-      const invoices = await db.executeRawQuery('SELECT id FROM invoices ORDER BY id');
-      let fixed = 0;
-      let errors = 0;
-
-      for (const invoice of invoices) {
-        try {
-          // Calculate actual payment amount from payments table
-          const paymentSumResult = await db.executeRawQuery(`
-            SELECT COALESCE(SUM(amount), 0) as total_payments
-            FROM payments 
-            WHERE invoice_id = ? AND payment_type = 'incoming'
-          `, [invoice.id]);
-
-          const actualPaymentAmount = paymentSumResult[0]?.total_payments || 0;
-
-          // Get current invoice details
-          const currentInvoice = await db.executeRawQuery('SELECT grand_total, payment_amount FROM invoices WHERE id = ?', [invoice.id]);
-          if (currentInvoice.length === 0) continue;
-
-          const grandTotal = currentInvoice[0].grand_total || 0;
-          const storedPaymentAmount = currentInvoice[0].payment_amount || 0;
-          const calculatedRemainingBalance = Math.max(0, grandTotal - actualPaymentAmount);
-
-          // Only update if there's a discrepancy
-          if (Math.abs(storedPaymentAmount - actualPaymentAmount) > 0.01) {
-            await db.executeRawQuery(`
-              UPDATE invoices 
-              SET 
-                payment_amount = ?,
-                remaining_balance = ?,
-                status = CASE 
-                  WHEN ? <= 0.01 THEN 'paid'
-                  WHEN ? > 0 THEN 'partially_paid'
-                  ELSE 'pending'
-                END,
-                updated_at = datetime('now')
-              WHERE id = ?
-            `, [actualPaymentAmount, calculatedRemainingBalance, calculatedRemainingBalance, actualPaymentAmount, invoice.id]);
-
-            console.log(`✅ [FIX] Invoice ${invoice.id}: ${storedPaymentAmount} → ${actualPaymentAmount}`);
-          }
-
-          fixed++;
-          if (fixed % 10 === 0) {
-            console.log(`✅ [PROGRESS] Processed ${fixed}/${invoices.length} invoices...`);
-          }
-        } catch (error) {
-          console.error(`❌ [ERROR] Error fixing invoice ${invoice.id}:`, error);
-          errors++;
-        }
-      }
-
-      console.log(`🎉 [PERMANENT] Invoice payment fix completed: ${fixed} processed, ${errors} errors`);
-      console.log('🛡️ [PERMANENT] All invoice payment amounts are now accurate!');
-
-      return { fixed, errors, total: invoices.length };
-    } catch (error) {
-      console.error('❌ [PERMANENT] Invoice payment fix failed:', error);
-      return false;
-    }
-  };
-
-  // 🚀 IMMEDIATE FIX: Run the comprehensive fix automatically on page load
-  (window as any).immediateInvoicePaymentFix = async () => {
-    try {
-      console.log('� [IMMEDIATE] Running automatic invoice payment fix...');
-      const result = await (window as any).recalculateAllInvoicePayments();
-      console.log('✅ [IMMEDIATE] Automatic fix completed:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ [IMMEDIATE] Automatic fix failed:', error);
-      return false;
-    }
-  };
-
-  // Run immediate fix automatically when service loads
-  setTimeout(() => {
-    if (typeof (window as any).immediateInvoicePaymentFix === 'function') {
-      (window as any).immediateInvoicePaymentFix().then((result: any) => {
-        if (result && result.fixed > 0) {
-          console.log('🎉 [AUTO] Invoice payment amounts automatically corrected on page load!');
-        }
-      }).catch((error: any) => {
-        console.warn('⚠️ [AUTO] Automatic invoice fix warning:', error);
-      });
-    }
-  }, 2000); // Run after 2 seconds to allow full initialization
+  // REMOVED: Automatic fix on page load - this was treating symptoms, not root cause
 
   console.log('�🔧 Database service exposed to window.db');
   console.log('🧹 Manual cleanup function: cleanupDuplicateInvoiceEntries()');
@@ -20538,8 +20652,8 @@ if (typeof window !== 'undefined') {
   console.log('💰 Balance functions: validateAllCustomerBalances(), calculateCustomerBalance(id), getCustomersWithBalances()');
   console.log('🛠️ Comprehensive fix: fixAllCustomerBalances()');
   console.log('🛡️ ROOT CAUSE FIX: authoritativeBalanceFix() - SOLVES ALL BALANCE ISSUES');
-  console.log('🧾 PERMANENT INVOICE FIX: recalculateAllInvoicePayments() - FIXES ALL PAYMENT AMOUNTS');
-  console.log('🚀 AUTO-FIX: immediateInvoicePaymentFix() - RUNS AUTOMATICALLY ON PAGE LOAD');
+  console.log('✅ DATA INTEGRITY: Fixed test data generator to prevent payment inconsistencies');
+  console.log('� ROOT CAUSE RESOLVED: Test invoices now create consistent payment_amount and payments records');
   console.log('');
   console.log('📦 MIGRATION FUNCTIONS:');
   console.log('🔄 migrateToDatabase() - Migrate localStorage entries to database');

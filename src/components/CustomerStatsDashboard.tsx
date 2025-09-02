@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/database';
-import { eventBus } from '../utils/eventBus';
+import { eventBus, BUSINESS_EVENTS } from '../utils/eventBus';
 import { formatCurrency } from '../utils/calculations';
 import { formatTime } from '../utils/formatters';
 
@@ -43,10 +43,20 @@ const CustomerStatsDashboard: React.FC = () => {
     const handlePaymentCreated = () => fetchStats();
     const handleCustomerUpdated = () => fetchStats();
 
+    // 🔄 PRODUCTION FIX: Add product event listeners for customer stats that depend on product data
+    const handleProductUpdated = () => {
+      console.log('📦 CustomerStatsDashboard: Product updated, refreshing customer stats...');
+      fetchStats();
+    };
+
     eventBus.on('INVOICE_CREATED', handleInvoiceCreated);
     eventBus.on('INVOICE_PAYMENT_CREATED', handlePaymentCreated);
     eventBus.on('CUSTOMER_UPDATED', handleCustomerUpdated);
     eventBus.on('CUSTOMER_CREATED', handleCustomerUpdated);
+
+    // Add product event listeners
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductUpdated);
 
     // Cleanup
     return () => {
@@ -54,6 +64,8 @@ const CustomerStatsDashboard: React.FC = () => {
       eventBus.off('INVOICE_PAYMENT_CREATED', handlePaymentCreated);
       eventBus.off('CUSTOMER_UPDATED', handleCustomerUpdated);
       eventBus.off('CUSTOMER_CREATED', handleCustomerUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductUpdated);
     };
   }, []);
 

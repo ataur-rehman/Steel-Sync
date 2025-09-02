@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../services/database';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import toast from 'react-hot-toast';
 import { formatUnitString } from '../../utils/unitUtils';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
@@ -143,6 +144,49 @@ const Returns: React.FC = () => {
   useEffect(() => {
     applyFilters();
   }, [returns, filters]);
+
+  // 🔄 PRODUCTION FIX: Add real-time product event listeners
+  useEffect(() => {
+    const handleProductUpdated = async () => {
+      console.log('📦 Returns: Product updated, refreshing product list...');
+      try {
+        const productList = await db.getAllProducts();
+        setProducts(productList);
+      } catch (error) {
+        console.error('❌ Returns: Failed to refresh products:', error);
+      }
+    };
+
+    const handleProductDeleted = async () => {
+      console.log('🗑️ Returns: Product deleted, refreshing product list...');
+      try {
+        const productList = await db.getAllProducts();
+        setProducts(productList);
+
+        // Clear selected product if it was deleted
+        if (selectedProductId) {
+          const productExists = productList.find(p => p.id === selectedProductId);
+          if (!productExists) {
+            setSelectedProductId(null);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Returns: Failed to refresh products after deletion:', error);
+      }
+    };
+
+    // Register event listeners
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
+    eventBus.on(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductDeleted);
+
+    // Cleanup
+    return () => {
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
+      eventBus.off(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductDeleted);
+    };
+  }, [db, selectedProductId]);
 
   const loadData = async () => {
     try {

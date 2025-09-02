@@ -242,11 +242,6 @@ const CustomerLedger: React.FC = () => {
     type: ''
   });
 
-  // Archive management state
-  const [showArchived, setShowArchived] = useState(false);
-  const [archivedTransactions, setArchivedTransactions] = useState<CustomerTransaction[]>([]);
-  const [archivePeriods, setArchivePeriods] = useState<any[]>([]);
-  const [loadingArchived, setLoadingArchived] = useState(false);
 
   // Payment form
   const [newPayment, setNewPayment] = useState<PaymentEntry>({
@@ -457,9 +452,15 @@ const CustomerLedger: React.FC = () => {
   const loadCustomers = useCallback(async () => {
     try {
       setCustomersLoading(true);
-      // Remove db.initialize() - it should only happen once at app startup
-      const customerList = await db.getAllCustomers();
-      setCustomers(customerList);
+      // FIXED: Get ALL customers without pagination for customer selection
+      const result = await db.getCustomersOptimized({
+        search: '',
+        limit: 10000, // Large limit to get all customers
+        offset: 0,
+        includeBalance: true
+      });
+      console.log(`📋 [CustomerLedger] Loaded ${result.customers.length} customers for selection`);
+      setCustomers(result.customers);
     } catch (error) {
       console.error('Failed to load customers:', error);
       toast.error('Failed to load customers');

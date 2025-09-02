@@ -13,7 +13,8 @@ import {
   UserCheck,
   Key,
   Activity,
-  CreditCard
+  CreditCard,
+  Database
 } from 'lucide-react';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
 
@@ -30,6 +31,7 @@ const navigation = [
   { name: 'User Management', href: '/admin/users', icon: UserCheck, permission: 'manage_settings' },
   { name: 'Permissions', href: '/admin/permissions', icon: Key, permission: 'manage_settings' },
   { name: 'Activity Log', href: '/admin/activity', icon: Activity, permission: 'view_reports' },
+  { name: 'Test Data Generator', href: '/debug/test-data', icon: Database },
   { name: 'Settings', href: '/settings', icon: Settings, permission: 'manage_settings' },
 
 

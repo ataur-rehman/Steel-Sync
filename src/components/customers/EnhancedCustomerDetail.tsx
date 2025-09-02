@@ -28,24 +28,50 @@ const CustomerDetail: React.FC = () => {
 
     try {
       setLoading(true);
-      const [customerData, summary, invoices] = await Promise.all([
-        db.getCustomer(parseInt(id)),
+      console.log(`🔍 Loading customer detail for ID: ${id}`);
+      const startTime = performance.now();
+
+      // OPTIMIZATION: Load customer data first for immediate display
+      const customerData = await db.getCustomer(parseInt(id));
+      setCustomer(customerData);
+
+      // OPTIMIZATION: Load additional data in parallel for better UX
+      const [summary, invoices] = await Promise.all([
         db.getCustomerBalance(parseInt(id)),
         db.getInvoices({ customer_id: parseInt(id), limit: 5 })
       ]);
 
-      setCustomer(customerData);
       setFinancialSummary(summary);
       setRecentInvoices(invoices || []);
+
+      const loadTime = performance.now() - startTime;
+      console.log(`⚡ Customer detail loaded in ${loadTime.toFixed(2)}ms`);
+
     } catch (error) {
-      console.error('Error loading customer:', error);
+      console.error('❌ Error loading customer:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) return <div>Loading...</div>;
-  if (!customer) return <div>Customer not found</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading customer details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!customer) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-500">Customer not found</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

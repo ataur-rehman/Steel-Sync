@@ -310,7 +310,13 @@ export default function Dashboard() {
         'LOW_STOCK_STATUS_UPDATED',
         'LOW_STOCK_CHECK_REQUESTED',
         'RECENT_INVOICES_UPDATED',
-        'TOTAL_CUSTOMERS_UPDATED'
+        'TOTAL_CUSTOMERS_UPDATED',
+        // 🔄 PRODUCTION FIX: Add product event listeners for real-time dashboard updates
+        BUSINESS_EVENTS.PRODUCT_CREATED,
+        BUSINESS_EVENTS.PRODUCT_UPDATED,
+        BUSINESS_EVENTS.PRODUCT_DELETED,
+        BUSINESS_EVENTS.STOCK_UPDATED,
+        BUSINESS_EVENTS.STOCK_ADJUSTMENT_MADE
       ];
 
       // Register event listeners

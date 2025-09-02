@@ -10,6 +10,84 @@ import {
     parseUnit
 } from '../../utils/unitUtils';
 
+// Production-grade form validation utilities
+const validateProductName = (name: string): { isValid: boolean; error?: string } => {
+    const trimmedName = name.trim();
+
+    if (!trimmedName) {
+        return { isValid: false, error: 'Product name is required' };
+    }
+
+    if (trimmedName.length < 2) {
+        return { isValid: false, error: 'Product name must be at least 2 characters' };
+    }
+
+    if (trimmedName.length > 100) {
+        return { isValid: false, error: 'Product name cannot exceed 100 characters' };
+    }
+
+    // Check for dangerous characters
+    if (/[<>'"&;]/.test(trimmedName)) {
+        return { isValid: false, error: 'Product name contains invalid characters' };
+    }
+
+    // Check for SQL injection patterns
+    if (/\b(DROP|DELETE|INSERT|UPDATE|CREATE|ALTER|EXEC|UNION|SELECT)\b/i.test(trimmedName)) {
+        return { isValid: false, error: 'Invalid product name format' };
+    }
+
+    return { isValid: true };
+};
+
+const validateRatePerUnit = (rate: string): { isValid: boolean; error?: string } => {
+    if (!rate.trim()) {
+        return { isValid: false, error: 'Rate per unit is required' };
+    }
+
+    const numericRate = parseFloat(rate);
+
+    if (isNaN(numericRate)) {
+        return { isValid: false, error: 'Rate must be a valid number' };
+    }
+
+    if (numericRate <= 0) {
+        return { isValid: false, error: 'Rate must be greater than 0' };
+    }
+
+    if (numericRate > 999999.99) {
+        return { isValid: false, error: 'Rate cannot exceed 999,999.99' };
+    }
+
+    // Check for excessive decimal places
+    const decimalPlaces = (rate.split('.')[1] || '').length;
+    if (decimalPlaces > 2) {
+        return { isValid: false, error: 'Rate can have maximum 2 decimal places' };
+    }
+
+    return { isValid: true };
+};
+
+const validateOptionalField = (value: string, fieldName: string): { isValid: boolean; error?: string } => {
+    if (!value.trim()) {
+        return { isValid: true }; // Optional fields can be empty
+    }
+
+    if (value.length > 50) {
+        return { isValid: false, error: `${fieldName} cannot exceed 50 characters` };
+    }
+
+    // Check for dangerous characters
+    if (/[<>'"&;]/.test(value)) {
+        return { isValid: false, error: `${fieldName} contains invalid characters` };
+    }
+
+    return { isValid: true };
+};
+
+const sanitizeInput = (input: string): string => {
+    return input.replace(/[<>'"&;]/g, '').trim();
+};
+
 interface ProductFormProps {
     product?: any; // For editing existing products
     onSuccess: () => void;
@@ -103,30 +181,71 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
 
+        // Sanitize input for security
+        let sanitizedValue = value;
+        if (name === 'name' || name === 'size' || name === 'grade') {
+            sanitizedValue = sanitizeInput(value);
+        }
+
         setFormData(prev => ({
             ...prev,
-            [name]: value
+            [name]: sanitizedValue
         }));
 
-        // Clear errors when user starts typing
+        // Real-time validation feedback
         if (errors[name]) {
-            setErrors(prev => {
-                const newErrors = { ...prev };
-                delete newErrors[name];
-                return newErrors;
-            });
+            let validationResult = { isValid: true };
+
+            switch (name) {
+                case 'name':
+                    validationResult = validateProductName(sanitizedValue);
+                    break;
+                case 'rate_per_unit':
+                    validationResult = validateRatePerUnit(sanitizedValue);
+                    break;
+                case 'size':
+                    validationResult = validateOptionalField(sanitizedValue, 'Size');
+                    break;
+                case 'grade':
+                    validationResult = validateOptionalField(sanitizedValue, 'Grade');
+                    break;
+            }
+
+            if (validationResult.isValid) {
+                setErrors(prev => {
+                    const newErrors = { ...prev };
+                    delete newErrors[name];
+                    return newErrors;
+                });
+            }
         }
     };
 
     const validateForm = () => {
         const newErrors: { [key: string]: string } = {};
 
-        if (!formData.name.trim()) {
-            newErrors.name = 'Product name is required';
+        // Product name validation
+        const nameValidation = validateProductName(formData.name);
+        if (!nameValidation.isValid) {
+            newErrors.name = nameValidation.error || 'Invalid product name';
         }
 
-        if (!formData.rate_per_unit || parseFloat(formData.rate_per_unit) <= 0) {
-            newErrors.rate_per_unit = 'Valid rate per unit is required';
+        // Rate per unit validation
+        const rateValidation = validateRatePerUnit(formData.rate_per_unit);
+        if (!rateValidation.isValid) {
+            newErrors.rate_per_unit = rateValidation.error || 'Invalid rate per unit';
+        }
+
+        // Category validation
+        const validCategories = ['Steel Products', 'Rods', 'Building Material', 'Wire', 'Other'];
+        if (!validCategories.includes(formData.category)) {
+            newErrors.category = 'Please select a valid category';
+        }
+
+        // Unit type validation
+        const validUnitTypes = UNIT_TYPES.map(unit => unit.type);
+        if (!validUnitTypes.includes(formData.unit_type as UnitType)) {
+            newErrors.unit_type = 'Please select a valid unit type';
         }
 
         // Validate stock fields if tracking inventory
@@ -135,20 +254,41 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                 newErrors.current_stock = 'Current stock is required when tracking inventory';
             } else {
                 try {
-                    validateUnit(formData.current_stock, formData.unit_type as UnitType);
+                    const stockValidation = validateUnit(formData.current_stock, formData.unit_type as UnitType);
+                    if (!stockValidation.isValid) {
+                        newErrors.current_stock = stockValidation.error || 'Invalid stock format';
+                    }
                 } catch (error) {
                     newErrors.current_stock = error instanceof Error ? error.message : 'Invalid stock format';
                 }
             }
         }
 
+        // Validate min stock alert if provided
         if (formData.min_stock_alert && formData.min_stock_alert.trim()) {
             try {
-                validateUnit(formData.min_stock_alert, formData.unit_type as UnitType);
+                const alertValidation = validateUnit(formData.min_stock_alert, formData.unit_type as UnitType);
+                if (!alertValidation.isValid) {
+                    newErrors.min_stock_alert = alertValidation.error || 'Invalid alert level format';
+                }
             } catch (error) {
                 newErrors.min_stock_alert = error instanceof Error ? error.message : 'Invalid alert level format';
             }
         }
+
+        // Validate optional fields
+        const sizeValidation = validateOptionalField(formData.size, 'Size');
+        if (!sizeValidation.isValid) {
+            newErrors.size = sizeValidation.error || 'Invalid size';
+        }
+
+        const gradeValidation = validateOptionalField(formData.grade, 'Grade');
+        if (!gradeValidation.isValid) {
+            newErrors.grade = gradeValidation.error || 'Invalid grade';
+        }
+
+        // Business logic validation: Check for duplicate names
+        // This would typically be done server-side, but we can add client-side checks
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -202,7 +342,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                 toast.success('Product updated successfully');
             } else {
                 // Create new product
-                const result = await db.executeSmartQuery(
+                await db.executeSmartQuery(
                     `INSERT INTO products (
                         name, category, unit_type, rate_per_unit, current_stock, min_stock_alert,
                         track_inventory, size, grade, created_at, updated_at
@@ -245,14 +385,29 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 name="name"
                                 value={formData.name}
                                 onChange={handleChange}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm${errors.name ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                                placeholder="Enter product name"
+                                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.name
+                                        ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                    }`}
+                                placeholder="Enter product name (2-100 characters)"
+                                maxLength={100}
+                                minLength={2}
                                 autoFocus
                                 required
                                 disabled={loading}
                                 aria-invalid={!!errors.name}
+                                aria-describedby={errors.name ? "name-error" : undefined}
+                                autoComplete="off"
+                                spellCheck="false"
                             />
-                            {errors.name && <p className="text-red-600 text-sm mt-1">{errors.name}</p>}
+                            {errors.name && (
+                                <p id="name-error" className="text-red-600 text-sm mt-1" role="alert">
+                                    {errors.name}
+                                </p>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                                Product name will be used for search and identification
+                            </p>
                         </div>
 
                         {/* Category */}
@@ -309,15 +464,29 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 name="rate_per_unit"
                                 value={formData.rate_per_unit}
                                 onChange={handleChange}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm${errors.rate_per_unit ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
-                                placeholder="Enter rate per unit"
+                                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.rate_per_unit
+                                        ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                    }`}
+                                placeholder="Enter rate per unit (max 999,999.99)"
                                 step="0.01"
-                                min="0"
+                                min="0.01"
+                                max="999999.99"
                                 required
                                 disabled={loading}
+                                aria-invalid={!!errors.rate_per_unit}
+                                aria-describedby={errors.rate_per_unit ? "rate-error" : undefined}
                                 onWheel={(e) => e.currentTarget.blur()}
+                                autoComplete="off"
                             />
-                            {errors.rate_per_unit && <p className="text-red-600 text-sm mt-1">{errors.rate_per_unit}</p>}
+                            {errors.rate_per_unit && (
+                                <p id="rate-error" className="text-red-600 text-sm mt-1" role="alert">
+                                    {errors.rate_per_unit}
+                                </p>
+                            )}
+                            <p className="text-xs text-gray-500 mt-1">
+                                Price per unit in your local currency (maximum 2 decimal places)
+                            </p>
                         </div>
 
                         {/* Track Inventory */}
@@ -443,10 +612,26 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         name="size"
                                         value={formData.size}
                                         onChange={handleChange}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                        placeholder="e.g., 12mm, Large, XL"
+                                        className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.size
+                                                ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                                : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                            }`}
+                                        placeholder="e.g., 12mm, Large, XL (max 50 chars)"
+                                        maxLength={50}
                                         disabled={loading}
+                                        aria-invalid={!!errors.size}
+                                        aria-describedby={errors.size ? "size-error" : undefined}
+                                        autoComplete="off"
+                                        spellCheck="false"
                                     />
+                                    {errors.size && (
+                                        <p id="size-error" className="text-red-600 text-sm mt-1" role="alert">
+                                            {errors.size}
+                                        </p>
+                                    )}
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Optional size specification for the product
+                                    </p>
                                 </div>
 
                                 {/* Grade */}
@@ -460,10 +645,26 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         name="grade"
                                         value={formData.grade}
                                         onChange={handleChange}
-                                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                                        placeholder="e.g., A-Grade, Premium"
+                                        className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.grade
+                                                ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                                : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                            }`}
+                                        placeholder="e.g., A-Grade, Premium (max 50 chars)"
+                                        maxLength={50}
                                         disabled={loading}
+                                        aria-invalid={!!errors.grade}
+                                        aria-describedby={errors.grade ? "grade-error" : undefined}
+                                        autoComplete="off"
+                                        spellCheck="false"
                                     />
+                                    {errors.grade && (
+                                        <p id="grade-error" className="text-red-600 text-sm mt-1" role="alert">
+                                            {errors.grade}
+                                        </p>
+                                    )}
+                                    <p className="text-xs text-gray-500 mt-1">
+                                        Optional quality grade specification for the product
+                                    </p>
                                 </div>
                             </div>
                         </div>

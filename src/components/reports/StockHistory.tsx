@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { parseUnit, type UnitType } from '../../utils/unitUtils';
 import { formatDate } from '../../utils/formatters';
+import { useDebounce } from '../../hooks/useDebounce';
+import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
 import {
     ArrowLeft,
     Search,
@@ -15,7 +17,7 @@ import {
     TrendingDown,
     BarChart3,
     FileText,
-    ChevronRight
+    RefreshCw
 } from 'lucide-react';
 
 interface Product {
@@ -37,7 +39,101 @@ interface StockSummary {
     largestMovement: any;
 }
 
-const ITEMS_PER_PAGE = 50;
+// Optimized pagination - larger page size for better performance
+const ITEMS_PER_PAGE = 100;
+const FILTER_DEBOUNCE_MS = 300;
+
+// Memoized movement row component for better performance
+const MovementRow = memo(({ movement, getMovementTypeInfo, formatCurrency }: any) => {
+    const typeInfo = getMovementTypeInfo(movement.movement_type);
+    const TypeIcon = typeInfo.icon;
+
+    return (
+        <tr className="hover:bg-gray-50">
+            <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm text-gray-900">
+                    {formatDate(movement.date)}
+                </div>
+                <div className="text-sm text-gray-500">
+                    {movement.time}
+                </div>
+            </td>
+
+            <td className="px-6 py-4 whitespace-nowrap">
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeInfo.color}`}>
+                    <TypeIcon className="h-3 w-3 mr-1" />
+                    {typeInfo.label}
+                </span>
+            </td>
+
+            <td className="px-6 py-4 whitespace-nowrap">
+                <div className={`text-sm font-semibold ${movement.movement_type === 'in' ? 'text-green-600' :
+                    movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
+                    }`}>
+                    {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
+                    {(() => {
+                        const numericValue = Math.abs(movement.quantity);
+                        if ((movement.unit_type || 'kg-grams') === 'kg-grams') {
+                            const kg = Math.floor(numericValue / 1000);
+                            const grams = numericValue % 1000;
+                            return grams > 0 ? `${kg}kg ${grams}g` : `${kg}kg`;
+                        } else {
+                            const intValue = Math.round(numericValue);
+                            return `${intValue} ${movement.unit_type || 'kg'}`;
+                        }
+                    })()}
+                </div>
+            </td>
+
+            <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm text-gray-900">
+                    {(() => {
+                        const numericValue = movement.new_stock;
+                        if ((movement.unit_type || 'kg-grams') === 'kg-grams') {
+                            const kg = Math.floor(numericValue / 1000);
+                            const grams = numericValue % 1000;
+                            return grams > 0 ? `${kg}kg ${grams}g` : `${kg}kg`;
+                        } else {
+                            const intValue = Math.round(numericValue);
+                            return `${intValue} ${movement.unit_type || 'kg'}`;
+                        }
+                    })()}
+                </div>
+            </td>
+
+            <td className="px-6 py-4 whitespace-nowrap">
+                <div className="text-sm font-medium text-gray-900">
+                    {formatCurrency(movement.total_value)}
+                </div>
+            </td>
+
+            <td className="px-6 py-4">
+                <div className="space-y-1">
+                    {movement.customer_name && (
+                        <div className="flex items-center text-sm text-gray-900">
+                            <User className="h-3 w-3 mr-1" />
+                            {movement.customer_name}
+                        </div>
+                    )}
+                    {movement.vendor_name && (
+                        <div className="flex items-center text-sm text-gray-900">
+                            <Package className="h-3 w-3 mr-1" />
+                            {movement.vendor_name}
+                        </div>
+                    )}
+                    {movement.reference_number && (
+                        <div className="flex items-center text-sm text-gray-500">
+                            <FileText className="h-3 w-3 mr-1" />
+                            {movement.reference_number}
+                        </div>
+                    )}
+                </div>
+            </td>
+        </tr>
+    );
+});
+
+MovementRow.displayName = 'MovementRow';
 
 const StockHistory: React.FC = () => {
     const { productId } = useParams<{ productId: string }>();
@@ -49,17 +145,14 @@ const StockHistory: React.FC = () => {
 
     // State
     const [product, setProduct] = useState<Product | null>(null);
-    const [movements, setMovements] = useState<any[]>([]);
-    const [filteredMovements, setFilteredMovements] = useState<any[]>([]);
+    const [allMovements, setAllMovements] = useState<any[]>([]); // Cache for filtering
     const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [summary, setSummary] = useState<StockSummary | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
-    const [hasMoreData, setHasMoreData] = useState(true);
 
     // Filters
     const [filters, setFilters] = useState({
@@ -76,15 +169,144 @@ const StockHistory: React.FC = () => {
     // UI State
     const [showFilters, setShowFilters] = useState(false);
 
+    // Debounced search for better performance
+    const debouncedSearchTerm = useDebounce(filters.search, FILTER_DEBOUNCE_MS);
+    const debouncedCustomerName = useDebounce(filters.customerName, FILTER_DEBOUNCE_MS);
+
+    // Memoized filtered movements for performance
+    const filteredMovements = useMemo(() => {
+        let filtered = [...allMovements];
+
+        // Search filter
+        if (debouncedSearchTerm.trim()) {
+            const searchTerm = debouncedSearchTerm.toLowerCase();
+            filtered = filtered.filter(movement =>
+                movement.product_name?.toLowerCase().includes(searchTerm) ||
+                movement.customer_name?.toLowerCase().includes(searchTerm) ||
+                movement.vendor_name?.toLowerCase().includes(searchTerm) ||
+                movement.reference_number?.toLowerCase().includes(searchTerm) ||
+                movement.notes?.toLowerCase().includes(searchTerm)
+            );
+        }
+
+        // Movement type filter
+        if (filters.movementType !== 'all') {
+            filtered = filtered.filter(movement => movement.movement_type === filters.movementType);
+        }
+
+        // Transaction type filter
+        if (filters.transactionType !== 'all') {
+            filtered = filtered.filter(movement => movement.transaction_type === filters.transactionType);
+        }
+
+        // Date range filter
+        if (filters.dateFrom) {
+            filtered = filtered.filter(movement => movement.date >= filters.dateFrom);
+        }
+        if (filters.dateTo) {
+            filtered = filtered.filter(movement => movement.date <= filters.dateTo);
+        }
+
+        // Customer name filter
+        if (debouncedCustomerName.trim()) {
+            const customerTerm = debouncedCustomerName.toLowerCase();
+            filtered = filtered.filter(movement =>
+                movement.customer_name?.toLowerCase().includes(customerTerm) ||
+                movement.vendor_name?.toLowerCase().includes(customerTerm)
+            );
+        }
+
+        // Amount range filter
+        if (filters.amountMin) {
+            const minAmount = parseFloat(filters.amountMin);
+            filtered = filtered.filter(movement => (movement.total_value || 0) >= minAmount);
+        }
+        if (filters.amountMax) {
+            const maxAmount = parseFloat(filters.amountMax);
+            filtered = filtered.filter(movement => (movement.total_value || 0) <= maxAmount);
+        }
+
+        return filtered;
+    }, [allMovements, debouncedSearchTerm, debouncedCustomerName, filters]);
+
+    // Paginated movements for display
+    const paginatedMovements = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        return filteredMovements.slice(startIndex, endIndex);
+    }, [filteredMovements, currentPage]);
+
+    // Calculate total pages based on filtered data
+    const totalFilteredPages = useMemo(() => {
+        return Math.ceil(filteredMovements.length / ITEMS_PER_PAGE);
+    }, [filteredMovements.length]);
+
+    // Real-time updates
+    useRealTimeUpdates({
+        onStockUpdated: useCallback((data: any) => {
+            if (data.productId === parseInt(productId || '0')) {
+                // Refresh data when stock is updated for this product
+                handleRefresh();
+            }
+        }, [productId]),
+        onStockMovementCreated: useCallback((data: any) => {
+            if (data.product_id === parseInt(productId || '0')) {
+                // Add new movement to the beginning of the list
+                setAllMovements(prev => [data, ...prev]);
+                toast.success('New stock movement detected');
+            }
+        }, [productId]),
+        onStockAdjustmentMade: useCallback((data: any) => {
+            if (data.product_id === parseInt(productId || '0')) {
+                handleRefresh();
+            }
+        }, [productId])
+    });
+
+    // Optimized callbacks
+    const handleRefresh = useCallback(async () => {
+        if (!productId) return;
+
+        try {
+            setRefreshing(true);
+            await loadProductAndMovements();
+            toast.success('Data refreshed');
+        } catch (error) {
+            toast.error('Failed to refresh data');
+        } finally {
+            setRefreshing(false);
+        }
+    }, [productId]);
+
+    const handleFilterChange = useCallback((filterName: string, value: string) => {
+        setFilters(prev => ({ ...prev, [filterName]: value }));
+        setCurrentPage(1); // Reset to first page when filtering
+    }, []);
+
+    const clearFilters = useCallback(() => {
+        setFilters({
+            search: '',
+            movementType: 'all',
+            dateFrom: '',
+            dateTo: '',
+            customerName: '',
+            amountMin: '',
+            amountMax: '',
+            transactionType: 'all'
+        });
+        setCurrentPage(1);
+    }, []);
+
     useEffect(() => {
         if (productId) {
             loadProductAndMovements();
         }
-    }, [productId, currentPage]);
+    }, [productId]);
 
+    // Reset pagination when filters change
     useEffect(() => {
-        applyFilters();
-    }, [movements, filters]);
+        setCurrentPage(1);
+    }, [filteredMovements.length]);
 
     const loadProductAndMovements = async () => {
         if (!productId) return;
@@ -102,8 +324,8 @@ const StockHistory: React.FC = () => {
             }
             setProduct(productData);
 
-            // Load movements with pagination
-            await loadMovements();
+            // Load all movements at once for better filtering performance
+            await loadAllMovements();
 
             // Load summary statistics
             await loadSummary();
@@ -111,47 +333,55 @@ const StockHistory: React.FC = () => {
         } catch (error) {
             console.error('Error loading stock history:', error);
             setError('Failed to load stock history. Please check your connection and try again.');
-            // Don't navigate away on error, let user retry
         } finally {
             setLoading(false);
         }
     };
 
-    const loadMovements = async (page = 1, append = false) => {
+    const loadAllMovements = async () => {
         if (!productId) return;
 
         try {
-            if (page === 1) setLoading(true);
-            else setLoadingMore(true);
-
-            const offset = (page - 1) * ITEMS_PER_PAGE;
+            // Load larger batch of movements for better performance with filtering
             const movementData = await db.getStockMovements({
                 product_id: parseInt(productId),
-                limit: ITEMS_PER_PAGE,
-                offset: offset
+                limit: 2000, // Increased limit for better performance
+                offset: 0
             });
 
-            if (append) {
-                setMovements(prev => [...prev, ...movementData]);
-            } else {
-                setMovements(movementData);
-            }
+            setAllMovements(movementData);
 
-            // Check if there's more data
-            setHasMoreData(movementData.length === ITEMS_PER_PAGE);
-
-            // Calculate total pages (estimate based on current data)
-            if (page === 1 && movementData.length > 0) {
-                // Simple estimation - will be more accurate as we load more data
-                setTotalPages(Math.ceil(movementData.length / ITEMS_PER_PAGE) + (movementData.length === ITEMS_PER_PAGE ? 5 : 0));
+            // Load additional data in background for seamless experience
+            if (movementData.length >= 2000) {
+                setTimeout(() => loadAdditionalMovements(2000), 100);
             }
 
         } catch (error) {
             console.error('Error loading movements:', error);
             toast.error('Failed to load movements');
-        } finally {
-            setLoading(false);
-            setLoadingMore(false);
+        }
+    };
+
+    const loadAdditionalMovements = async (offset: number) => {
+        if (!productId) return;
+
+        try {
+            const additionalData = await db.getStockMovements({
+                product_id: parseInt(productId),
+                limit: 1000,
+                offset: offset
+            });
+
+            if (additionalData.length > 0) {
+                setAllMovements(prev => [...prev, ...additionalData]);
+
+                // Continue loading if we got a full batch
+                if (additionalData.length >= 1000) {
+                    setTimeout(() => loadAdditionalMovements(offset + 1000), 100);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading additional movements:', error);
         }
     };
 
@@ -206,62 +436,7 @@ const StockHistory: React.FC = () => {
         }
     };
 
-    const applyFilters = () => {
-        let filtered = [...movements];
-
-        // Search filter
-        if (filters.search.trim()) {
-            const searchTerm = filters.search.toLowerCase();
-            filtered = filtered.filter(movement =>
-                movement.product_name.toLowerCase().includes(searchTerm) ||
-                movement.customer_name?.toLowerCase().includes(searchTerm) ||
-                movement.vendor_name?.toLowerCase().includes(searchTerm) ||
-                movement.reference_number?.toLowerCase().includes(searchTerm) ||
-                movement.notes?.toLowerCase().includes(searchTerm)
-            );
-        }
-
-        // Movement type filter
-        if (filters.movementType !== 'all') {
-            filtered = filtered.filter(movement => movement.movement_type === filters.movementType);
-        }
-
-        // Transaction type filter
-        if (filters.transactionType !== 'all') {
-            filtered = filtered.filter(movement => movement.transaction_type === filters.transactionType);
-        }
-
-        // Date range filter
-        if (filters.dateFrom) {
-            filtered = filtered.filter(movement => movement.date >= filters.dateFrom);
-        }
-        if (filters.dateTo) {
-            filtered = filtered.filter(movement => movement.date <= filters.dateTo);
-        }
-
-        // Customer name filter
-        if (filters.customerName.trim()) {
-            const customerTerm = filters.customerName.toLowerCase();
-            filtered = filtered.filter(movement =>
-                movement.customer_name?.toLowerCase().includes(customerTerm) ||
-                movement.vendor_name?.toLowerCase().includes(customerTerm)
-            );
-        }
-
-        // Amount range filter
-        if (filters.amountMin) {
-            const minAmount = parseFloat(filters.amountMin);
-            filtered = filtered.filter(movement => (movement.total_value || 0) >= minAmount);
-        }
-        if (filters.amountMax) {
-            const maxAmount = parseFloat(filters.amountMax);
-            filtered = filtered.filter(movement => (movement.total_value || 0) <= maxAmount);
-        }
-
-        setFilteredMovements(filtered);
-    };
-
-    const exportToCSV = () => {
+    const exportToCSV = useCallback(() => {
         if (filteredMovements.length === 0) {
             toast.error('No data to export');
             return;
@@ -310,21 +485,13 @@ const StockHistory: React.FC = () => {
         window.URL.revokeObjectURL(url);
 
         toast.success('Stock history exported successfully');
-    };
+    }, [filteredMovements, product?.name]);
 
-    const loadMoreData = () => {
-        if (hasMoreData && !loadingMore) {
-            const nextPage = currentPage + 1;
-            setCurrentPage(nextPage);
-            loadMovements(nextPage, true);
-        }
-    };
-
-    const formatCurrency = (amount: number): string => {
+    const formatCurrency = useCallback((amount: number): string => {
         return `Rs. ${Number(amount).toFixed(2)}`;
-    };
+    }, []);
 
-    const getMovementTypeInfo = (type: string) => {
+    const getMovementTypeInfo = useCallback((type: string) => {
         switch (type) {
             case 'in':
                 return { label: 'Stock In', color: 'bg-green-100 text-green-800', icon: TrendingUp };
@@ -335,7 +502,16 @@ const StockHistory: React.FC = () => {
             default:
                 return { label: type, color: 'bg-gray-100 text-gray-800', icon: Package };
         }
-    };
+    }, []);
+
+    // Pagination handlers
+    const goToPreviousPage = useCallback(() => {
+        setCurrentPage(prev => Math.max(1, prev - 1));
+    }, []);
+
+    const goToNextPage = useCallback(() => {
+        setCurrentPage(prev => Math.min(totalFilteredPages, prev + 1));
+    }, [totalFilteredPages]);
 
     if (loading && !product) {
         return (
@@ -374,24 +550,13 @@ const StockHistory: React.FC = () => {
         );
     }
 
-    // Additional safety check for TypeScript
-    if (!product) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                <span className="ml-3">Loading product data...</span>
-            </div>
-        );
-    }
-
     return (
         <div className="space-y-6">
-            {/* Header */}
+            {/* Header with Refresh Button */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                     <button
                         onClick={() => {
-                            // Navigate back with preserved state if available
                             if (navigationState?.fromStockReport) {
                                 navigate('/reports/stock', {
                                     state: {
@@ -410,10 +575,19 @@ const StockHistory: React.FC = () => {
                     </button>
                     <div>
                         <h1 className="text-2xl font-semibold text-gray-900">Stock History</h1>
-                        <p className="text-sm text-gray-600">{product.name} - Complete Movement History</p>
+                        <p className="text-sm text-gray-600">{product?.name} - Complete Movement History</p>
                     </div>
                 </div>
                 <div className="flex items-center space-x-3">
+                    <button
+                        onClick={handleRefresh}
+                        disabled={refreshing}
+                        className="flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                        title="Refresh data"
+                    >
+                        <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                        Refresh
+                    </button>
                     <button
                         onClick={() => setShowFilters(!showFilters)}
                         className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -432,43 +606,45 @@ const StockHistory: React.FC = () => {
             </div>
 
             {/* Product Summary */}
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div className="text-center">
-                        <div className="text-2xl font-bold text-blue-600">
-                            {(() => {
-                                const stockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
-                                const currentStock = stockData.numericValue;
-                                if ((product.unit_type || 'kg-grams') === 'kg-grams') {
-                                    const kg = Math.floor(currentStock / 1000);
-                                    const grams = currentStock % 1000;
-                                    return grams > 0 ? `${kg}kg ${grams}g` : `${kg}kg`;
-                                } else {
-                                    const intValue = Math.round(currentStock);
-                                    return `${intValue} ${product.unit_type || 'kg'}`;
-                                }
-                            })()}
+            {product && (
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div className="text-center">
+                            <div className="text-2xl font-bold text-blue-600">
+                                {(() => {
+                                    const stockData = parseUnit(product.current_stock, product.unit_type || 'kg-grams');
+                                    const currentStock = stockData.numericValue;
+                                    if ((product.unit_type || 'kg-grams') === 'kg-grams') {
+                                        const kg = Math.floor(currentStock / 1000);
+                                        const grams = currentStock % 1000;
+                                        return grams > 0 ? `${kg}kg ${grams}g` : `${kg}kg`;
+                                    } else {
+                                        const intValue = Math.round(currentStock);
+                                        return `${intValue} ${product.unit_type || 'kg'}`;
+                                    }
+                                })()}
+                            </div>
+                            <div className="text-sm text-gray-600">Current Stock</div>
                         </div>
-                        <div className="text-sm text-gray-600">Current Stock</div>
+                        {summary && (
+                            <>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-gray-900">{summary.totalMovements}</div>
+                                    <div className="text-sm text-gray-600">Total Movements</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-green-600">{summary.totalIn}</div>
+                                    <div className="text-sm text-gray-600">Stock In</div>
+                                </div>
+                                <div className="text-center">
+                                    <div className="text-2xl font-bold text-red-600">{summary.totalOut}</div>
+                                    <div className="text-sm text-gray-600">Stock Out</div>
+                                </div>
+                            </>
+                        )}
                     </div>
-                    {summary && (
-                        <>
-                            <div className="text-center">
-                                <div className="text-2xl font-bold text-gray-900">{summary.totalMovements}</div>
-                                <div className="text-sm text-gray-600">Total Movements</div>
-                            </div>
-                            <div className="text-center">
-                                <div className="text-2xl font-bold text-green-600">{summary.totalIn}</div>
-                                <div className="text-sm text-gray-600">Stock In</div>
-                            </div>
-                            <div className="text-center">
-                                <div className="text-2xl font-bold text-red-600">{summary.totalOut}</div>
-                                <div className="text-sm text-gray-600">Stock Out</div>
-                            </div>
-                        </>
-                    )}
                 </div>
-            </div>
+            )}
 
             {/* Advanced Filters */}
             {showFilters && (
@@ -481,7 +657,7 @@ const StockHistory: React.FC = () => {
                                 <input
                                     type="text"
                                     value={filters.search}
-                                    onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+                                    onChange={(e) => handleFilterChange('search', e.target.value)}
                                     placeholder="Search movements..."
                                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
@@ -492,7 +668,7 @@ const StockHistory: React.FC = () => {
                             <label className="block text-sm font-medium text-gray-700 mb-2">Movement Type</label>
                             <select
                                 value={filters.movementType}
-                                onChange={(e) => setFilters(prev => ({ ...prev, movementType: e.target.value }))}
+                                onChange={(e) => handleFilterChange('movementType', e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             >
                                 <option value="all">All Types</option>
@@ -507,7 +683,7 @@ const StockHistory: React.FC = () => {
                             <input
                                 type="date"
                                 value={filters.dateFrom}
-                                onChange={(e) => setFilters(prev => ({ ...prev, dateFrom: e.target.value }))}
+                                onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                         </div>
@@ -517,7 +693,7 @@ const StockHistory: React.FC = () => {
                             <input
                                 type="date"
                                 value={filters.dateTo}
-                                onChange={(e) => setFilters(prev => ({ ...prev, dateTo: e.target.value }))}
+                                onChange={(e) => handleFilterChange('dateTo', e.target.value)}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
                         </div>
@@ -527,7 +703,7 @@ const StockHistory: React.FC = () => {
                             <input
                                 type="text"
                                 value={filters.customerName}
-                                onChange={(e) => setFilters(prev => ({ ...prev, customerName: e.target.value }))}
+                                onChange={(e) => handleFilterChange('customerName', e.target.value)}
                                 placeholder="Search by name..."
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
@@ -538,7 +714,7 @@ const StockHistory: React.FC = () => {
                             <input
                                 type="number"
                                 value={filters.amountMin}
-                                onChange={(e) => setFilters(prev => ({ ...prev, amountMin: e.target.value }))}
+                                onChange={(e) => handleFilterChange('amountMin', e.target.value)}
                                 placeholder="0"
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
@@ -549,7 +725,7 @@ const StockHistory: React.FC = () => {
                             <input
                                 type="number"
                                 value={filters.amountMax}
-                                onChange={(e) => setFilters(prev => ({ ...prev, amountMax: e.target.value }))}
+                                onChange={(e) => handleFilterChange('amountMax', e.target.value)}
                                 placeholder="No limit"
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                             />
@@ -557,16 +733,7 @@ const StockHistory: React.FC = () => {
 
                         <div className="flex items-end">
                             <button
-                                onClick={() => setFilters({
-                                    search: '',
-                                    movementType: 'all',
-                                    dateFrom: '',
-                                    dateTo: '',
-                                    customerName: '',
-                                    amountMin: '',
-                                    amountMax: '',
-                                    transactionType: 'all'
-                                })}
+                                onClick={clearFilters}
                                 className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                             >
                                 Clear Filters
@@ -579,11 +746,11 @@ const StockHistory: React.FC = () => {
             {/* Results Summary */}
             <div className="flex items-center justify-between text-sm text-gray-600">
                 <div>
-                    Showing {filteredMovements.length} of {movements.length} movements
-                    {movements.length >= ITEMS_PER_PAGE && hasMoreData && ' (more available)'}
+                    Showing {paginatedMovements.length} of {filteredMovements.length} movements
+                    {allMovements.length > filteredMovements.length && ' (filtered)'}
                 </div>
                 <div>
-                    Page {currentPage} of {totalPages > 0 ? totalPages : 1}
+                    Page {currentPage} of {totalFilteredPages || 1}
                 </div>
             </div>
 
@@ -614,99 +781,19 @@ const StockHistory: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {filteredMovements.map((movement) => {
-                                const typeInfo = getMovementTypeInfo(movement.movement_type);
-                                const TypeIcon = typeInfo.icon;
-
-                                return (
-                                    <tr key={movement.id} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm text-gray-900">
-                                                {formatDate(movement.date)}
-                                            </div>
-                                            <div className="text-sm text-gray-500">
-                                                {movement.time}
-                                            </div>
-                                        </td>
-
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeInfo.color}`}>
-                                                <TypeIcon className="h-3 w-3 mr-1" />
-                                                {typeInfo.label}
-                                            </span>
-                                        </td>
-
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className={`text-sm font-semibold ${movement.movement_type === 'in' ? 'text-green-600' :
-                                                movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
-                                                }`}>
-                                                {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
-                                                {(() => {
-                                                    const numericValue = Math.abs(movement.quantity);
-                                                    if ((movement.unit_type || 'kg-grams') === 'kg-grams') {
-                                                        const kg = Math.floor(numericValue / 1000);
-                                                        const grams = numericValue % 1000;
-                                                        return grams > 0 ? `${kg}kg ${grams}g` : `${kg}kg`;
-                                                    } else {
-                                                        const intValue = Math.round(numericValue);
-                                                        return `${intValue} ${movement.unit_type || 'kg'}`;
-                                                    }
-                                                })()}
-                                            </div>
-                                        </td>
-
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm text-gray-900">
-                                                {(() => {
-                                                    const numericValue = movement.new_stock;
-                                                    if ((movement.unit_type || 'kg-grams') === 'kg-grams') {
-                                                        const kg = Math.floor(numericValue / 1000);
-                                                        const grams = numericValue % 1000;
-                                                        return grams > 0 ? `${kg}kg ${grams}g` : `${kg}kg`;
-                                                    } else {
-                                                        const intValue = Math.round(numericValue);
-                                                        return `${intValue} ${movement.unit_type || 'kg'}`;
-                                                    }
-                                                })()}
-                                            </div>
-                                        </td>
-
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <div className="text-sm font-medium text-gray-900">
-                                                {formatCurrency(movement.total_value)}
-                                            </div>
-                                        </td>
-
-                                        <td className="px-6 py-4">
-                                            <div className="space-y-1">
-                                                {movement.customer_name && (
-                                                    <div className="flex items-center text-sm text-gray-900">
-                                                        <User className="h-3 w-3 mr-1" />
-                                                        {movement.customer_name}
-                                                    </div>
-                                                )}
-                                                {movement.vendor_name && (
-                                                    <div className="flex items-center text-sm text-gray-900">
-                                                        <Package className="h-3 w-3 mr-1" />
-                                                        {movement.vendor_name}
-                                                    </div>
-                                                )}
-                                                {movement.reference_number && (
-                                                    <div className="flex items-center text-sm text-gray-500">
-                                                        <FileText className="h-3 w-3 mr-1" />
-                                                        {movement.reference_number}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
+                            {paginatedMovements.map((movement) => (
+                                <MovementRow
+                                    key={movement.id}
+                                    movement={movement}
+                                    getMovementTypeInfo={getMovementTypeInfo}
+                                    formatCurrency={formatCurrency}
+                                />
+                            ))}
                         </tbody>
                     </table>
                 </div>
 
-                {filteredMovements.length === 0 && (
+                {filteredMovements.length === 0 && !loading && (
                     <div className="text-center py-12">
                         <Package className="h-12 w-12 mx-auto text-gray-300 mb-4" />
                         <h3 className="text-lg font-medium text-gray-900 mb-2">No movements found</h3>
@@ -718,28 +805,42 @@ const StockHistory: React.FC = () => {
                         </p>
                     </div>
                 )}
+
+                {loading && (
+                    <div className="text-center py-12">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                        <span className="ml-3">Loading movements...</span>
+                    </div>
+                )}
             </div>
 
-            {/* Load More / Pagination */}
-            {hasMoreData && movements.length >= ITEMS_PER_PAGE && (
-                <div className="flex justify-center">
-                    <button
-                        onClick={loadMoreData}
-                        disabled={loadingMore}
-                        className="flex items-center px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                    >
-                        {loadingMore ? (
-                            <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                                Loading more...
-                            </>
-                        ) : (
-                            <>
-                                Load More Movements
-                                <ChevronRight className="h-4 w-4 ml-2" />
-                            </>
-                        )}
-                    </button>
+            {/* Pagination Controls */}
+            {totalFilteredPages > 1 && (
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                        <button
+                            onClick={goToPreviousPage}
+                            disabled={currentPage === 1}
+                            className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Previous
+                        </button>
+                        <span className="text-sm text-gray-600">
+                            Page {currentPage} of {totalFilteredPages}
+                        </span>
+                        <button
+                            onClick={goToNextPage}
+                            disabled={currentPage === totalFilteredPages}
+                            className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Next
+                        </button>
+                    </div>
+
+                    {/* Page size indicator */}
+                    <div className="text-sm text-gray-500">
+                        {ITEMS_PER_PAGE} items per page
+                    </div>
                 </div>
             )}
 

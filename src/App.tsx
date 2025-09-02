@@ -23,6 +23,7 @@ import CustomerLedger from './components/reports/CustomerLedger';
 import StockReport from './components/reports/StockReport';
 import StockHistory from './components/reports/StockHistory';
 import RootCauseAnalysis from './components/RootCauseAnalysis';
+import PerformanceTestDataGenerator from './components/test/PerformanceTestDataGenerator';
 import StockReceivingListNoRefresh from './components/stock/StockReceivingListNoRefresh';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
@@ -369,6 +370,11 @@ function AppContent() {
                 <ProtectedRoute module="reports" level="view">
                   <RootCauseAnalysis />
                 </ProtectedRoute>
+              } />
+
+              {/* Performance Test Data Generator */}
+              <Route path="/debug/test-data" element={
+                <PerformanceTestDataGenerator />
               } />
 
               {/* Enhanced Customer Management */}

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Edit, Trash2, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../services/database';
+import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 
 import { ask } from '@tauri-apps/plugin-dialog';
 import StableSearchInput from '../common/StableSearchInput';
@@ -81,6 +82,31 @@ const VendorManagement: React.FC = () => {
       }
     }
   }, [vendors, searchParams, setSearchParams]);
+
+  // 🔄 PRODUCTION FIX: Add real-time product event listeners for vendor-related operations
+  useEffect(() => {
+    const handleStockReceivingCompleted = () => {
+      console.log('📦 VendorManagement: Stock receiving completed, refreshing vendors...');
+      loadVendors(); // Refresh vendor data as balances might have changed
+    };
+
+    const handleVendorPaymentRecorded = () => {
+      console.log('💰 VendorManagement: Vendor payment recorded, refreshing vendors...');
+      loadVendors(); // Refresh vendor data for updated balances
+    };
+
+    // Register event listeners for vendor-related events
+    eventBus.on('STOCK_RECEIVING_COMPLETED', handleStockReceivingCompleted);
+    eventBus.on('VENDOR_PAYMENT_RECORDED', handleVendorPaymentRecorded);
+    eventBus.on(BUSINESS_EVENTS.STOCK_UPDATED, handleStockReceivingCompleted);
+
+    // Cleanup
+    return () => {
+      eventBus.off('STOCK_RECEIVING_COMPLETED', handleStockReceivingCompleted);
+      eventBus.off('VENDOR_PAYMENT_RECORDED', handleVendorPaymentRecorded);
+      eventBus.off(BUSINESS_EVENTS.STOCK_UPDATED, handleStockReceivingCompleted);
+    };
+  }, []);
 
   const loadVendors = async () => {
     try {
