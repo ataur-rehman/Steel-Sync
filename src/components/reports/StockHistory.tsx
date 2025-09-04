@@ -342,12 +342,25 @@ const StockHistory: React.FC = () => {
         if (!productId) return;
 
         try {
+            console.log('Loading movements for product ID:', productId);
+
             // Load larger batch of movements for better performance with filtering
             const movementData = await db.getStockMovements({
                 product_id: parseInt(productId),
                 limit: 2000, // Increased limit for better performance
                 offset: 0
             });
+
+            console.log('Loaded movements:', movementData.length, movementData);
+
+            // If no movements found, let's also try without product_id filter to see if there are any movements at all
+            if (movementData.length === 0) {
+                console.log('No movements found for this product, checking all movements...');
+                const allMovementData = await db.getStockMovements({
+                    limit: 10 // Just check if any movements exist
+                });
+                console.log('All movements in database:', allMovementData.length, allMovementData);
+            }
 
             setAllMovements(movementData);
 
@@ -803,6 +816,13 @@ const StockHistory: React.FC = () => {
                                 : 'No stock movements recorded for this product.'
                             }
                         </p>
+                        <div className="mt-4 text-sm text-gray-400">
+                            <p>Debug info:</p>
+                            <p>All movements: {allMovements.length}</p>
+                            <p>Filtered movements: {filteredMovements.length}</p>
+                            <p>Product ID: {productId}</p>
+                            <p>Loading: {loading.toString()}</p>
+                        </div>
                     </div>
                 )}
 

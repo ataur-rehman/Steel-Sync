@@ -12,7 +12,6 @@ import {
   Receipt
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useActivityLogger } from '../../hooks/useActivityLogger';
 import { formatDate } from '../../utils/formatters';
 import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { salaryHistoryService } from '../../services/salaryHistoryService';
@@ -50,7 +49,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
     reference_number: ''
   });
 
-  const activityLogger = useActivityLogger();
+
 
   useEffect(() => {
     // Update formData when staffId changes
@@ -111,14 +110,6 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
 
     try {
       await salaryHistoryService.recordPayment(paymentData, 'Admin'); // TODO: Get from current user
-
-      // Log the salary payment activity
-      activityLogger.logCustomActivity(
-        ActivityType.PAYMENT,
-        ModuleType.STAFF,
-        staffId,
-        `Recorded salary payment of ₹${paymentData.payment_amount.toLocaleString()} for ${staffName} (${paymentData.payment_type} payment) for ${paymentData.payment_month}`
-      );
 
       toast.success('Salary payment recorded successfully');
       setShowModal(false);
