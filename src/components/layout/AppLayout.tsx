@@ -21,7 +21,8 @@ import {
   Info,
   Truck,
   CreditCard,
-  Database
+  Database,
+  CloudUpload
 } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -140,6 +141,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
     // Management
     { name: 'Staff & Salary Management', href: '/staff', icon: Users, category: 'management' },
+    { name: 'Backup & Restore', href: '/backup', icon: CloudUpload, category: 'management' },
     { name: 'Test Data Generator', href: '/debug/test-data', icon: Database, category: 'management' },
     { name: 'Payment Channels', href: '/payment/channels', icon: CreditCard, category: 'management' },
     { name: 'Business Finance', href: '/finance', icon: BarChart3, category: 'management' },

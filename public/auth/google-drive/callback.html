@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Drive Authentication</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            text-align: center;
+            padding: 2rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .success {
+            color: #27ae60;
+        }
+
+        .error {
+            color: #e74c3c;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div id="status">
+            <div class="loading"></div>
+            <p>Processing authentication...</p>
+        </div>
+    </div>
+
+    <script>
+        async function handleAuthCallback() {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const error = urlParams.get('error');
+
+                if (error) {
+                    throw new Error(`OAuth error: ${error}`);
+                }
+
+                if (!code) {
+                    throw new Error('No authorization code received');
+                }
+
+                document.getElementById('status').innerHTML = `
+                    <div class="loading"></div>
+                    <p>Completing authentication...</p>
+                `;
+
+                // Complete the OAuth flow by calling the parent window
+                const redirectUri = window.location.origin + '/auth/google-drive/callback.html';
+
+                // Send the code to the parent window to handle
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'GOOGLE_DRIVE_AUTH_CODE',
+                        code: code,
+                        redirectUri: redirectUri
+                    }, window.location.origin);
+
+                    document.getElementById('status').innerHTML = `
+                        <div class="success">✓</div>
+                        <p>Authentication successful! You can close this window.</p>
+                    `;
+
+                    // Auto-close after 2 seconds
+                    setTimeout(() => {
+                        window.close();
+                    }, 2000);
+                } else {
+                    throw new Error('Could not communicate with parent window');
+                }
+
+            } catch (error) {
+                console.error('Auth callback error:', error);
+
+                document.getElementById('status').innerHTML = `
+                    <div class="error">✗</div>
+                    <p>Authentication failed: ${error.message}</p>
+                `;
+
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'GOOGLE_DRIVE_AUTH_ERROR',
+                        error: error.message
+                    }, window.location.origin);
+                }
+
+                // Auto-close after 5 seconds
+                setTimeout(() => {
+                    window.close();
+                }, 5000);
+            }
+        }
+
+        // Run when page loads
+        handleAuthCallback();
+    </script>
+</body>
+
+</html>

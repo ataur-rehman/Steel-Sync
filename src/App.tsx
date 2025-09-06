@@ -29,7 +29,7 @@ import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
 import DataIntegrityManager from './components/admin/DataIntegrityManager';
 import StaffManagementIntegrated from './components/staff/StaffManagementIntegrated';
-import BusinessFinanceDashboard from './components/finance/BusinessFinanceDashboard';
+import SimpleFinanceDashboard from './components/finance/SimpleFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
 import DateTimeFormatTest from './components/test/DateTimeFormatTest';
@@ -42,8 +42,14 @@ import './styles/globals.css';
 import StockReceivingDetail from './components/stock/StockReceivingDetail';
 import StockReceivingPayment from "./components/stock/StockReceivingPayment";
 import { Activity } from 'lucide-react';
-import { useGlobalSearchFix } from './utils/searchFix';
 import './utils/searchRefreshDebugger'; // Auto-initializes in dev mode
+import { ProductionBackupDashboard } from './components/backup/ProductionBackupDashboard';
+import BackupSystemTest from './components/backup/BackupSystemTest';
+import { BackupDebugTest } from './components/debug/BackupDebugTest';
+import { EmergencyCleanup } from './components/debug/EmergencyCleanup';
+import { RestoreDiagnostic } from './components/debug/RestoreDiagnostic';
+import ManualRestoreTrigger from './components/debug/ManualRestoreTrigger';
+import { SimpleBackupTest } from './components/debug/SimpleBackupTest';
 
 function LoginForm() {
   const { login } = useSafeAuth(); // Use safe auth hook to prevent crashes
@@ -253,8 +259,18 @@ function AppContent() {
 
             <Routes>
               {/* Dashboard - Enhanced with drill-down capabilities */}
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/" element={
+                <>
+                  {import.meta.env.DEV && <ManualRestoreTrigger />}
+                  <Dashboard />
+                </>
+              } />
+              <Route path="/dashboard" element={
+                <>
+                  {import.meta.env.DEV && <ManualRestoreTrigger />}
+                  <Dashboard />
+                </>
+              } />
 
               {/* Products Management */}
               <Route path="/products" element={
@@ -413,10 +429,32 @@ function AppContent() {
                 </ProtectedRoute>
               } />
 
-              {/* Business Finance Dashboard */}
+              {/* Backup & Restore Dashboard */}
+              <Route path="/backup" element={
+                <ProtectedRoute module="audit" level="view">
+                  <ProductionBackupDashboard />
+                </ProtectedRoute>
+              } />
+
+              {/* Backup System Test */}
+              <Route path="/backup-test" element={
+                <SimpleBackupTest />
+              } />
+
+              {/* Emergency Cleanup */}
+              <Route path="/emergency-cleanup" element={
+                <EmergencyCleanup />
+              } />
+
+              {/* Restore Diagnostic */}
+              <Route path="/restore-diagnostic" element={
+                <RestoreDiagnostic />
+              } />
+
+              {/* Simple Finance Dashboard */}
               <Route path="/finance" element={
                 <ProtectedRoute module="reports" level="view">
-                  <BusinessFinanceDashboard />
+                  <SimpleFinanceDashboard />
                 </ProtectedRoute>
               } />
 

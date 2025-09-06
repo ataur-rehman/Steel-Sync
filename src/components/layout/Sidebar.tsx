@@ -14,7 +14,8 @@ import {
   Key,
   Activity,
   CreditCard,
-  Database
+  Database,
+  CloudUpload
 } from 'lucide-react';
 import { useRoleAccess } from '../../hooks/useRoleAccess';
 
@@ -27,6 +28,8 @@ const navigation = [
   { name: 'Payment Channels', href: '/payment-channels', icon: CreditCard, permission: 'create_invoice' },
   { name: 'Returns', href: '/returns', icon: RotateCcw, permission: 'create_invoice' },
   { name: 'Reports', href: '/reports/daily', icon: TrendingUp, permission: 'view_reports' },
+  { name: 'Backup & Restore', href: '/backup', icon: CloudUpload, permission: 'manage_settings' },
+  { name: 'Backup Test', href: '/backup-test', icon: Database, permission: 'manage_settings' },
   { name: 'Audit Trail', href: '/audit', icon: Shield, permission: 'view_reports' },
   { name: 'User Management', href: '/admin/users', icon: UserCheck, permission: 'manage_settings' },
   { name: 'Permissions', href: '/admin/permissions', icon: Key, permission: 'manage_settings' },

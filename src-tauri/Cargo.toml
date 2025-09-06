@@ -15,9 +15,10 @@ tauri-build = { version = "2.3.0", features = [] }
 
 [dependencies]
 log = "0.4"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled", "backup"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 tauri = { version = "2.6.2", features = [] }
 tauri-plugin-sql = { version = "2.3.0", features = ["sqlite"] }
 tauri-plugin-log = "2.0.0"
@@ -25,3 +26,4 @@ tauri-plugin-shell = "2.0.0"
 tauri-plugin-dialog = "2.0.0"
 tauri-plugin-fs = "2.0.0"
 tauri-plugin-updater = "2.0.0"
+dirs = "5.0"

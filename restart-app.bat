@@ -1,0 +1,6 @@
+@echo off
+echo Waiting for application to close...
+timeout /t 2 /nobreak > nul
+echo Restarting application...
+cd /d "e:\claude Pro"
+npm run tauri dev

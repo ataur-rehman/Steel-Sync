@@ -26,17 +26,6 @@ interface PaymentChannel {
     updated_at: string;
 }
 
-interface Transaction {
-    id: number;
-    amount: number;
-    date: string;
-    time?: string;
-    description: string;
-    payment_channel_name: string;
-    customer_name?: string;
-    created_at: string;
-}
-
 interface FormData {
     name: string;
     type: PaymentChannel['type'];
@@ -46,7 +35,6 @@ interface FormData {
 const PaymentChannelManagement: React.FC = () => {
     // PERMANENT: State management
     const [channels, setChannels] = useState<PaymentChannel[]>([]);
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [systemReady, setSystemReady] = useState(false);
@@ -210,60 +198,18 @@ const PaymentChannelManagement: React.FC = () => {
         }
     }, [executeQuery]);
 
-    // PERMANENT: Load transactions
-    const loadTransactions = useCallback(async (): Promise<void> => {
-        try {
-            console.log('🔄 [PAYMENT] Loading transactions...');
-
-            const transactionsData = await executeQuery(`
-        SELECT 
-          t.id, t.amount, t.date, t.time, t.description, 
-          t.payment_channel_name, t.customer_name, t.created_at
-        FROM permanent_transactions t
-        ORDER BY t.date DESC, t.time DESC
-        LIMIT 100
-      `);
-
-            // PERMANENT: Ensure we always have an array
-            const transactionsArray = Array.isArray(transactionsData) ? transactionsData : [];
-
-            // PERMANENT: Sanitize data
-            const sanitizedTransactions = transactionsArray.map((transaction: any) => ({
-                id: Number(transaction.id) || 0,
-                amount: Number(transaction.amount) || 0,
-                date: String(transaction.date || ''),
-                time: transaction.time ? String(transaction.time) : undefined,
-                description: String(transaction.description || ''),
-                payment_channel_name: String(transaction.payment_channel_name || 'Unknown'),
-                customer_name: transaction.customer_name ? String(transaction.customer_name) : undefined,
-                created_at: String(transaction.created_at || '')
-            }));
-
-            setTransactions(sanitizedTransactions);
-            console.log(`✅ [PAYMENT] Loaded ${sanitizedTransactions.length} transactions`);
-
-        } catch (error) {
-            console.error('❌ [PAYMENT] Failed to load transactions:', error);
-            toast.error('Failed to load transactions');
-            setTransactions([]); // PERMANENT: Always ensure we have an array
-        }
-    }, [executeQuery]);
-
     // PERMANENT: Initialize system on mount
     useEffect(() => {
         const initialize = async () => {
             const success = await initializeSystem();
             if (success) {
-                await Promise.all([
-                    loadPaymentChannels(),
-                    loadTransactions()
-                ]);
+                await loadPaymentChannels();
             }
             setLoading(false);
         };
 
         initialize();
-    }, [initializeSystem, loadPaymentChannels, loadTransactions]);
+    }, [initializeSystem, loadPaymentChannels]);
 
     // PERMANENT: Form validation
     const validateForm = useCallback((data: FormData): string | null => {
@@ -446,8 +392,8 @@ const PaymentChannelManagement: React.FC = () => {
 
                                     <div className="flex items-center justify-between">
                                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${channel.is_active
-                                                ? 'bg-green-100 text-green-800'
-                                                : 'bg-red-100 text-red-800'
+                                            ? 'bg-green-100 text-green-800'
+                                            : 'bg-red-100 text-red-800'
                                             }`}>
                                             {channel.is_active ? 'Active' : 'Inactive'}
                                         </span>
@@ -456,71 +402,6 @@ const PaymentChannelManagement: React.FC = () => {
                                 </div>
                             ))}
                         </div>
-                    )}
-                </div>
-            </div>
-
-            {/* PERMANENT: Transactions Table */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-                <div className="px-6 py-4 border-b border-gray-200">
-                    <h2 className="text-lg font-semibold text-gray-900">
-                        Recent Transactions ({transactions.length})
-                    </h2>
-                </div>
-
-                <div className="overflow-x-auto">
-                    {transactions.length === 0 ? (
-                        <div className="text-center py-12">
-                            <CreditCard className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                            <p className="text-gray-500 text-lg mb-2">No transactions found</p>
-                            <p className="text-gray-400 text-sm">Transactions will appear here when payment channels are used</p>
-                        </div>
-                    ) : (
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Date/Time
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Amount
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Description
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Channel
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Customer
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y divide-gray-200">
-                                {transactions.map((transaction) => (
-                                    <tr key={transaction.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            <div>
-                                                <div className="font-medium">{new Date(transaction.date).toLocaleDateString()}</div>
-                                                <div className="text-gray-500">{transaction.time || '--'}</div>
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                                            ₹{transaction.amount.toLocaleString()}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-900">
-                                            {transaction.description || '--'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            {transaction.payment_channel_name}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            {transaction.customer_name || '--'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
                     )}
                 </div>
             </div>

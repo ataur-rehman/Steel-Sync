@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Backup Speed Test</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        button {
+            background: #333;
+            color: #00ff00;
+            border: 1px solid #00ff00;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: inherit;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #00ff00;
+            color: #1a1a1a;
+        }
+
+        #output {
+            background: #000;
+            border: 1px solid #333;
+            padding: 15px;
+            min-height: 300px;
+            margin-top: 20px;
+            white-space: pre-line;
+            overflow-y: auto;
+        }
+
+        .success {
+            color: #00ff00;
+        }
+
+        .error {
+            color: #ff0000;
+        }
+
+        .info {
+            color: #ffff00;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🚀 Backup Performance Test</h1>
+        <p>Test the optimized SQLite backup API performance</p>
+
+        <button onclick="testBackupSpeed()">⚡ Test Backup Speed</button>
+        <button onclick="testMultipleBackups()">🔄 Test 3 Consecutive Backups</button>
+        <button onclick="clearOutput()">🧹 Clear Output</button>
+
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        import { invoke } from '/src/services/tauri-wrapper.js';
+
+        window.output = document.getElementById('output');
+
+        window.log = function (message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const line = `[${timestamp}] ${message}`;
+            output.innerHTML += `<div class="${type}">${line}</div>`;
+            output.scrollTop = output.scrollHeight;
+        };
+
+        window.clearOutput = function () {
+            output.innerHTML = '';
+        };
+
+        window.testBackupSpeed = async function () {
+            log('🧪 Testing Backup Speed...', 'info');
+
+            try {
+                const start = Date.now();
+                log('⏰ Starting backup...', 'info');
+
+                const result = await invoke('create_consistent_backup', {
+                    backupFileName: `speed-test-${Date.now()}.db`
+                });
+
+                const duration = Date.now() - start;
+
+                if (result.success) {
+                    log(`✅ Backup completed in ${duration}ms`, 'success');
+                    log(`📊 Size: ${(result.size / 1024 / 1024).toFixed(2)} MB`, 'success');
+                    log(`🔐 Checksum: ${result.checksum.substring(0, 16)}...`, 'success');
+                    log(`⚡ Speed: ${(result.size / 1024 / 1024 / (duration / 1000)).toFixed(2)} MB/s`, 'success');
+                } else {
+                    log(`❌ Backup failed: ${result.error}`, 'error');
+                }
+
+            } catch (error) {
+                log(`❌ Test failed: ${error}`, 'error');
+            }
+        };
+
+        window.testMultipleBackups = async function () {
+            log('🔄 Testing 3 consecutive backups...', 'info');
+
+            const results = [];
+
+            for (let i = 1; i <= 3; i++) {
+                try {
+                    log(`📋 Starting backup ${i}/3...`, 'info');
+                    const start = Date.now();
+
+                    const result = await invoke('create_consistent_backup', {
+                        backupFileName: `multi-test-${i}-${Date.now()}.db`
+                    });
+
+                    const duration = Date.now() - start;
+                    results.push({ success: result.success, duration, size: result.size });
+
+                    if (result.success) {
+                        log(`✅ Backup ${i} completed in ${duration}ms (${(result.size / 1024 / 1024).toFixed(2)} MB)`, 'success');
+                    } else {
+                        log(`❌ Backup ${i} failed: ${result.error}`, 'error');
+                    }
+
+                    // Small delay between backups
+                    await new Promise(resolve => setTimeout(resolve, 100));
+
+                } catch (error) {
+                    log(`❌ Backup ${i} failed: ${error}`, 'error');
+                    results.push({ success: false, duration: 0, size: 0 });
+                }
+            }
+
+            // Summary
+            const successful = results.filter(r => r.success);
+            if (successful.length > 0) {
+                const avgDuration = successful.reduce((sum, r) => sum + r.duration, 0) / successful.length;
+                const avgSize = successful.reduce((sum, r) => sum + r.size, 0) / successful.length;
+                log(`📊 Average: ${avgDuration.toFixed(0)}ms, ${(avgSize / 1024 / 1024).toFixed(2)} MB`, 'success');
+            }
+        };
+    </script>
+</body>
+
+</html>

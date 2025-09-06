@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
+
 import toast from 'react-hot-toast';
 import { parseCurrency } from '../../utils/currency';
 import { formatInvoiceNumber } from '../../utils/numberFormatting';
@@ -14,84 +15,16 @@ import {
   Plus,
   Download,
   Search,
+
   RefreshCw,
   ArrowLeft,
   ArrowRight,
   Edit,
   Trash2,
+
   User,
-  Info,
-  AlertTriangle,
-  Clock
+  Info
 } from 'lucide-react';
-
-// PERFORMANCE OPTIMIZATION: Debounce hook for search and filters
-const useDebounce = (value: string, delay: number) => {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-};
-
-// INPUT VALIDATION: Validation utilities
-const validateTransaction = (transaction: TransactionForm): { isValid: boolean; errors: string[] } => {
-  const errors: string[] = [];
-
-  // Description validation
-  if (!transaction.description?.trim()) {
-    errors.push('Description is required');
-  } else if (transaction.description.length > 255) {
-    errors.push('Description must be less than 255 characters');
-  }
-
-  // Amount validation
-  if (!transaction.amount || transaction.amount <= 0) {
-    errors.push('Amount must be greater than 0');
-  } else if (transaction.amount > 999999999) {
-    errors.push('Amount cannot exceed 999,999,999');
-  } else if (!/^\d+(\.\d{1,2})?$/.test(transaction.amount.toString())) {
-    errors.push('Amount must be a valid number with up to 2 decimal places');
-  }
-
-  // Date validation
-  if (!transaction.date) {
-    errors.push('Date is required');
-  } else {
-    const selectedDate = new Date(transaction.date);
-    const today = new Date();
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(today.getFullYear() - 1);
-
-    if (selectedDate > today) {
-      errors.push('Date cannot be in the future');
-    } else if (selectedDate < oneYearAgo) {
-      errors.push('Date cannot be more than 1 year in the past');
-    }
-  }
-
-  // Payment method validation
-  if (!transaction.payment_method?.trim()) {
-    errors.push('Payment method is required');
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors
-  };
-};
-
-// PERFORMANCE: Constants for pagination
-const ITEMS_PER_PAGE = 50;
-const MAX_ENTRIES_BEFORE_PAGINATION = 100;
 
 // Enhanced interfaces with proper data handling
 interface LedgerEntry {
@@ -215,91 +148,6 @@ const DailyLedger: React.FC = () => {
   // Data
   const [customers, setCustomers] = useState<any[]>([]);
   const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
-
-  // PERFORMANCE OPTIMIZATION: Pagination and search state
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalEntries, setTotalEntries] = useState(0);
-  const [allEntries, setAllEntries] = useState<LedgerEntry[]>([]); // Cache all entries
-
-  // PERFORMANCE OPTIMIZATION: Debounced search
-  const debouncedSearchTerm = useDebounce(searchTerm, 300);
-
-  // ERROR HANDLING: Error state
-  const [error, setError] = useState<string | null>(null);
-
-  // PERFORMANCE OPTIMIZATION: Refresh debouncing
-  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // PERFORMANCE OPTIMIZATION: Memoized filtered entries
-  const optimizedFilteredEntries = useMemo(() => {
-    let filtered = [...allEntries];
-
-    // Apply search filter
-    if (debouncedSearchTerm) {
-      const searchLower = debouncedSearchTerm.toLowerCase();
-      filtered = filtered.filter(entry =>
-        entry.description?.toLowerCase().includes(searchLower) ||
-        entry.customer_name?.toLowerCase().includes(searchLower) ||
-        entry.category?.toLowerCase().includes(searchLower) ||
-        entry.payment_method?.toLowerCase().includes(searchLower) ||
-        entry.notes?.toLowerCase().includes(searchLower) ||
-        entry.bill_number?.toLowerCase().includes(searchLower) ||
-        entry.amount.toString().includes(searchLower)
-      );
-    }
-
-    // Apply customer filter
-    if (selectedCustomerId) {
-      filtered = filtered.filter(entry => {
-        if (entry.customer_id === selectedCustomerId) return true;
-        if (!entry.customer_id || entry.customer_id === 0) return true;
-        if (entry.category === 'refunds' || entry.category === 'Cash Refund') return true;
-        return false;
-      });
-    }
-
-    // Apply payment channel filter
-    if (selectedPaymentChannels.length > 0) {
-      filtered = filtered.filter(entry => {
-        if (entry.category === 'refunds' || entry.category === 'Cash Refund') return true;
-        if (!entry.customer_id || entry.customer_id === 0) return true;
-        if (entry.payment_channel_id) {
-          return selectedPaymentChannels.includes(entry.payment_channel_id);
-        }
-        if (entry.payment_method) {
-          const matchedChannel = paymentChannels.find(channel =>
-            channel.name.toLowerCase() === entry.payment_method?.toLowerCase() ||
-            channel.type.toLowerCase() === entry.payment_method?.toLowerCase()
-          );
-          return matchedChannel ? selectedPaymentChannels.includes(matchedChannel.id) : false;
-        }
-        return false;
-      });
-    }
-
-    return filtered;
-  }, [allEntries, debouncedSearchTerm, selectedCustomerId, selectedPaymentChannels, paymentChannels]);
-
-  // PERFORMANCE OPTIMIZATION: Paginated entries
-  const paginatedEntries = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-
-    // Calculate total pages
-    const calculatedTotalPages = Math.ceil(optimizedFilteredEntries.length / ITEMS_PER_PAGE);
-
-    // Update pagination state if needed
-    if (calculatedTotalPages !== totalPages) {
-      setTotalPages(calculatedTotalPages);
-    }
-
-    if (optimizedFilteredEntries.length !== totalEntries) {
-      setTotalEntries(optimizedFilteredEntries.length);
-    }
-
-    return optimizedFilteredEntries.slice(startIndex, endIndex);
-  }, [optimizedFilteredEntries, currentPage, totalPages, totalEntries]);
 
   useEffect(() => {
     loadInitialData();
@@ -426,231 +274,231 @@ const DailyLedger: React.FC = () => {
   const loadDayData = async (date: string) => {
     try {
       setLoading(true);
-      setError(null);
 
-      // PERFORMANCE OPTIMIZATION: Start timing
-      const startTime = performance.now();
-      console.time(`LoadDayData-${date}`);
+      // BULLETPROOF SOLUTION: Load ALL entries from database ONLY
+      // NO localStorage dependency - everything comes from database
+      console.log('🔄 [DailyLedger] Loading all entries from database for date:', date);
 
-      console.log('🔄 [DailyLedger] Loading entries from database for date:', date);
-
-      // OPTIMIZED: Load entries with error handling
+      // Load both system and manual entries from database
       const systemEntries = await generateSystemEntries(date);
 
-      // PERFORMANCE OPTIMIZATION: Process entries efficiently
-      const processedEntries = await processEntries(systemEntries);
+      // All entries are now in systemEntries (including manual ones from ledger_entries table)
+      const allEntries = systemEntries;
 
-      console.log(`📊 [DailyLedger] Total entries from database: ${processedEntries.length}`);
+      console.log(`📊 [DailyLedger] Total entries from database: ${allEntries.length}`);
 
-      // PERFORMANCE OPTIMIZATION: Cache all entries for filtering
-      setAllEntries(processedEntries);
+      // Remove duplicate IDs only
+      const seenIds = new Set();
+      const finalEntries = allEntries.filter(entry => {
+        if (entry.id && seenIds.has(entry.id)) {
+          console.log(`🗑️ [DailyLedger] Removed duplicate ID: ${entry.id}`);
+          return false;
+        }
+        if (entry.id) seenIds.add(entry.id);
+        return true;
+      });
 
-      // Use cached entries instead of re-filtering here
-      setEntries(processedEntries);
+      console.log(`✅ [DailyLedger] Final entries: ${finalEntries.length} (pure database storage)`);
 
-      // Calculate summary from processed entries
-      const daySummary = calculateSummary(processedEntries, date);
-      setSummary(daySummary);
+      // DEBUG: Log all entries before filtering
+      console.log('🔍 [DailyLedger] All entries before filtering:', finalEntries.map(e => ({
+        id: e.id,
+        description: e.description,
+        amount: e.amount,
+        customer_id: e.customer_id,
+        payment_channel_id: e.payment_channel_id,
+        payment_method: e.payment_method,
+        category: e.category
+      })));
 
-      // PERFORMANCE MONITORING: Log timing
-      const endTime = performance.now();
-      console.timeEnd(`LoadDayData-${date}`);
+      console.log('🔍 [DailyLedger] Current filters:', {
+        selectedCustomerId,
+        selectedPaymentChannels,
+        paymentChannelsCount: paymentChannels.length
+      });
 
-      if (endTime - startTime > 1000) {
-        console.warn(`🐢 [DailyLedger] Slow data loading: ${(endTime - startTime).toFixed(2)}ms for ${processedEntries.length} entries`);
-      } else {
-        console.log(`✅ [DailyLedger] Data loaded in ${(endTime - startTime).toFixed(2)}ms`);
+      // FIXED: Apply customer and payment channel filters if selected
+      let filteredEntries = finalEntries;
+
+      if (selectedCustomerId) {
+        filteredEntries = filteredEntries.filter(entry => {
+          // Include entries for the selected customer
+          if (entry.customer_id === selectedCustomerId) return true;
+
+          // CRITICAL FIX: Include system entries (refunds, salary, manual transactions, etc.)
+          // These should be visible regardless of customer filter
+          if (!entry.customer_id || entry.customer_id === 0) return true;
+
+          // Include cash refunds and return-related entries for any customer
+          // since they affect overall daily cash flow
+          if (entry.category === 'refunds' ||
+            entry.category === 'Cash Refund' ||
+            entry.description?.includes('Cash refund') ||
+            entry.reference_type === 'other') return true;
+
+          // Exclude other customer entries
+          return false;
+        });
+
+        console.log(`🔍 [DailyLedger] After customer filter (${selectedCustomerId}): ${filteredEntries.length} entries`);
+      }      // Apply payment channel filter if channels are selected
+      if (selectedPaymentChannels.length > 0) {
+        console.log(`🔍 [DailyLedger] Applying payment channel filter for channels: ${selectedPaymentChannels}`);
+
+        const beforeChannelFilter = filteredEntries.length;
+        filteredEntries = filteredEntries.filter(entry => {
+          // CRITICAL FIX: Always include system entries (refunds, salary, etc.) regardless of payment channel filter
+          if (entry.category === 'refunds' ||
+            entry.category === 'Cash Refund' ||
+            entry.description?.includes('Cash refund') ||
+            entry.reference_type === 'other' ||
+            !entry.customer_id ||
+            entry.customer_id === 0) {
+            console.log(`🔍 [DailyLedger] Including system entry: ${entry.id} - ${entry.description}`);
+            return true;
+          }
+
+          // If entry has payment_channel_id, check if it's in selected channels
+          if (entry.payment_channel_id) {
+            const included = selectedPaymentChannels.includes(entry.payment_channel_id);
+            console.log(`🔍 [DailyLedger] Entry ${entry.id} payment_channel_id ${entry.payment_channel_id}: ${included ? 'INCLUDED' : 'EXCLUDED'}`);
+            return included;
+          }
+          // If entry only has payment_method, match by channel name
+          if (entry.payment_method) {
+            const matchedChannel = paymentChannels.find(channel =>
+              channel.name.toLowerCase() === (entry.payment_method || '').toLowerCase() ||
+              channel.type.toLowerCase() === (entry.payment_method || '').toLowerCase()
+            );
+            const included = matchedChannel ? selectedPaymentChannels.includes(matchedChannel.id) : false;
+            console.log(`🔍 [DailyLedger] Entry ${entry.id} payment_method "${entry.payment_method}" matched channel ${matchedChannel?.id}: ${included ? 'INCLUDED' : 'EXCLUDED'}`);
+            return included;
+          }
+          console.log(`🔍 [DailyLedger] Entry ${entry.id} no payment info: EXCLUDED`);
+          return false;
+        });
+
+        console.log(`🔍 [DailyLedger] After payment channel filter: ${beforeChannelFilter} -> ${filteredEntries.length} entries`);
       }
 
+      // FIXED: Sort by date and time properly handling AM/PM format
+      console.log(`🕒 [DailyLedger] Sorting ${filteredEntries.length} entries by date and time`);
+
+      filteredEntries.sort((a, b) => {
+        // First sort by date
+        const dateA = a.date || '1900-01-01';
+        const dateB = b.date || '1900-01-01';
+
+        const dateComparison = dateA.localeCompare(dateB);
+        if (dateComparison !== 0) {
+          return dateComparison;
+        }
+
+        // If dates are equal, sort by time (convert to 24-hour format for proper sorting)
+        const convertTo24Hour = (timeStr: string): string => {
+          if (!timeStr || timeStr.trim() === '') return '00:00';
+
+          try {
+            const cleanTimeStr = timeStr.trim();
+
+            // If already in 24-hour format, return as is
+            if (!/AM|PM/i.test(cleanTimeStr)) {
+              return cleanTimeStr;
+            }
+
+            // Parse 12-hour format
+            const match = cleanTimeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+            if (!match) return '00:00';
+
+            let hours = parseInt(match[1], 10);
+            const minutes = match[2];
+            const period = match[3].toUpperCase();
+
+            // Convert to 24-hour format
+            if (period === 'AM') {
+              if (hours === 12) hours = 0; // 12:XX AM becomes 00:XX
+            } else { // PM
+              if (hours !== 12) hours += 12; // 1:XX PM becomes 13:XX, but 12:XX PM stays 12:XX
+            }
+
+            return `${hours.toString().padStart(2, '0')}:${minutes}`;
+          } catch (error) {
+            return '00:00';
+          }
+        };
+
+        const timeA = convertTo24Hour(a.time || '00:00 AM');
+        const timeB = convertTo24Hour(b.time || '00:00 AM');
+
+        return timeA.localeCompare(timeB);
+      });
+
+      // Debug: Show first few entries after sorting
+      if (filteredEntries.length > 0) {
+        console.log(`🕒 [DailyLedger] Sample sorted entries:`,
+          filteredEntries.slice(0, 3).map(e => ({
+            id: e.id,
+            date: e.date,
+            time: e.time,
+            description: e.description
+          }))
+        );
+      }
+
+      console.log(`🔍 [DailyLedger] Final filtered entries (${filteredEntries.length}) being set to state:`);
+      filteredEntries.forEach(entry => {
+        console.log(`🔍 [DailyLedger] Setting entry ${entry.id}: ${entry.description}, customer: ${entry.customer_id}, channel: ${entry.payment_channel_id}, method: ${entry.payment_method}`);
+      });
+
+      setEntries(filteredEntries);
+
+      // Debug: Log manual vs system entries
+      const manualCount = filteredEntries.filter(e => e.is_manual).length;
+      const systemCount = filteredEntries.filter(e => !e.is_manual).length;
+      console.log(`📊 [DailyLedger] Loaded entries for ${date}: ${manualCount} manual, ${systemCount} system, ${filteredEntries.length} total`);
+
+      // Log a sample of manual entries for debugging
+      const manualEntries = filteredEntries.filter(e => e.is_manual);
+      if (manualEntries.length > 0) {
+        console.log('📝 [DailyLedger] Sample manual entries:', manualEntries.slice(0, 3).map(e => ({
+          id: e.id,
+          description: e.description,
+          amount: e.amount,
+          is_manual: e.is_manual,
+          category: e.category
+        })));
+      }
+
+      // Calculate summary from database entries only
+      const daySummary = calculateSummary(finalEntries, date);
+      setSummary(daySummary);
+
+      // BULLETPROOF: No localStorage storage needed - database is the single source of truth
+
     } catch (error) {
-      console.error('❌ [DailyLedger] Failed to load day data:', error);
-      setError(`Failed to load data for ${date}. Please try again.`);
+      console.error('Failed to load day data:', error);
       toast.error('Failed to load day data');
     } finally {
       setLoading(false);
     }
   };
 
-  // PERFORMANCE OPTIMIZATION: Process entries efficiently
-  const processEntries = async (entries: LedgerEntry[]): Promise<LedgerEntry[]> => {
-    // Remove duplicates efficiently
-    const seenIds = new Set<string>();
-    const uniqueEntries = entries.filter(entry => {
-      if (!entry.id) return true; // Keep entries without IDs
-      if (seenIds.has(entry.id)) {
-        console.log(`🗑️ [DailyLedger] Removed duplicate ID: ${entry.id}`);
-        return false;
-      }
-      seenIds.add(entry.id);
-      return true;
-    });
-
-    // PERFORMANCE OPTIMIZATION: Sort entries efficiently
-    uniqueEntries.sort((a, b) => {
-      // Primary sort by date
-      const dateComparison = (a.date || '1900-01-01').localeCompare(b.date || '1900-01-01');
-      if (dateComparison !== 0) return dateComparison;
-
-      // Secondary sort by time
-      const timeA = convertTo24Hour(a.time || '00:00 AM');
-      const timeB = convertTo24Hour(b.time || '00:00 AM');
-      return timeA.localeCompare(timeB);
-    });
-
-    return uniqueEntries;
-  };
-
-  // UTILITY: Convert 12-hour to 24-hour time format
-  const convertTo24Hour = (timeStr: string): string => {
-    if (!timeStr?.trim()) return '00:00';
-
-    try {
-      // If already in 24-hour format, return as is
-      if (!/AM|PM/i.test(timeStr)) return timeStr;
-
-      const match = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-      if (!match) return '00:00';
-
-      let hours = parseInt(match[1], 10);
-      const minutes = match[2];
-      const period = match[3].toUpperCase();
-
-      if (period === 'AM') {
-        if (hours === 12) hours = 0;
-      } else {
-        if (hours !== 12) hours += 12;
-      }
-
-      return `${hours.toString().padStart(2, '0')}:${minutes}`;
-    } catch (error) {
-      return '00:00';
-    }
-  };
-
-  // INPUT VALIDATION UTILITIES for Large Production Database
-  const validateTransaction = (transaction: Partial<LedgerEntry>): string | null => {
-    // Required field validation
-    if (!transaction.description?.trim()) {
-      return 'Description is required';
-    }
-
-    if (!transaction.amount || isNaN(Number(transaction.amount))) {
-      return 'Valid amount is required';
-    }
-
-    if (Number(transaction.amount) === 0) {
-      return 'Amount cannot be zero';
-    }
-
-    // Business logic validation
-    if (Math.abs(Number(transaction.amount)) > 1000000) {
-      return 'Amount exceeds maximum limit (1,000,000)';
-    }
-
-    if (transaction.description.length > 255) {
-      return 'Description too long (max 255 characters)';
-    }
-
-    // Date validation
-    if (transaction.date) {
-      const date = new Date(transaction.date);
-      if (isNaN(date.getTime())) {
-        return 'Invalid date format';
-      }
-
-      const now = new Date();
-      const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-      const oneYearFuture = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
-
-      if (date < oneYearAgo || date > oneYearFuture) {
-        return 'Date must be within one year of current date';
-      }
-    }
-
-    return null; // Valid
-  };
-
-  const validateSearchInput = (searchTerm: string): boolean => {
-    // Prevent SQL injection patterns
-    const dangerousPatterns = /['";\\-]/;
-    if (dangerousPatterns.test(searchTerm)) {
-      setError('Invalid search characters detected');
-      return false;
-    }
-
-    // Limit search term length to prevent performance issues
-    if (searchTerm.length > 100) {
-      setError('Search term too long (max 100 characters)');
-      return false;
-    }
-
-    return true;
-  };
-
-  // ERROR HANDLING: Comprehensive error boundary
-  const handleDatabaseError = (error: any, operation: string): string => {
-    console.error(`❌ [DailyLedger] ${operation} failed:`, error);
-
-    if (error?.message?.includes('SQLITE_BUSY')) {
-      return 'Database is busy. Please try again in a moment.';
-    }
-
-    if (error?.message?.includes('SQLITE_LOCKED')) {
-      return 'Database is locked. Please try again.';
-    }
-
-    if (error?.message?.includes('FOREIGN KEY')) {
-      return 'Invalid reference to customer or payment channel.';
-    }
-
-    if (error?.message?.includes('UNIQUE constraint')) {
-      return 'Duplicate entry detected.';
-    }
-
-    return `${operation} failed. Please try again.`;
-  };
-
-  // PERFORMANCE OPTIMIZATION: Initialize component with optimal loading
+  // BULLETPROOF SOLUTION: Pure database-only approach
+  // NO localStorage, NO migrations, NO dependencies - just pure database
   useEffect(() => {
-    const initializeComponent = async () => {
-      try {
-        console.log('🚀 [DailyLedger] Initializing component with performance optimizations');
-
-        // Load initial data for selected date
-        if (selectedDate) {
-          await loadDayData(selectedDate);
-        }
-
-        console.log('✅ [DailyLedger] Component initialized successfully');
-      } catch (error) {
-        console.error('❌ [DailyLedger] Initialization failed:', error);
-        setError('Failed to initialize Daily Ledger. Please refresh the page.');
-      }
-    };
-
-    initializeComponent();
+    // Simple initialization - just load the current date data
+    if (selectedDate) {
+      loadDayData(selectedDate);
+    }
   }, [selectedDate]); // Only reload when date changes
 
-  // RENDER OPTIMIZATION: Performance monitoring
-  const renderStartTime = useRef<number>(0);
-
-  useEffect(() => {
-    renderStartTime.current = performance.now();
-
-    return () => {
-      const renderTime = performance.now() - renderStartTime.current;
-      if (renderTime > 100) {
-        console.warn(`🐢 [DailyLedger] Slow render: ${renderTime.toFixed(2)}ms`);
-      }
-    };
-  });
-
-  // FUNCTION DEFINITIONS - All functions defined before render logic
   const generateSystemEntries = async (date: string): Promise<LedgerEntry[]> => {
     const systemEntries: LedgerEntry[] = [];
 
     try {
-      console.log('🔄 [DailyLedger] Loading entries from centralized system for date:', date);          // CENTRALIZED SYSTEM: Load from ledger_entries table AND vendor_payments table
+      console.log('🔄 [DailyLedger] Loading entries from centralized system for date:', date);
+
+      // CENTRALIZED SYSTEM: Load from ledger_entries table AND vendor_payments table
       // This follows centralized approach - vendor payments stay in their own table
 
       // Phase 1: Load from centralized ledger_entries table (customer payments, salaries, etc.)
@@ -1367,9 +1215,7 @@ const DailyLedger: React.FC = () => {
       entry.notes?.toLowerCase().includes(searchTerm.toLowerCase());
 
     return searchMatch;
-  });
-
-  const incomingEntries = filteredEntries.filter(e => e.type === 'incoming');
+  }); const incomingEntries = filteredEntries.filter(e => e.type === 'incoming');
   const outgoingEntries = filteredEntries.filter(e => e.type === 'outgoing');
 
   const formatCurrency = (amount: number | undefined | null): string => {
@@ -1518,29 +1364,6 @@ const DailyLedger: React.FC = () => {
 
     return { primaryText };
   };
-
-  // ERROR BOUNDARY: Handle rendering errors
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <div className="text-red-600 mb-4">
-          <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
-          <h3 className="text-lg font-semibold">Daily Ledger Error</h3>
-        </div>
-        <p className="text-red-700 mb-4">{error}</p>
-        <button
-          onClick={() => {
-            setError(null);
-            if (selectedDate) loadDayData(selectedDate);
-          }}
-          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-        >
-          Try Again
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
       {/* Header */}
@@ -1901,18 +1724,6 @@ const DailyLedger: React.FC = () => {
 
             {incomingEntries.length > 0 ? (
               <div className="overflow-x-auto">
-                {/* PERFORMANCE OPTIMIZATION: Show pagination info for large datasets */}
-                {incomingEntries.length > ITEMS_PER_PAGE && (
-                  <div className="mb-3 text-xs text-gray-500 bg-blue-50 p-2 rounded">
-                    📊 Showing {Math.min(ITEMS_PER_PAGE, incomingEntries.length)} of {incomingEntries.length} incoming entries
-                    {incomingEntries.length > ITEMS_PER_PAGE && (
-                      <span className="ml-2 text-blue-600">
-                        (Use pagination below to view all entries)
-                      </span>
-                    )}
-                  </div>
-                )}
-
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
@@ -1923,7 +1734,7 @@ const DailyLedger: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {paginatedEntries.filter(entry => entry.amount > 0).map((entry) => {
+                    {incomingEntries.map((entry) => {
                       const { primaryText } = getCleanDisplayText(entry);
 
                       return (
@@ -1992,18 +1803,6 @@ const DailyLedger: React.FC = () => {
 
             {outgoingEntries.length > 0 ? (
               <div className="overflow-x-auto">
-                {/* PERFORMANCE OPTIMIZATION: Show pagination info for large datasets */}
-                {outgoingEntries.length > ITEMS_PER_PAGE && (
-                  <div className="mb-3 text-xs text-gray-500 bg-red-50 p-2 rounded">
-                    📊 Showing {Math.min(ITEMS_PER_PAGE, outgoingEntries.length)} of {outgoingEntries.length} outgoing entries
-                    {outgoingEntries.length > ITEMS_PER_PAGE && (
-                      <span className="ml-2 text-red-600">
-                        (Use pagination below to view all entries)
-                      </span>
-                    )}
-                  </div>
-                )}
-
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
@@ -2014,7 +1813,7 @@ const DailyLedger: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {paginatedEntries.filter(entry => entry.amount < 0).map((entry) => {
+                    {outgoingEntries.map((entry) => {
                       const { primaryText } = getCleanDisplayText(entry);
                       return (
                         <tr key={entry.id} className="hover:bg-gray-50">
@@ -2027,7 +1826,7 @@ const DailyLedger: React.FC = () => {
                           </td>
                           <td className="px-3 py-2 text-right">
                             <span className="font-bold text-red-600 text-sm">
-                              -{formatCurrency(Math.abs(entry.amount))}
+                              -{formatCurrency(entry.amount)}
                             </span>
                           </td>
                           <td className="px-3 py-2 text-center">
@@ -2384,90 +2183,6 @@ const DailyLedger: React.FC = () => {
         </div>
       )}
 
-      {/* PERFORMANCE OPTIMIZATION: Pagination Controls for Large Datasets */}
-      {totalPages > 1 && (
-        <div className="bg-white rounded-lg border p-4 mt-6">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-gray-600">
-              Showing page {currentPage} of {totalPages}
-              <span className="ml-2 text-gray-500">
-                ({((currentPage - 1) * ITEMS_PER_PAGE) + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, optimizedFilteredEntries.length)} of {optimizedFilteredEntries.length} entries)
-              </span>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setCurrentPage(1)}
-                disabled={currentPage === 1}
-                className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                First
-              </button>
-
-              <button
-                onClick={() => setCurrentPage(currentPage - 1)}
-                disabled={currentPage === 1}
-                className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                <ArrowLeft className="w-3 h-3 mr-1" />
-                Previous
-              </button>
-
-              <div className="flex items-center space-x-1">
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  const page = i + Math.max(1, currentPage - 2);
-                  if (page > totalPages) return null;
-
-                  return (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1 text-sm border rounded ${currentPage === page
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'hover:bg-gray-50'
-                        }`}
-                    >
-                      {page}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                onClick={() => setCurrentPage(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              >
-                Next
-                <ArrowRight className="w-3 h-3 ml-1" />
-              </button>
-
-              <button
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Last
-              </button>
-            </div>
-          </div>
-
-          {/* PERFORMANCE INFO: Show performance metrics for large datasets */}
-          {optimizedFilteredEntries.length > 1000 && (
-            <div className="mt-3 text-xs text-gray-500 bg-amber-50 p-2 rounded border-l-4 border-amber-400">
-              <div className="flex items-center">
-                <Clock className="w-3 h-3 mr-1 text-amber-600" />
-                <span className="font-medium text-amber-800">Large Dataset Performance:</span>
-              </div>
-              <div className="mt-1">
-                Optimized pagination is active for {optimizedFilteredEntries.length.toLocaleString()} entries.
-                This improves page load speed and reduces memory usage.
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* System Status */}
       <div className="bg-gray-50 rounded-lg p-4">
         <div className="flex items-center justify-between">
@@ -2494,7 +2209,6 @@ const DailyLedger: React.FC = () => {
         </div>
       </div>
     </div>
-
   );
 };
 

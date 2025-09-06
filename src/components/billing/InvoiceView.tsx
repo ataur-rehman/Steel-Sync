@@ -130,21 +130,21 @@ export default function InvoiceView() {
   const handleDelete = async () => {
     if (!invoice) return;
 
-    // Enhanced validation before deletion
-    if (invoice.amount_paid > 0) {
-      toast.error('Cannot delete invoices with payments. Please process refunds first.');
-      return;
-    }
+    // ✅ UNIFIED DELETE: Check payment status and inform user
+    const hasPayments = (invoice.amount_paid || 0) > 0;
+    const paymentInfo = hasPayments
+      ? `\n💰 PAYMENTS: Rs.${invoice.amount_paid} will be reversed as customer credit`
+      : '';
 
     const confirmed = window.confirm(
-      `⚠️ PERMANENT DELETE WARNING ⚠️\n\nInvoice: #${formatInvoiceNumber(invoice.bill_number)}\nCustomer: ${invoice.customer_name}\nAmount: ${formatCurrency(invoice.grand_total)}\n\nThis will:\n• Delete the invoice permanently\n• Restore product stock\n• Adjust customer balance\n• Cannot be undone\n\nAre you absolutely sure?`
+      `⚠️ DELETE CONFIRMATION ⚠️\n\nInvoice: #${formatInvoiceNumber(invoice.bill_number)}\nCustomer: ${invoice.customer_name}\nAmount: ${formatCurrency(invoice.grand_total)}${paymentInfo}\n\nThis will:\n• Delete the invoice permanently\n• Restore product stock\n• Adjust customer balance${hasPayments ? '\n• Reverse payments as customer credit' : ''}\n• Cannot be undone\n\nAre you absolutely sure?`
     );
 
     if (confirmed) {
-      const loadingToast = toast.loading('Deleting invoice...');
+      const loadingToast = toast.loading(hasPayments ? 'Deleting invoice and handling payments...' : 'Deleting invoice...');
 
       try {
-        const result = await db.deleteInvoiceWithValidation(invoice.id);
+        const result = await db.deleteInvoiceWithValidation(invoice.id, 'credit');
 
         if (result.success) {
           // Trigger refresh events for all components
@@ -170,6 +170,80 @@ export default function InvoiceView() {
         console.error('Error deleting invoice:', err);
         toast.error(err.message || 'Failed to delete invoice');
       }
+    }
+  };
+
+  const handleForceDelete = async () => {
+    if (!invoice) return;
+
+    // Show payment handling options for paid/partial invoices
+    const hasPayments = invoice.amount_paid > 0;
+    const paymentAmount = invoice.amount_paid;
+    const remainingBalance = invoice.grand_total - invoice.amount_paid;
+
+    let paymentHandling: 'reverse' | 'transfer' | 'ignore' = 'reverse';
+
+    if (hasPayments) {
+      const choice = window.confirm(
+        `⚠️ FORCE DELETE - PAYMENT HANDLING ⚠️\n\nInvoice: #${formatInvoiceNumber(invoice.bill_number)}\nCustomer: ${invoice.customer_name}\nTotal: ${formatCurrency(invoice.grand_total)}\nPaid: ${formatCurrency(paymentAmount)}\nRemaining: ${formatCurrency(remainingBalance)}\n\nHow should we handle the ${formatCurrency(paymentAmount)} in payments?\n\nClick OK to REVERSE payments (recommended)\nClick Cancel to choose other options`
+      );
+
+      if (!choice) {
+        const transferChoice = window.confirm(
+          `Payment Handling Options:\n\nClick OK to TRANSFER payments to customer balance\nClick Cancel to IGNORE payments (admin only)`
+        );
+        paymentHandling = transferChoice ? 'transfer' : 'ignore';
+      }
+    }
+
+    const finalConfirm = window.confirm(
+      `🚨 FORCE DELETE CONFIRMATION 🚨\n\nInvoice: #${formatInvoiceNumber(invoice.bill_number)}\nCustomer: ${invoice.customer_name}\nAmount: ${formatCurrency(invoice.grand_total)}\n${hasPayments ? `Payments: ${formatCurrency(paymentAmount)} (${paymentHandling})\n` : ''}\nThis will:\n• DELETE invoice permanently\n• ${paymentHandling === 'reverse' ? 'REVERSE all payments' : paymentHandling === 'transfer' ? 'TRANSFER payments to customer balance' : 'IGNORE existing payments'}\n• Restore product stock\n• Create audit trail\n• CANNOT be undone\n\nType 'DELETE' to confirm this dangerous action:`
+    );
+
+    if (!finalConfirm) return;
+
+    const deleteConfirmation = window.prompt(
+      `Final confirmation required.\nType 'DELETE' exactly to proceed with force deletion:`
+    );
+
+    if (deleteConfirmation !== 'DELETE') {
+      toast.error('Force delete cancelled - confirmation text did not match');
+      return;
+    }
+
+    const loadingToast = toast.loading('Force deleting invoice...');
+
+    try {
+      const result = await db.forceDeleteInvoice(invoice.id, {
+        handlePayments: paymentHandling,
+        reason: `Force delete via UI - Invoice #${invoice.bill_number}`,
+        authorizedBy: 'User Interface',
+        createBackup: true
+      });
+
+      if (result.success) {
+        // Trigger refresh events for all components
+        import('../../utils/eventBus').then(({ triggerInvoiceDeletedRefresh }) => {
+          triggerInvoiceDeletedRefresh({
+            id: invoice.id,
+            bill_number: invoice.bill_number,
+            customer_id: invoice.customer_id,
+            customer_name: invoice.customer_name,
+            items: invoiceItems
+          });
+        });
+
+        toast.dismiss(loadingToast);
+        toast.success(`Invoice force deleted successfully (${paymentHandling} payments)`);
+        navigate('/billing/list');
+      } else {
+        toast.dismiss(loadingToast);
+        toast.error(result.error?.message || 'Failed to force delete invoice');
+      }
+    } catch (err: any) {
+      toast.dismiss(loadingToast);
+      console.error('Error force deleting invoice:', err);
+      toast.error(err.message || 'Failed to force delete invoice');
     }
   };
 
@@ -249,9 +323,11 @@ export default function InvoiceView() {
               <Edit className="h-4 w-4 mr-2" />
               Edit
             </button>
+            {/* ✅ UNIFIED DELETE BUTTON - Handles all invoice types */}
             <button
               onClick={handleDelete}
               className="btn bg-red-600 text-white hover:bg-red-700 flex items-center"
+              title="Delete invoice (handles payments automatically)"
             >
               <Trash2 className="h-4 w-4 mr-2" />
               Delete

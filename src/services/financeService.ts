@@ -133,20 +133,20 @@ class FinanceService {
   public async getBusinessMetricsForced(): Promise<BusinessMetrics> {
     // Clear cache first
     this.clearCache();
-    
+
     // Get fresh data
     const metrics = await this.getBusinessMetrics();
-    
+
     // Log for debugging vendor purchase data display
     console.log('📊 FORCED Business Metrics Calculation:');
     console.log(`   Customer Sales: Rs ${metrics.totalSales.toLocaleString()}`);
     console.log(`   Vendor Purchases: Rs ${metrics.totalPurchases.toLocaleString()}`);
     console.log(`   Outstanding Payables: Rs ${metrics.outstandingPayables.toLocaleString()}`);
-    
+
     if (metrics.totalPurchases > 0) {
       console.log('✅ Vendor purchase data successfully calculated from centralized system');
     }
-    
+
     return metrics;
   }
 
@@ -169,16 +169,16 @@ class FinanceService {
 
     try {
       console.log('🔄 [FINANCE] Initializing finance tables...');
-      
+
       // Business expenses table
       await db.executeCommand(`
         CREATE TABLE IF NOT EXISTS business_expenses (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           date TEXT NOT NULL,
-          category TEXT NOT NULL),
+          category TEXT NOT NULL,
           description TEXT NOT NULL,
           amount REAL NOT NULL,
-          payment_method TEXT NOT NULL),
+          payment_method TEXT NOT NULL,
           reference_number TEXT,
           approved_by TEXT NOT NULL,
           notes TEXT,
@@ -192,7 +192,7 @@ class FinanceService {
         CREATE TABLE IF NOT EXISTS cash_transactions (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           date TEXT NOT NULL,
-          type TEXT NOT NULL),
+          type TEXT NOT NULL,
           category TEXT NOT NULL,
           description TEXT NOT NULL,
           amount REAL NOT NULL,
@@ -227,7 +227,7 @@ class FinanceService {
       await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_financial_targets_date ON financial_targets(year, month)`);
 
       console.log('✅ Finance tables initialized successfully');
-      
+
       // Mark as initialized to prevent repeated calls
       financeTablesInitialized = true;
       console.log('✅ [FINANCE] Finance service initialization completed');
@@ -350,7 +350,7 @@ class FinanceService {
       const totalSales = Number(((salesResult[0] as any)?.total_sales || 0).toFixed(2));
       const totalPurchases = Number(((purchasesResult[0] as any)?.total_purchases || 0).toFixed(2));
       const totalExpenses = Number((salaryExpenses.total_paid_this_year + ((businessExpensesResult[0] as any)?.business_expenses || 0)).toFixed(2));
-      
+
       const grossProfit = Number((totalSales - totalPurchases).toFixed(2));
       const netProfit = Number((grossProfit - totalExpenses).toFixed(2));
       const profitMargin = totalSales > 0 ? Number(((netProfit / totalSales) * 100).toFixed(2)) : 0;
@@ -513,15 +513,15 @@ class FinanceService {
 
       // Calculate total expenses
       const businessExpensesByCategory = businessExpensesResult as any[];
-  const totalBusinessExpenses = Number(businessExpensesByCategory.reduce((sum, exp) => sum + exp.amount, 0).toFixed(2));
-  const totalSalaryExpenses = Number(salaryExpenses.total_paid_this_month.toFixed(2));
-  const totalExpenses = Number((totalBusinessExpenses + totalSalaryExpenses).toFixed(2));
+      const totalBusinessExpenses = Number(businessExpensesByCategory.reduce((sum, exp) => sum + exp.amount, 0).toFixed(2));
+      const totalSalaryExpenses = Number(salaryExpenses.total_paid_this_month.toFixed(2));
+      const totalExpenses = Number((totalBusinessExpenses + totalSalaryExpenses).toFixed(2));
 
       const breakdown: ExpenseBreakdown[] = [];
 
       // Add salary expenses (using lastMonthSalary we calculated above)
       const salaryTrend = lastMonthSalary > 0 ? ((totalSalaryExpenses - lastMonthSalary) / lastMonthSalary) * 100 : 0;
-      
+
       breakdown.push({
         category: 'Staff Salaries',
         amount: totalSalaryExpenses,
@@ -714,11 +714,11 @@ class FinanceService {
 
         // Now we use the salaries value we already calculated above
         const expenses = expensesResult as any[];
-        
+
         const transport = expenses.find(e => e.category === 'transport')?.amount || 0;
         const utilities = expenses.find(e => e.category === 'utilities')?.amount || 0;
         const misc = expenses.filter(e => !['transport', 'utilities'].includes(e.category))
-                              .reduce((sum, e) => sum + e.amount, 0);
+          .reduce((sum, e) => sum + e.amount, 0);
 
         const total = salaries + transport + utilities + misc;
 
@@ -805,7 +805,7 @@ class FinanceService {
 
         const revenue = (revenueResult[0] as any)?.revenue || 0;
         const cogs = (cogsResult[0] as any)?.cogs || 0;
-        
+
         const grossProfit = revenue - cogs;
         const totalExpenses = salaries + businessExpenses;
         const netProfit = grossProfit - totalExpenses;
@@ -925,8 +925,8 @@ class FinanceService {
       `);
 
       const currentBalance = (balanceResult[0] as any)?.current_balance || 0;
-      const balanceAfter = transaction.type === 'in' 
-        ? currentBalance + transaction.amount 
+      const balanceAfter = transaction.type === 'in'
+        ? currentBalance + transaction.amount
         : currentBalance - transaction.amount;
 
       await db.executeCommand(`
@@ -973,7 +973,7 @@ class FinanceService {
   async exportFinancialReport(): Promise<string> {
     try {
       const summary = await this.getFinancialSummary();
-      
+
       let csv = 'Financial Report\n\n';
       csv += 'Business Metrics\n';
       csv += 'Metric,Amount\n';

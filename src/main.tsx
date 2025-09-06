@@ -69,7 +69,54 @@ function loadDOMStabilityFixes(): void {
 
 // DOM STABILITY: Prevent multiple React mounts and DOM conflicts
 async function initializeApp(): Promise<void> {
-  // Prevent multiple simultaneous initializations
+  // STEP 0: Manual cleanup to reset any stuck restore operations
+  try {
+    console.log('🧹 [STARTUP] Running manual restore cleanup...');
+    const { manualRestoreCleanup } = await import('./services/manual-restore-cleanup');
+    await manualRestoreCleanup();
+  } catch (error) {
+    console.error('❌ [STARTUP] Manual cleanup failed:', error);
+  }
+
+  // STEP 1: Run restore diagnostics to understand what's happening
+  try {
+    console.log('🔍 [STARTUP] Running restore diagnostics...');
+    const { diagnoseRestoreIssue } = await import('./services/restore-diagnostics');
+    await diagnoseRestoreIssue();
+  } catch (error) {
+    console.error('❌ [STARTUP] Diagnostics failed:', error);
+  }
+
+  // STARTUP RESTORE: Check for pending restore operations FIRST (before cleanup)
+  try {
+    console.log('🔍 [STARTUP] Checking for pending restore operations...');
+    const { manualRestoreService } = await import('./services/manual-restore-service');
+
+    // Only process if there's actually a restore command file
+    const restored = await manualRestoreService.processPendingRestore();
+    if (restored) {
+      console.log('✅ [STARTUP] Database restore completed successfully');
+      // Show user that restore completed
+      setTimeout(() => {
+        alert('✅ Database restore completed successfully!\n\nYour backup has been restored and the application is ready to use.');
+      }, 1000);
+    } else {
+      console.log('ℹ️ [STARTUP] Normal startup - no restore operations');
+    }
+  } catch (error) {
+    console.error('❌ [STARTUP] Restore check failed:', error);
+    // If restore fails, we should still continue with normal startup
+  }  // STEP 1: Run cleanup AFTER restore processing to clean up any stuck old commands
+  // TEMPORARILY DISABLED to allow restore testing
+  /*
+  try {
+    console.log('🧹 [STARTUP] Running cleanup for old stuck commands...');
+    const { immediateCleanupService } = await import('./services/immediate-cleanup');
+    await immediateCleanupService.cleanupStuckCommands();
+  } catch (error) {
+    console.error('❌ [STARTUP] Cleanup failed:', error);
+  }
+  */  // Prevent multiple simultaneous initializations
   if (isInitializing) {
     console.log('⚠️ [APP-INIT] Already initializing, skipping...');
     return;

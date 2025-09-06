@@ -2397,7 +2397,8 @@ export class DatabaseService {
           await this.updatePaymentChannelDailyLedger(
             entry.payment_channel_id,
             entry.date,
-            roundedAmount
+            roundedAmount,
+            entry.type // Pass the transaction type
           );
           console.log('✅ Payment channel daily ledger updated successfully');
         } catch (ledgerError) {
@@ -11236,7 +11237,7 @@ export class DatabaseService {
   }
 
   /**
-   * Delete invoice and all related records
+   * ✅ UNIFIED DELETE: Delete invoice and all related records (handles paid/unpaid/partial)
    */
   async deleteInvoice(invoiceId: number): Promise<void> {
     try {
@@ -11244,8 +11245,7 @@ export class DatabaseService {
         await this.initialize();
       }
 
-      // VALIDATION: Check if invoice can be deleted (must be fully unpaid)
-      await this.validateInvoiceEditability(invoiceId);
+      console.log(`🗑️ [UNIFIED-DELETE] Starting deletion of invoice ${invoiceId}`);
 
       // Start transaction for safe deletion
       await this.dbConnection.execute('BEGIN TRANSACTION');
@@ -11255,6 +11255,50 @@ export class DatabaseService {
         const invoice = await this.getInvoiceDetails(invoiceId);
         if (!invoice) {
           throw new Error('Invoice not found');
+        }
+
+        console.log(`🗑️ [UNIFIED-DELETE] Invoice ${invoice.bill_number}: Total=${invoice.grand_total}, Paid=${invoice.amount_paid || 0}`);
+
+        // ✅ UNIFIED PAYMENT HANDLING: Handle payments if they exist
+        const hasPayments = (invoice.amount_paid || 0) > 0;
+        if (hasPayments) {
+          console.log(`💰 [UNIFIED-DELETE] Invoice has payments of Rs.${invoice.amount_paid}, handling automatically...`);
+
+          // Get all payments for this invoice
+          const payments = await this.dbConnection.select(
+            'SELECT * FROM payments WHERE invoice_id = ?',
+            [invoiceId]
+          );
+
+          if (payments.length > 0) {
+            console.log(`💰 [UNIFIED-DELETE] Found ${payments.length} payment(s), reversing as customer credit...`);
+
+            // Create customer credit entries for each payment (reversal)
+            for (const payment of payments) {
+              try {
+                await this.dbConnection.execute(
+                  'INSERT INTO customer_ledger_entries (customer_id, customer_name, entry_type, transaction_type, amount, description, reference_id, reference_number, date, time, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                  [
+                    invoice.customer_id,
+                    invoice.customer_name,
+                    'credit',
+                    'payment_reversal',
+                    payment.amount,
+                    `Payment reversal for deleted invoice ${invoice.bill_number}`,
+                    invoiceId,
+                    `REV-${invoice.bill_number}`,
+                    getCurrentSystemDateTime().dbDate,
+                    getCurrentSystemDateTime().dbTime,
+                    'system',
+                    getCurrentSystemDateTime().dbTimestamp
+                  ]
+                );
+                console.log(`✅ [UNIFIED-DELETE] Reversed payment of Rs.${payment.amount} as customer credit`);
+              } catch (error) {
+                console.warn(`⚠️ [UNIFIED-DELETE] Could not create reversal entry for payment ${payment.id}:`, error);
+              }
+            }
+          }
         }
 
         // Get invoice items to restore stock
@@ -11340,25 +11384,7 @@ export class DatabaseService {
             const currentBalance = await this.calculateCustomerBalanceFromLedgerQuick(invoice.customer_id);
             const newBalance = currentBalance - invoice.remaining_balance;
 
-            // Create customer ledger entry for invoice deletion
-            const customer = await this.dbConnection.select('SELECT name FROM customers WHERE id = ?', [invoice.customer_id]);
-            const customerName = customer?.[0]?.name || invoice.customer_name;
-            const { dbDate, dbTime } = getCurrentSystemDateTime();
-
-            await this.dbConnection.execute(`
-              INSERT INTO customer_ledger_entries (
-                customer_id, customer_name, entry_type, transaction_type,
-                amount, description, reference_id, reference_number,
-                balance_before, balance_after, date, time, created_by, created_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            `, [
-              invoice.customer_id, customerName, 'credit', 'adjustment',
-              invoice.remaining_balance, `Invoice ${invoice.bill_number || invoice.invoice_number} deleted`,
-              invoiceId, `DEL-${invoice.bill_number || invoice.invoice_number}`,
-              currentBalance, newBalance, dbDate, dbTime, 'system'
-            ]);
-
-            // Update customer balance
+            // Update customer balance directly (we'll delete the original ledger entries later)
             await this.dbConnection.execute(
               'UPDATE customers SET balance = ?, updated_at = ? WHERE id = ?',
               [newBalance, getCurrentSystemDateTime().dbTimestamp, invoice.customer_id]
@@ -11388,9 +11414,41 @@ export class DatabaseService {
         } catch (error) {
           // Could not mark movements as cancelled, delete instead
           await this.dbConnection.execute('DELETE FROM stock_movements WHERE reference_type = "invoice" AND reference_id = ? AND movement_type = ?', [invoiceId, 'out']);
-        }        // Try to delete ledger entries if table exists
+        }        // ✅ COMPREHENSIVE FIX: Delete daily ledger entries with all possible reference patterns
         try {
-          await this.dbConnection.execute('DELETE FROM ledger_entries WHERE reference_type = "invoice" AND reference_id = ?', [invoiceId]);
+          // Get invoice details for comprehensive cleanup
+          const invoiceDetails = await this.dbConnection.select(
+            'SELECT bill_number FROM invoices WHERE id = ?',
+            [invoiceId]
+          );
+          const billNumber = invoiceDetails[0]?.bill_number;
+
+          // Pattern 1: Daily ledger entries are stored with reference_type = 'payment' for invoice payments
+          const ledgerResult = await this.dbConnection.execute(
+            'DELETE FROM ledger_entries WHERE reference_type = ? AND reference_id = ?',
+            ['payment', invoiceId]
+          );
+          console.log(`✅ [DELETE-INVOICE] ${ledgerResult.changes || 0} daily ledger entries deleted (payment ref)`);
+
+          // Pattern 2: Check for any entries with reference_type = 'invoice'
+          const invoiceRefResult = await this.dbConnection.execute(
+            'DELETE FROM ledger_entries WHERE reference_type = ? AND reference_id = ?',
+            ['invoice', invoiceId]
+          );
+          if (invoiceRefResult.changes > 0) {
+            console.log(`✅ [DELETE-INVOICE] ${invoiceRefResult.changes} additional ledger entries deleted (invoice ref)`);
+          }
+
+          // Pattern 3: Check for entries using bill_number as reference
+          if (billNumber) {
+            const billRefResult = await this.dbConnection.execute(
+              'DELETE FROM ledger_entries WHERE bill_number = ?',
+              [billNumber]
+            );
+            if (billRefResult.changes > 0) {
+              console.log(`✅ [DELETE-INVOICE] ${billRefResult.changes} additional ledger entries deleted (bill number ref)`);
+            }
+          }
         } catch (error: any) {
           if (error.message?.includes('no such table: customer_ledger') || error.message?.includes('no such table: ledger_entries')) {
             console.warn('⚠️ [DELETE-INVOICE] Ledger table not found, skipping ledger cleanup');
@@ -11412,6 +11470,34 @@ export class DatabaseService {
 
         await this.dbConnection.execute('DELETE FROM payments WHERE invoice_id = ?', [invoiceId]);
 
+        // CRITICAL FIX: Delete customer ledger entries to prevent orphaned data (Use correct reference pattern)
+        try {
+          // The correct pattern: Invoice entries are stored with reference_id = invoiceId
+          const result = await this.dbConnection.execute(
+            'DELETE FROM customer_ledger_entries WHERE reference_id = ?',
+            [invoiceId]
+          );
+
+          console.log(`✅ [DELETE-INVOICE] ${result.changes || 0} customer ledger entries deleted for invoice ${invoiceId}`);
+        } catch (error: any) {
+          if (error.message?.includes('no such table')) {
+            console.warn('⚠️ [DELETE-INVOICE] Customer ledger entries table not found, skipping cleanup');
+          } else {
+            console.warn('⚠️ [DELETE-INVOICE] Warning during customer ledger cleanup:', error.message);
+          }
+        }        // CRITICAL FIX: Delete invoice payment records to prevent orphaned entries
+        try {
+          await this.dbConnection.execute('DELETE FROM invoice_payment_allocations WHERE invoice_id = ?', [invoiceId]);
+          await this.dbConnection.execute('DELETE FROM invoice_payments WHERE invoice_id = ?', [invoiceId]);
+          console.log('✅ [DELETE-INVOICE] Invoice payment records deleted');
+        } catch (error: any) {
+          if (error.message?.includes('no such table')) {
+            console.warn('⚠️ [DELETE-INVOICE] Invoice payment tables not found, skipping cleanup');
+          } else {
+            console.warn('⚠️ [DELETE-INVOICE] Warning during payment cleanup:', error.message);
+          }
+        }
+
         // Finally delete the invoice
         await this.dbConnection.execute('DELETE FROM invoices WHERE id = ?', [invoiceId]);
 
@@ -11429,6 +11515,321 @@ export class DatabaseService {
 
     } catch (error) {
       console.error('Error deleting invoice:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ✅ ENHANCED Delete invoice with payment handling options
+   * @param invoiceId - The invoice ID to delete
+   * @param paymentHandling - How to handle payments: 'credit' (reverse as customer credit) or 'delete' (remove completely)
+   */
+  async deleteInvoiceEnhanced(invoiceId: number, paymentHandling: 'credit' | 'delete' = 'credit'): Promise<void> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      console.log(`🗑️ [ENHANCED-DELETE] Starting deletion of invoice ${invoiceId} with ${paymentHandling} payment handling`);
+
+      // Start transaction for safe deletion
+      await this.dbConnection.execute('BEGIN TRANSACTION');
+
+      try {
+        // Get invoice details before deletion for rollback purposes
+        const invoice = await this.getInvoiceDetails(invoiceId);
+        if (!invoice) {
+          throw new Error('Invoice not found');
+        }
+
+        console.log(`🗑️ [ENHANCED-DELETE] Invoice ${invoice.bill_number}: Total=${invoice.grand_total}, Paid=${invoice.amount_paid || 0}, Payment Handling=${paymentHandling}`);
+
+        // ✅ ENHANCED PAYMENT HANDLING: Handle payments based on user choice
+        const hasPayments = (invoice.amount_paid || 0) > 0;
+        if (hasPayments) {
+          console.log(`💰 [ENHANCED-DELETE] Invoice has payments of Rs.${invoice.amount_paid}, handling via ${paymentHandling} option...`);
+
+          // Get all payments for this invoice
+          const payments = await this.dbConnection.select(
+            'SELECT * FROM payments WHERE invoice_id = ?',
+            [invoiceId]
+          );
+
+          if (payments.length > 0) {
+            if (paymentHandling === 'credit') {
+              console.log(`💳 [ENHANCED-DELETE] Creating customer credit for ${payments.length} payment(s)...`);
+
+              // Create customer credit entries for each payment (reversal)
+              for (const payment of payments) {
+                try {
+                  await this.dbConnection.execute(
+                    'INSERT INTO customer_ledger_entries (customer_id, customer_name, entry_type, transaction_type, amount, description, reference_id, reference_number, date, time, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                      invoice.customer_id,
+                      invoice.customer_name,
+                      'credit',
+                      'payment_reversal',
+                      payment.amount,
+                      `Payment reversal for deleted invoice ${invoice.bill_number}`,
+                      invoiceId,
+                      `REV-${invoice.bill_number}`,
+                      getCurrentSystemDateTime().dbDate,
+                      getCurrentSystemDateTime().dbTime,
+                      'system',
+                      getCurrentSystemDateTime().dbTimestamp
+                    ]
+                  );
+                  console.log(`✅ [ENHANCED-DELETE] Reversed payment of Rs.${payment.amount} as customer credit`);
+                } catch (error) {
+                  console.warn(`⚠️ [ENHANCED-DELETE] Could not create reversal entry for payment ${payment.id}:`, error);
+                }
+              }
+            } else if (paymentHandling === 'delete') {
+              console.log(`🗑️ [ENHANCED-DELETE] Deleting ${payments.length} payment record(s) completely (no credit)...`);
+              // Note: Payment records will be deleted in the cleanup section below
+              // We're just logging here for clarity
+              for (const payment of payments) {
+                console.log(`🗑️ [ENHANCED-DELETE] Will delete payment of Rs.${payment.amount} completely`);
+              }
+            }
+          }
+        }
+
+        // Continue with the rest of the deletion process (same as original deleteInvoice)
+        // Get invoice items to restore stock
+        const items = await this.getInvoiceItems(invoiceId);
+
+        // Restore stock for each item
+        for (const item of items) {
+          // PRODUCTION FIX: Skip stock restoration for miscellaneous items (they don't have product_id)
+          if (!item.product_id || Boolean(item.is_misc_item)) {
+            console.log(`📦 Skipping stock restoration for miscellaneous item: ${item.misc_description || item.product_name}`);
+            continue;
+          }
+
+          const product = await this.getProduct(item.product_id);
+
+          if (product && product.track_inventory) {
+            // Parse current stock and item quantity
+            const currentStockData = parseUnit(product.current_stock, product.unit_type || 'piece');
+            const itemQuantityData = parseUnit(item.quantity, product.unit_type || 'piece');
+
+            const currentStock = currentStockData.numericValue;
+            const itemQuantity = itemQuantityData.numericValue;
+            const newStock = currentStock + itemQuantity; // Add back the stock
+
+            // Update product stock
+            const newStockString = formatUnitString(
+              createUnitFromNumericValue(newStock, product.unit_type || 'piece'),
+              product.unit_type || 'piece'
+            );
+
+            await this.dbConnection.execute(
+              'UPDATE products SET current_stock = ?, updated_at = ? WHERE id = ?',
+              [newStockString, getCurrentSystemDateTime().dbTimestamp, item.product_id]
+            );
+
+            // Create stock movement record for audit trail
+            const { dbDate: date, dbTime: time } = getCurrentSystemDateTime();
+
+            await this.dbConnection.execute(
+              `INSERT INTO stock_movements (
+                product_id, product_name, movement_type, quantity, previous_stock, new_stock,
+                reason, reference_type, reference_id, reference_number, customer_id, customer_name,
+                notes, date, time, created_by, created_at, updated_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                item.product_id,
+                product.name,
+                'in',
+                formatUnitString(createUnitFromNumericValue(itemQuantity, product.unit_type || 'piece'), product.unit_type || 'piece'),
+                product.current_stock,
+                newStockString,
+                'Stock restored from deleted invoice',
+                'adjustment', // ✅ FIXED: Use 'adjustment' instead of 'invoice_deletion' to comply with CHECK constraint
+                invoiceId,
+                invoice.bill_number,
+                invoice.customer_id,
+                invoice.customer_name,
+                `Stock restored: ${item.product_name} (${formatUnitString(createUnitFromNumericValue(itemQuantity, product.unit_type || 'piece'), product.unit_type || 'piece')}) - Payment handling: ${paymentHandling}`,
+                date,
+                time,
+                'system',
+                getCurrentSystemDateTime().dbTimestamp,
+                getCurrentSystemDateTime().dbTimestamp
+              ]
+            );
+
+            console.log(`📦 Stock restored: ${item.product_name} ${formatUnitString(createUnitFromNumericValue(itemQuantity, product.unit_type || 'piece'), product.unit_type || 'piece')}`);
+          }
+        }
+
+        // Delete related records in proper order (same as original)
+        await this.dbConnection.execute('DELETE FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
+
+        // Mark original stock movements as CANCELLED instead of deleting them for better audit trail
+        try {
+          await this.dbConnection.execute(`
+            UPDATE stock_movements 
+            SET notes = CASE 
+              WHEN notes IS NULL OR notes = '' THEN 'CANCELLED - Invoice deleted (${paymentHandling} payments)' 
+              ELSE notes || ' (CANCELLED - Invoice deleted, ${paymentHandling} payments)' 
+            END,
+            reason = 'cancelled'
+            WHERE reference_type = "invoice" AND reference_id = ? AND movement_type = ?
+          `, [invoiceId, 'out']);
+        } catch (error) {
+          // Could not mark movements as cancelled, delete instead
+          await this.dbConnection.execute('DELETE FROM stock_movements WHERE reference_type = "invoice" AND reference_id = ? AND movement_type = ?', [invoiceId, 'out']);
+        }
+
+        // ✅ COMPREHENSIVE FIX: Delete daily ledger entries with all possible reference patterns
+        try {
+          // Get invoice details and payment IDs for comprehensive cleanup
+          const invoiceDetails = await this.dbConnection.select(
+            'SELECT bill_number FROM invoices WHERE id = ?',
+            [invoiceId]
+          );
+          const billNumber = invoiceDetails[0]?.bill_number;
+
+          // Get payment IDs for this invoice to clean up payment-related daily ledger entries
+          const paymentIds = await this.dbConnection.select(
+            'SELECT id FROM payments WHERE invoice_id = ?',
+            [invoiceId]
+          );
+
+          let totalDailyLedgerDeleted = 0;
+
+          // Pattern 1: Daily ledger entries are stored with reference_type = 'payment' for invoice payments
+          const ledgerResult = await this.dbConnection.execute(
+            'DELETE FROM ledger_entries WHERE reference_type = ? AND reference_id = ?',
+            ['payment', invoiceId]
+          );
+          totalDailyLedgerDeleted += ledgerResult.changes || 0;
+
+          // Pattern 2: Check for any entries with reference_type = 'invoice'
+          const invoiceRefResult = await this.dbConnection.execute(
+            'DELETE FROM ledger_entries WHERE reference_type = ? AND reference_id = ?',
+            ['invoice', invoiceId]
+          );
+          totalDailyLedgerDeleted += invoiceRefResult.changes || 0;
+
+          // Pattern 3: Delete payment-specific daily ledger entries by payment ID
+          for (const payment of paymentIds) {
+            const paymentRefResult = await this.dbConnection.execute(
+              'DELETE FROM ledger_entries WHERE reference_type = ? AND reference_id = ?',
+              ['payment', payment.id]
+            );
+            totalDailyLedgerDeleted += paymentRefResult.changes || 0;
+          }
+
+          // Pattern 4: Delete entries using bill_number as reference
+          // Pattern 4: Delete entries using bill_number as reference
+          if (billNumber) {
+            const billRefResult = await this.dbConnection.execute(
+              'DELETE FROM ledger_entries WHERE bill_number = ?',
+              [billNumber]
+            );
+            totalDailyLedgerDeleted += billRefResult.changes || 0;
+          }
+
+          console.log(`✅ [ENHANCED-DELETE] ${totalDailyLedgerDeleted} daily ledger entries deleted for invoice ${invoiceId} and its ${paymentIds.length} payment(s)`);
+        } catch (error: any) {
+          if (error.message?.includes('no such table: customer_ledger') || error.message?.includes('no such table: ledger_entries')) {
+            console.warn('⚠️ [ENHANCED-DELETE] Ledger table not found, skipping ledger cleanup');
+          } else {
+            throw error;
+          }
+        }
+
+        // PERMANENT SOLUTION: Delete miscellaneous item ledger entries
+        try {
+          await this.deleteMiscellaneousItemLedgerEntries(invoiceId);
+        } catch (error: any) {
+          if (error.message?.includes('no such table')) {
+            console.warn('⚠️ [ENHANCED-DELETE] Miscellaneous ledger table not found, skipping misc cleanup');
+          } else {
+            throw error;
+          }
+        }
+
+        // Delete payment records (whether reversing as credit or deleting entirely)
+        await this.dbConnection.execute('DELETE FROM payments WHERE invoice_id = ?', [invoiceId]);
+
+        // CRITICAL FIX: Delete customer ledger entries to prevent orphaned data (Enhanced for payment entries)
+        try {
+          // Get all payment IDs for this invoice to clean up payment-related ledger entries
+          const paymentIds = await this.dbConnection.select(
+            'SELECT id FROM payments WHERE invoice_id = ?',
+            [invoiceId]
+          );
+
+          let totalDeleted = 0;
+
+          // Pattern 1: Delete entries with reference_id = invoiceId (invoice-related entries)
+          const invoiceResult = await this.dbConnection.execute(
+            'DELETE FROM customer_ledger_entries WHERE reference_id = ?',
+            [invoiceId]
+          );
+          totalDeleted += invoiceResult.changes || 0;
+
+          // Pattern 2: Delete entries with invoice_id = invoiceId (payment entries linked to invoice)
+          const invoiceLinkedResult = await this.dbConnection.execute(
+            'DELETE FROM customer_ledger_entries WHERE invoice_id = ?',
+            [invoiceId]
+          );
+          totalDeleted += invoiceLinkedResult.changes || 0;
+
+          // Pattern 3: Delete entries where reference_id matches payment IDs (payment-specific entries)
+          for (const payment of paymentIds) {
+            const paymentResult = await this.dbConnection.execute(
+              'DELETE FROM customer_ledger_entries WHERE reference_id = ?',
+              [payment.id]
+            );
+            totalDeleted += paymentResult.changes || 0;
+          }
+
+          console.log(`✅ [ENHANCED-DELETE] ${totalDeleted} customer ledger entries deleted for invoice ${invoiceId} and its ${paymentIds.length} payment(s)`);
+        } catch (error: any) {
+          if (error.message?.includes('no such table')) {
+            console.warn('⚠️ [ENHANCED-DELETE] Customer ledger entries table not found, skipping cleanup');
+          } else {
+            console.warn('⚠️ [ENHANCED-DELETE] Warning during customer ledger cleanup:', error.message);
+          }
+        }
+
+        // CRITICAL FIX: Delete invoice payment records to prevent orphaned entries
+        try {
+          await this.dbConnection.execute('DELETE FROM invoice_payment_allocations WHERE invoice_id = ?', [invoiceId]);
+          await this.dbConnection.execute('DELETE FROM invoice_payments WHERE invoice_id = ?', [invoiceId]);
+          console.log('✅ [ENHANCED-DELETE] Invoice payment records deleted');
+        } catch (error: any) {
+          if (error.message?.includes('no such table')) {
+            console.warn('⚠️ [ENHANCED-DELETE] Invoice payment tables not found, skipping cleanup');
+          } else {
+            console.warn('⚠️ [ENHANCED-DELETE] Warning during payment cleanup:', error.message);
+          }
+        }
+
+        // Finally delete the invoice
+        await this.dbConnection.execute('DELETE FROM invoices WHERE id = ?', [invoiceId]);
+
+        // Commit transaction
+        await this.dbConnection.execute('COMMIT');
+
+        // Emit real-time update events
+        this.emitInvoiceDeletedEvents(invoice);
+
+        console.log(`✅ [ENHANCED-DELETE] Invoice ${invoice.bill_number} successfully deleted with ${paymentHandling} payment handling`);
+
+      } catch (error) {
+        // Rollback on error
+        await this.dbConnection.execute('ROLLBACK');
+        throw error;
+      }
+
+    } catch (error) {
+      console.error(`❌ [ENHANCED-DELETE] Error deleting invoice with ${paymentHandling} payment handling:`, error);
       throw error;
     }
   }
@@ -11893,9 +12294,12 @@ export class DatabaseService {
   }
 
   /**
-   * Enhanced delete with validation
+   * ✅ ENHANCED delete with payment handling options
    */
-  async deleteInvoiceWithValidation(invoiceId: number): Promise<DatabaseOperationResult> {
+  async deleteInvoiceWithValidation(
+    invoiceId: number,
+    paymentHandling: 'credit' | 'delete' = 'credit'
+  ): Promise<DatabaseOperationResult> {
     const startTime = Date.now();
 
     try {
@@ -11909,12 +12313,7 @@ export class DatabaseService {
         throw new Error('Invoice not found');
       }
 
-      // BUSINESS RULE: Cannot delete paid or partially paid invoices
-      if (invoice.payment_amount > 0) {
-        throw new Error('Cannot delete invoices with payments. Please process refunds first.');
-      }
-
-      // Check for associated returns
+      // Check for associated returns (still block returns)
       const returns = await this.dbConnection.select(
         'SELECT COUNT(*) as count FROM returns WHERE original_invoice_id = ?',
         [invoiceId]
@@ -11924,15 +12323,17 @@ export class DatabaseService {
         throw new Error('Cannot delete invoice with associated returns. Please handle returns first.');
       }
 
-      // Proceed with deletion
-      await this.deleteInvoice(invoiceId);
+      console.log(`✅ [ENHANCED-DELETE] Invoice ${invoice.bill_number} validation passed - proceeding with ${paymentHandling} payment handling`);
+
+      // Proceed with enhanced deletion with payment handling option
+      await this.deleteInvoiceEnhanced(invoiceId, paymentHandling);
 
       const executionTime = Date.now() - startTime;
-      console.log(`✅ [DELETE-INVOICE] Invoice ${invoiceId} deleted successfully in ${executionTime}ms`);
+      console.log(`✅ [DELETE-INVOICE] Invoice ${invoiceId} deleted successfully in ${executionTime}ms with ${paymentHandling} payment handling`);
 
       return {
         success: true,
-        data: { invoiceId, executionTime },
+        data: { invoiceId, executionTime, paymentHandling },
         executionTime,
         affectedRows: 1
       };
@@ -11945,6 +12346,937 @@ export class DatabaseService {
         success: false,
         error: error as DatabaseError,
         executionTime
+      };
+    }
+  }
+
+  /**
+   * 🚨 FORCE DELETE: Delete invoice regardless of payment status
+   * ⚠️ WARNING: This bypasses all safety checks - use with extreme caution
+   * Handles ALL related entries and maintains data consistency
+   */
+  async forceDeleteInvoice(invoiceId: number, options: {
+    handlePayments?: 'reverse' | 'transfer' | 'ignore';
+    reason?: string;
+    authorizedBy?: string;
+    createBackup?: boolean;
+  } = {}): Promise<DatabaseOperationResult> {
+    const startTime = Date.now();
+
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      console.log(`🚨 [FORCE-DELETE] Starting force deletion of invoice ${invoiceId} with options:`, options);
+
+      // Get complete invoice details for cleanup and audit
+      const invoice = await this.getInvoiceDetails(invoiceId);
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // Get all related data before deletion for audit trail
+      const relatedData = await this.getInvoiceRelatedData(invoiceId);
+
+      // Create backup if requested
+      if (options.createBackup !== false) {
+        await this.createInvoiceBackup(invoiceId, invoice, relatedData);
+      }
+
+      // Start comprehensive transaction
+      await this.dbConnection.execute('BEGIN TRANSACTION');
+
+      try {
+        // Step 1: Handle payments based on option
+        await this.handleInvoicePaymentsOnDeletion(invoiceId, invoice, options.handlePayments || 'reverse');
+
+        // Step 2: Restore stock for all items
+        await this.restoreStockOnInvoiceDeletion(invoiceId, invoice.items);
+
+        // Step 3: Reverse customer balance changes
+        await this.reverseCustomerBalanceOnDeletion(invoiceId, invoice);
+
+        // Step 4: Clean up ALL related entries in proper order
+        await this.cleanupAllRelatedEntries(invoiceId);
+
+        // Step 5: Create comprehensive audit trail
+        await this.createDeletionAuditTrail(invoiceId, invoice, relatedData, options);
+
+        // Step 6: Delete the invoice itself (final step)
+        await this.dbConnection.execute('DELETE FROM invoices WHERE id = ?', [invoiceId]);
+
+        await this.dbConnection.execute('COMMIT');
+
+        // Step 7: Emit comprehensive events for UI updates
+        this.emitForceDeleteEvents(invoice);
+
+        // Step 8: Invalidate related caches
+        this.invalidateInvoiceCache();
+        this.invalidateCustomerCache();
+        this.invalidateProductCache();
+
+        const executionTime = Date.now() - startTime;
+        console.log(`✅ [FORCE-DELETE] Invoice ${invoiceId} force deleted successfully in ${executionTime}ms`);
+
+        return {
+          success: true,
+          data: {
+            invoiceId,
+            executionTime,
+            relatedRecordsDeleted: relatedData.totalRelatedRecords,
+            paymentsHandled: relatedData.payments.length,
+            stockRestored: relatedData.items.length
+          },
+          executionTime,
+          affectedRows: 1
+        };
+
+      } catch (error) {
+        await this.dbConnection.execute('ROLLBACK');
+        throw error;
+      }
+
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      console.error(`❌ [FORCE-DELETE] Failed to force delete invoice ${invoiceId}:`, error);
+
+      return {
+        success: false,
+        error: error as DatabaseError,
+        executionTime
+      };
+    }
+  }
+
+  /**
+   * Get all related data for an invoice before deletion
+   */
+  private async getInvoiceRelatedData(invoiceId: number): Promise<{
+    items: any[];
+    payments: any[];
+    customerLedgerEntries: any[];
+    ledgerEntries: any[];
+    stockMovements: any[];
+    returns: any[];
+    totalRelatedRecords: number;
+  }> {
+    try {
+      // Get all related data
+      const items = await this.dbConnection.select('SELECT * FROM invoice_items WHERE invoice_id = ?', [invoiceId]);
+
+      const payments = await this.dbConnection.select('SELECT * FROM payments WHERE invoice_id = ?', [invoiceId]);
+
+      const customerLedgerEntries = await this.dbConnection.select(
+        'SELECT * FROM customer_ledger_entries WHERE reference_id = ? AND reference_type = ?',
+        [invoiceId, 'invoice']
+      );
+
+      const ledgerEntries = await this.dbConnection.select(
+        'SELECT * FROM ledger_entries WHERE reference_id = ? AND reference_type = ?',
+        [invoiceId, 'invoice']
+      );
+
+      const stockMovements = await this.dbConnection.select(
+        'SELECT * FROM stock_movements WHERE reference_id = ? AND reference_type = ?',
+        [invoiceId, 'invoice']
+      );
+
+      const returns = await this.dbConnection.select('SELECT * FROM returns WHERE original_invoice_id = ?', [invoiceId]);
+
+      const totalRelatedRecords = items.length + payments.length + customerLedgerEntries.length +
+        ledgerEntries.length + stockMovements.length + returns.length;
+
+      console.log(`📊 [FORCE-DELETE] Found ${totalRelatedRecords} related records for invoice ${invoiceId}:`, {
+        items: items.length,
+        payments: payments.length,
+        customerLedgerEntries: customerLedgerEntries.length,
+        ledgerEntries: ledgerEntries.length,
+        stockMovements: stockMovements.length,
+        returns: returns.length
+      });
+
+      return {
+        items,
+        payments,
+        customerLedgerEntries,
+        ledgerEntries,
+        stockMovements,
+        returns,
+        totalRelatedRecords
+      };
+
+    } catch (error) {
+      console.error('❌ [FORCE-DELETE] Error getting related data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create backup of invoice and all related data before force deletion
+   */
+  private async createInvoiceBackup(invoiceId: number, invoice: any, relatedData: any): Promise<void> {
+    try {
+      // Ensure audit_log table exists
+      await this.ensureTableExists('audit_log');
+
+      const backupData = {
+        invoice,
+        relatedData,
+        backupTimestamp: new Date().toISOString(),
+        backupReason: 'force_deletion_backup'
+      };
+
+      await this.dbConnection.execute(
+        `INSERT INTO audit_log (
+          action, entity_type, entity_id, data, created_at, created_by
+        ) VALUES (?, ?, ?, ?, datetime('now'), ?)`,
+        [
+          'BACKUP_BEFORE_FORCE_DELETE',
+          'invoice',
+          invoiceId,
+          JSON.stringify(backupData),
+          'system'
+        ]
+      );
+
+      console.log(`💾 [FORCE-DELETE] Backup created for invoice ${invoiceId}`);
+
+    } catch (error) {
+      console.warn('⚠️ [FORCE-DELETE] Could not create backup:', error);
+      // Don't fail the operation for backup issues
+    }
+  }
+
+  /**
+   * Handle payments when force deleting invoice
+   */
+  private async handleInvoicePaymentsOnDeletion(
+    invoiceId: number,
+    invoice: any,
+    handleOption: string
+  ): Promise<void> {
+    try {
+      const payments = await this.dbConnection.select(
+        'SELECT * FROM payments WHERE invoice_id = ?',
+        [invoiceId]
+      );
+
+      if (payments.length === 0) {
+        console.log(`✅ [FORCE-DELETE] No payments found for invoice ${invoiceId}`);
+        return;
+      }
+
+      console.log(`💰 [FORCE-DELETE] Processing ${payments.length} payments with option: ${handleOption}`);
+
+      for (const payment of payments) {
+        switch (handleOption) {
+          case 'reverse':
+            // Convert payment to customer credit
+            console.log(`🔄 [FORCE-DELETE] Converting payment ${payment.id} (Rs.${payment.amount}) to customer credit`);
+
+            // Update customer balance (add credit)
+            const customer = await this.getCustomer(invoice.customer_id);
+            if (customer) {
+              const newBalance = (customer.balance || 0) - payment.amount; // Credit reduces balance
+              await this.dbConnection.execute(
+                'UPDATE customers SET balance = ?, updated_at = ? WHERE id = ?',
+                [newBalance, new Date().toISOString(), invoice.customer_id]
+              );
+
+              // Create customer ledger entry for the credit
+              await this.dbConnection.execute(
+                `INSERT INTO customer_ledger_entries (
+                  customer_id, customer_name, entry_type, transaction_type, amount, description,
+                  reference_id, reference_number, date, time, created_by, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+                [
+                  invoice.customer_id,
+                  customer.name,
+                  'credit',
+                  'adjustment',
+                  payment.amount,
+                  `Credit from force deleted invoice ${invoice.bill_number}`,
+                  invoiceId,
+                  `CREDIT-${invoice.bill_number}`,
+                  new Date().toISOString().split('T')[0],
+                  new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+                  'system'
+                ]
+              );
+            }
+            break;
+
+          case 'transfer':
+            // Keep payment as advance payment (remove invoice association)
+            console.log(`📤 [FORCE-DELETE] Converting payment ${payment.id} to advance payment`);
+            await this.dbConnection.execute(
+              'UPDATE payments SET invoice_id = NULL, payment_type = ?, notes = ? WHERE id = ?',
+              ['advance_payment', `Converted from deleted invoice ${invoice.bill_number}`, payment.id]
+            );
+            break;
+
+          case 'ignore':
+            // Just delete payment records
+            console.log(`🗑️ [FORCE-DELETE] Deleting payment ${payment.id} (ignore option)`);
+            break;
+        }
+      }
+
+      // Delete payment records (unless transferred)
+      if (handleOption !== 'transfer') {
+        await this.dbConnection.execute('DELETE FROM payments WHERE invoice_id = ?', [invoiceId]);
+      }
+
+      console.log(`✅ [FORCE-DELETE] Payments handled successfully with option: ${handleOption}`);
+
+    } catch (error) {
+      console.error('❌ [FORCE-DELETE] Error handling payments:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Restore stock when force deleting invoice
+   */
+  private async restoreStockOnInvoiceDeletion(invoiceId: number, items: any[]): Promise<void> {
+    try {
+      if (!items || items.length === 0) {
+        console.log(`✅ [FORCE-DELETE] No items to restore stock for invoice ${invoiceId}`);
+        return;
+      }
+
+      // Get invoice details for reference numbers
+      const invoice = await this.getInvoiceDetails(invoiceId);
+      const billNumber = invoice?.bill_number || `INV-${invoiceId}`;
+
+      console.log(`📦 [FORCE-DELETE] Restoring stock for ${items.length} items`);
+
+      for (const item of items) {
+        // Skip miscellaneous items (they don't have stock)
+        if (item.is_misc_item || !item.product_id) {
+          console.log(`⏭️ [FORCE-DELETE] Skipping stock restoration for misc item: ${item.product_name}`);
+          continue;
+        }
+
+        try {
+          // Get current product stock
+          const product = await this.getProduct(item.product_id);
+          if (!product) {
+            console.warn(`⚠️ [FORCE-DELETE] Product ${item.product_id} not found, skipping stock restoration`);
+            continue;
+          }
+
+          // Parse quantities
+          const itemQuantityParsed = this.parseUnitSelfContained(item.quantity, product.unit_type);
+          const currentStockParsed = this.parseUnitSelfContained(product.current_stock, product.unit_type);
+
+          // Add back the quantity
+          const newStockNumeric = currentStockParsed.numericValue + itemQuantityParsed.numericValue;
+          const newStockString = this.createUnitStringSelfContained(newStockNumeric, product.unit_type);
+
+          // Update product stock
+          await this.dbConnection.execute(
+            'UPDATE products SET current_stock = ?, stock_quantity = ?, updated_at = ? WHERE id = ?',
+            [newStockString, newStockNumeric, new Date().toISOString(), item.product_id]
+          );
+
+          // Create stock movement record
+          await this.dbConnection.execute(
+            `INSERT INTO stock_movements (
+              product_id, product_name, movement_type, transaction_type, quantity, unit,
+              reference_type, reference_id, reference_number, notes, date, time, created_by, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+            [
+              item.product_id,
+              item.product_name,
+              'in',
+              'adjustment',
+              item.quantity,
+              item.unit || product.unit,
+              'force_delete',
+              invoiceId,
+              `RESTORE-${billNumber}`,
+              `Stock restored from force deleted invoice ${billNumber}`,
+              new Date().toISOString().split('T')[0],
+              new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+              'system'
+            ]
+          );
+
+          console.log(`✅ [FORCE-DELETE] Stock restored for ${item.product_name}: +${item.quantity}`);
+
+        } catch (itemError) {
+          console.error(`❌ [FORCE-DELETE] Error restoring stock for item ${item.product_name}:`, itemError);
+          // Continue with other items
+        }
+      }
+
+      console.log(`✅ [FORCE-DELETE] Stock restoration completed`);
+
+    } catch (error) {
+      console.error('❌ [FORCE-DELETE] Error restoring stock:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reverse customer balance changes when force deleting invoice
+   */
+  private async reverseCustomerBalanceOnDeletion(invoiceId: number, invoice: any): Promise<void> {
+    try {
+      const customer = await this.getCustomer(invoice.customer_id);
+      if (!customer) {
+        console.warn(`⚠️ [FORCE-DELETE] Customer ${invoice.customer_id} not found, skipping balance reversal`);
+        return;
+      }
+
+      // Calculate balance adjustment
+      const invoiceAmount = invoice.grand_total || invoice.total_amount || 0;
+      const paidAmount = invoice.payment_amount || 0;
+      const remainingBalance = invoiceAmount - paidAmount;
+
+      if (remainingBalance > 0) {
+        // Reduce customer balance (the original ledger entries will be deleted)
+        const currentBalance = customer.balance || 0;
+        const newBalance = currentBalance - remainingBalance;
+
+        await this.dbConnection.execute(
+          'UPDATE customers SET balance = ?, updated_at = ? WHERE id = ?',
+          [newBalance, new Date().toISOString(), invoice.customer_id]
+        );
+
+        console.log(`💰 [FORCE-DELETE] Customer balance adjusted: Rs.${currentBalance} → Rs.${newBalance} (Removed: Rs.${remainingBalance})`);
+      }
+
+    } catch (error) {
+      console.error('❌ [FORCE-DELETE] Error reversing customer balance:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Comprehensive cleanup of ALL related entries
+   */
+  private async cleanupAllRelatedEntries(invoiceId: number): Promise<void> {
+    try {
+      console.log(`🧹 [FORCE-DELETE] Starting comprehensive cleanup for invoice ${invoiceId}`);
+
+      // Define all cleanup operations in dependency order
+      const cleanupOperations = [
+        // 1. Invoice items (CASCADE DELETE should handle this, but be explicit)
+        {
+          table: 'invoice_items',
+          query: 'DELETE FROM invoice_items WHERE invoice_id = ?',
+          description: 'Invoice items'
+        },
+
+        // 2. Stock movements related to this invoice
+        {
+          table: 'stock_movements',
+          query: 'DELETE FROM stock_movements WHERE reference_type = ? AND reference_id = ?',
+          params: ['invoice', invoiceId],
+          description: 'Stock movements'
+        },
+
+        // 3. Customer ledger entries (Use correct reference pattern)
+        {
+          table: 'customer_ledger_entries',
+          query: 'DELETE FROM customer_ledger_entries WHERE reference_id = ?',
+          params: [invoiceId],
+          description: 'Customer ledger entries'
+        },
+
+        // 4. General ledger entries
+        {
+          table: 'ledger_entries',
+          query: 'DELETE FROM ledger_entries WHERE reference_type = ? AND reference_id = ?',
+          params: ['invoice', invoiceId],
+          description: 'General ledger entries'
+        },
+
+        // 5. Miscellaneous item ledger entries (special case)
+        {
+          table: 'ledger_entries',
+          query: `DELETE FROM ledger_entries 
+                  WHERE reference_type = 'invoice_item' 
+                  AND reference_id IN (SELECT id FROM invoice_items WHERE invoice_id = ?)`,
+          description: 'Miscellaneous item ledger entries'
+        },
+
+        // 6. Payment allocations
+        {
+          table: 'invoice_payment_allocations',
+          query: 'DELETE FROM invoice_payment_allocations WHERE invoice_id = ?',
+          description: 'Payment allocations'
+        },
+
+        // 7. Update returns to remove invoice association (don't delete returns)
+        {
+          table: 'returns',
+          query: 'UPDATE returns SET original_invoice_id = NULL WHERE original_invoice_id = ?',
+          description: 'Return associations (updated, not deleted)'
+        },
+
+        // 8. Update return items to remove invoice item association
+        {
+          table: 'return_items',
+          query: `UPDATE return_items SET original_invoice_item_id = NULL 
+                  WHERE original_invoice_item_id IN (SELECT id FROM invoice_items WHERE invoice_id = ?)`,
+          description: 'Return item associations (updated, not deleted)'
+        }
+      ];
+
+      // Execute all cleanup operations
+      for (const operation of cleanupOperations) {
+        try {
+          const params = operation.params || [invoiceId];
+          const result = await this.dbConnection.execute(operation.query, params);
+          const affectedRows = result.affectedRows || result.rowsAffected || 0;
+
+          console.log(`🧹 [FORCE-DELETE] ${operation.description}: ${affectedRows} records processed`);
+
+        } catch (operationError: any) {
+          // Log but don't fail for missing tables or other non-critical errors
+          if (operationError.message?.includes('no such table')) {
+            console.log(`⏭️ [FORCE-DELETE] ${operation.table} table not found, skipping`);
+          } else {
+            console.warn(`⚠️ [FORCE-DELETE] Warning in ${operation.description}:`, operationError.message);
+          }
+        }
+      }
+
+      console.log(`✅ [FORCE-DELETE] Comprehensive cleanup completed for invoice ${invoiceId}`);
+
+    } catch (error) {
+      console.error('❌ [FORCE-DELETE] Error in comprehensive cleanup:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Create comprehensive audit trail for force deletion
+   */
+  private async createDeletionAuditTrail(
+    invoiceId: number,
+    invoice: any,
+    relatedData: any,
+    options: any
+  ): Promise<void> {
+    try {
+      await this.ensureTableExists('audit_log');
+
+      const auditData = {
+        action: 'FORCE_DELETE_INVOICE',
+        invoice_id: invoiceId,
+        invoice_number: invoice.bill_number,
+        customer_id: invoice.customer_id,
+        customer_name: invoice.customer_name,
+        original_amount: invoice.grand_total || invoice.total_amount,
+        payment_amount: invoice.payment_amount || 0,
+        remaining_balance: invoice.remaining_balance || 0,
+        payment_handling: options.handlePayments || 'reverse',
+        reason: options.reason || 'Administrative force deletion',
+        authorized_by: options.authorizedBy || 'system',
+        deleted_at: new Date().toISOString(),
+        items_count: relatedData.items.length,
+        payments_count: relatedData.payments.length,
+        total_related_records: relatedData.totalRelatedRecords,
+        detailed_counts: {
+          items: relatedData.items.length,
+          payments: relatedData.payments.length,
+          customerLedgerEntries: relatedData.customerLedgerEntries.length,
+          ledgerEntries: relatedData.ledgerEntries.length,
+          stockMovements: relatedData.stockMovements.length,
+          returns: relatedData.returns.length
+        }
+      };
+
+      await this.dbConnection.execute(
+        `INSERT INTO audit_log (
+          action, entity_type, entity_id, data, created_at, created_by
+        ) VALUES (?, ?, ?, ?, datetime('now'), ?)`,
+        [
+          'FORCE_DELETE_INVOICE',
+          'invoice',
+          invoiceId,
+          JSON.stringify(auditData),
+          options.authorizedBy || 'system'
+        ]
+      );
+
+      console.log(`📝 [FORCE-DELETE] Comprehensive audit trail created for invoice ${invoiceId}`);
+
+    } catch (error) {
+      console.warn('⚠️ [FORCE-DELETE] Could not create audit trail:', error);
+      // Don't fail the operation for audit issues
+    }
+  }
+
+  /**
+   * Emit comprehensive events for force deletion
+   */
+  private emitForceDeleteEvents(invoice: any): void {
+    try {
+      // Import and use the event bus
+      import('../utils/eventBus').then(({ triggerInvoiceDeletedRefresh, eventBus, BUSINESS_EVENTS }) => {
+        // Emit standard deletion events
+        triggerInvoiceDeletedRefresh({
+          id: invoice.id,
+          bill_number: invoice.bill_number,
+          customer_id: invoice.customer_id,
+          customer_name: invoice.customer_name,
+          force_deleted: true
+        });
+
+        // Emit specific force delete event using existing INVOICE_DELETED event
+        eventBus.emit(BUSINESS_EVENTS.INVOICE_DELETED, {
+          invoiceId: invoice.id,
+          billNumber: invoice.bill_number,
+          customerId: invoice.customer_id,
+          customerName: invoice.customer_name,
+          amount: invoice.grand_total || invoice.total_amount,
+          timestamp: new Date().toISOString(),
+          forceDeleted: true // Flag to indicate this was a force deletion
+        });
+
+        console.log(`📡 [FORCE-DELETE] Events emitted for invoice ${invoice.id}`);
+      }).catch((error) => {
+        console.warn('⚠️ [FORCE-DELETE] Could not emit events:', error);
+      });
+
+    } catch (error) {
+      console.warn('⚠️ [FORCE-DELETE] Could not emit events:', error);
+    }
+  }
+
+  /**
+   * 🧪 TESTING: Comprehensive validation of force delete functionality
+   * Tests all aspects of the force delete to ensure data integrity
+   */
+  async validateForceDeleteFunctionality(): Promise<{
+    success: boolean;
+    tests: Array<{
+      name: string;
+      passed: boolean;
+      message: string;
+      details?: any;
+    }>;
+    summary: {
+      total: number;
+      passed: number;
+      failed: number;
+    };
+  }> {
+    const tests: Array<{
+      name: string;
+      passed: boolean;
+      message: string;
+      details?: any;
+    }> = [];
+
+    console.log('🧪 [FORCE-DELETE-TEST] Starting comprehensive force delete validation...');
+
+    try {
+      // Test 1: Create test invoice with payments
+      const testInvoice = await this.createTestInvoiceWithPayments();
+      tests.push({
+        name: 'Create Test Invoice with Payments',
+        passed: !!testInvoice,
+        message: testInvoice ? `Created test invoice ${testInvoice.id}` : 'Failed to create test invoice'
+      });
+
+      if (!testInvoice) {
+        return {
+          success: false,
+          tests,
+          summary: { total: 1, passed: 0, failed: 1 }
+        };
+      }
+
+      // Test 2: Verify all related records exist before deletion
+      const relatedDataBefore = await this.getInvoiceRelatedData(testInvoice.id);
+      tests.push({
+        name: 'Verify Related Records Exist',
+        passed: relatedDataBefore.totalRelatedRecords > 0,
+        message: `Found ${relatedDataBefore.totalRelatedRecords} related records`,
+        details: relatedDataBefore
+      });
+
+      // Test 3: Attempt normal deletion (should fail)
+      let normalDeleteFailed = false;
+      try {
+        await this.deleteInvoiceWithValidation(testInvoice.id);
+      } catch (error) {
+        normalDeleteFailed = true;
+      }
+      tests.push({
+        name: 'Normal Delete Protection',
+        passed: normalDeleteFailed,
+        message: normalDeleteFailed ? 'Normal delete correctly blocked paid invoice' : 'Normal delete incorrectly allowed paid invoice'
+      });
+
+      // Test 4: Force delete with payment reversal
+      const forceDeleteResult = await this.forceDeleteInvoice(testInvoice.id, {
+        handlePayments: 'reverse',
+        reason: 'Testing force delete functionality',
+        authorizedBy: 'test-system',
+        createBackup: true
+      });
+
+      tests.push({
+        name: 'Force Delete Execution',
+        passed: forceDeleteResult.success,
+        message: forceDeleteResult.success ? 'Force delete completed successfully' : `Force delete failed: ${forceDeleteResult.error?.message}`,
+        details: forceDeleteResult.data
+      });
+
+      // Test 5: Verify invoice is completely removed
+      const invoiceExists = await this.getInvoiceDetails(testInvoice.id);
+      tests.push({
+        name: 'Invoice Removal Verification',
+        passed: !invoiceExists,
+        message: !invoiceExists ? 'Invoice successfully removed' : 'Invoice still exists after deletion'
+      });
+
+      // Test 6: Verify all related records are cleaned up
+      const relatedDataAfter = await this.getInvoiceRelatedData(testInvoice.id);
+      tests.push({
+        name: 'Related Records Cleanup',
+        passed: relatedDataAfter.totalRelatedRecords === 0,
+        message: `${relatedDataAfter.totalRelatedRecords} related records remaining (should be 0)`,
+        details: relatedDataAfter
+      });
+
+      // Test 7: Verify customer balance adjustment
+      const customer = await this.getCustomer(testInvoice.customer_id);
+      tests.push({
+        name: 'Customer Balance Adjustment',
+        passed: !!customer,
+        message: customer ? `Customer balance: ${customer.balance}` : 'Customer not found',
+        details: { customerId: testInvoice.customer_id, balance: customer?.balance }
+      });
+
+      // Test 8: Verify stock restoration
+      const stockVerification = await this.verifyStockRestoration(testInvoice.items);
+      tests.push({
+        name: 'Stock Restoration',
+        passed: stockVerification.success,
+        message: stockVerification.message,
+        details: stockVerification.details
+      });
+
+      // Test 9: Verify audit trail creation
+      const auditEntries = await this.dbConnection.select(
+        'SELECT * FROM audit_log WHERE entity_id = ? AND action = ?',
+        [testInvoice.id, 'FORCE_DELETE_INVOICE']
+      );
+      tests.push({
+        name: 'Audit Trail Creation',
+        passed: auditEntries.length > 0,
+        message: auditEntries.length > 0 ? `${auditEntries.length} audit entries created` : 'No audit trail found'
+      });
+
+    } catch (error: any) {
+      tests.push({
+        name: 'Test Execution',
+        passed: false,
+        message: `Test execution failed: ${error?.message || 'Unknown error'}`,
+        details: error
+      });
+    }
+
+    const passed = tests.filter(t => t.passed).length;
+    const failed = tests.filter(t => !t.passed).length;
+
+    console.log('🧪 [FORCE-DELETE-TEST] Validation completed:', {
+      total: tests.length,
+      passed,
+      failed
+    });
+
+    return {
+      success: failed === 0,
+      tests,
+      summary: {
+        total: tests.length,
+        passed,
+        failed
+      }
+    };
+  }
+
+  /**
+   * 🧪 TESTING: Create a test invoice with payments for validation
+   */
+  private async createTestInvoiceWithPayments(): Promise<any> {
+    try {
+      console.log('🧪 [TEST] Creating test invoice with payments...');
+
+      // Create test customer if not exists
+      const testCustomer = await this.createTestCustomer();
+
+      // Create test product if not exists
+      const testProduct = await this.createTestProduct();
+
+      // Create invoice
+      const invoiceData = {
+        customer_id: testCustomer.id,
+        customer_name: testCustomer.name,
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString('en-PK', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        items: [
+          {
+            product_id: testProduct.id,
+            product_name: testProduct.name,
+            quantity: '5',
+            unit_price: 100,
+            total_price: 500,
+            unit: 'kg'
+          }
+        ],
+        subtotal: 500,
+        grand_total: 500,
+        payment_amount: 300, // Partial payment
+        payment_method: 'cash'
+      };
+
+      const invoice = await this.createInvoice(invoiceData);
+
+      console.log(`✅ [TEST] Created test invoice ${invoice.invoiceId} with partial payment`);
+
+      return {
+        id: invoice.invoiceId,
+        customer_id: testCustomer.id,
+        items: invoiceData.items,
+        bill_number: invoice.billNumber
+      };
+
+    } catch (error) {
+      console.error('❌ [TEST] Failed to create test invoice:', error);
+      return null;
+    }
+  }
+
+  /**
+   * 🧪 TESTING: Create test customer
+   */
+  private async createTestCustomer(): Promise<any> {
+    const customerData = {
+      customer_code: `TEST-${Date.now()}`,
+      name: 'Test Customer for Force Delete',
+      phone: '1234567890',
+      address: 'Test Address',
+      balance: 0
+    };
+
+    try {
+      const existingCustomer = await this.dbConnection.select(
+        'SELECT * FROM customers WHERE name = ?',
+        [customerData.name]
+      );
+
+      if (existingCustomer.length > 0) {
+        return existingCustomer[0];
+      }
+
+      await this.dbConnection.execute(
+        'INSERT INTO customers (customer_code, name, phone, address, balance, created_at) VALUES (?, ?, ?, ?, ?, datetime("now"))',
+        [customerData.customer_code, customerData.name, customerData.phone, customerData.address, customerData.balance]
+      );
+
+      const newCustomer = await this.dbConnection.select(
+        'SELECT * FROM customers WHERE customer_code = ?',
+        [customerData.customer_code]
+      );
+
+      return newCustomer[0];
+
+    } catch (error) {
+      console.error('❌ [TEST] Failed to create test customer:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 🧪 TESTING: Create test product
+   */
+  private async createTestProduct(): Promise<any> {
+    const productData = {
+      name: 'Test Product for Force Delete',
+      unit_type: 'kg-grams',
+      unit: 'kg',
+      current_stock: '100',
+      stock_quantity: 100,
+      selling_price: 100
+    };
+
+    try {
+      const existingProduct = await this.dbConnection.select(
+        'SELECT * FROM products WHERE name = ?',
+        [productData.name]
+      );
+
+      if (existingProduct.length > 0) {
+        return existingProduct[0];
+      }
+
+      await this.dbConnection.execute(
+        'INSERT INTO products (name, unit_type, unit, current_stock, stock_quantity, selling_price, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime("now"))',
+        [productData.name, productData.unit_type, productData.unit, productData.current_stock, productData.stock_quantity, productData.selling_price]
+      );
+
+      const newProduct = await this.dbConnection.select(
+        'SELECT * FROM products WHERE name = ?',
+        [productData.name]
+      );
+
+      return newProduct[0];
+
+    } catch (error) {
+      console.error('❌ [TEST] Failed to create test product:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 🧪 TESTING: Verify stock restoration after force delete
+   */
+  private async verifyStockRestoration(items: any[]): Promise<{
+    success: boolean;
+    message: string;
+    details: any;
+  }> {
+    try {
+      const verificationResults = [];
+
+      for (const item of items) {
+        if (!item.product_id || item.is_misc_item) {
+          continue; // Skip non-stock items
+        }
+
+        const product = await this.getProduct(item.product_id);
+        if (product) {
+          verificationResults.push({
+            productId: item.product_id,
+            productName: item.product_name,
+            currentStock: product.current_stock,
+            stockQuantity: product.stock_quantity
+          });
+        }
+      }
+
+      return {
+        success: true,
+        message: `Verified stock for ${verificationResults.length} products`,
+        details: verificationResults
+      };
+
+    } catch (error: any) {
+      return {
+        success: false,
+        message: `Stock verification failed: ${error?.message || 'Unknown error'}`,
+        details: error
       };
     }
   }
@@ -16777,29 +18109,47 @@ export class DatabaseService {
   /**
    * Update payment channel daily ledger
    */
-  async updatePaymentChannelDailyLedger(channelId: number, date: string, amount: number): Promise<void> {
+  async updatePaymentChannelDailyLedger(channelId: number, date: string, amount: number, type: 'incoming' | 'outgoing' = 'incoming'): Promise<void> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
 
-      console.log(`🔄 [DB] Updating payment channel daily ledger: channel=${channelId}, date=${date}, amount=${amount}`);
+      console.log(`🔄 [DB] Updating payment channel daily ledger: channel=${channelId}, date=${date}, amount=${amount}, type=${type}`);
 
       // Ensure the table exists first
       await this.ensurePaymentChannelDailyLedgersTable();
 
+      // Get channel name
+      const channelResult = await this.dbConnection.execute(
+        'SELECT name FROM payment_channels WHERE id = ?',
+        [channelId]
+      );
+      const channelName = channelResult.rows.length > 0 ? channelResult.rows[0].name : 'Unknown Channel';
+
+      // Prepare update fields based on transaction type
+      const incomingAmount = type === 'incoming' ? amount : 0;
+      const outgoingAmount = type === 'outgoing' ? amount : 0;
+
       // Insert or update the daily ledger entry
       await this.dbConnection.execute(`
         INSERT INTO payment_channel_daily_ledgers (
-          payment_channel_id, payment_channel_name, date, total_incoming, transaction_count, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          payment_channel_id, payment_channel_name, date, 
+          total_incoming, total_outgoing, transaction_count, 
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         ON CONFLICT (payment_channel_id, date) DO UPDATE SET
           total_incoming = total_incoming + ?,
+          total_outgoing = total_outgoing + ?,
           transaction_count = transaction_count + 1,
           updated_at = CURRENT_TIMESTAMP
-      `, [channelId, 'Unknown Channel', date, amount, amount]);
+      `, [
+        channelId, channelName, date,
+        incomingAmount, outgoingAmount,
+        incomingAmount, outgoingAmount
+      ]);
 
-      console.log(`✅ [DB] Payment channel daily ledger updated successfully`);
+      console.log(`✅ [DB] Payment channel daily ledger updated successfully (${type}: ${amount})`);
     } catch (error) {
       console.error('❌ [DB] Failed to update payment channel daily ledger:', error);
       throw error;

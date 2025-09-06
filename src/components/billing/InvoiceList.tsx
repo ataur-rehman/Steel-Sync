@@ -28,6 +28,7 @@ import {
   Printer,
   Package,
   Trash2,
+  DollarSign,
 
   Plus,
   SortAsc,
@@ -110,6 +111,9 @@ const InvoiceList: React.FC = () => {
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // ✅ ENHANCED: Payment handling option state
+  const [paymentHandlingOption, setPaymentHandlingOption] = useState<'credit' | 'delete'>('credit');
 
   // Invoice mode state
   const [invoiceMode, setInvoiceMode] = useState<'view' | 'edit'>('view');
@@ -440,17 +444,23 @@ const InvoiceList: React.FC = () => {
     }
   };
 
-  // Delete invoice functionality
+  // ✅ ENHANCED Delete invoice functionality - handles all invoice types with payment options
   const handleDeleteInvoice = (invoice: Invoice) => {
-    // Only allow deletion of fully unpaid invoices (no payments made)
     const paymentAmount = parseFloat(invoice.payment_amount?.toString() || '0');
-    if (paymentAmount > 0) {
-      toast.error(`Cannot delete invoice ${invoice.bill_number} - it has payments of Rs.${paymentAmount.toFixed(2)}. Only fully unpaid invoices can be deleted.`);
-      return;
-    }
+    const hasPayments = paymentAmount > 0;
 
+    // Set the invoice to delete and show confirmation
     setInvoiceToDelete(invoice);
+
+    // Reset payment handling option to default when opening modal
+    setPaymentHandlingOption('credit');
+
     setShowDeleteConfirmation(true);
+
+    // Show different messages for different invoice types
+    if (hasPayments) {
+      console.log(`Invoice ${invoice.bill_number} has payments of Rs.${paymentAmount.toFixed(2)} - payment handling options will be shown`);
+    }
   };
 
   const confirmDeleteInvoice = async () => {
@@ -458,8 +468,19 @@ const InvoiceList: React.FC = () => {
 
     setDeleting(true);
     try {
-      await db.deleteInvoice(invoiceToDelete.id);
-      toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully`);
+      // ✅ Use the enhanced deletion method with payment handling option
+      await db.deleteInvoiceWithValidation(invoiceToDelete.id, paymentHandlingOption);
+
+      const paymentAmount = parseFloat(invoiceToDelete.payment_amount?.toString() || '0');
+      if (paymentAmount > 0) {
+        if (paymentHandlingOption === 'credit') {
+          toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully. Payments of Rs.${paymentAmount.toFixed(2)} have been reversed as customer credit.`);
+        } else {
+          toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully. Payment records of Rs.${paymentAmount.toFixed(2)} have been removed completely.`);
+        }
+      } else {
+        toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully`);
+      }
 
       // Refresh the invoice list
       await loadData();
@@ -941,16 +962,14 @@ const InvoiceList: React.FC = () => {
                         <Package className="h-3 w-3" />
                       </button>
 
-                      {/* Delete button - only show for unpaid invoices */}
-                      {invoice.remaining_balance > 0 && (
-                        <button
-                          onClick={() => handleDeleteInvoice(invoice)}
-                          className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                          title="Delete Invoice"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      )}
+                      {/* ✅ UNIFIED Delete button - handles all invoice types */}
+                      <button
+                        onClick={() => handleDeleteInvoice(invoice)}
+                        className="p-2 text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                        title="Delete Invoice (handles payments automatically)"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -1111,16 +1130,14 @@ const InvoiceList: React.FC = () => {
                                 <Package className="h-4 w-4" />
                               </button>
 
-                              {/* Delete button - only show for unpaid invoices */}
-                              {invoice.remaining_balance > 0 && (
-                                <button
-                                  onClick={() => handleDeleteInvoice(invoice)}
-                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                  title="Delete Invoice"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              )}
+                              {/* ✅ UNIFIED Delete button - handles all invoice types */}
+                              <button
+                                onClick={() => handleDeleteInvoice(invoice)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Delete Invoice (handles payments automatically)"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -1408,9 +1425,65 @@ const InvoiceList: React.FC = () => {
                     <p>Customer: {invoiceToDelete.customer_name}</p>
                     <p>Amount: Rs. {invoiceToDelete.grand_total?.toLocaleString()}</p>
                     <p>Outstanding: Rs. {invoiceToDelete.remaining_balance?.toLocaleString()}</p>
+                    {parseFloat(invoiceToDelete.payment_amount?.toString() || '0') > 0 && (
+                      <p className="text-orange-700 font-medium">
+                        ⚠️ Paid: Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
+
+              {/* ✅ ENHANCED: Payment Handling Options - Only show when invoice has payments */}
+              {parseFloat(invoiceToDelete.payment_amount?.toString() || '0') > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
+                  <h4 className="text-sm font-medium text-blue-900 mb-3 flex items-center">
+                    <DollarSign className="h-4 w-4 mr-1" />
+                    Payment Handling Options
+                  </h4>
+                  <div className="space-y-3">
+                    <label className="flex items-start space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="paymentHandling"
+                        value="credit"
+                        checked={paymentHandlingOption === 'credit'}
+                        onChange={(e) => setPaymentHandlingOption(e.target.value as 'credit' | 'delete')}
+                        className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      />
+                      <div className="text-sm">
+                        <div className="font-medium text-blue-900 flex items-center">
+                          💳 Reverse as Customer Credit
+                          <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">Recommended</span>
+                        </div>
+                        <div className="text-blue-700 mt-1">
+                          Add Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()} to customer balance for future use
+                        </div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-start space-x-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="paymentHandling"
+                        value="delete"
+                        checked={paymentHandlingOption === 'delete'}
+                        onChange={(e) => setPaymentHandlingOption(e.target.value as 'credit' | 'delete')}
+                        className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                      />
+                      <div className="text-sm">
+                        <div className="font-medium text-blue-900 flex items-center">
+                          🗑️ Delete Payment Records
+                          <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full">Caution</span>
+                        </div>
+                        <div className="text-blue-700 mt-1">
+                          Remove payment records completely (customer loses Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()})
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end space-x-3">

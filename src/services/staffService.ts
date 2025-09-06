@@ -100,7 +100,7 @@ class StaffService {
 
     try {
       console.log('🔄 [STAFF] Initializing staff tables...');
-      
+
       // Initialize audit logging first
       await auditLogService.initializeTables();
 
@@ -108,10 +108,10 @@ class StaffService {
       // Check if we need to migrate from old schema
       const tableInfo = await db.executeCommand(`PRAGMA table_info(staff);`);
       const hasUsernameColumn = tableInfo.some((col: any) => col.name === 'username');
-      
+
       if (hasUsernameColumn) {
         console.log('🔄 Migrating staff table to remove authentication fields...');
-        
+
         // Create new staff table with correct schema
         await db.executeCommand(`
           CREATE TABLE IF NOT EXISTS staff_new (
@@ -119,7 +119,7 @@ class StaffService {
             full_name TEXT NOT NULL,
             employee_id TEXT UNIQUE NOT NULL,
             phone TEXT,
-            role TEXT NOT NULL),
+            role TEXT NOT NULL,
             hire_date TEXT NOT NULL,
             salary REAL DEFAULT 0,
             is_active BOOLEAN DEFAULT 1,
@@ -131,7 +131,7 @@ class StaffService {
             updated_at TEXT NOT NULL DEFAULT (datetime('now'))
           );
         `);
-        
+
         // Copy data from old table (only compatible fields)
         await db.executeCommand(`
           INSERT INTO staff_new (
@@ -147,11 +147,11 @@ class StaffService {
             COALESCE(updated_at, datetime('now')) as updated_at
           FROM staff_management;
         `);
-        
+
         // Drop old table and rename new one
         await db.executeCommand(`DROP TABLE staff;`);
         await db.executeCommand(`ALTER TABLE staff_new RENAME TO staff;`);
-        
+
         console.log('✅ Staff table migration completed');
       } else {
         // Create table normally if it doesn't exist or is already correct
@@ -161,7 +161,7 @@ class StaffService {
             full_name TEXT NOT NULL,
             employee_id TEXT UNIQUE NOT NULL,
             phone TEXT,
-            role TEXT NOT NULL),
+            role TEXT NOT NULL,
             hire_date TEXT NOT NULL,
             salary REAL DEFAULT 0,
             is_active BOOLEAN DEFAULT 1,
@@ -181,7 +181,7 @@ class StaffService {
       await db.executeCommand(`CREATE INDEX IF NOT EXISTS idx_staff_employee_id ON staff(employee_id);`);
 
       console.log('✅ Staff tables initialized successfully (without department field)');
-      
+
       // Mark as initialized to prevent repeated calls
       staffTablesInitialized = true;
       console.log('✅ [STAFF] Staff service initialization completed');
@@ -197,27 +197,27 @@ class StaffService {
   async generateEmployeeId(): Promise<string> {
     let attempts = 0;
     const maxAttempts = 10;
-    
+
     while (attempts < maxAttempts) {
       const timestamp = Date.now().toString();
       const random = Math.random().toString(36).substr(2, 4).toUpperCase();
       const employeeId = `EMP-${timestamp.slice(-6)}-${random}`;
-      
+
       // Check if it already exists
       const existing = await db.executeRawQuery(
         'SELECT id FROM staff_management WHERE employee_id = ?',
         [employeeId]
       );
-      
+
       if (existing.length === 0) {
         return employeeId;
       }
-      
+
       attempts++;
       // Add small delay to ensure different timestamp
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    
+
     throw new Error('Failed to generate unique employee ID after multiple attempts');
   }
 
@@ -227,27 +227,27 @@ class StaffService {
   async generateStaffCode(): Promise<string> {
     let attempts = 0;
     const maxAttempts = 10;
-    
+
     while (attempts < maxAttempts) {
       const timestamp = Date.now().toString();
       const random = Math.random().toString(36).substr(2, 3).toUpperCase();
       const staffCode = `STF-${timestamp.slice(-4)}-${random}`;
-      
+
       // Check if it already exists
       const existing = await db.executeRawQuery(
         'SELECT id FROM staff_management WHERE staff_code = ?',
         [staffCode]
       );
-      
+
       if (existing.length === 0) {
         return staffCode;
       }
-      
+
       attempts++;
       // Add small delay to ensure different timestamp
       await new Promise(resolve => setTimeout(resolve, 10));
     }
-    
+
     throw new Error('Failed to generate unique staff code after multiple attempts');
   }
 
@@ -444,7 +444,7 @@ class StaffService {
       try {
         const tableInfo = await db.executeCommand(`PRAGMA table_info(staff);`);
         const hasPermissionsColumn = tableInfo.some((col: any) => col.name === 'permissions');
-        
+
         if (!hasPermissionsColumn) {
           console.log('Adding permissions column to staff table...');
           await db.executeCommand(`ALTER TABLE staff ADD COLUMN permissions TEXT DEFAULT '{}'`);
@@ -472,8 +472,8 @@ class StaffService {
       });
 
       // Emit real-time event
-      eventBus.emit(BUSINESS_EVENTS.STAFF_UPDATED, { 
-        ...existingStaff, 
+      eventBus.emit(BUSINESS_EVENTS.STAFF_UPDATED, {
+        ...existingStaff,
         permissions: permissions,
         updated_at: new Date().toISOString()
       });
@@ -493,7 +493,7 @@ class StaffService {
       // First check if permissions column exists
       const tableInfo = await db.executeCommand(`PRAGMA table_info(staff);`);
       const hasPermissionsColumn = tableInfo.some((col: any) => col.name === 'permissions');
-      
+
       if (!hasPermissionsColumn) {
         // If no permissions column, return empty permissions
         return {};
@@ -659,7 +659,7 @@ class StaffService {
       if (filters.limit) {
         query += ' LIMIT ?';
         params.push(filters.limit);
-        
+
         if (filters.offset) {
           query += ' OFFSET ?';
           params.push(filters.offset);
@@ -667,7 +667,7 @@ class StaffService {
       }
 
       const rows = await db.executeRawQuery(query, params);
-      
+
       return rows.map(row => ({
         id: row.id,
         full_name: row.full_name,
@@ -731,7 +731,7 @@ class StaffService {
           throw error;
         }
       }
-      
+
       try {
         roleStats = await db.executeRawQuery(`
           SELECT role, COUNT(*) as count 
@@ -743,7 +743,7 @@ class StaffService {
           throw error;
         }
       }
-      
+
       try {
         const [recentActivitiesResult] = await db.executeRawQuery(`
           SELECT COUNT(*) as count 
@@ -756,7 +756,7 @@ class StaffService {
           throw error;
         }
       }
-      
+
       try {
         const [onlineResult] = await db.executeRawQuery(`
           SELECT COUNT(DISTINCT staff_id) as count 
@@ -826,7 +826,7 @@ class StaffService {
       }
 
       const newStatus = !staff.is_active;
-      
+
       await db.executeCommand(
         'UPDATE staff SET is_active = ?, updated_at = datetime(\'now\') WHERE id = ?',
         [newStatus ? 1 : 0, id]
