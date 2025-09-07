@@ -215,7 +215,11 @@ export class ProductionFileBackupService {
    * Uses rusqlite backup API for guaranteed data consistency
    * Captures ALL data regardless of timing issues
    */
-  async createBackup(type: 'manual' | 'automatic' = 'manual'): Promise<FileBackupResult> {
+  async createBackup(
+    type: 'manual' | 'automatic' = 'manual',
+    progressCallback?: (progress: number, operation: string) => void,
+    uploadProgressCallback?: (progress: number, speed?: string, eta?: string) => void
+  ): Promise<FileBackupResult> {
     const startTime = Date.now();
     console.log(`🚀 [BACKUP] Starting ${type} backup using SQLite Backup API...`);
 
@@ -265,18 +269,54 @@ export class ProductionFileBackupService {
       if (this.config.googleDrive.enabled) {
         try {
           console.log('☁️ [BACKUP] Uploading to Google Drive...');
+          progressCallback?.(90, 'Uploading to Google Drive...');
 
           // Read the backup file for upload
           const localBackupPath = `${this.BACKUP_DIR}/${filename}`;
           const backupData = await readFile(localBackupPath, { baseDir: BaseDirectory.AppData });
 
-          googleDriveFileId = await this.uploadToGoogleDrive(backupData, metadata);
+          // Track upload start time for speed calculation
+          const uploadStartTime = Date.now();
+          let lastProgressTime = uploadStartTime;
+          let lastProgressBytes = 0;
+
+          googleDriveFileId = await this.uploadToGoogleDrive(
+            backupData,
+            metadata,
+            (progress: number) => {
+              // Calculate upload speed and ETA
+              const now = Date.now();
+              const timeElapsed = (now - uploadStartTime) / 1000; // seconds
+              const bytesUploaded = (progress / 100) * backupData.length;
+
+              if (timeElapsed > 0) {
+                const bytesPerSecond = bytesUploaded / timeElapsed;
+                const remainingBytes = backupData.length - bytesUploaded;
+                const etaSeconds = remainingBytes / bytesPerSecond;
+
+                const speedMBps = (bytesPerSecond / (1024 * 1024)).toFixed(2);
+                const etaMinutes = Math.ceil(etaSeconds / 60);
+
+                const speedText = `${speedMBps} MB/s`;
+                const etaText = etaMinutes > 1 ? `${etaMinutes} min` : '< 1 min';
+
+                uploadProgressCallback?.(progress, speedText, etaText);
+              } else {
+                uploadProgressCallback?.(progress);
+              }
+
+              progressCallback?.(90 + (progress / 10), `Uploading to Google Drive... ${progress}%`);
+            }
+          );
+
           metadata.isGoogleDrive = true;
           metadata.googleDriveFileId = googleDriveFileId;
           await this.saveBackupMetadata(metadata); // Update metadata
           console.log('✅ [BACKUP] Google Drive upload completed');
+          progressCallback?.(100, 'Backup completed successfully!');
         } catch (error) {
           console.warn('⚠️ [BACKUP] Google Drive upload failed, but local backup succeeded:', error);
+          progressCallback?.(100, 'Backup completed (local only)');
         }
       }
 
@@ -313,7 +353,12 @@ export class ProductionFileBackupService {
    * YOUR APPROACH: Restore by replacing store.db file
    * PRODUCTION-SAFE: Creates safety backup, atomic replacement
    */
-  async restoreBackup(backupId: string, source: 'local' | 'google-drive' = 'local'): Promise<FileRestoreResult> {
+  async restoreBackup(
+    backupId: string,
+    source: 'local' | 'google-drive' = 'local',
+    progressCallback?: (progress: number, operation: string) => void,
+    downloadProgressCallback?: (progress: number, speed?: string, eta?: string) => void
+  ): Promise<FileRestoreResult> {
     const startTime = Date.now();
 
     // Auto-detect source for Google Drive backups
@@ -352,11 +397,44 @@ export class ProductionFileBackupService {
           throw new Error('Google Drive file ID not found for this backup');
         }
         console.log('☁️ [RESTORE] Downloading from Google Drive...');
-        backupData = await this.downloadFromGoogleDrive(metadata.googleDriveFileId);
+        progressCallback?.(20, 'Downloading from Google Drive...');
+
+        // Track download progress
+        const downloadStartTime = Date.now();
+        backupData = await this.downloadFromGoogleDrive(
+          metadata.googleDriveFileId,
+          (progress: number) => {
+            // Calculate download speed and ETA
+            const now = Date.now();
+            const timeElapsed = (now - downloadStartTime) / 1000;
+
+            if (timeElapsed > 0 && metadata.size) {
+              const bytesDownloaded = (progress / 100) * metadata.size;
+              const bytesPerSecond = bytesDownloaded / timeElapsed;
+              const remainingBytes = metadata.size - bytesDownloaded;
+              const etaSeconds = remainingBytes / bytesPerSecond;
+
+              const speedMBps = (bytesPerSecond / (1024 * 1024)).toFixed(2);
+              const etaMinutes = Math.ceil(etaSeconds / 60);
+
+              const speedText = `${speedMBps} MB/s`;
+              const etaText = etaMinutes > 1 ? `${etaMinutes} min` : '< 1 min';
+
+              downloadProgressCallback?.(progress, speedText, etaText);
+            } else {
+              downloadProgressCallback?.(progress);
+            }
+
+            progressCallback?.(20 + (progress / 5), `Downloading... ${progress}%`);
+          }
+        );
+        progressCallback?.(40, 'Download completed');
       } else {
         console.log('📖 [RESTORE] Reading local backup...');
+        progressCallback?.(30, 'Reading local backup...');
         const localPath = `${this.BACKUP_DIR}/${metadata.filename}`;
         backupData = await readFile(localPath, { baseDir: BaseDirectory.AppData });
+        progressCallback?.(40, 'Local backup loaded');
       }
 
       // STEP 4: Verify backup integrity
@@ -477,7 +555,12 @@ export class ProductionFileBackupService {
    * Eliminates Windows file locking by using application restart
    * This is how enterprise database software handles this problem
    */
-  async restoreBackupWithRestart(backupId: string, source: 'local' | 'google-drive' = 'local'): Promise<void> {
+  async restoreBackupWithRestart(
+    backupId: string,
+    source: 'local' | 'google-drive' = 'local',
+    progressCallback?: (progress: number, operation: string) => void,
+    downloadProgressCallback?: (progress: number, speed?: string, eta?: string) => void
+  ): Promise<void> {
     // Auto-detect source for Google Drive backups
     if (backupId.startsWith('drive-')) {
       source = 'google-drive';
@@ -495,6 +578,7 @@ export class ProductionFileBackupService {
       }
 
       console.log(`📋 [RESTART-RESTORE] Backup details: ${metadata.filename} (${(metadata.size / 1024 / 1024).toFixed(2)}MB)`);
+      progressCallback?.(10, 'Backup metadata loaded');
 
       // STEP 2: Download/read backup data
       let backupData: Uint8Array;
@@ -503,11 +587,44 @@ export class ProductionFileBackupService {
           throw new Error('Google Drive file ID not found for this backup');
         }
         console.log('☁️ [RESTART-RESTORE] Downloading from Google Drive...');
-        backupData = await this.downloadFromGoogleDrive(metadata.googleDriveFileId);
+        progressCallback?.(20, 'Downloading from Google Drive...');
+
+        // Track download progress
+        const downloadStartTime = Date.now();
+        backupData = await this.downloadFromGoogleDrive(
+          metadata.googleDriveFileId,
+          (progress: number) => {
+            // Calculate download speed and ETA
+            const now = Date.now();
+            const timeElapsed = (now - downloadStartTime) / 1000;
+
+            if (timeElapsed > 0 && metadata.size) {
+              const bytesDownloaded = (progress / 100) * metadata.size;
+              const bytesPerSecond = bytesDownloaded / timeElapsed;
+              const remainingBytes = metadata.size - bytesDownloaded;
+              const etaSeconds = remainingBytes / bytesPerSecond;
+
+              const speedMBps = (bytesPerSecond / (1024 * 1024)).toFixed(2);
+              const etaMinutes = Math.ceil(etaSeconds / 60);
+
+              const speedText = `${speedMBps} MB/s`;
+              const etaText = etaMinutes > 1 ? `${etaMinutes} min` : '< 1 min';
+
+              downloadProgressCallback?.(progress, speedText, etaText);
+            } else {
+              downloadProgressCallback?.(progress);
+            }
+
+            progressCallback?.(20 + (progress / 2), `Downloading... ${progress}%`);
+          }
+        );
+        progressCallback?.(70, 'Download completed');
       } else {
         console.log('📖 [RESTART-RESTORE] Reading local backup...');
+        progressCallback?.(30, 'Reading local backup...');
         const localPath = `${this.BACKUP_DIR}/${metadata.filename}`;
         backupData = await readFile(localPath, { baseDir: BaseDirectory.AppData });
+        progressCallback?.(70, 'Local backup loaded');
       }
 
       // STEP 3: Verify backup integrity
@@ -704,17 +821,47 @@ export class ProductionFileBackupService {
     try {
       const backups = await this.listBackups();
       const maxLocal = this.config.safety.maxLocalBackups;
+      const maxGoogleDrive = this.config.safety.maxGoogleDriveBackups;
 
-      // Remove old local backups if we exceed the limit
-      if (backups.length > maxLocal) {
-        const localBackups = backups.filter(b => b.isLocal).slice(maxLocal);
-        for (const oldBackup of localBackups) {
+      // 1. Cleanup LOCAL backups
+      const localBackups = backups.filter(b => b.isLocal);
+
+      if (localBackups.length > maxLocal) {
+        const backupsToDelete = localBackups.slice(maxLocal);
+
+        console.log(`🗑️ [CLEANUP] Found ${localBackups.length} local backups, keeping newest ${maxLocal}, removing ${backupsToDelete.length} old backups`);
+
+        for (const oldBackup of backupsToDelete) {
           try {
             await this.deleteLocalBackup(oldBackup.id);
-            console.log(`🗑️ [CLEANUP] Removed old backup: ${oldBackup.id}`);
+            console.log(`🗑️ [CLEANUP] Removed old local backup: ${oldBackup.id}`);
           } catch (error) {
-            console.warn(`⚠️ [CLEANUP] Failed to remove backup ${oldBackup.id}:`, error);
+            console.warn(`⚠️ [CLEANUP] Failed to remove local backup ${oldBackup.id}:`, error);
           }
+        }
+      } else {
+        console.log(`📋 [CLEANUP] ${localBackups.length} local backups found, under limit of ${maxLocal}`);
+      }
+
+      // 2. Cleanup GOOGLE DRIVE backups
+      if (this.googleDriveProvider && this.config.googleDrive.enabled) {
+        const driveBackups = backups.filter(b => b.isGoogleDrive);
+
+        if (driveBackups.length > maxGoogleDrive) {
+          const driveBackupsToDelete = driveBackups.slice(maxGoogleDrive);
+
+          console.log(`☁️ [CLEANUP] Found ${driveBackups.length} Google Drive backups, keeping newest ${maxGoogleDrive}, removing ${driveBackupsToDelete.length} old backups`);
+
+          for (const oldBackup of driveBackupsToDelete) {
+            try {
+              await this.deleteGoogleDriveBackup(oldBackup.id);
+              console.log(`☁️ [CLEANUP] Removed old Google Drive backup: ${oldBackup.id}`);
+            } catch (error) {
+              console.warn(`⚠️ [CLEANUP] Failed to remove Google Drive backup ${oldBackup.id}:`, error);
+            }
+          }
+        } else {
+          console.log(`☁️ [CLEANUP] ${driveBackups.length} Google Drive backups found, under limit of ${maxGoogleDrive}`);
         }
       }
     } catch (error) {
@@ -747,6 +894,25 @@ export class ProductionFileBackupService {
           console.warn('[CLEANUP] Tauri metadata deletion not available, metadata file remains');
         }
       }
+    }
+  }
+
+  private async deleteGoogleDriveBackup(backupId: string): Promise<void> {
+    if (!this.googleDriveProvider) {
+      throw new Error('Google Drive provider not initialized');
+    }
+
+    try {
+      // Extract Google Drive file ID from backup ID
+      const driveFileId = backupId.replace('drive-', '');
+
+      // Delete the file from Google Drive
+      await this.googleDriveProvider.deleteFile(driveFileId);
+
+      console.log(`☁️ [CLEANUP] Successfully deleted Google Drive backup: ${driveFileId}`);
+    } catch (error) {
+      console.error(`❌ [CLEANUP] Failed to delete Google Drive backup ${backupId}:`, error);
+      throw error;
     }
   }
 
@@ -856,6 +1022,64 @@ export class ProductionFileBackupService {
     };
   }
 
+  private async checkMissedBackups(): Promise<void> {
+    try {
+      if (!this.config.schedule.enabled) return;
+
+      const now = new Date();
+      const backups = await this.listBackups();
+      const lastAutoBackup = backups.find(b => b.type === 'automatic');
+
+      // Calculate when the last backup should have been
+      const lastScheduledTime = this.calculateLastScheduledTime(now);
+
+      // Check if we missed a backup (no automatic backup since last scheduled time)
+      if (!lastAutoBackup || lastAutoBackup.createdAt < lastScheduledTime) {
+        console.log('⚠️ [RECOVERY] Missed backup detected, creating recovery backup...');
+
+        try {
+          const result = await this.createBackup('automatic');
+          if (result.success) {
+            console.log('✅ [RECOVERY] Recovery backup completed');
+          } else {
+            console.error('❌ [RECOVERY] Recovery backup failed:', result.error);
+          }
+        } catch (error) {
+          console.error('❌ [RECOVERY] Recovery backup error:', error);
+        }
+      }
+    } catch (error) {
+      console.error('❌ [RECOVERY] Failed to check missed backups:', error);
+    }
+  }
+
+  private calculateLastScheduledTime(now: Date): Date {
+    const schedule = this.config.schedule;
+    const [hours, minutes] = schedule.time.split(':').map(Number);
+
+    const lastScheduled = new Date(now);
+    lastScheduled.setHours(hours, minutes, 0, 0);
+
+    if (schedule.frequency === 'daily') {
+      // If the time today hasn't passed yet, look at yesterday
+      if (lastScheduled > now) {
+        lastScheduled.setDate(lastScheduled.getDate() - 1);
+      }
+    } else if (schedule.frequency === 'weekly') {
+      const targetWeekday = schedule.weekday ?? 0;
+      const currentWeekday = now.getDay();
+
+      // Calculate days since last target weekday
+      let daysSinceTarget = currentWeekday - targetWeekday;
+      if (daysSinceTarget < 0) daysSinceTarget += 7;
+      if (daysSinceTarget === 0 && lastScheduled > now) daysSinceTarget = 7;
+
+      lastScheduled.setDate(lastScheduled.getDate() - daysSinceTarget);
+    }
+
+    return lastScheduled;
+  }
+
   private async saveConfig(): Promise<void> {
     try {
       const configPath = 'backup-config.json';
@@ -894,6 +1118,8 @@ export class ProductionFileBackupService {
         // Setup schedule if enabled
         if (this.config.schedule.enabled) {
           this.setupNextScheduledBackup();
+          // Check for missed backups on startup
+          this.checkMissedBackups();
         }
       } else {
         console.log('📋 [CONFIG] No existing backup configuration found, using defaults');
@@ -957,7 +1183,11 @@ export class ProductionFileBackupService {
     };
   }
 
-  private async uploadToGoogleDrive(data: Uint8Array, metadata: FileBackupMetadata): Promise<string> {
+  private async uploadToGoogleDrive(
+    data: Uint8Array,
+    metadata: FileBackupMetadata,
+    onProgress?: (progress: number) => void
+  ): Promise<string> {
     if (!this.googleDriveProvider) {
       throw new Error('Google Drive provider not initialized');
     }
@@ -968,9 +1198,9 @@ export class ProductionFileBackupService {
       const fileId = await this.googleDriveProvider.uploadFile(
         data,
         metadata.filename,
-        (progress) => {
+        onProgress || ((progress) => {
           console.log(`☁️ [GOOGLE DRIVE] Upload progress: ${progress}%`);
-        }
+        })
       );
 
       console.log(`✅ [GOOGLE DRIVE] Upload completed: ${fileId}`);
@@ -981,7 +1211,10 @@ export class ProductionFileBackupService {
     }
   }
 
-  private async downloadFromGoogleDrive(fileId: string): Promise<Uint8Array> {
+  private async downloadFromGoogleDrive(
+    fileId: string,
+    onProgress?: (progress: number) => void
+  ): Promise<Uint8Array> {
     if (!this.googleDriveProvider) {
       throw new Error('Google Drive provider not initialized');
     }
@@ -991,9 +1224,9 @@ export class ProductionFileBackupService {
     try {
       const data = await this.googleDriveProvider.downloadFile(
         fileId,
-        (progress) => {
+        onProgress || ((progress) => {
           console.log(`☁️ [GOOGLE DRIVE] Download progress: ${progress}%`);
-        }
+        })
       );
 
       console.log(`✅ [GOOGLE DRIVE] Download completed: ${(data.length / 1024 / 1024).toFixed(2)}MB`);

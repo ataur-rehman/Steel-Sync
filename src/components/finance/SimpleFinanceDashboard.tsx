@@ -309,186 +309,178 @@ const SimpleFinanceDashboard: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="p-6 space-y-6">
             {/* Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl font-semibold text-gray-900">Financial Dashboard</h1>
-                        <p className="text-sm text-gray-600 mt-1">
-                            Last updated: {lastUpdate.toLocaleString()}
-                        </p>
-                    </div>
-                    <button
-                        onClick={handleRefresh}
-                        className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Refresh
-                    </button>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Financial Dashboard</h1>
+                    <p className="text-sm text-gray-500 mt-1">
+                        Last updated: {lastUpdate.toLocaleString()}
+                    </p>
                 </div>
+                <button
+                    onClick={handleRefresh}
+                    className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                </button>
             </div>
 
             {/* Main Content */}
-            <div className="max-w-7xl mx-auto px-6 py-6">
-                {/* Monthly Progress */}
-                <div className="mb-6">
-                    <MonthlyProgress snapshot={snapshot} />
-                </div>
+            {/* Monthly Progress */}
+            <MonthlyProgress snapshot={snapshot} />
 
-                {/* Urgent Collections */}
-                <div className="mb-6">
-                    <UrgentCollections collections={urgentCollections} />
-                </div>
+            {/* Urgent Collections */}
+            <UrgentCollections collections={urgentCollections} />
 
-                {/* Key Metrics */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                    <KPICard
-                        title="Monthly Revenue"
-                        value={snapshot.revenue}
-                        trend={snapshot.revenueTrend}
-                        icon={DollarSign}
-                    />
-                    <KPICard
-                        title="Monthly Profit"
-                        value={snapshot.profit}
-                        trend={snapshot.profitTrend}
-                        icon={TrendingUp}
-                    />
-                    <KPICard
-                        title="Profit Margin"
-                        value={snapshot.profitMargin}
-                        icon={Percent}
-                        format="percent"
-                    />
-                    <KPICard
-                        title="Cash Flow"
-                        value={snapshot.cashFlow}
-                        icon={DollarSign}
-                    />
-                </div>
-
-                {/* Outstanding Balances */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                    <KPICard
-                        title="Outstanding Receivables"
-                        value={snapshot.outstandingReceivables}
-                        icon={Users}
-                    />
-                    <KPICard
-                        title="Outstanding Payables"
-                        value={snapshot.outstandingPayables}
-                        icon={Truck}
-                    />
-                    <KPICard
-                        title="Net Outstanding"
-                        value={snapshot.netOutstanding}
-                        icon={DollarSign}
-                    />
-                </div>
-
-                {/* Top Debtors - Enhanced */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Customer Debt</h3>
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <span className="text-gray-600">{snapshot.topCustomerDebt.name}</span>
-                                {snapshot.topCustomerDebt.amount > 0 && (
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Follow up for payment collection
-                                    </p>
-                                )}
-                            </div>
-                            <div className="text-right">
-                                <span className={`font-semibold ${snapshot.topCustomerDebt.amount > 0 ? 'text-orange-600' : 'text-green-600'}`}>
-                                    {formatCurrency(snapshot.topCustomerDebt.amount)}
-                                </span>
-                                {snapshot.topCustomerDebt.amount > 0 && (
-                                    <p className="text-xs text-orange-600 mt-1">Outstanding</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Vendor Debt</h3>
-                        <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                                <span className="text-gray-600">{snapshot.topVendorDebt.name}</span>
-                                {snapshot.topVendorDebt.amount === 0 && (
-                                    <p className="text-xs text-green-600 mt-1">
-                                        All vendor payments current
-                                    </p>
-                                )}
-                            </div>
-                            <div className="text-right">
-                                <span className={`font-semibold ${snapshot.topVendorDebt.amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                    {formatCurrency(snapshot.topVendorDebt.amount)}
-                                </span>
-                                {snapshot.topVendorDebt.amount === 0 && (
-                                    <p className="text-xs text-green-600 mt-1">All clear</p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Alerts */}
-                {alerts.length > 0 && (
-                    <div className="bg-white rounded-lg border border-gray-200 p-6">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Action Items</h3>
-                        <div className="space-y-4">
-                            {alerts.map((alert, index) => (
-                                <Alert key={index} alert={alert} />
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* No Alerts State - Enhanced */}
-                {alerts.length === 0 && (
-                    <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
-                        <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">All Good!</h3>
-                        <p className="text-gray-600 mb-4">No immediate action items. Your finances are on track.</p>
-
-                        {/* Financial Health Summary */}
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-left">
-                            <h4 className="text-sm font-semibold text-green-800 mb-2">Business Health Indicators:</h4>
-                            <div className="space-y-1 text-sm text-green-700">
-                                {snapshot && (
-                                    <>
-                                        <div className="flex justify-between">
-                                            <span>✓ Revenue this month:</span>
-                                            <span className="font-medium">{formatCurrency(snapshot.salesSoFar)}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span>✓ Profit margin:</span>
-                                            <span className="font-medium">{snapshot.profitMargin.toFixed(1)}%</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span>✓ Cash flow:</span>
-                                            <span className="font-medium">{formatCurrency(snapshot.cashFlow)}</span>
-                                        </div>
-                                        {snapshot.outstandingPayables === 0 && (
-                                            <div className="flex justify-between">
-                                                <span>✓ All vendor bills paid</span>
-                                                <span className="font-medium">Current</span>
-                                            </div>
-                                        )}
-                                        {snapshot.outstandingReceivables > 0 && (
-                                            <div className="flex justify-between">
-                                                <span>• Outstanding collections:</span>
-                                                <span className="font-medium">{formatCurrency(snapshot.outstandingReceivables)}</span>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
+            {/* Key Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <KPICard
+                    title="Monthly Revenue"
+                    value={snapshot.revenue}
+                    trend={snapshot.revenueTrend}
+                    icon={DollarSign}
+                />
+                <KPICard
+                    title="Monthly Profit"
+                    value={snapshot.profit}
+                    trend={snapshot.profitTrend}
+                    icon={TrendingUp}
+                />
+                <KPICard
+                    title="Profit Margin"
+                    value={snapshot.profitMargin}
+                    icon={Percent}
+                    format="percent"
+                />
+                <KPICard
+                    title="Cash Flow"
+                    value={snapshot.cashFlow}
+                    icon={DollarSign}
+                />
             </div>
+
+            {/* Outstanding Balances */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <KPICard
+                    title="Outstanding Receivables"
+                    value={snapshot.outstandingReceivables}
+                    icon={Users}
+                />
+                <KPICard
+                    title="Outstanding Payables"
+                    value={snapshot.outstandingPayables}
+                    icon={Truck}
+                />
+                <KPICard
+                    title="Net Outstanding"
+                    value={snapshot.netOutstanding}
+                    icon={DollarSign}
+                />
+            </div>
+
+            {/* Top Debtors - Enhanced */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Customer Debt</h3>
+                    <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                            <span className="text-gray-600">{snapshot.topCustomerDebt.name}</span>
+                            {snapshot.topCustomerDebt.amount > 0 && (
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Follow up for payment collection
+                                </p>
+                            )}
+                        </div>
+                        <div className="text-right">
+                            <span className={`font-semibold ${snapshot.topCustomerDebt.amount > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                                {formatCurrency(snapshot.topCustomerDebt.amount)}
+                            </span>
+                            {snapshot.topCustomerDebt.amount > 0 && (
+                                <p className="text-xs text-orange-600 mt-1">Outstanding</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Top Vendor Debt</h3>
+                    <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                            <span className="text-gray-600">{snapshot.topVendorDebt.name}</span>
+                            {snapshot.topVendorDebt.amount === 0 && (
+                                <p className="text-xs text-green-600 mt-1">
+                                    All vendor payments current
+                                </p>
+                            )}
+                        </div>
+                        <div className="text-right">
+                            <span className={`font-semibold ${snapshot.topVendorDebt.amount > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {formatCurrency(snapshot.topVendorDebt.amount)}
+                            </span>
+                            {snapshot.topVendorDebt.amount === 0 && (
+                                <p className="text-xs text-green-600 mt-1">All clear</p>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Alerts */}
+            {alerts.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Action Items</h3>
+                    <div className="space-y-4">
+                        {alerts.map((alert, index) => (
+                            <Alert key={index} alert={alert} />
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* No Alerts State - Enhanced */}
+            {alerts.length === 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+                    <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">All Good!</h3>
+                    <p className="text-gray-600 mb-4">No immediate action items. Your finances are on track.</p>
+
+                    {/* Financial Health Summary */}
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-left">
+                        <h4 className="text-sm font-semibold text-green-800 mb-2">Business Health Indicators:</h4>
+                        <div className="space-y-1 text-sm text-green-700">
+                            {snapshot && (
+                                <>
+                                    <div className="flex justify-between">
+                                        <span>✓ Revenue this month:</span>
+                                        <span className="font-medium">{formatCurrency(snapshot.salesSoFar)}</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>✓ Profit margin:</span>
+                                        <span className="font-medium">{snapshot.profitMargin.toFixed(1)}%</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>✓ Cash flow:</span>
+                                        <span className="font-medium">{formatCurrency(snapshot.cashFlow)}</span>
+                                    </div>
+                                    {snapshot.outstandingPayables === 0 && (
+                                        <div className="flex justify-between">
+                                            <span>✓ All vendor bills paid</span>
+                                            <span className="font-medium">Current</span>
+                                        </div>
+                                    )}
+                                    {snapshot.outstandingReceivables > 0 && (
+                                        <div className="flex justify-between">
+                                            <span>• Outstanding collections:</span>
+                                            <span className="font-medium">{formatCurrency(snapshot.outstandingReceivables)}</span>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

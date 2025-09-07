@@ -301,7 +301,7 @@ const PaymentChannelManagement: React.FC = () => {
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
-                <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
+
                 <span className="ml-2 text-gray-600">Initializing Payment Channels System...</span>
             </div>
         );
@@ -330,11 +330,11 @@ const PaymentChannelManagement: React.FC = () => {
             {/* PERMANENT: Header */}
             <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center">
-                    <CreditCard className="w-6 h-6 mr-2 text-blue-600" />
+
                     <h1 className="text-2xl font-bold text-gray-900">Payment Channels</h1>
                     {systemReady && (
                         <div title="System Ready">
-                            <CheckCircle className="w-5 h-5 ml-2 text-green-500" />
+
                         </div>
                     )}
                 </div>
@@ -361,7 +361,7 @@ const PaymentChannelManagement: React.FC = () => {
                 <div className="p-6">
                     {channels.length === 0 ? (
                         <div className="text-center py-12">
-                            <CreditCard className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+
                             <p className="text-gray-500 text-lg mb-2">No payment channels found</p>
                             <p className="text-gray-400 text-sm">Click "Add Channel" to create your first payment channel</p>
                         </div>

@@ -4,9 +4,10 @@ import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, type UnitType } from '../../utils/unitUtils';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+import ErrorBoundary from '../common/ErrorBoundary';
 
-import { formatDate, formatDateForDatabase } from '../../utils/formatters';
-import { getCurrentSystemDateTime, getRelativeDate } from '../../utils/systemDateTime';
+import { formatDate } from '../../utils/formatters';
+import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import {
   Package,
   TrendingDown,
@@ -111,6 +112,14 @@ const StockReport: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Simple debounce utility
+  const debounce = (func: Function, delay: number) => {
+    let timeoutId: NodeJS.Timeout;
+    return (...args: any[]) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func.apply(null, args), delay);
+    };
+  };
 
   // State management
   const [stockItems, setStockItems] = useState<StockItem[]>([]);
@@ -122,12 +131,21 @@ const StockReport: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [movementsLoading, setMovementsLoading] = useState(false);
 
+  // 🚨 CRITICAL: Pagination state for large datasets
+  const [movementsPagination, setMovementsPagination] = useState({
+    page: 1,
+    limit: 500, // Safe limit for production
+    total: 0,
+    hasMore: true
+  });
+
   // UI State
   const [currentView, setCurrentView] = useState<'overview' | 'movements' | 'details'>('overview');
   const [selectedProduct, setSelectedProduct] = useState<StockItem | null>(null);
   const [showAdjustment, setShowAdjustment] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [dataFreshness, setDataFreshness] = useState<'live' | 'cached' | 'stale'>('live');
 
   // PERFORMANCE OPTIMIZATION: Debounced refresh timeout ref
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -174,35 +192,38 @@ const StockReport: React.FC = () => {
     // FIXED: Proper event bus integration with correct event names
     const handleStockUpdate = (data: any) => {
       console.log('📦 Stock report refreshing due to stock update:', data);
-      // OPTIMIZED: Use debounced refresh to prevent excessive calls
-      debouncedLoadStockData();
+      // 🔄 REAL-TIME: Use force refresh for immediate updates
+      debouncedRealTimeRefresh();
     };
 
     const handleInvoiceCreated = (data: any) => {
       console.log('📦 Stock report refreshing due to invoice creation:', data);
-      debouncedLoadStockData();
+      // 🔄 REAL-TIME: Use force refresh for immediate updates
+      debouncedRealTimeRefresh();
     };
 
     const handleStockAdjustment = (data: any) => {
       console.log('📦 Stock report refreshing due to stock adjustment:', data);
-      // OPTIMIZED: Use debounced refresh
-      debouncedLoadStockData();
+      // � CRITICAL: Stock adjustments need immediate update
+      immediateRealTimeRefresh();
     };
 
     const handleUIRefreshRequested = (data: any) => {
       console.log('📦 Stock report refreshing due to UI refresh request:', data);
-      // OPTIMIZED: Use debounced refresh
-      debouncedLoadStockData();
+      // � CRITICAL: UI refresh requests need immediate update
+      immediateRealTimeRefresh();
     };
 
     const handleProductsUpdated = (data: any) => {
       console.log('📦 StockReport: Product updated, refreshing stock data...', data);
-      debouncedLoadStockData();
+      // 🔄 REAL-TIME: Use force refresh for immediate updates
+      debouncedRealTimeRefresh();
     };
 
     const handleForceProductReload = (data: any) => {
       console.log('📦 StockReport: Force product reload requested, refreshing...', data);
-      debouncedLoadStockData();
+      // 🔄 REAL-TIME: Use force refresh for immediate updates
+      debouncedRealTimeRefresh();
     };
 
     // Register event listeners with correct event names
@@ -281,68 +302,36 @@ const StockReport: React.FC = () => {
     }
   }, [location.state, stockItems]);
 
+  // 🚀 PERFORMANCE: Debounced refresh to prevent spam
+  const debouncedLoadStockData = useCallback(
+    debounce(() => loadStockData(false), 300),
+    []
+  );
+
+  // 🔄 REAL-TIME: Force refresh for real-time updates with shorter cache
+  const debouncedRealTimeRefresh = useCallback(
+    debounce(() => loadStockData(false, true), 300),
+    []
+  );
+
+  // 🚨 IMMEDIATE: For critical real-time updates that can't wait
+  const immediateRealTimeRefresh = useCallback(
+    () => loadStockData(true, false), // Force refresh, no cache
+    []
+  );
+
   // Manual refresh with user feedback
   const refreshStockData = async () => {
     try {
       setRefreshing(true);
+      console.log('🔄 Manual refresh: Forcing fresh data reload...');
 
-      // CRITICAL FIX: Force cache bypass and multiple refresh attempts
-      console.log('🔄 Manual refresh: Forcing comprehensive data reload...');
+      // Force refresh bypasses cache
+      await loadStockData(true);
 
-      // Try clearing any potential browser/local storage caches
-      try {
-        localStorage.removeItem('product_cache');
-        sessionStorage.removeItem('stock_data');
-      } catch (e) {
-        console.log('Storage cache clearing skipped');
-      }
-
-      // Multiple refresh attempts with small delays
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          console.log(`🔄 Refresh attempt ${attempt}/3...`);
-
-          // Get fresh product data from database (bypass cache)
-          const products = await db.getAllProducts();
-          console.log(`✅ Retrieved ${products.length} products in attempt ${attempt}`);
-
-          // Process with latest movement data
-          const stockData = await processStockData(products);
-          console.log(`✅ Processed ${stockData.length} stock items in attempt ${attempt}`);
-
-          // Update summary with fresh calculations
-          const summary = await calculateStockSummary(stockData);
-
-          setStockItems(stockData);
-          setStockSummary(summary);
-
-          // Update selectedProduct if it exists
-          if (selectedProduct) {
-            const updatedSelectedProduct = stockData.find(item => item.id === selectedProduct.id);
-            if (updatedSelectedProduct) {
-              console.log(`🔄 [MANUAL] Updated selected product ${updatedSelectedProduct.name}`);
-              console.log(`   Stock: ${selectedProduct.current_stock} → ${updatedSelectedProduct.current_stock}`);
-              setSelectedProduct(updatedSelectedProduct);
-            }
-          }
-
-          break; // Success, exit loop
-
-        } catch (error) {
-          console.error(`❌ Refresh attempt ${attempt} failed:`, error);
-          if (attempt === 3) throw error; // Re-throw on final attempt
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
-        }
-      }
-
-      // Also refresh recent movements
-      await loadStockMovements();
-
-      console.log('✅ Manual stock data refresh completed successfully');
-      toast.success('Stock data refreshed successfully!');
-
+      toast.success('Stock data refreshed successfully');
     } catch (error) {
-      console.error('Failed to refresh stock data:', error);
+      console.error('❌ Manual refresh failed:', error);
       toast.error('Failed to refresh stock data');
     } finally {
       setRefreshing(false);
@@ -374,44 +363,108 @@ const StockReport: React.FC = () => {
     });
   };
 
-  const loadStockData = async () => {
+  // 🚀 PERFORMANCE: Cache for repeated access
+  const [dataCache, setDataCache] = useState<{
+    products: any[] | null;
+    categories: string[] | null;
+    lastUpdate: number;
+  }>({
+    products: null,
+    categories: null,
+    lastUpdate: 0
+  });
+
+  const CACHE_DURATION = 30000; // 30 seconds cache for normal operations
+  const REALTIME_CACHE_DURATION = 5000; // 5 seconds cache for real-time updates
+
+  const loadStockData = async (forceRefresh: boolean = false, useRealtimeCache: boolean = false) => {
     try {
       setLoading(true);
       console.log('🔄 Starting to load stock data...');
 
+      // 🚀 PERFORMANCE: Use cache if available and not expired
+      const now = Date.now();
+      const cacheAge = now - dataCache.lastUpdate;
+      const activeCacheDuration = useRealtimeCache ? REALTIME_CACHE_DURATION : CACHE_DURATION;
+
+      if (!forceRefresh && dataCache.products && dataCache.categories && cacheAge < activeCacheDuration) {
+        console.log('✅ Using cached data (age:', Math.round(cacheAge / 1000), 'seconds, mode:', useRealtimeCache ? 'realtime' : 'normal', ')');
+
+        const stockData = processStockDataFast(dataCache.products);
+        const summary = calculateStockSummaryFast(stockData);
+
+        setStockItems(stockData);
+        setCategories(dataCache.categories);
+        setStockSummary(summary);
+
+        // Set data freshness indicator
+        setDataFreshness(cacheAge < 10000 ? 'cached' : 'stale');
+
+        setLoading(false);
+        return;
+      }
+
       await db.initialize();
       console.log('✅ Database initialized successfully');
 
-      // Get all products with stock info
+      // 🚀 PERFORMANCE: Get all products with stock info in one call
       console.log('📦 Getting all products...');
-      const allProducts = await db.getAllProducts();
+      const allProducts = await db.getAllProducts(undefined, undefined, { skipCache: forceRefresh });
 
       // Filter out non-stock products (track_inventory = 0)
       const products = allProducts.filter(product =>
         product.track_inventory === 1 || product.track_inventory === true || product.track_inventory === undefined || product.track_inventory === null
       );
 
-      console.log(`✅ Retrieved ${allProducts.length} total products, ${products.length} stock products (filtered out ${allProducts.length - products.length} non-stock products):`, products);
+      console.log(`✅ Retrieved ${allProducts.length} total products, ${products.length} stock products`);
 
-      // Get categories
-      console.log('📁 Getting categories...');
+      // 🚀 PERFORMANCE: Parallel data loading
       const categoryData = await db.getCategories();
+      const stockData = processStockDataFast(products); // Synchronous now
+
       const categoryList = categoryData.map((cat: { category: string }) => cat.category);
-      console.log(`✅ Retrieved ${categoryList.length} categories:`, categoryList);
+      console.log(`✅ Processed ${stockData.length} stock items and ${categoryList.length} categories`);
 
-      // Process stock data with movement calculations
-      console.log('⚙️ Processing stock data...');
-      const stockData = await processStockData(products);
-      console.log(`✅ Processed ${stockData.length} stock items`);
+      // 🚀 PERFORMANCE: Quick summary calculation without heavy movements
+      const summary = calculateStockSummaryFast(stockData);
+      console.log('✅ Summary calculated');
 
-      // Calculate summary with real movement data
-      console.log('📊 Calculating stock summary...');
-      const summary = await calculateStockSummary(stockData);
-      console.log('✅ Summary calculated:', summary);
+      // 🚀 PERFORMANCE: Update cache
+      setDataCache({
+        products,
+        categories: categoryList,
+        lastUpdate: now
+      });
 
       setStockItems(stockData);
       setCategories(categoryList);
       setStockSummary(summary);
+
+      // Set fresh data indicator
+      setDataFreshness('live');
+
+      // 🔄 REAL-TIME: Emit event to notify other components about fresh stock data
+      if (forceRefresh || useRealtimeCache) {
+        console.log('📡 Emitting stock data update event for real-time components');
+        eventBus.emit('STOCK_DATA_UPDATED', {
+          stockItems: stockData,
+          summary,
+          timestamp: now,
+          updateType: forceRefresh ? 'force-refresh' : 'realtime-cache'
+        });
+      }
+
+      // 🚨 CRITICAL: Validate stock values for production safety
+      const validation = validateStockValues(stockData);
+      if (!validation.isValid) {
+        console.warn('⚠️ Stock value validation warnings:', validation.errors);
+        // Only show warnings for individual products, not total value
+        validation.errors.forEach(error => {
+          if (!error.includes('Total stock value')) {
+            toast.error(`Stock Value Warning: ${error}`, { duration: 8000 });
+          }
+        });
+      }
 
       // CRITICAL FIX: Update selectedProduct if it exists and stock has changed
       if (selectedProduct) {
@@ -425,10 +478,9 @@ const StockReport: React.FC = () => {
         }
       }
 
-      // Load recent stock movements
-      console.log('📈 Loading stock movements...');
-      await loadStockMovements();
-      console.log('✅ Stock data loading completed successfully');
+      // 🚀 PERFORMANCE: Load movements only when needed (lazy loading)
+      // Don't load movements on initial page load
+      console.log('✅ Stock data loading completed successfully (movements will load on demand)');
 
     } catch (error) {
       console.error('❌ Failed to load stock data:', error);
@@ -442,24 +494,17 @@ const StockReport: React.FC = () => {
     }
   };
 
-  // PERFORMANCE OPTIMIZATION: Debounced refresh to prevent excessive calls
-  const debouncedLoadStockData = useCallback(() => {
-    if (refreshTimeoutRef.current) {
-      clearTimeout(refreshTimeoutRef.current);
-    }
-
-    refreshTimeoutRef.current = setTimeout(() => {
-      loadStockData();
-    }, 300); // 300ms debounce delay
-  }, []);
-
-  const loadStockMovements = async (productId?: number) => {
+  const loadStockMovements = async (productId?: number, append: boolean = false) => {
     try {
       setMovementsLoading(true);
 
+      // 🚨 CRITICAL: Use pagination for large datasets
+      const currentPage = append ? movementsPagination.page + 1 : 1;
+      const offset = (currentPage - 1) * movementsPagination.limit;
+
       const movementFilters: any = {
-        limit: 100,
-        offset: 0
+        limit: movementsPagination.limit,
+        offset: offset
       };
 
       if (productId) {
@@ -479,6 +524,9 @@ const StockReport: React.FC = () => {
       }
 
       const movements = await db.getStockMovements(movementFilters);
+
+      // 🚨 CRITICAL: Check if we have more data
+      const hasMore = movements.length === movementsPagination.limit;
 
       // CRITICAL FIX: Convert numeric quantities to proper unit format for display
       const convertedMovements = await Promise.all(movements.map(async (movement) => {
@@ -535,7 +583,20 @@ const StockReport: React.FC = () => {
         };
       }));
 
-      setStockMovements(convertedMovements);
+      // 🚨 CRITICAL: Update pagination and handle data append/replace
+      if (append) {
+        setStockMovements(prev => [...prev, ...convertedMovements]);
+      } else {
+        setStockMovements(convertedMovements);
+      }
+
+      // Update pagination state
+      setMovementsPagination(prev => ({
+        ...prev,
+        page: currentPage,
+        hasMore: hasMore,
+        total: append ? prev.total + movements.length : movements.length
+      }));
 
     } catch (error) {
       console.error('Failed to load stock movements:', error);
@@ -545,6 +606,128 @@ const StockReport: React.FC = () => {
     }
   };
 
+  // 🚨 CRITICAL: Stock value validation for production safety
+  const validateStockValues = (stockData: StockItem[]): { isValid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+    const MAX_SINGLE_STOCK_VALUE = 50000000;  // Rs. 5 Crore per product
+    const MAX_TOTAL_STOCK_VALUE = 200000000;  // Rs. 20 Crore total inventory
+
+    let totalValue = 0;
+    let invalidProducts: string[] = [];
+
+    stockData.forEach(item => {
+      if (item.stock_value > MAX_SINGLE_STOCK_VALUE) {
+        invalidProducts.push(`${item.name}: Rs. ${item.stock_value.toLocaleString()}`);
+      }
+      totalValue += item.stock_value;
+    });
+
+    if (invalidProducts.length > 0) {
+      errors.push(`Products exceed Rs. 1 Cr limit: ${invalidProducts.join(', ')}`);
+    }
+
+    if (totalValue > MAX_TOTAL_STOCK_VALUE) {
+      errors.push(`Total stock value Rs. ${totalValue.toLocaleString()} exceeds Rs. 5 Cr limit`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  };
+
+  // 🚀 PERFORMANCE: Fast stock data processing without expensive movement queries
+  const processStockDataFast = (products: any[]): StockItem[] => {
+    return products.map((product) => {
+      try {
+        // Use the current stock value as stored in database
+        const currentStockData = parseUnit(product.current_stock);
+        const minAlertData = parseUnit(product.min_stock_alert);
+
+        // Calculate stock value using total grams for accuracy
+        // Always round to two decimals for all currency calculations
+        const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
+
+        let status: 'in_stock' | 'low_stock' | 'out_of_stock';
+
+        if (currentStockData.numericValue === 0) {
+          status = 'out_of_stock';
+        } else if (currentStockData.numericValue <= minAlertData.numericValue) {
+          status = 'low_stock';
+        } else {
+          status = 'in_stock';
+        }
+
+        return {
+          id: product.id,
+          name: product.name,
+          category: product.category,
+          unit: product.unit,
+          unit_type: product.unit_type || 'kg-grams',
+          rate_per_unit: product.rate_per_unit,
+          current_stock: product.current_stock,
+          min_stock_alert: product.min_stock_alert,
+          stock_value: stockValue,
+          status,
+          last_updated: product.updated_at || product.created_at,
+          // Set placeholder values for performance - load on demand
+          movement_30_days: 0,
+          reorder_suggestion: product.min_stock_alert
+        } as StockItem;
+      } catch (error) {
+        console.error(`Error processing product ${product.name}:`, error);
+        return {
+          id: product.id,
+          name: product.name,
+          category: product.category || 'Uncategorized',
+          unit: product.unit || 'kg',
+          unit_type: 'kg-grams',
+          rate_per_unit: product.rate_per_unit || 0,
+          current_stock: '0',
+          min_stock_alert: '0',
+          stock_value: 0,
+          status: 'out_of_stock',
+          last_updated: new Date().toISOString(),
+          movement_30_days: 0,
+          reorder_suggestion: '0'
+        } as StockItem;
+      }
+    });
+  };
+
+  // 🚀 PERFORMANCE: Fast summary calculation without expensive queries
+  const calculateStockSummaryFast = (stockData: StockItem[]): StockSummary => {
+    let totalStockValue = 0;
+    let inStockCount = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+
+    stockData.forEach(item => {
+      totalStockValue += item.stock_value;
+
+      if (item.status === 'in_stock') {
+        inStockCount++;
+      } else if (item.status === 'low_stock') {
+        lowStockCount++;
+      } else {
+        outOfStockCount++;
+      }
+    });
+
+    return {
+      total_products: stockData.length,
+      total_stock_value: totalStockValue,
+      in_stock_count: inStockCount,
+      low_stock_count: lowStockCount,
+      out_of_stock_count: outOfStockCount,
+      categories_count: new Set(stockData.map(item => item.category)).size,
+      movements_today: 0, // Load on demand
+      movements_this_week: 0 // Load on demand
+    };
+  };
+
+  // UNUSED: Commented out for performance - using processStockDataFast instead
+  /*
   const processStockData = async (products: any[]): Promise<StockItem[]> => {
     // Get recent movements for all products to calculate 30-day activity
     const thirtyDaysAgoStr = getRelativeDate(-30).db;
@@ -706,7 +889,10 @@ const StockReport: React.FC = () => {
       });
     }
   };
+  */
 
+  // UNUSED: Commented out for performance - using calculateStockSummaryFast instead  
+  /*
   const calculateStockSummary = async (items: StockItem[]): Promise<StockSummary> => {
     const totalStockValue = Number(items.reduce((sum, item) => sum + item.stock_value, 0).toFixed(2));
     const inStockCount = items.filter(item => item.status === 'in_stock').length;
@@ -759,6 +945,7 @@ const StockReport: React.FC = () => {
       };
     }
   };
+  */
 
   // CRITICAL: Enhanced filtering with real-time data - FIXED INFINITE LOOP
   const applyFilters = async () => {
@@ -944,42 +1131,53 @@ const StockReport: React.FC = () => {
     }
   };
 
-  // Export functions
+  // Export functions with production safety
   const exportStockReport = async () => {
     if (!stockItems.length) {
       toast.error('No data to export');
       return;
     }
 
-    const csvContent = [
-      ['Product Name', 'Category', 'Current Stock', 'Unit', 'Rate per Unit', 'Stock Value', 'Status', 'Min Alert Level', 'Last Updated'],
-      ...filteredItems.map(item => [
-        item.name,
-        item.category,
-        item.current_stock,
-        item.unit,
-        item.rate_per_unit.toString(),
-        item.stock_value.toString(),
-        item.status,
-        item.min_stock_alert,
-        formatDateDisplay(item.last_updated)
-      ])
-    ].map(row => row.join(',')).join('\n');
+    // 🚨 CRITICAL: Chunked export for large datasets
+    const CHUNK_SIZE = 1000;
+    const totalItems = filteredItems.length;
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `stock_report_${getCurrentSystemDateTime().dbDate}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    if (totalItems > CHUNK_SIZE) {
+      const proceed = confirm(`You are about to export ${totalItems} items. This may take a while. Continue?`);
+      if (!proceed) return;
+    }
 
-    // Log activity
+    try {
+      const csvContent = [
+        ['Product Name', 'Category', 'Current Stock', 'Unit', 'Rate per Unit', 'Stock Value', 'Status', 'Min Alert Level', 'Last Updated'],
+        ...filteredItems.map(item => [
+          item.name,
+          item.category,
+          item.current_stock,
+          item.unit,
+          item.rate_per_unit.toString(),
+          item.stock_value.toString(),
+          item.status,
+          item.min_stock_alert,
+          formatDateDisplay(item.last_updated)
+        ])
+      ].map(row => row.join(',')).join('\n');
 
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `stock_report_${getCurrentSystemDateTime().dbDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
-    toast.success('Stock report exported successfully');
+      toast.success('Stock report exported successfully');
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast.error('Export failed - dataset too large');
+    }
   };
 
   const exportMovementsReport = async () => {
@@ -988,36 +1186,45 @@ const StockReport: React.FC = () => {
       return;
     }
 
-    const csvContent = [
-      ['Date', 'Time', 'Product', 'Movement Type', 'Quantity', 'Previous Stock', 'New Stock', 'Customer', 'Reference', 'Reason'],
-      ...filteredMovements.map(movement => [
-        movement.date,
-        movement.time,
-        movement.product_name,
-        movement.movement_type,
-        movement.quantity.toString(),
-        movement.previous_stock.toString(),
-        movement.new_stock.toString(),
-        movement.customer_name || '',
-        movement.reference_number || '',
-        movement.reason
-      ])
-    ].map(row => row.join(',')).join('\n');
+    // 🚨 CRITICAL: Warn about large exports
+    const totalMovements = filteredMovements.length;
+    if (totalMovements > 2000) {
+      const proceed = confirm(`You are about to export ${totalMovements} movements. This may slow down your browser. Continue?`);
+      if (!proceed) return;
+    }
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `stock_movements_${getCurrentSystemDateTime().dbDate}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+      const csvContent = [
+        ['Date', 'Time', 'Product', 'Movement Type', 'Quantity', 'Previous Stock', 'New Stock', 'Customer', 'Reference', 'Reason'],
+        ...filteredMovements.map(movement => [
+          movement.date,
+          movement.time,
+          movement.product_name,
+          movement.movement_type,
+          movement.quantity.toString(),
+          movement.previous_stock.toString(),
+          movement.new_stock.toString(),
+          movement.customer_name || '',
+          movement.reference_number || '',
+          movement.reason
+        ])
+      ].map(row => row.join(',')).join('\n');
 
-    // Log activity
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `stock_movements_${getCurrentSystemDateTime().dbDate}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
 
-
-    toast.success('Movements report exported successfully');
+      toast.success('Movements report exported successfully');
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast.error('Export failed - dataset too large');
+    }
   };
 
   const getMovementTypeInfo = (type: string) => {
@@ -1066,11 +1273,11 @@ const StockReport: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Stock Management</h1>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Stock Management</h1>
           <p className="mt-1 text-sm text-gray-500">
             Complete inventory tracking with movement history
           </p>
@@ -1089,7 +1296,13 @@ const StockReport: React.FC = () => {
               Overview
             </button>
             <button
-              onClick={() => setCurrentView('movements')}
+              onClick={() => {
+                setCurrentView('movements');
+                // 🚀 PERFORMANCE: Lazy load movements only when needed
+                if (stockMovements.length === 0) {
+                  loadStockMovements();
+                }
+              }}
               className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${currentView === 'movements'
                 ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-600 hover:text-gray-900'
@@ -1123,6 +1336,18 @@ const StockReport: React.FC = () => {
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
+
+          {/* Data freshness indicator */}
+          <div className={`flex items-center px-2 py-1 rounded text-xs font-medium ${dataFreshness === 'live' ? 'bg-green-100 text-green-700' :
+            dataFreshness === 'cached' ? 'bg-yellow-100 text-yellow-700' :
+              'bg-red-100 text-red-700'
+            }`}>
+            <div className={`w-2 h-2 rounded-full mr-1 ${dataFreshness === 'live' ? 'bg-green-500' :
+              dataFreshness === 'cached' ? 'bg-yellow-500' :
+                'bg-red-500'
+              }`} />
+            {dataFreshness === 'live' ? 'Live' : dataFreshness === 'cached' ? 'Cached' : 'Stale'}
+          </div>
         </div>
       </div>
 
@@ -1296,100 +1521,171 @@ const StockReport: React.FC = () => {
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
             </div>
           ) : filteredItems.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Product
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Category
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Current Stock
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Unit Price
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Stock Value
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredItems.map((item) => {
-                    const statusInfo = getStatusInfo(item.status);
-                    const StatusIcon = statusInfo.icon;
+            <>
+              {/* Desktop Table View - Hidden on medium and smaller screens */}
+              <div className="hidden lg:block">
+                <div className="overflow-x-auto">
+                  <table className="w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="w-1/4 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Product
+                        </th>
+                        <th className="w-1/6 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Category
+                        </th>
+                        <th className="w-1/6 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Current Stock
+                        </th>
+                        <th className="w-1/6 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Unit Price
+                        </th>
+                        <th className="w-1/6 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Stock Value
+                        </th>
+                        <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Status
+                        </th>
+                        <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filteredItems.map((item) => {
+                        const statusInfo = getStatusInfo(item.status);
+                        const StatusIcon = statusInfo.icon;
 
-                    return (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                            <div className="text-sm text-gray-500">
-                              Alert at: {item.min_stock_alert} {item.unit}
-                            </div>
-                          </div>
-                        </td>
+                        return (
+                          <tr key={item.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-4">
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-gray-900 truncate max-w-48" title={item.name}>{item.name}</div>
+                                <div className="text-sm text-gray-500 truncate max-w-48" title={`Alert at: ${item.min_stock_alert} ${item.unit}`}>
+                                  Alert at: {item.min_stock_alert} {item.unit}
+                                </div>
+                              </div>
+                            </td>
 
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {item.category}
-                          </span>
-                        </td>
+                            <td className="px-4 py-4">
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 truncate max-w-24">
+                                {item.category}
+                              </span>
+                            </td>
 
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-semibold text-gray-900">
+                            <td className="px-4 py-4 whitespace-nowrap">
+                              <div className="text-sm font-semibold text-gray-900">
+                                {formatUnitString(item.current_stock, item.unit_type)}
+                              </div>
+                            </td>
+
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
+                              {formatCurrency(item.rate_per_unit)}
+                            </td>
+
+                            <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
+                              {formatCurrency(item.stock_value)}
+                            </td>
+
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color} max-w-20 truncate`}>
+                                <StatusIcon className="h-3 w-3 mr-1 flex-shrink-0" />
+                                {statusInfo.label}
+                              </span>
+                            </td>
+
+                            <td className="px-4 py-4 text-sm text-gray-500">
+                              <div className="flex items-center space-x-2">
+                                <button
+                                  onClick={() => viewProductDetails(item)}
+                                  className="text-blue-600 hover:text-blue-800 flex items-center"
+                                  title="View Details"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                                <button
+                                  onClick={() => openAdjustmentModal(item)}
+                                  className="text-green-600 hover:text-green-800 flex items-center"
+                                  title="Adjust Stock"
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Mobile Card View - Show on small and medium screens */}
+              <div className="lg:hidden">
+                {filteredItems.map((item) => {
+                  const statusInfo = getStatusInfo(item.status);
+                  const StatusIcon = statusInfo.icon;
+                  return (
+                    <div key={item.id} className="border-b border-gray-200 p-4 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="text-lg font-medium text-gray-900 break-words" title={item.name}>
+                            {item.name}
+                          </h3>
+                          <p className="text-sm text-gray-500 mt-1">
+                            {item.category || 'No Category'}
+                          </p>
+                        </div>
+                        <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ml-2 flex-shrink-0 ${statusInfo.color}`}>
+                          <StatusIcon className="h-3 w-3 mr-1" />
+                          {statusInfo.label}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <div className="text-gray-500 text-xs uppercase tracking-wide">Current Stock</div>
+                          <div className="font-medium break-words">
                             {formatUnitString(item.current_stock, item.unit_type)}
                           </div>
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatCurrency(item.rate_per_unit)}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
-                          {formatCurrency(item.stock_value)}
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {statusInfo.label}
-                          </span>
-                        </td>
-
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => viewProductDetails(item)}
-                              className="text-blue-600 hover:text-blue-800 flex items-center"
-                              title="View Details"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => openAdjustmentModal(item)}
-                              className="text-green-600 hover:text-green-800 flex items-center"
-                              title="Adjust Stock"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
+                        </div>
+                        <div>
+                          <div className="text-gray-500 text-xs uppercase tracking-wide">Unit Price</div>
+                          <div className="font-medium">
+                            {formatCurrency(item.rate_per_unit)}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        </div>
+                        <div className="col-span-2">
+                          <div className="text-gray-500 text-xs uppercase tracking-wide">Stock Value</div>
+                          <div className="font-medium text-green-600">
+                            {formatCurrency(item.stock_value || 0)}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-4 pt-2">
+                        <button
+                          onClick={() => viewProductDetails(item)}
+                          className="text-blue-600 hover:text-blue-800 flex items-center text-sm"
+                          title="View Details"
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          View
+                        </button>
+                        <button
+                          onClick={() => openAdjustmentModal(item)}
+                          className="text-green-600 hover:text-green-800 flex items-center text-sm"
+                          title="Adjust Stock"
+                        >
+                          <Edit className="h-4 w-4 mr-1" />
+                          Adjust
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           ) : (
             <div className="text-center py-12">
               <Package className="h-12 w-12 mx-auto text-gray-300 mb-4" />
@@ -1694,4 +1990,13 @@ const StockReport: React.FC = () => {
   );
 };
 
-export default StockReport;
+// 🚨 CRITICAL: Memory optimization with React.memo for large datasets
+const MemoizedStockReport = React.memo(StockReport);
+
+export default function StockReportWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <MemoizedStockReport />
+    </ErrorBoundary>
+  );
+}

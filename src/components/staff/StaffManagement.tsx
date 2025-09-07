@@ -311,60 +311,63 @@ const StaffManagement: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-6 space-y-6">
       {/* Header with Tabs */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold text-gray-900">Staff Management - Ittehad Iron Store</h1>
-          <div className="flex gap-2">
-            <button
-              onClick={refreshData}
-              disabled={refreshing}
-              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-            {activeTab === 'staff' && (
-              <button
-                onClick={() => {
-                  resetForm();
-                  setShowModal(true);
-                }}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Add Staff
-              </button>
-            )}
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Staff Management</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Manage staff members and salary records
+          </p>
         </div>
+        <div className="flex gap-2">
+          <button
+            onClick={refreshData}
+            disabled={refreshing}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          {activeTab === 'staff' && (
+            <button
+              onClick={() => {
+                resetForm();
+                setShowModal(true);
+              }}
+              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+            >
+              <UserPlus className="h-4 w-4 mr-2" />
+              Add Staff
+            </button>
+          )}
+        </div>
+      </div>
 
-        {/* Tab Navigation */}
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setActiveTab('staff')}
-              className={`whitespace-nowrap pb-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'staff'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-            >
-              <Users className="h-4 w-4 inline mr-2" />
-              Staff Members
-            </button>
-            <button
-              onClick={() => setActiveTab('salary_overview')}
-              className={`whitespace-nowrap pb-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'salary_overview'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-            >
-              <DollarSign className="h-4 w-4 inline mr-2" />
-              Salary Overview
-            </button>
-          </nav>
-        </div>
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('staff')}
+            className={`whitespace-nowrap pb-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'staff'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+          >
+            <Users className="h-4 w-4 inline mr-2" />
+            Staff Members
+          </button>
+          <button
+            onClick={() => setActiveTab('salary_overview')}
+            className={`whitespace-nowrap pb-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'salary_overview'
+              ? 'border-blue-500 text-blue-600'
+              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+          >
+            <DollarSign className="h-4 w-4 inline mr-2" />
+            Salary Overview
+          </button>
+        </nav>
       </div>
 
       {/* Tab Content */}
@@ -372,7 +375,7 @@ const StaffManagement: React.FC = () => {
         <>
           {/* Statistics Cards */}
           {statistics && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-lg shadow p-4">
                 <div className="flex items-center">
                   <Users className="h-8 w-8 text-blue-600" />

@@ -113,41 +113,40 @@ const ProductRow = React.memo<{
 
     return (
         <tr className="hover:bg-gray-50">
-            <td className="px-6 py-4 whitespace-nowrap">
-                <div className="flex items-center">
-                    <Package className="w-8 h-8 text-gray-400 mr-3" />
-                    <div>
-                        <div className="text-sm font-medium text-gray-900">{product.name}</div>
-                        {(product.size || product.grade) && (
-                            <div className="text-sm text-gray-500">
-                                {product.size && <span>Size: {product.size}</span>}
-                                {product.size && product.grade && <span> • </span>}
-                                {product.grade && <span>Grade: {product.grade}</span>}
-                            </div>
-                        )}
+            <td className="px-4 py-4">
+                <div className="min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate max-w-xs" title={product.name}>
+                        {product.name}
                     </div>
+                    {(product.size || product.grade) && (
+                        <div className="text-sm text-gray-500 truncate max-w-xs">
+                            {product.size && <span>Size: {product.size}</span>}
+                            {product.size && product.grade && <span> • </span>}
+                            {product.grade && <span>Grade: {product.grade}</span>}
+                        </div>
+                    )}
                 </div>
             </td>
-            <td className="px-6 py-4 whitespace-nowrap">
-                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+            <td className="px-4 py-4">
+                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 truncate max-w-20" title={product.category}>
                     {product.category}
                 </span>
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                <div className={`${isLowStock ? 'text-red-600' : 'text-gray-900'}`}>
+            <td className="px-4 py-4 text-sm text-gray-900">
+                <div className={`${isLowStock ? 'text-red-600' : 'text-gray-900'} whitespace-nowrap`}>
                     {formatUnitString(product.current_stock, product.unit_type as any)}
                     {isLowStock && (
                         <AlertTriangle className="inline w-4 h-4 ml-1 text-red-500" />
                     )}
                 </div>
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                 {formatCurrency(product.rate_per_unit)}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                 {formatCurrency(product.stock_value || 0)}
             </td>
-            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+            <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                 <button
                     onClick={() => onEdit(product)}
                     className="text-blue-600 hover:text-blue-900 p-1"
@@ -662,7 +661,7 @@ const ProductListNoRefresh: React.FC = () => {
         const sanitizedValue = sanitizeSearchInput(value);
 
         // Verify the category exists in our loaded categories (security check)
-        if (sanitizedValue !== '' && !categories.some(cat => cat.name === sanitizedValue)) {
+        if (sanitizedValue !== '' && !categories.some(cat => cat.category === sanitizedValue)) {
             toast.error('Invalid category selection');
             return;
         }
@@ -818,7 +817,7 @@ const ProductListNoRefresh: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Category Filter - EXACT SAME AS ORIGINAL */}
+                    {/* Category Filter - FIXED: Use correct property names */}
                     <div className="w-full lg:w-48">
                         <select
                             value={filters.category}
@@ -826,9 +825,9 @@ const ProductListNoRefresh: React.FC = () => {
                             className="w-full px-3 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base"
                         >
                             <option value="">All Categories</option>
-                            {categories.map((category) => (
-                                <option key={category.name} value={category.name}>
-                                    {category.name} ({category.product_count})
+                            {categories.map((categoryItem) => (
+                                <option key={categoryItem.category} value={categoryItem.category}>
+                                    {categoryItem.category} ({categoryItem.product_count})
                                 </option>
                             ))}
                         </select>
@@ -856,42 +855,98 @@ const ProductListNoRefresh: React.FC = () => {
                     />
                 ) : (
                     <>
-                        {/* Table Content - EXACT SAME AS ORIGINAL */}
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-gray-200">
-                                <thead className="bg-gray-50">
-                                    <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Product
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Category
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Stock
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Rate
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Value
-                                        </th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                            Actions
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody className="bg-white divide-y divide-gray-200">
-                                    {paginatedProducts.map((product) => (
-                                        <ProductRow
-                                            key={product.id}
-                                            product={product}
-                                            onEdit={handleEdit}
-                                            onDelete={handleDelete}
-                                        />
-                                    ))}
-                                </tbody>
-                            </table>
+                        {/* Desktop Table View - Show on medium screens and larger */}
+                        <div className="hidden lg:block">
+                            <div className="overflow-x-auto">
+                                <table className="w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-2/5">
+                                                Product
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                                                Category
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                                                Stock
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                                                Rate
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
+                                                Value
+                                            </th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {paginatedProducts.map((product) => (
+                                            <ProductRow
+                                                key={product.id}
+                                                product={product}
+                                                onEdit={handleEdit}
+                                                onDelete={handleDelete}
+                                            />
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Mobile Card View - Show on small and medium screens */}
+                        <div className="lg:hidden">
+                            {paginatedProducts.map((product) => (
+                                <div key={product.id} className="border-b border-gray-200 p-4 space-y-3">
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1 min-w-0">
+                                            <h3 className="text-lg font-medium text-gray-900 break-words" title={product.name}>
+                                                {product.name}
+                                            </h3>
+                                            <p className="text-sm text-gray-500 mt-1 break-words">
+                                                {product.category || 'No Category'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                            <div className="text-gray-500 text-xs uppercase tracking-wide">Current Stock</div>
+                                            <div className="font-medium">
+                                                {formatUnitString(product.current_stock, product.unit_type as any)}
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div className="text-gray-500 text-xs uppercase tracking-wide">Rate</div>
+                                            <div className="font-medium">
+                                                Rs. {product.rate_per_unit?.toLocaleString() || '0'}
+                                            </div>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <div className="text-gray-500 text-xs uppercase tracking-wide">Stock Value</div>
+                                            <div className="font-medium text-green-600">
+                                                Rs. {(product.stock_value || 0).toLocaleString()}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex gap-2 pt-2">
+                                        <button
+                                            onClick={() => handleEdit(product)}
+                                            className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                                        >
+                                            Edit
+                                        </button>
+                                        <button
+                                            onClick={() => handleDelete(product)}
+                                            className="flex-1 px-3 py-2 text-sm bg-red-600 text-white rounded-md hover:bg-red-700"
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
 
                         {/* Pagination - EXACT SAME AS ORIGINAL */}

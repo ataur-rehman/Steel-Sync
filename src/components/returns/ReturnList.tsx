@@ -29,25 +29,25 @@ export default function ReturnList() {
   };
 
   const columns = [
-    { 
-      key: 'created_at', 
+    {
+      key: 'created_at',
       label: 'Date',
       render: (value: string) => new Date(value).toLocaleDateString()
     },
     { key: 'bill_number', label: 'Invoice' },
     { key: 'product_name', label: 'Product' },
-    { 
-      key: 'quantity', 
+    {
+      key: 'quantity',
       label: 'Quantity',
       render: (value: number, row: any) => `${value} ${row.unit}`
     },
-    { 
-      key: 'rate', 
+    {
+      key: 'rate',
       label: 'Rate',
       render: (value: number) => formatCurrency(value)
     },
-    { 
-      key: 'total', 
+    {
+      key: 'total',
       label: 'Total',
       render: (value: number) => formatCurrency(value)
     },
@@ -63,7 +63,7 @@ export default function ReturnList() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">Returns</h1>
         <button

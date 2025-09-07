@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 import { useDetailNavigation } from '../../hooks/useDetailNavigation';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -20,19 +20,23 @@ export default function CustomerList() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  // 🚀 OPTIMIZATION: Add total customers count for server-side pagination
+  const [totalCustomers, setTotalCustomers] = useState(0);
 
   const [showModal, setShowModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // OPTIMIZATION: Use debounced search for performance (250ms for responsive UX)
-  const debouncedSearchQuery = useDebounce(searchQuery, 250);
+  // OPTIMIZATION: Use debounced search for performance (500ms for better UX with large datasets)
+  const debouncedSearchQuery = useDebounce(searchQuery, 500);
 
   const [balanceFilter, setBalanceFilter] = useState<'all' | 'clear' | 'outstanding'>('all');
 
-  // Pagination state
+  // Pagination state - 🚀 OPTIMIZED for server-side pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(50); // OPTIMIZATION: Increased from 24 to 50
+  const [itemsPerPage, setItemsPerPage] = useState(25); // OPTIMIZATION: Reduced for faster loading with large datasets
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'balance'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -45,47 +49,45 @@ export default function CustomerList() {
   const [showFIFOPayment, setShowFIFOPayment] = useState(false);
   const [selectedPaymentCustomer, setSelectedPaymentCustomer] = useState<Customer | null>(null);
 
-  // Debounced search effect
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setCurrentPage(1); // Reset to first page when searching
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  // Load customers only once on mount and when real-time events occur
-  useEffect(() => {
-    loadCustomers();
-  }, []); // Only load once on mount
-
-  // PRODUCTION-GRADE PERFORMANCE: Optimized customer loading with caching
+  // 🚀 OPTIMIZED: Server-side pagination for 24k+ customers
   const loadCustomers = useCallback(async () => {
     try {
-      setLoading(true);
+      if (!loading) {
+        setSearchLoading(true); // Show search loading for subsequent searches
+      } else {
+        setLoading(true); // Show main loading for initial load
+      }
 
-      // ENTERPRISE-GRADE: Use optimized customer loading with built-in performance features
+      // ENTERPRISE-GRADE: Use server-side pagination for optimal performance
       const startTime = performance.now();
 
-      // For enterprise performance, we use the optimized query with intelligent caching
+      // Calculate server-side parameters
+      const offset = (currentPage - 1) * itemsPerPage;
+
       const result = await db.getCustomersOptimized({
-        // Load ALL customers for complete client-side filtering (no pagination on server)
-        limit: 50000, // Large limit to ensure we get ALL customers
-        offset: 0,
-        includeBalance: true, // Essential for customer list display
-        includeStats: false, // Not needed for list view (optimization)
-        orderBy: 'name',
-        orderDirection: 'ASC'
+        search: debouncedSearchQuery, // Server-side search
+        balanceFilter, // Server-side balance filtering
+        limit: itemsPerPage, // Load only current page
+        offset: offset,
+        includeBalance: true,
+        includeStats: false,
+        orderBy: sortBy,
+        orderDirection: sortOrder.toUpperCase() as 'ASC' | 'DESC'
       });
 
       const loadTime = performance.now() - startTime;
-      console.log(`⚡ Customer data loaded in ${loadTime.toFixed(2)}ms (${result.customers.length} customers) - Cache: ${result.performance?.fromCache}`);
+      console.log(`⚡ Customer page loaded in ${loadTime.toFixed(2)}ms (${result.customers.length}/${result.total} customers) - Page: ${currentPage}`);
 
       setCustomers(result.customers);
 
+      // Update pagination info
+      if (result.total !== undefined) {
+        setTotalCustomers(result.total);
+      }
+
       // ENTERPRISE MONITORING: Track performance metrics
-      if (loadTime > 1000) {
-        console.warn(`🐢 SLOW CUSTOMER LOAD: ${loadTime.toFixed(2)}ms - Consider optimization`);
+      if (loadTime > 500) {
+        console.warn(`🐢 SLOW CUSTOMER LOAD: ${loadTime.toFixed(2)}ms - Consider further optimization`);
       }
 
     } catch (error) {
@@ -96,16 +98,31 @@ export default function CustomerList() {
       try {
         console.log('🔄 Attempting fallback customer loading...');
         const fallbackData = await db.getCustomers();
-        setCustomers(fallbackData);
+        setCustomers(fallbackData.slice(0, itemsPerPage)); // Apply pagination even to fallback
+        setTotalCustomers(fallbackData.length);
         toast.success('Customers loaded (fallback mode)');
       } catch (fallbackError) {
         console.error('❌ Fallback customer loading also failed:', fallbackError);
-        setCustomers([]); // Set empty array to prevent UI crashes
+        setCustomers([]);
+        setTotalCustomers(0);
       }
     } finally {
       setLoading(false);
+      setSearchLoading(false);
     }
-  }, [db]);
+  }, [db, currentPage, itemsPerPage, debouncedSearchQuery, balanceFilter, sortBy, sortOrder]);
+
+  // 🚀 OPTIMIZATION: Load customers only on dependency changes (server-side pagination)
+  useEffect(() => {
+    loadCustomers();
+  }, [loadCustomers]); // loadCustomers already has all dependencies
+
+  // 🚀 OPTIMIZATION: Reset to page 1 when search or filters change
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    }
+  }, [debouncedSearchQuery, balanceFilter, sortBy, sortOrder]);
 
   // Real-time updates: Refresh customer list when customers change
   useAutoRefresh(
@@ -178,120 +195,22 @@ export default function CustomerList() {
     }
   };
 
-  // ENTERPRISE-GRADE SEARCH: Optimized filtering with performance monitoring
-  const filteredCustomers = useMemo(() => {
-    const startTime = performance.now();
-
-    let filtered = customers.filter(customer => {
-      // PRODUCTION OPTIMIZATION: Early return for better performance
-      if (!customer) return false;
-
-      // ENTERPRISE SEARCH: Multi-field search with intelligent matching
-      if (debouncedSearchQuery) {
-        const searchLower = debouncedSearchQuery.toLowerCase().trim();
-
-        // PERFORMANCE OPTIMIZATION: Skip empty searches
-        if (!searchLower) return true;
-
-        // ENTERPRISE-GRADE: Enhanced search algorithm
-        const searchTerms = searchLower.split(/\s+/); // Split multiple search terms
-
-        const searchableFields = [
-          customer.name?.toLowerCase() || '',
-          customer.phone?.toLowerCase() || '',
-          customer.cnic?.toLowerCase() || '',
-          customer.address?.toLowerCase() || ''
-        ].filter(Boolean); // Remove empty fields
-
-        // ENTERPRISE LOGIC: All search terms must match (AND logic)
-        const matchesAllTerms = searchTerms.every(term =>
-          searchableFields.some(field => field.includes(term))
-        );
-
-        if (!matchesAllTerms) return false;
-      }
-
-      // PRODUCTION OPTIMIZATION: Balance filter with performance tracking
-      const customerBalance = customer.total_balance || 0;
-      if (balanceFilter === 'clear' && customerBalance > 0.01) return false; // Using 0.01 threshold for float precision
-      if (balanceFilter === 'outstanding' && customerBalance <= 0.01) return false;
-
-      return true;
-    });
-
-    // ENTERPRISE SORTING: Optimized sorting with multiple criteria
-    filtered.sort((a, b) => {
-      let comparison = 0;
-
-      switch (sortBy) {
-        case 'name':
-          comparison = (a.name || '').localeCompare(b.name || '', undefined, {
-            numeric: true,
-            sensitivity: 'base'
-          });
-          break;
-        case 'created_at':
-          // PERFORMANCE: Use timestamps for faster comparison
-          const aTime = new Date(a.created_at || 0).getTime();
-          const bTime = new Date(b.created_at || 0).getTime();
-          comparison = aTime - bTime;
-          break;
-        case 'balance':
-          // ENTERPRISE: Safe numeric comparison with null handling
-          const aBalance = a.total_balance || 0;
-          const bBalance = b.total_balance || 0;
-          comparison = aBalance - bBalance;
-          break;
-        default:
-          // FALLBACK: Sort by ID for consistent results
-          comparison = (a.id || 0) - (b.id || 0);
-      }
-
-      return sortOrder === 'asc' ? comparison : -comparison;
-    });
-
-    const filterTime = performance.now() - startTime;
-
-    // ENTERPRISE MONITORING: Performance tracking
-    if (filterTime > 100) {
-      console.warn(`🐢 SLOW FILTER: ${filterTime.toFixed(2)}ms for ${customers.length} customers → ${filtered.length} results`);
-    } else if (filterTime > 50) {
-      console.log(`⚡ Filter performance: ${filterTime.toFixed(2)}ms (${customers.length} → ${filtered.length})`);
-    }
-
-    // ENTERPRISE ANALYTICS: Search performance metrics
-    if (debouncedSearchQuery && filtered.length < customers.length * 0.1) {
-      console.log(`🎯 Precise search: "${debouncedSearchQuery}" → ${filtered.length}/${customers.length} results`);
-    }
-
-    return filtered;
-  }, [customers, debouncedSearchQuery, balanceFilter, sortBy, sortOrder]);
-
-  // ENTERPRISE-GRADE PAGINATION: Optimized for large customer lists
-  const totalItems = filteredCustomers.length;
+  // 🚀 OPTIMIZATION: Server-side pagination - no client-side filtering needed
+  // All filtering, sorting, and pagination is handled by the server
+  const totalItems = totalCustomers;
   const totalPages = Math.ceil(totalItems / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
 
-  // PERFORMANCE OPTIMIZATION: Use virtual scrolling for large datasets
-  const paginatedCustomers = useMemo(() => {
-    const customers = filteredCustomers.slice(startIndex, endIndex);
-
-    // ENTERPRISE ANALYTICS: Log pagination performance
-    if (totalItems > 1000) {
-      console.log(`📊 Large dataset pagination: Page ${currentPage}/${totalPages}, Items ${startIndex + 1}-${endIndex}/${totalItems}`);
-    }
-
-    return customers;
-  }, [filteredCustomers, startIndex, endIndex, currentPage, totalPages, totalItems]);
+  // 🚀 PERFORMANCE: Direct use of customers from server (already paginated and filtered)
+  const paginatedCustomers = customers;
 
   const handlePageChange = useCallback((page: number) => {
     // ENTERPRISE PERFORMANCE: Smooth page transitions
     const startTime = performance.now();
     setCurrentPage(page);
 
-    // ENTERPRISE UX: Scroll to top for better user experience
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Keep current scroll position for better UX - no automatic scrolling
 
     const pageChangeTime = performance.now() - startTime;
     if (pageChangeTime > 50) {
@@ -355,7 +274,7 @@ export default function CustomerList() {
           {/* Search */}
           <div className="relative">
             <Search className="h-5 w-5 absolute left-3 top-3 text-gray-400" />
-            {searchQuery.length > 0 && (
+            {(searchLoading || (searchQuery.length > 0 && searchQuery !== debouncedSearchQuery)) && (
               <div className="absolute right-3 top-3">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
               </div>
@@ -577,12 +496,12 @@ export default function CustomerList() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="w-1/5 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Customer</th>
+                <th className="w-1/6 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Contact</th>
+                <th className="w-1/4 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Address</th>
+                <th className="w-1/8 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Balance</th>
+                <th className="w-1/10 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                <th className="w-1/5 px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
@@ -624,31 +543,31 @@ export default function CustomerList() {
                         contain: 'layout style paint'
                       }}
                     >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{customer.name}</div>
+                      <td className="px-4 py-4">
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate max-w-48" title={customer.name}>{customer.name}</div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                         {customer.phone}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <div className="max-w-xs truncate" title={customer.address}>
+                      <td className="px-4 py-4 text-sm text-gray-900">
+                        <div className="truncate max-w-64" title={customer.address}>
                           {customer.address}
                         </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <td className="px-4 py-4 whitespace-nowrap text-sm">
                         <span className={hasBalance ? 'text-red-600 font-semibold' : 'text-gray-700'}>
                           {formatCurrency(customer.total_balance)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${balanceStatus.color}`}>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${balanceStatus.color} max-w-16 truncate`}>
                           {balanceStatus.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex space-x-2">
+                      <td className="px-4 py-4 text-sm font-medium">
+                        <div className="flex space-x-1">
                           <button
                             onClick={async () => {
 

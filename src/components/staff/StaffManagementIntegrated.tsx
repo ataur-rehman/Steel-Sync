@@ -858,37 +858,32 @@ const StaffManagementIntegrated: React.FC = () => {
     // Staff List View
     if (viewMode === 'staff_list') {
         return (
-            <div className="space-y-6">
+            <div className="p-6 space-y-6">
                 {/* Header */}
-                <div className="bg-white rounded-lg shadow-md p-6">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                            <Users className="h-8 w-8 text-blue-600" />
-                            <div>
-                                <h1 className="text-2xl font-bold text-gray-900">Staff Management</h1>
-                                <p className="text-gray-600">
-                                    Manage staff and their salary history •
-                                    Total: {staff.length} •
-                                    Filtered: {filteredStaff.length}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="flex space-x-3">
-                            <button
-                                onClick={handleAddStaff}
-                                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                            >
-                                <Plus className="h-4 w-4" />
-                                <span>Add Staff Member</span>
-                            </button>
-                            <button
-                                onClick={() => setViewMode('salary_dashboard')}
-                                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-                            >
-                                <TrendingUp className="h-4 w-4" />
-                                <span>Salary Overview</span>
-                            </button>
-                        </div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Staff Management</h1>
+                        <p className="mt-1 text-sm text-gray-500">
+                            Manage staff and their salary history •
+                            Total: {staff.length} •
+                            Filtered: {filteredStaff.length}
+                        </p>
+                    </div>
+                    <div className="flex space-x-3">
+                        <button
+                            onClick={handleAddStaff}
+                            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                        >
+                            <Plus className="h-4 w-4" />
+                            <span>Add Staff Member</span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('salary_dashboard')}
+                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                        >
+                            <TrendingUp className="h-4 w-4" />
+                            <span>Salary Overview</span>
+                        </button>
                     </div>
                 </div>
 
@@ -1019,36 +1014,34 @@ const StaffManagementIntegrated: React.FC = () => {
     // Staff Profile View with Salary History
     if (viewMode === 'staff_profile' && selectedStaff) {
         return (
-            <div className="space-y-6">
+            <div className="p-6 space-y-6">
                 {/* Header with Back Button */}
-                <div className="bg-white rounded-lg shadow-md p-6">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                            <button
-                                onClick={() => setViewMode('staff_list')}
-                                className="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-                            >
-                                <ArrowLeft className="h-4 w-4" />
-                                <span>Back to Staff</span>
-                            </button>
-                            <div className="flex items-center space-x-3">
-                                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
-                                    <User className="h-8 w-8 text-blue-600" />
-                                </div>
-                                <div>
-                                    <h1 className="text-2xl font-bold text-gray-900">{selectedStaff.name}</h1>
-                                    <p className="text-gray-600">{selectedStaff.employee_id}</p>
-                                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="flex items-center space-x-4">
+                        <button
+                            onClick={() => setViewMode('staff_list')}
+                            className="flex items-center space-x-2 px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                        >
+                            <ArrowLeft className="h-4 w-4" />
+                            <span>Back to Staff</span>
+                        </button>
+                        <div className="flex items-center space-x-3">
+                            <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                                <User className="h-8 w-8 text-blue-600" />
+                            </div>
+                            <div>
+                                <h1 className="text-2xl font-bold text-gray-900">{selectedStaff.name}</h1>
+                                <p className="text-gray-600">{selectedStaff.employee_id}</p>
                             </div>
                         </div>
-                        <button
-                            onClick={() => handleAddSalary(selectedStaff)}
-                            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
-                        >
-                            <Plus className="h-4 w-4" />
-                            <span>Add Salary Payment</span>
-                        </button>
                     </div>
+                    <button
+                        onClick={() => handleAddSalary(selectedStaff)}
+                        className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                    >
+                        <Plus className="h-4 w-4" />
+                        <span>Add Salary Payment</span>
+                    </button>
                 </div>
 
                 {/* Staff Details */}
@@ -1254,7 +1247,7 @@ const StaffManagementIntegrated: React.FC = () => {
             <div className="space-y-6">
                 {/* Header */}
                 <div className="bg-white rounded-lg shadow-md p-6">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div className="flex items-center space-x-4">
                             <button
                                 onClick={() => setViewMode('staff_list')}
@@ -1266,8 +1259,8 @@ const StaffManagementIntegrated: React.FC = () => {
                             <div className="flex items-center space-x-3">
                                 <TrendingUp className="h-8 w-8 text-green-600" />
                                 <div>
-                                    <h1 className="text-2xl font-bold text-gray-900">Salary Dashboard</h1>
-                                    <p className="text-gray-600">Overview of all staff salary payments</p>
+                                    <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Salary Dashboard</h1>
+                                    <p className="text-gray-500">Overview of all staff salary payments</p>
                                 </div>
                             </div>
                         </div>

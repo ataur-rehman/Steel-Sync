@@ -123,16 +123,36 @@ const StockReceivingNew: React.FC = () => {
       }
     };
 
+    // 🔄 REAL-TIME FIX: Add vendor update listener
+    const handleVendorUpdated = async () => {
+      console.log('🏪 StockReceivingNew: Vendor updated, refreshing vendor list...');
+      try {
+        const vendorData = await db.getVendors();
+        setVendors(vendorData);
+        console.log('✅ StockReceivingNew: Vendor list refreshed');
+      } catch (error) {
+        console.error('❌ StockReceivingNew: Failed to refresh vendors:', error);
+      }
+    };
+
     // Register event listeners
     eventBus.on(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductUpdated);
     eventBus.on(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
     eventBus.on(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductDeleted);
+
+    // 🔄 REAL-TIME FIX: Register vendor event listeners
+    eventBus.on(BUSINESS_EVENTS.VENDOR_CREATED, handleVendorUpdated);
+    eventBus.on(BUSINESS_EVENTS.VENDOR_UPDATED, handleVendorUpdated);
 
     // Cleanup
     return () => {
       eventBus.off(BUSINESS_EVENTS.PRODUCT_CREATED, handleProductUpdated);
       eventBus.off(BUSINESS_EVENTS.PRODUCT_UPDATED, handleProductUpdated);
       eventBus.off(BUSINESS_EVENTS.PRODUCT_DELETED, handleProductDeleted);
+
+      // 🔄 REAL-TIME FIX: Cleanup vendor listeners
+      eventBus.off(BUSINESS_EVENTS.VENDOR_CREATED, handleVendorUpdated);
+      eventBus.off(BUSINESS_EVENTS.VENDOR_UPDATED, handleVendorUpdated);
     };
   }, [db, newItem.product_id]);
 
@@ -486,9 +506,9 @@ const StockReceivingNew: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 p-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Add Stock Receiving</h1>
           <p className="mt-1 text-sm text-gray-500">Record stock received from vendors</p>

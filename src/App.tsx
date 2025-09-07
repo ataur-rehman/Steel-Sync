@@ -19,11 +19,11 @@ import InvoiceForm from './components/billing/InvoiceForm';
 import InvoiceList from './components/billing/InvoiceList';
 import InvoiceDetailsPage from './components/billing/InvoiceDetailsPage';
 import DailyLedger from './components/reports/DailyLedger';
-import CustomerLedger from './components/reports/CustomerLedger';
+import CustomerLedgerViewer from './components/reports/CustomerLedgerViewer';
 import StockReport from './components/reports/StockReport';
 import StockHistory from './components/reports/StockHistory';
 import RootCauseAnalysis from './components/RootCauseAnalysis';
-import PerformanceTestDataGenerator from './components/test/PerformanceTestDataGenerator';
+
 import StockReceivingListNoRefresh from './components/stock/StockReceivingListNoRefresh';
 import StockReceivingNew from './components/stock/StockReceivingNew';
 import PaymentChannelManagement from './components/payment/PaymentChannelManagementPermanent';
@@ -32,8 +32,7 @@ import StaffManagementIntegrated from './components/staff/StaffManagementIntegra
 import SimpleFinanceDashboard from './components/finance/SimpleFinanceDashboard';
 import VendorManagement from './components/vendor/VendorManagement';
 import Returns from "./components/returns/Returns";
-import DateTimeFormatTest from './components/test/DateTimeFormatTest';
-import DateTimeFormatAudit from './components/test/DateTimeFormatAudit';
+
 import RealTimeEventMonitor from './components/common/RealTimeEventMonitor';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import DatabaseInitPanel from './components/admin/DatabaseInitPanel';
@@ -44,11 +43,8 @@ import StockReceivingPayment from "./components/stock/StockReceivingPayment";
 import { Activity } from 'lucide-react';
 import './utils/searchRefreshDebugger'; // Auto-initializes in dev mode
 import { ProductionBackupDashboard } from './components/backup/ProductionBackupDashboard';
-import BackupSystemTest from './components/backup/BackupSystemTest';
-import { BackupDebugTest } from './components/debug/BackupDebugTest';
 import { EmergencyCleanup } from './components/debug/EmergencyCleanup';
 import { RestoreDiagnostic } from './components/debug/RestoreDiagnostic';
-import ManualRestoreTrigger from './components/debug/ManualRestoreTrigger';
 import { SimpleBackupTest } from './components/debug/SimpleBackupTest';
 
 function LoginForm() {
@@ -261,13 +257,13 @@ function AppContent() {
               {/* Dashboard - Enhanced with drill-down capabilities */}
               <Route path="/" element={
                 <>
-                  {import.meta.env.DEV && <ManualRestoreTrigger />}
+
                   <Dashboard />
                 </>
               } />
               <Route path="/dashboard" element={
                 <>
-                  {import.meta.env.DEV && <ManualRestoreTrigger />}
+
                   <Dashboard />
                 </>
               } />
@@ -296,17 +292,20 @@ function AppContent() {
               } />
               <Route path="/customers/:id" element={
                 <ProtectedRoute module="customers" level="view">
-                  <CustomerLedger />
+                  <CustomerLedgerViewer />
                 </ProtectedRoute>
               } />
               <Route path="/customers/:id/edit" element={
                 <ProtectedRoute module="customers" level="edit">
-                  <CustomerLedger />
+                  <div className="p-6">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit Customer</h2>
+                    <p className="text-gray-600">Customer edit form will be implemented here.</p>
+                  </div>
                 </ProtectedRoute>
               } />
               <Route path="/customers/:id/ledger" element={
                 <ProtectedRoute module="customers" level="view">
-                  <CustomerLedger />
+                  <CustomerLedgerViewer />
                 </ProtectedRoute>
               } />
 
@@ -362,7 +361,7 @@ function AppContent() {
               } />
               <Route path="/reports/customer-ledger" element={
                 <ProtectedRoute module="reports" level="view">
-                  <CustomerLedger />
+                  <CustomerList />
                 </ProtectedRoute>
               } />
               <Route path="/reports/stock" element={
@@ -388,10 +387,6 @@ function AppContent() {
                 </ProtectedRoute>
               } />
 
-              {/* Performance Test Data Generator */}
-              <Route path="/debug/test-data" element={
-                <PerformanceTestDataGenerator />
-              } />
 
               {/* Enhanced Customer Management */}
 
@@ -574,12 +569,6 @@ function AppContent() {
               } />
 
 
-
-              {/* Date/Time Format Test */}
-              <Route path="/test/datetime" element={<DateTimeFormatTest />} />
-
-              {/* Comprehensive Date/Time Format Audit */}
-              <Route path="/test/audit" element={<DateTimeFormatAudit />} />
 
               {/* Catch-all redirect */}
               <Route path="*" element={<Navigate to="/" replace />} />

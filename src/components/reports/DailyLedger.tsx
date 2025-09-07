@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 
@@ -8,6 +8,7 @@ import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { formatDate, formatTime, formatDateForDatabase } from '../../utils/formatters';
 import { getSystemDateForInput } from '../../utils/systemDateTime';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import {
   Calendar,
   TrendingUp,
@@ -15,13 +16,13 @@ import {
   Plus,
   Download,
   Search,
-
+  BarChart3,
   RefreshCw,
   ArrowLeft,
   ArrowRight,
   Edit,
   Trash2,
-
+  X,
   User,
   Info
 } from 'lucide-react';
@@ -103,6 +104,58 @@ const OUTGOING_CATEGORIES = [
   'Other Expense'
 ];
 
+// 🚨 CRITICAL: Memoized Transaction Row for performance with 500+ entries
+const TransactionRow = React.memo<{
+  entry: LedgerEntry;
+  type: 'incoming' | 'outgoing';
+  onEdit: (entry: LedgerEntry) => void;
+  onDelete: (id: string) => void;
+  formatCurrency: (amount: number) => string;
+  getCleanDisplayText: (entry: LedgerEntry) => { primaryText: string };
+}>(({ entry, type, onEdit, onDelete, formatCurrency, getCleanDisplayText }) => {
+  const { primaryText } = getCleanDisplayText(entry);
+  const isIncoming = type === 'incoming';
+
+  return (
+    <tr key={entry.id} className="hover:bg-gray-50">
+      <td className="px-3 py-2 text-gray-600 text-xs">{entry.time}</td>
+      <td className="px-3 py-2">
+        <div className="text-gray-900 font-medium text-sm">{primaryText}</div>
+        <div className="text-xs text-gray-500">
+          {entry.payment_channel_name || entry.payment_method || 'Cash'}
+        </div>
+      </td>
+      <td className="px-3 py-2 text-right">
+        <span className={`font-bold text-sm ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
+          {isIncoming ? '+' : '-'}{formatCurrency(entry.amount)}
+        </span>
+      </td>
+      <td className="px-3 py-2 text-center">
+        {entry.is_manual ? (
+          <div className="flex items-center justify-center space-x-1">
+            <button
+              onClick={() => onEdit(entry)}
+              className="text-blue-600 hover:text-blue-800 p-1"
+              title="Edit Transaction"
+            >
+              <Edit className="h-3 w-3" />
+            </button>
+            <button
+              onClick={() => onDelete(entry.id)}
+              className="text-red-600 hover:text-red-800 p-1"
+              title="Delete Transaction"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">System</span>
+        )}
+      </td>
+    </tr>
+  );
+});
+
 const DailyLedger: React.FC = () => {
   const location = useLocation();
 
@@ -145,6 +198,11 @@ const DailyLedger: React.FC = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
 
+  // Initial opening balance setup for new users
+  const [showOpeningBalanceSetup, setShowOpeningBalanceSetup] = useState(false);
+  const [initialOpeningBalance, setInitialOpeningBalance] = useState(0);
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false);
+
   // Data
   const [customers, setCustomers] = useState<any[]>([]);
   const [paymentChannels, setPaymentChannels] = useState<any[]>([]);
@@ -160,7 +218,7 @@ const DailyLedger: React.FC = () => {
           const handleDailyLedgerUpdate = (data: any) => {
             console.log('📊 Daily ledger refreshing due to ledger update:', data);
             if (data.date === selectedDate || !data.date) {
-              loadDayData(selectedDate); // Refresh current day data
+              debouncedRefresh(selectedDate); // Use debounced refresh
             }
           };
 
@@ -168,7 +226,7 @@ const DailyLedger: React.FC = () => {
             console.log('📊 Daily ledger refreshing due to invoice creation:', data);
             const invoiceDate = formatDateForDatabase(new Date(data.created_at));
             if (invoiceDate === selectedDate) {
-              loadDayData(selectedDate); // Refresh if invoice created today
+              debouncedRefresh(selectedDate); // Use debounced refresh
             }
           };
 
@@ -176,7 +234,7 @@ const DailyLedger: React.FC = () => {
             console.log('📊 Daily ledger refreshing due to payment:', data);
             const today = formatDateForDatabase();
             if (selectedDate === today) {
-              loadDayData(selectedDate); // Refresh today's data
+              debouncedRefresh(selectedDate); // Use debounced refresh
             }
           };
 
@@ -214,6 +272,11 @@ const DailyLedger: React.FC = () => {
   useEffect(() => {
     loadDayData(selectedDate);
   }, [selectedDate, selectedCustomerId, selectedPaymentChannels]); // FIXED: Reload when customer or payment channel filter changes
+
+  // Check for first-time user on component mount
+  useEffect(() => {
+    checkFirstTimeUser();
+  }, []);
 
   // Load customer invoices when customer is selected in transaction form
   useEffect(() => {
@@ -270,6 +333,56 @@ const DailyLedger: React.FC = () => {
       toast.error('Failed to load data');
     }
   };
+
+  // 🚨 CRITICAL: Debounced refresh to prevent UI lag with rapid events
+  const debouncedRefresh = useCallback(
+    (() => {
+      let timeoutId: NodeJS.Timeout;
+      return (date: string) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          console.log('🔄 [DailyLedger] Debounced refresh triggered');
+          loadDayData(date);
+        }, 300);
+      };
+    })(),
+    []
+  );
+
+  // PERFORMANCE: Memoize filtered entries to prevent unnecessary re-renders
+  const filteredEntries = useMemo(() => {
+    let result = entries;
+
+    if (selectedCustomerId) {
+      result = result.filter(entry => entry.customer_id === selectedCustomerId);
+    }
+
+    if (selectedPaymentChannels.length > 0) {
+      result = result.filter(entry =>
+        entry.payment_channel_id && selectedPaymentChannels.includes(entry.payment_channel_id)
+      );
+    }
+
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase();
+      result = result.filter(entry =>
+        entry.description.toLowerCase().includes(searchLower) ||
+        entry.customer_name?.toLowerCase().includes(searchLower) ||
+        entry.bill_number?.toLowerCase().includes(searchLower) ||
+        entry.payment_method?.toLowerCase().includes(searchLower) ||
+        entry.notes?.toLowerCase().includes(searchLower)
+      );
+    }
+
+    return result;
+  }, [entries, selectedCustomerId, selectedPaymentChannels, searchTerm]);
+
+  // PERFORMANCE: Memoize separated transaction lists
+  const { incomingTransactions, outgoingTransactions } = useMemo(() => {
+    const incoming = filteredEntries.filter(entry => entry.type === 'incoming');
+    const outgoing = filteredEntries.filter(entry => entry.type === 'outgoing');
+    return { incomingTransactions: incoming, outgoingTransactions: outgoing };
+  }, [filteredEntries]);
 
   const loadDayData = async (date: string) => {
     try {
@@ -470,7 +583,7 @@ const DailyLedger: React.FC = () => {
       }
 
       // Calculate summary from database entries only
-      const daySummary = calculateSummary(finalEntries, date);
+      const daySummary = await calculateSummary(finalEntries, date);
       setSummary(daySummary);
 
       // BULLETPROOF: No localStorage storage needed - database is the single source of truth
@@ -689,9 +802,52 @@ const DailyLedger: React.FC = () => {
     }
   };
 
-  // BULLETPROOF: Simple summary calculation with fixed opening balance
-  const calculateSummary = (dayEntries: LedgerEntry[], date: string): DailySummary => {
-    const openingBalance = 100000; // Fixed opening balance for simplicity
+  // PROPER: Calculate cumulative opening balance with support for initial opening balance
+  const getOpeningBalance = async (date: string): Promise<number> => {
+    try {
+      // Get all entries before the current date to calculate cumulative balance
+      const allPreviousEntries = await db.executeRawQuery(
+        'SELECT * FROM ledger_entries WHERE date < ? ORDER BY date ASC, time ASC',
+        [date]
+      );
+
+      if (allPreviousEntries && allPreviousEntries.length > 0) {
+        // Check if user has set an initial opening balance
+        const initialBalance = await db.getInitialOpeningBalance();
+        let cumulativeBalance = initialBalance.amount; // Start with initial opening balance
+
+        allPreviousEntries.forEach((e: any) => {
+          if (e.type === "incoming") {
+            cumulativeBalance += e.amount;
+          }
+          if (e.type === "outgoing") {
+            cumulativeBalance -= e.amount;
+          }
+        });
+
+        console.log(`📊 [DailyLedger] Cumulative balance before ${date}: Rs. ${cumulativeBalance} (initial: Rs. ${initialBalance.amount} + ${allPreviousEntries.length} previous entries)`);
+        return cumulativeBalance;
+      }
+
+      // If no previous entries, check if user has set an initial opening balance
+      const initialBalance = await db.getInitialOpeningBalance();
+      if (initialBalance.amount > 0) {
+        console.log(`📊 [DailyLedger] Using initial opening balance: Rs. ${initialBalance.amount} (set on ${initialBalance.date})`);
+        return initialBalance.amount;
+      }
+
+      // If no previous entries and no initial balance, start with 0
+      console.log(`📊 [DailyLedger] No previous entries or initial balance, starting with 0`);
+      return 0;
+    } catch (error) {
+      console.error('❌ [DailyLedger] Error calculating cumulative opening balance:', error);
+      return 0; // Safe fallback
+    }
+  };
+
+  // BULLETPROOF: Simple summary calculation with proper opening balance
+  const calculateSummary = async (dayEntries: LedgerEntry[], date: string): Promise<DailySummary> => {
+    const openingBalance = await getOpeningBalance(date);
     const totalIncoming = dayEntries.filter(e => e.type === 'incoming').reduce((sum, e) => sum + e.amount, 0);
     const totalOutgoing = dayEntries.filter(e => e.type === 'outgoing').reduce((sum, e) => sum + e.amount, 0);
     const closingBalance = openingBalance + totalIncoming - totalOutgoing;
@@ -705,6 +861,44 @@ const DailyLedger: React.FC = () => {
       net_movement: totalIncoming - totalOutgoing,
       transactions_count: dayEntries.length
     };
+  };
+
+  // Check if user needs to set initial opening balance
+  const checkFirstTimeUser = async () => {
+    try {
+      const isFirstTime = await db.isFirstTimeUser();
+      const initialBalance = await db.getInitialOpeningBalance();
+
+      // Show setup if no transactions and no initial balance set
+      if (isFirstTime && initialBalance.amount === 0) {
+        setIsFirstTimeUser(true);
+        setShowOpeningBalanceSetup(true);
+      }
+    } catch (error) {
+      console.error('Error checking first-time user status:', error);
+    }
+  };
+
+  // Set initial opening balance
+  const handleSetInitialBalance = async () => {
+    try {
+      if (initialOpeningBalance < 0) {
+        toast.error('Opening balance cannot be negative');
+        return;
+      }
+
+      await db.setInitialOpeningBalance(initialOpeningBalance, selectedDate);
+      toast.success(`Initial opening balance set to Rs. ${initialOpeningBalance.toFixed(2)}`);
+
+      setShowOpeningBalanceSetup(false);
+      setIsFirstTimeUser(false);
+
+      // Refresh the data to show updated balances
+      loadDayData(selectedDate);
+    } catch (error) {
+      console.error('Error setting initial opening balance:', error);
+      toast.error('Failed to set initial opening balance');
+    }
   };
 
   const loadCustomerInvoices = async (customerId: number) => {
@@ -725,6 +919,32 @@ const DailyLedger: React.FC = () => {
       if (!newTransaction.description || newTransaction.amount <= 0) {
         toast.error('Please fill all required fields (description and amount)');
         return;
+      }
+
+      // 🚨 CRITICAL: Financial security validation
+      const MAX_TRANSACTION_AMOUNT = 10000000; // Rs. 1 Crore limit
+      const MAX_DAILY_TOTAL = 50000000; // Rs. 5 Crore daily limit
+
+      if (newTransaction.amount > MAX_TRANSACTION_AMOUNT) {
+        toast.error(`Transaction amount exceeds maximum limit of ${formatCurrency(MAX_TRANSACTION_AMOUNT)}`);
+        return;
+      }
+
+      // Check daily total limit (existing transactions + new transaction)
+      // FIXED: Separate incoming and outgoing validation
+      const dayIncoming = entries.filter(e => e.type === 'incoming').reduce((sum, entry) => sum + entry.amount, 0);
+      const dayOutgoing = entries.filter(e => e.type === 'outgoing').reduce((sum, entry) => sum + entry.amount, 0);
+
+      if (newTransaction.type === 'incoming') {
+        if (dayIncoming + newTransaction.amount > MAX_DAILY_TOTAL) {
+          toast.error(`Daily incoming total would exceed limit of ${formatCurrency(MAX_DAILY_TOTAL)} (Current: ${formatCurrency(dayIncoming)})`);
+          return;
+        }
+      } else {
+        if (dayOutgoing + newTransaction.amount > MAX_DAILY_TOTAL) {
+          toast.error(`Daily outgoing total would exceed limit of ${formatCurrency(MAX_DAILY_TOTAL)} (Current: ${formatCurrency(dayOutgoing)})`);
+          return;
+        }
       }
 
       // Auto-determine category
@@ -1206,17 +1426,10 @@ const DailyLedger: React.FC = () => {
     }
   };
 
-  // Enhanced filter entries - now includes bill number search
-  const filteredEntries = entries.filter(entry => {
-    const searchMatch = entry.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.bill_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      entry.notes?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    return searchMatch;
-  }); const incomingEntries = filteredEntries.filter(e => e.type === 'incoming');
-  const outgoingEntries = filteredEntries.filter(e => e.type === 'outgoing');
+  // Enhanced filter entries - now includes bill number search - USING MEMOIZED VERSION
+  // const filteredEntries is now defined above with useMemo for performance
+  const incomingEntries = incomingTransactions;
+  const outgoingEntries = outgoingTransactions;
 
   const formatCurrency = (amount: number | undefined | null): string => {
     if (amount === undefined || amount === null || isNaN(amount)) {
@@ -1366,6 +1579,88 @@ const DailyLedger: React.FC = () => {
   };
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
+      {/* Initial Opening Balance Setup Modal */}
+      {showOpeningBalanceSetup && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 relative">
+            {/* Close button */}
+            <button
+              onClick={() => setShowOpeningBalanceSetup(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 focus:outline-none"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="bg-blue-100 p-2 rounded-full">
+                <BarChart3 className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Welcome! Set Your Opening Balance
+                </h3>
+                <p className="text-sm text-gray-600">
+                  This appears to be your first time using the ledger
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-gray-700 mb-3">
+                  If your business had a previous cash/bank balance before using this software,
+                  please enter it below. Otherwise, leave it as 0 to start fresh.
+                </p>
+
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Initial Opening Balance (Rs.)
+                </label>
+                <input
+                  type="number"
+                  value={initialOpeningBalance}
+                  onChange={(e) => setInitialOpeningBalance(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter amount (e.g., 50000)"
+                  min="0"
+                  step="0.01"
+                />
+
+                <p className="text-xs text-gray-500 mt-1">
+                  This will be your starting balance for {formatDate(selectedDate)}
+                </p>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleSetInitialBalance}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Set Opening Balance
+                </button>
+                <button
+                  onClick={() => {
+                    setInitialOpeningBalance(0);
+                    handleSetInitialBalance();
+                  }}
+                  className="flex-1 bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  Start with 0
+                </button>
+              </div>
+
+              <div className="text-center">
+                <button
+                  onClick={() => setShowOpeningBalanceSetup(false)}
+                  className="text-sm text-gray-500 hover:text-gray-700 underline"
+                >
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -1442,6 +1737,14 @@ const DailyLedger: React.FC = () => {
             title="Export CSV"
           >
             <Download className="h-4 w-4" />
+          </button>
+
+          <button
+            onClick={() => setShowOpeningBalanceSetup(true)}
+            className="p-2 border rounded-lg hover:bg-gray-100"
+            title="Set Opening Balance"
+          >
+            <BarChart3 className="h-4 w-4" />
           </button>
 
           <button
@@ -2212,4 +2515,10 @@ const DailyLedger: React.FC = () => {
   );
 };
 
-export default DailyLedger;
+export default function DailyLedgerWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <DailyLedger />
+    </ErrorBoundary>
+  );
+}

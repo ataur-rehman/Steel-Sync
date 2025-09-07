@@ -85,7 +85,8 @@ const validateOptionalField = (value: string, fieldName: string): { isValid: boo
 };
 
 const sanitizeInput = (input: string): string => {
-    return input.replace(/[<>'"&;]/g, '').trim();
+    // Remove dangerous characters but preserve spaces and normal text
+    return input.replace(/[<>'"&;]/g, '');
 };
 
 interface ProductFormProps {
@@ -386,8 +387,8 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 value={formData.name}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.name
-                                        ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                    ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                    : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
                                     }`}
                                 placeholder="Enter product name (2-100 characters)"
                                 maxLength={100}
@@ -405,9 +406,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     {errors.name}
                                 </p>
                             )}
-                            <p className="text-xs text-gray-500 mt-1">
-                                Product name will be used for search and identification
-                            </p>
+
                         </div>
 
                         {/* Category */}
@@ -465,8 +464,8 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 value={formData.rate_per_unit}
                                 onChange={handleChange}
                                 className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.rate_per_unit
-                                        ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                    ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                    : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
                                     }`}
                                 placeholder="Enter rate per unit (max 999,999.99)"
                                 step="0.01"
@@ -484,9 +483,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     {errors.rate_per_unit}
                                 </p>
                             )}
-                            <p className="text-xs text-gray-500 mt-1">
-                                Price per unit in your local currency (maximum 2 decimal places)
-                            </p>
+
                         </div>
 
                         {/* Track Inventory */}
@@ -546,7 +543,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     <p className="text-xs text-gray-500 mt-1">
                                         <strong>{unitConfig.label}:</strong> {unitConfig.examples.join(', ')}
                                         <br />
-                                        <span className="text-gray-400">{unitConfig.description}</span>
+
                                     </p>
                                     {errors.current_stock && <p className="text-red-600 text-sm mt-1">{errors.current_stock}</p>}
                                 </div>
@@ -569,7 +566,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                     <p className="text-xs text-gray-500 mt-1">
                                         <strong>{unitConfig.label}:</strong> {unitConfig.examples.join(', ')}
                                         <br />
-                                        <span className="text-gray-400">{unitConfig.description}</span>
+
                                     </p>
                                     {errors.min_stock_alert && <p className="text-red-600 text-sm mt-1">{errors.min_stock_alert}</p>}
                                 </div>
@@ -613,8 +610,8 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         value={formData.size}
                                         onChange={handleChange}
                                         className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.size
-                                                ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                                : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                            ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                            : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
                                             }`}
                                         placeholder="e.g., 12mm, Large, XL (max 50 chars)"
                                         maxLength={50}
@@ -629,9 +626,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                             {errors.size}
                                         </p>
                                     )}
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Optional size specification for the product
-                                    </p>
+
                                 </div>
 
                                 {/* Grade */}
@@ -646,8 +641,8 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         value={formData.grade}
                                         onChange={handleChange}
                                         className={`w-full px-4 py-3 border rounded-lg focus:ring-2 transition-colors text-sm ${errors.grade
-                                                ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-                                                : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
+                                            ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+                                            : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'
                                             }`}
                                         placeholder="e.g., A-Grade, Premium (max 50 chars)"
                                         maxLength={50}
@@ -662,9 +657,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                             {errors.grade}
                                         </p>
                                     )}
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Optional quality grade specification for the product
-                                    </p>
+
                                 </div>
                             </div>
                         </div>

@@ -4,7 +4,7 @@
  * Zero data loss, enterprise-grade safety
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     Cloud,
     Download,
@@ -28,7 +28,188 @@ interface BackupDashboardProps {
     onClose?: () => void;
 }
 
-export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => {
+// Skeleton loader component for better perceived performance
+const SkeletonLoader = () => (
+    <div className="animate-pulse">
+        <div className="border rounded-lg p-4">
+            <div className="flex items-center justify-between">
+                <div className="flex-1">
+                    <div className="flex items-center space-x-3">
+                        <div className="w-4 h-4 bg-gray-300 rounded"></div>
+                        <div className="h-4 bg-gray-300 rounded w-48"></div>
+                    </div>
+                    <div className="mt-2 h-3 bg-gray-300 rounded w-64"></div>
+                </div>
+                <div className="w-32 h-8 bg-gray-300 rounded"></div>
+            </div>
+        </div>
+    </div>
+);
+
+// Quick health status skeleton
+const HealthSkeleton = () => (
+    <div className="bg-gray-50 rounded-lg p-4 animate-pulse">
+        <div className="flex items-center space-x-4">
+            <div className="w-5 h-5 bg-gray-300 rounded"></div>
+            <div className="flex-1">
+                <div className="h-4 bg-gray-300 rounded w-48 mb-2"></div>
+                <div className="h-3 bg-gray-300 rounded w-64"></div>
+            </div>
+            <div className="w-32 h-10 bg-gray-300 rounded"></div>
+        </div>
+    </div>
+);
+
+// Optimized BackupItem component with React.memo
+const BackupItem = React.memo(({
+    backup,
+    restoring,
+    selectedBackup,
+    restoreProgress,
+    currentRestoreOperation,
+    onRestore,
+    formatDate,
+    formatFileSize,
+    downloadProgress = 0,
+    isDownloading = false,
+    downloadSpeed = '',
+    downloadEta = ''
+}: {
+    backup: FileBackupMetadata;
+    restoring: boolean;
+    selectedBackup: string | null;
+    restoreProgress: number;
+    currentRestoreOperation: string;
+    onRestore: (backupId: string, source?: 'local' | 'google-drive') => void;
+    formatDate: (date: Date) => string;
+    formatFileSize: (bytes: number) => string;
+    downloadProgress?: number;
+    isDownloading?: boolean;
+    downloadSpeed?: string;
+    downloadEta?: string;
+}) => {
+    const isRestoring = restoring && selectedBackup === backup.id;
+
+    return (
+        <div className="border rounded-lg p-4 hover:bg-gray-50">
+            <div className="flex items-center justify-between">
+                <div className="flex-1">
+                    <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-2">
+                            {backup.type === 'automatic' ? (
+                                <Clock className="w-4 h-4 text-blue-500" />
+                            ) : (
+                                <HardDrive className="w-4 h-4 text-green-500" />
+                            )}
+                            <span className="font-medium">{backup.id}</span>
+                        </div>
+                        <div className="flex items-center space-x-2 text-sm text-gray-500">
+                            {backup.isLocal && !backup.isGoogleDrive && (
+                                <span className="bg-gray-100 px-2 py-1 rounded text-xs">📁 Local Only</span>
+                            )}
+                            {backup.isGoogleDrive && !backup.isLocal && (
+                                <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">☁️ Google Drive</span>
+                            )}
+                            {backup.isLocal && backup.isGoogleDrive && (
+                                <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">🔄 Synced</span>
+                            )}
+                        </div>
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                        {formatDate(backup.createdAt)} • {formatFileSize(backup.size)}
+                        {backup.checksum && ` • Checksum: ${backup.checksum.substring(0, 8)}...`}
+                    </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                    {backup.isLocal ? (
+                        <div className="relative">
+                            <button
+                                onClick={() => onRestore(backup.id, 'local')}
+                                disabled={restoring}
+                                className="flex items-center space-x-1 px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+                            >
+                                {isRestoring ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                ) : (
+                                    <Download className="w-3 h-3" />
+                                )}
+                                <span>Restore (Local)</span>
+                            </button>
+                            {isRestoring && (
+                                <div className="absolute top-full left-0 right-0 mt-1 p-2 bg-white border border-gray-200 rounded shadow-lg z-10 min-w-48">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                                        <span>{currentRestoreOperation}</span>
+                                        <span>{restoreProgress}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1">
+                                        <div
+                                            className="bg-blue-600 h-1 rounded-full transition-all duration-300"
+                                            style={{ width: `${restoreProgress}%` }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="relative">
+                            <button
+                                onClick={() => onRestore(backup.id)}
+                                disabled={restoring}
+                                className="flex items-center space-x-1 px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                            >
+                                {isRestoring ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                ) : (
+                                    <Cloud className="w-3 h-3" />
+                                )}
+                                <span>Restore from Drive</span>
+                            </button>
+                            {isRestoring && (
+                                <div className="absolute top-full left-0 right-0 mt-1 p-2 bg-white border border-gray-200 rounded shadow-lg z-10 min-w-48">
+                                    <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                                        <span>{currentRestoreOperation}</span>
+                                        <span>{restoreProgress}%</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-1">
+                                        <div
+                                            className="bg-blue-600 h-1 rounded-full transition-all duration-300"
+                                            style={{ width: `${restoreProgress}%` }}
+                                        />
+                                    </div>
+
+                                    {/* Show download progress for Google Drive restores */}
+                                    {!backup.isLocal && isDownloading && (
+                                        <div className="mt-2 pt-2 border-t border-gray-100">
+                                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                                                <span>📥 Downloading from Drive</span>
+                                                <span>{downloadProgress}%</span>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-1 mb-1">
+                                                <div
+                                                    className="bg-green-600 h-1 rounded-full transition-all duration-300"
+                                                    style={{ width: `${downloadProgress}%` }}
+                                                />
+                                            </div>
+                                            {(downloadSpeed || downloadEta) && (
+                                                <div className="flex justify-between text-xs text-gray-400">
+                                                    {downloadSpeed && <span>⚡ {downloadSpeed}</span>}
+                                                    {downloadEta && <span>⏱️ ETA: {downloadEta}</span>}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+});
+
+// Main optimized component with memo for performance
+const BackupDashboard: React.FC<BackupDashboardProps> = React.memo(({ onClose }) => {
     const [backups, setBackups] = useState<FileBackupMetadata[]>([]);
     const [loading, setLoading] = useState(true);
     const [health, setHealth] = useState<any>(null);
@@ -45,60 +226,271 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
     const [currentOperation, setCurrentOperation] = useState<string>('');
     const [currentRestoreOperation, setCurrentRestoreOperation] = useState<string>('');
 
+    // Upload progress states
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadSpeed, setUploadSpeed] = useState<string>('');
+    const [uploadEta, setUploadEta] = useState<string>('');
+
+    // Download progress states for restore operations
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [downloadSpeed, setDownloadSpeed] = useState<string>('');
+    const [downloadEta, setDownloadEta] = useState<string>('');
+
     // Modal states
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [showGoogleDriveModal, setShowGoogleDriveModal] = useState(false);
 
+    // Performance monitoring
     useEffect(() => {
-        loadDashboardData();
+        const startTime = performance.now();
+
+        const handleLoad = () => {
+            const endTime = performance.now();
+            const loadTime = endTime - startTime;
+            console.log(`⚡ [PERFORMANCE] Backup Dashboard loaded in ${loadTime.toFixed(2)}ms`);
+
+            // Log if loading is slower than target (1 second)
+            if (loadTime > 1000) {
+                console.warn(`⚠️ [PERFORMANCE] Dashboard loading exceeded 1s target: ${loadTime.toFixed(2)}ms`);
+            }
+        };
+
+        if (!loading) {
+            handleLoad();
+        }
+    }, [loading]);
+
+    // Memoize tab switching to prevent unnecessary re-renders
+    const handleTabSwitch = useCallback((tab: 'backups' | 'schedule' | 'settings') => {
+        // Pre-load tab data if not already loaded
+        if (tab === 'schedule' && !scheduleInfo) {
+            productionBackupService.getScheduleInfo().then(setScheduleInfo);
+        }
+        if (tab === 'settings' && !googleDriveInfo) {
+            productionBackupService.getGoogleDriveInfo().then(setGoogleDriveInfo);
+        }
+        setActiveTab(tab);
+    }, [scheduleInfo, googleDriveInfo]);
+
+    // Cache for performance optimization
+    const [dataCache, setDataCache] = useState<{
+        backups?: FileBackupMetadata[];
+        health?: any;
+        schedule?: any;
+        googleDrive?: any;
+        timestamp?: number;
+    }>({});
+
+    // Cache duration: 30 seconds for fast UI
+    const CACHE_DURATION = 30000;
+
+    useEffect(() => {
+        loadCriticalData();
     }, []);
 
-    const loadDashboardData = async () => {
-        console.log('🔄 [DASHBOARD] Loading dashboard data...');
+    // Load only essential data first for fast initial render
+    const loadCriticalData = async () => {
+        console.log('⚡ [DASHBOARD] Loading critical data for fast render...');
         setLoading(true);
+
         try {
-            const [backupList, healthData, schedule, driveInfo] = await Promise.all([
-                productionBackupService.listBackups(),
-                productionBackupService.getBackupHealth(),
+            // Check cache first
+            const now = Date.now();
+            if (dataCache.timestamp && (now - dataCache.timestamp) < CACHE_DURATION) {
+                console.log('📋 [DASHBOARD] Using cached data');
+                if (dataCache.backups) setBackups(dataCache.backups);
+                if (dataCache.health) setHealth(dataCache.health);
+                if (dataCache.schedule) setScheduleInfo(dataCache.schedule);
+                if (dataCache.googleDrive) setGoogleDriveInfo(dataCache.googleDrive);
+                setLoading(false);
+                return;
+            }
+
+            // Load basic health status and recent backups first (fastest)
+            const [basicHealth, localBackups] = await Promise.all([
+                loadBasicHealth(),
+                loadRecentBackups()
+            ]);
+
+            setHealth(basicHealth);
+            setBackups(localBackups);
+            setLoading(false); // Show UI immediately with basic data
+
+            // Load remaining data in background
+            loadBackgroundData();
+
+        } catch (error) {
+            console.error('❌ [DASHBOARD] Critical data loading failed:', error);
+            setLoading(false);
+            // Still try to load background data
+            loadBackgroundData();
+        }
+    };
+
+    // Load basic health without expensive operations
+    const loadBasicHealth = async () => {
+        try {
+            // Quick health check without full backup listing
+            const scheduleInfo = await productionBackupService.getScheduleInfo();
+            return {
+                status: scheduleInfo.enabled ? 'healthy' : 'warning',
+                totalBackups: 0, // Will be updated in background
+                totalSize: 0, // Will be updated in background
+                lastBackup: null, // Will be updated in background
+                nextScheduled: scheduleInfo.nextRun,
+                issues: scheduleInfo.enabled ? [] : ['Automatic backup schedule disabled']
+            };
+        } catch (error) {
+            console.warn('⚠️ [DASHBOARD] Basic health check failed:', error);
+            return {
+                status: 'error',
+                totalBackups: 0,
+                totalSize: 0,
+                issues: ['Failed to load system status']
+            };
+        }
+    };
+
+    // Load only recent local backups for fast display
+    const loadRecentBackups = async (): Promise<FileBackupMetadata[]> => {
+        try {
+            // Get only metadata files, don't process Google Drive yet
+            const { readDir } = await import('@tauri-apps/plugin-fs');
+            const { BaseDirectory } = await import('@tauri-apps/plugin-fs');
+
+            const backupFiles = await readDir('backups', { baseDir: BaseDirectory.AppData });
+            const metadataFiles = backupFiles
+                .filter(file => file.name?.endsWith('.metadata.json'))
+                .slice(0, 10); // Only load first 10 for fast render
+
+            const recentBackups: FileBackupMetadata[] = [];
+            for (const metadataFile of metadataFiles) {
+                if (metadataFile.name) {
+                    const backupId = metadataFile.name.replace('.metadata.json', '');
+                    try {
+                        const metadata = await loadBackupMetadata(backupId);
+                        if (metadata) {
+                            recentBackups.push(metadata);
+                        }
+                    } catch (error) {
+                        console.warn(`⚠️ [DASHBOARD] Failed to load metadata for ${backupId}:`, error);
+                    }
+                }
+            }
+
+            return recentBackups.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        } catch (error) {
+            console.warn('⚠️ [DASHBOARD] Failed to load recent backups:', error);
+            return [];
+        }
+    };
+
+    // Fast metadata loading without service call
+    const loadBackupMetadata = async (backupId: string) => {
+        try {
+            const { readFile } = await import('@tauri-apps/plugin-fs');
+            const { BaseDirectory } = await import('@tauri-apps/plugin-fs');
+
+            const metadataPath = `backups/${backupId}.metadata.json`;
+            const metadataData = await readFile(metadataPath, { baseDir: BaseDirectory.AppData });
+            const metadataJson = new TextDecoder().decode(metadataData);
+            const parsed = JSON.parse(metadataJson);
+
+            if (parsed.createdAt && typeof parsed.createdAt === 'string') {
+                parsed.createdAt = new Date(parsed.createdAt);
+            }
+
+            return parsed;
+        } catch (error) {
+            return null;
+        }
+    };
+
+    // Load non-critical data in background
+    const loadBackgroundData = async () => {
+        console.log('🔄 [DASHBOARD] Loading background data...');
+
+        try {
+            // Load schedule and Google Drive info in parallel
+            const [schedule, driveInfo] = await Promise.all([
                 productionBackupService.getScheduleInfo(),
                 productionBackupService.getGoogleDriveInfo(),
             ]);
 
-            console.log('📊 [DASHBOARD] Google Drive info loaded:', driveInfo);
-
-            setBackups(backupList);
-            setHealth(healthData);
             setScheduleInfo(schedule);
             setGoogleDriveInfo(driveInfo);
 
-            console.log('✅ [DASHBOARD] Dashboard data loaded successfully');
+            // Load complete backup list and health in background
+            setTimeout(async () => {
+                try {
+                    const [fullBackupList, fullHealth] = await Promise.all([
+                        productionBackupService.listBackups(),
+                        productionBackupService.getBackupHealth(),
+                    ]);
+
+                    setBackups(fullBackupList);
+                    setHealth(fullHealth);
+
+                    // Cache the complete data
+                    setDataCache({
+                        backups: fullBackupList,
+                        health: fullHealth,
+                        schedule,
+                        googleDrive: driveInfo,
+                        timestamp: Date.now()
+                    });
+
+                    console.log('✅ [DASHBOARD] Background data loading completed');
+                } catch (error) {
+                    console.error('❌ [DASHBOARD] Background data loading failed:', error);
+                }
+            }, 100); // Small delay to ensure UI renders first
+
         } catch (error) {
-            console.error('❌ [DASHBOARD] Failed to load dashboard data:', error);
-        } finally {
-            setLoading(false);
+            console.error('❌ [DASHBOARD] Background data loading failed:', error);
         }
+    };
+
+    // Keep the original function for manual refresh
+    const loadDashboardData = async () => {
+        // Clear cache and reload fresh data
+        setDataCache({});
+        await loadCriticalData();
     };
 
     const handleCreateBackup = async () => {
         setCreatingBackup(true);
         setBackupProgress(0);
         setCurrentOperation('Initializing backup...');
+        setUploadProgress(0);
+        setIsUploading(false);
+        setUploadSpeed('');
+        setUploadEta('');
 
         try {
-            // Simulate progress updates
-            const progressInterval = setInterval(() => {
-                setBackupProgress(prev => {
-                    if (prev < 90) return prev + 10;
-                    return prev;
-                });
-            }, 200);
+            console.log('🚀 [DASHBOARD] Starting backup with progress tracking...');
 
-            setCurrentOperation('Creating database backup...');
-            const result = await productionBackupService.createBackup('manual');
+            const result = await productionBackupService.createBackup(
+                'manual',
+                // Progress callback for main backup operations
+                (progress: number, operation: string) => {
+                    setBackupProgress(progress);
+                    setCurrentOperation(operation);
 
-            clearInterval(progressInterval);
-            setBackupProgress(100);
-            setCurrentOperation('Backup completed!');
+                    // When starting Google Drive upload
+                    if (operation.includes('Uploading to Google Drive')) {
+                        setIsUploading(true);
+                    }
+                },
+                // Upload progress callback for Google Drive
+                (progress: number, speed?: string, eta?: string) => {
+                    setUploadProgress(progress);
+                    if (speed) setUploadSpeed(speed);
+                    if (eta) setUploadEta(eta);
+                }
+            );
 
             if (result.success) {
                 await loadDashboardData();
@@ -113,6 +505,10 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             setCreatingBackup(false);
             setBackupProgress(0);
             setCurrentOperation('');
+            setUploadProgress(0);
+            setIsUploading(false);
+            setUploadSpeed('');
+            setUploadEta('');
         }
     };
 
@@ -131,25 +527,33 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
         setSelectedBackup(backupId);
         setRestoreProgress(0);
         setCurrentRestoreOperation('Preparing restore...');
+        setDownloadProgress(0);
+        setIsDownloading(false);
+        setDownloadSpeed('');
+        setDownloadEta('');
 
         try {
-            // Simulate progress tracking for restore operation
-            const progressInterval = setInterval(() => {
-                setRestoreProgress(prev => {
-                    const newProgress = prev + 10;
-                    if (newProgress <= 30) setCurrentRestoreOperation('Creating safety backup...');
-                    else if (newProgress <= 60) setCurrentRestoreOperation('Preparing restore files...');
-                    else if (newProgress <= 90) setCurrentRestoreOperation('Staging restore...');
-                    return Math.min(newProgress, 90);
-                });
-            }, 200);
+            // Use the new restart-based restore (production approach) with progress tracking
+            await productionBackupService.restoreBackupWithRestart(
+                backupId,
+                source,
+                // Progress callback for main restore operations
+                (progress: number, operation: string) => {
+                    setRestoreProgress(progress);
+                    setCurrentRestoreOperation(operation);
 
-            // Use the new restart-based restore (production approach)
-            await productionBackupService.restoreBackupWithRestart(backupId, source);
-
-            clearInterval(progressInterval);
-            setRestoreProgress(100);
-            setCurrentRestoreOperation('Restore completed - restarting...');
+                    // When starting Google Drive download
+                    if (operation.includes('Downloading')) {
+                        setIsDownloading(true);
+                    }
+                },
+                // Download progress callback for Google Drive
+                (progress: number, speed?: string, eta?: string) => {
+                    setDownloadProgress(progress);
+                    if (speed) setDownloadSpeed(speed);
+                    if (eta) setDownloadEta(eta);
+                }
+            );
 
             // If we reach here, something went wrong (restart should have happened)
             alert('⚠️ Restart did not occur automatically. Please restart the application manually to complete the restore.');
@@ -165,11 +569,15 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             setSelectedBackup(null);
             setRestoreProgress(0);
             setCurrentRestoreOperation('');
+            setDownloadProgress(0);
+            setIsDownloading(false);
+            setDownloadSpeed('');
+            setDownloadEta('');
         }
     };
 
-    // Modal handlers
-    const handleSaveSchedule = async (schedule: any) => {
+    // Modal handlers with useCallback for performance
+    const handleSaveSchedule = useCallback(async (schedule: any) => {
         try {
             await productionBackupService.updateSchedule(schedule);
             await loadDashboardData(); // Reload to show updated schedule
@@ -177,9 +585,9 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             console.error('Failed to save schedule:', error);
             throw error;
         }
-    };
+    }, []);
 
-    const handleSaveGoogleDrive = async (config: any) => {
+    const handleSaveGoogleDrive = useCallback(async (config: any) => {
         console.log('🎯 [DASHBOARD] handleSaveGoogleDrive called with:', config);
         try {
             console.log('🎯 [DASHBOARD] Calling productionBackupService.configureGoogleDrive...');
@@ -191,7 +599,7 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             console.error('❌ [DASHBOARD] Failed to save Google Drive config:', error);
             throw error;
         }
-    };
+    }, []);
 
     const handleAuthenticateGoogleDrive = async () => {
         try {
@@ -267,13 +675,13 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
         }
     };
 
-    const formatFileSize = (bytes: number): string => {
+    const formatFileSize = useCallback((bytes: number): string => {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
         return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-    };
+    }, []);
 
-    const formatDate = (date: Date): string => {
+    const formatDate = useCallback((date: Date): string => {
         return new Intl.DateTimeFormat('en-US', {
             year: 'numeric',
             month: 'short',
@@ -281,9 +689,9 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             hour: '2-digit',
             minute: '2-digit',
         }).format(date);
-    };
+    }, []);
 
-    const getHealthIcon = () => {
+    const getHealthIcon = useMemo(() => {
         if (!health) return <Clock className="w-5 h-5 text-gray-400" />;
 
         switch (health.status) {
@@ -292,26 +700,94 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             case 'error': return <AlertCircle className="w-5 h-5 text-red-500" />;
             default: return <Clock className="w-5 h-5 text-gray-400" />;
         }
-    };
+    }, [health?.status]);
+
+    // Memoize health status text and color
+    const healthStatusDisplay = useMemo(() => {
+        if (!health) return { text: 'Unknown', color: 'text-gray-600' };
+
+        const colorMap = {
+            healthy: 'text-green-600',
+            warning: 'text-yellow-600',
+            error: 'text-red-600'
+        };
+
+        return {
+            text: health.status,
+            color: colorMap[health.status as keyof typeof colorMap] || 'text-gray-600'
+        };
+    }, [health?.status]);
+
+    // Memoize sorted and filtered backups for different views
+    const sortedBackups = useMemo(() => {
+        return [...backups].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    }, [backups]);
+
+    // Pagination state for performance
+    const [displayLimit, setDisplayLimit] = useState(50);
+
+    // Memoize recent backups (limit to displayLimit for performance)
+    const displayBackups = useMemo(() => {
+        return sortedBackups.slice(0, displayLimit);
+    }, [sortedBackups, displayLimit]);
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center p-8">
-                <RefreshCw className="w-6 h-6 animate-spin mr-2" />
-                <span>Loading backup dashboard...</span>
+            <div className="p-6 space-y-6">
+                {/* Header */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Database Backup</h1>
+                            <p className="text-sm text-gray-500">File-based backup with Google Drive sync</p>
+                        </div>
+                    </div>
+                    {onClose && (
+                        <button
+                            onClick={onClose}
+                            className="text-gray-400 hover:text-gray-600 text-xl"
+                        >
+                            ✕
+                        </button>
+                    )}
+                </div>
+
+                {/* Health Status Skeleton */}
+                <HealthSkeleton />
+
+                {/* Tabs */}
+                <div className="border-b border-gray-200">
+                    <div className="flex space-x-8">
+                        {['backups', 'schedule', 'settings'].map((tab) => (
+                            <button
+                                key={tab}
+                                className="py-2 px-1 border-b-2 border-transparent text-gray-500 font-medium text-sm capitalize"
+                            >
+                                {tab}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Content Skeleton */}
+                <div className="space-y-3">
+                    <SkeletonLoader />
+                    <SkeletonLoader />
+                    <SkeletonLoader />
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="bg-white rounded-lg shadow-lg p-6 max-w-6xl mx-auto">
+        <div className="p-6 space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div className="flex items-center space-x-3">
-                    <Database className="w-8 h-8 text-blue-500" />
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">Database Backup</h1>
-                        <p className="text-sm text-gray-600">File-based backup with Google Drive sync</p>
+                        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Database Backup</h1>
+                        <p className="text-sm text-gray-500">File-based backup with Google Drive sync</p>
                     </div>
                 </div>
                 {onClose && (
@@ -325,16 +801,14 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             </div>
 
             {/* Health Status */}
-            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+            <div className="bg-gray-50 rounded-lg p-4">
                 <div className="flex items-center space-x-4">
-                    {getHealthIcon()}
+                    {getHealthIcon}
                     <div className="flex-1">
                         <div className="flex items-center space-x-2">
                             <span className="font-medium">
-                                System Status: <span className={`capitalize ${health?.status === 'healthy' ? 'text-green-600' :
-                                    health?.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
-                                    }`}>
-                                    {health?.status || 'Unknown'}
+                                System Status: <span className={`capitalize ${healthStatusDisplay.color}`}>
+                                    {healthStatusDisplay.text}
                                 </span>
                             </span>
                         </div>
@@ -363,12 +837,34 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
                                     <span>{currentOperation}</span>
                                     <span>{backupProgress}%</span>
                                 </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
                                     <div
                                         className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                                         style={{ width: `${backupProgress}%` }}
                                     />
                                 </div>
+
+                                {/* Google Drive Upload Progress */}
+                                {isUploading && (
+                                    <div className="mt-3 pt-3 border-t border-gray-200">
+                                        <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                                            <span>📤 Uploading to Google Drive</span>
+                                            <span>{uploadProgress}%</span>
+                                        </div>
+                                        <div className="w-full bg-gray-200 rounded-full h-1 mb-1">
+                                            <div
+                                                className="bg-green-600 h-1 rounded-full transition-all duration-300"
+                                                style={{ width: `${uploadProgress}%` }}
+                                            />
+                                        </div>
+                                        {(uploadSpeed || uploadEta) && (
+                                            <div className="flex justify-between text-xs text-gray-400">
+                                                {uploadSpeed && <span>⚡ {uploadSpeed}</span>}
+                                                {uploadEta && <span>⏱️ ETA: {uploadEta}</span>}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         )}
                         <button
@@ -382,12 +878,12 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             </div>
 
             {/* Tabs */}
-            <div className="border-b border-gray-200 mb-6">
+            <div className="border-b border-gray-200">
                 <div className="flex space-x-8">
                     {['backups', 'schedule', 'settings'].map((tab) => (
                         <button
                             key={tab}
-                            onClick={() => setActiveTab(tab as any)}
+                            onClick={() => handleTabSwitch(tab as any)}
                             className={`py-2 px-1 border-b-2 font-medium text-sm capitalize ${activeTab === tab
                                 ? 'border-blue-500 text-blue-600'
                                 : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -403,110 +899,48 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             {activeTab === 'backups' && (
                 <div>
                     <div className="space-y-3">
-                        {backups.length === 0 ? (
+                        {displayBackups.length === 0 ? (
                             <div className="text-center py-8 text-gray-500">
                                 <Database className="w-12 h-12 mx-auto mb-3 opacity-50" />
                                 <p>No backups found</p>
                                 <p className="text-sm">Create your first backup to get started</p>
                             </div>
                         ) : (
-                            backups.map((backup) => (
-                                <div
-                                    key={backup.id}
-                                    className="border rounded-lg p-4 hover:bg-gray-50"
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex-1">
-                                            <div className="flex items-center space-x-3">
-                                                <div className="flex items-center space-x-2">
-                                                    {backup.type === 'automatic' ? (
-                                                        <Clock className="w-4 h-4 text-blue-500" />
-                                                    ) : (
-                                                        <HardDrive className="w-4 h-4 text-green-500" />
-                                                    )}
-                                                    <span className="font-medium">{backup.id}</span>
-                                                </div>
-                                                <div className="flex items-center space-x-2 text-sm text-gray-500">
-                                                    {backup.isLocal && !backup.isGoogleDrive && (
-                                                        <span className="bg-gray-100 px-2 py-1 rounded text-xs">📁 Local Only</span>
-                                                    )}
-                                                    {backup.isGoogleDrive && !backup.isLocal && (
-                                                        <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">☁️ Google Drive</span>
-                                                    )}
-                                                    {backup.isLocal && backup.isGoogleDrive && (
-                                                        <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs">🔄 Synced</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <div className="text-sm text-gray-600 mt-1">
-                                                {formatDate(backup.createdAt)} • {formatFileSize(backup.size)} •
-                                                Checksum: {backup.checksum.substring(0, 8)}...
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            {backup.isLocal ? (
-                                                <div className="relative">
-                                                    <button
-                                                        onClick={() => handleRestoreBackup(backup.id, 'local')}
-                                                        disabled={restoring}
-                                                        className="flex items-center space-x-1 px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
-                                                    >
-                                                        {restoring && selectedBackup === backup.id ? (
-                                                            <RefreshCw className="w-3 h-3 animate-spin" />
-                                                        ) : (
-                                                            <Download className="w-3 h-3" />
-                                                        )}
-                                                        <span>Restore (Local)</span>
-                                                    </button>
-                                                    {restoring && selectedBackup === backup.id && (
-                                                        <div className="absolute top-full left-0 right-0 mt-1 p-2 bg-white border border-gray-200 rounded shadow-lg z-10 min-w-48">
-                                                            <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                                                                <span>{currentRestoreOperation}</span>
-                                                                <span>{restoreProgress}%</span>
-                                                            </div>
-                                                            <div className="w-full bg-gray-200 rounded-full h-1">
-                                                                <div
-                                                                    className="bg-blue-600 h-1 rounded-full transition-all duration-300"
-                                                                    style={{ width: `${restoreProgress}%` }}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <div className="relative">
-                                                    <button
-                                                        onClick={() => handleRestoreBackup(backup.id)}
-                                                        disabled={restoring}
-                                                        className="flex items-center space-x-1 px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-                                                    >
-                                                        {restoring && selectedBackup === backup.id ? (
-                                                            <RefreshCw className="w-3 h-3 animate-spin" />
-                                                        ) : (
-                                                            <Cloud className="w-3 h-3" />
-                                                        )}
-                                                        <span>Restore from Drive</span>
-                                                    </button>
-                                                    {restoring && selectedBackup === backup.id && (
-                                                        <div className="absolute top-full left-0 right-0 mt-1 p-2 bg-white border border-gray-200 rounded shadow-lg z-10 min-w-48">
-                                                            <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                                                                <span>{currentRestoreOperation}</span>
-                                                                <span>{restoreProgress}%</span>
-                                                            </div>
-                                                            <div className="w-full bg-gray-200 rounded-full h-1">
-                                                                <div
-                                                                    className="bg-blue-600 h-1 rounded-full transition-all duration-300"
-                                                                    style={{ width: `${restoreProgress}%` }}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
+                            <>
+                                {displayBackups.map((backup) => (
+                                    <BackupItem
+                                        key={backup.id}
+                                        backup={backup}
+                                        restoring={restoring}
+                                        selectedBackup={selectedBackup}
+                                        restoreProgress={restoreProgress}
+                                        currentRestoreOperation={currentRestoreOperation}
+                                        onRestore={handleRestoreBackup}
+                                        formatDate={formatDate}
+                                        formatFileSize={formatFileSize}
+                                        downloadProgress={downloadProgress}
+                                        isDownloading={isDownloading}
+                                        downloadSpeed={downloadSpeed}
+                                        downloadEta={downloadEta}
+                                    />
+                                ))}
+                                {sortedBackups.length > displayBackups.length && (
+                                    <div className="text-center py-4">
+                                        <p className="text-sm text-gray-500">
+                                            Showing {displayBackups.length} of {sortedBackups.length} backups
+                                        </p>
+                                        <button
+                                            onClick={() => {
+                                                // Load more backups by increasing display limit
+                                                setDisplayLimit(prev => prev + 25);
+                                            }}
+                                            className="mt-2 text-sm text-blue-600 hover:text-blue-800"
+                                        >
+                                            Load More Backups
+                                        </button>
                                     </div>
-                                </div>
-                            ))
+                                )}
+                            </>
                         )}
                     </div>
                 </div>
@@ -653,7 +1087,10 @@ export const BackupDashboard: React.FC<BackupDashboardProps> = ({ onClose }) => 
             />
         </div>
     );
-};
+});
+
+// Set display name for debugging
+BackupDashboard.displayName = 'BackupDashboard';
 
 export default BackupDashboard;
 export { BackupDashboard as ProductionBackupDashboard };

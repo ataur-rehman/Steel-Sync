@@ -169,7 +169,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Statistics Cards */}
       {statistics && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -250,7 +250,7 @@ const SalaryHistory: React.FC<SalaryHistoryProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">
             {showAllStaff ? 'All Salary Payments' : `Salary History - ${staffName}`}
           </h2>
           <p className="text-gray-600">

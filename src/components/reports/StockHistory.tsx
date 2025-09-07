@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useMemo, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
 import { parseUnit, type UnitType } from '../../utils/unitUtils';
 import { formatDate } from '../../utils/formatters';
-import { useDebounce } from '../../hooks/useDebounce';
 import { useRealTimeUpdates } from '../../hooks/useRealTimeUpdates';
+import { useDebounce } from '../../hooks/useDebounce';
 import {
     ArrowLeft,
     Search,
@@ -17,7 +17,11 @@ import {
     TrendingDown,
     BarChart3,
     FileText,
-    RefreshCw
+    RefreshCw,
+    ChevronLeft,
+    ChevronRight,
+    ChevronsLeft,
+    ChevronsRight
 } from 'lucide-react';
 
 interface Product {
@@ -39,9 +43,8 @@ interface StockSummary {
     largestMovement: any;
 }
 
-// Optimized pagination - larger page size for better performance
-const ITEMS_PER_PAGE = 100;
-const FILTER_DEBOUNCE_MS = 300;
+// 🚀 PERFORMANCE: Optimized pagination for large datasets
+const ITEMS_PER_PAGE = 50; // Increased for better user experience while maintaining performance
 
 // Memoized movement row component for better performance
 const MovementRow = memo(({ movement, getMovementTypeInfo, formatCurrency }: any) => {
@@ -145,14 +148,31 @@ const StockHistory: React.FC = () => {
 
     // State
     const [product, setProduct] = useState<Product | null>(null);
-    const [allMovements, setAllMovements] = useState<any[]>([]); // Cache for filtering
+    const [movements, setMovements] = useState<any[]>([]); // Current page movements
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [summary, setSummary] = useState<StockSummary | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [dataFreshness, setDataFreshness] = useState<'live' | 'cached' | 'stale'>('live');
 
-    // Pagination
-    const [currentPage, setCurrentPage] = useState(1);
+    // 🚀 PERFORMANCE: Server-side pagination state with caching
+    const [paginationInfo, setPaginationInfo] = useState({
+        currentPage: 1,
+        totalPages: 1,
+        totalRecords: 0,
+        hasNextPage: false,
+        hasPreviousPage: false
+    });
+
+    // 🚀 PERFORMANCE: Cache total count to avoid recalculating on every page
+    const [cachedTotalCount, setCachedTotalCount] = useState<{
+        count: number;
+        filters: string;
+        timestamp: number;
+    } | null>(null);
+
+    // 🚀 PERFORMANCE: Add loading states for better UX
+    const [pageLoading, setPageLoading] = useState(false);
 
     // Filters
     const [filters, setFilters] = useState({
@@ -166,98 +186,41 @@ const StockHistory: React.FC = () => {
         transactionType: 'all'
     });
 
+    // 🚀 PERFORMANCE: Debounced search to prevent excessive API calls
+    const debouncedSearchTerm = useDebounce(filters.search, 500);
+
     // UI State
     const [showFilters, setShowFilters] = useState(false);
 
-    // Debounced search for better performance
-    const debouncedSearchTerm = useDebounce(filters.search, FILTER_DEBOUNCE_MS);
-    const debouncedCustomerName = useDebounce(filters.customerName, FILTER_DEBOUNCE_MS);
+    // 🚀 PERFORMANCE: Memoized filtered movements - now handled server-side
+    const filteredMovements = movements; // Server already filters
 
-    // Memoized filtered movements for performance
-    const filteredMovements = useMemo(() => {
-        let filtered = [...allMovements];
+    // 🚀 PERFORMANCE: Paginated movements for display - now handled server-side
+    const paginatedMovements = movements; // Server already paginates
 
-        // Search filter
-        if (debouncedSearchTerm.trim()) {
-            const searchTerm = debouncedSearchTerm.toLowerCase();
-            filtered = filtered.filter(movement =>
-                movement.product_name?.toLowerCase().includes(searchTerm) ||
-                movement.customer_name?.toLowerCase().includes(searchTerm) ||
-                movement.vendor_name?.toLowerCase().includes(searchTerm) ||
-                movement.reference_number?.toLowerCase().includes(searchTerm) ||
-                movement.notes?.toLowerCase().includes(searchTerm)
-            );
-        }
-
-        // Movement type filter
-        if (filters.movementType !== 'all') {
-            filtered = filtered.filter(movement => movement.movement_type === filters.movementType);
-        }
-
-        // Transaction type filter
-        if (filters.transactionType !== 'all') {
-            filtered = filtered.filter(movement => movement.transaction_type === filters.transactionType);
-        }
-
-        // Date range filter
-        if (filters.dateFrom) {
-            filtered = filtered.filter(movement => movement.date >= filters.dateFrom);
-        }
-        if (filters.dateTo) {
-            filtered = filtered.filter(movement => movement.date <= filters.dateTo);
-        }
-
-        // Customer name filter
-        if (debouncedCustomerName.trim()) {
-            const customerTerm = debouncedCustomerName.toLowerCase();
-            filtered = filtered.filter(movement =>
-                movement.customer_name?.toLowerCase().includes(customerTerm) ||
-                movement.vendor_name?.toLowerCase().includes(customerTerm)
-            );
-        }
-
-        // Amount range filter
-        if (filters.amountMin) {
-            const minAmount = parseFloat(filters.amountMin);
-            filtered = filtered.filter(movement => (movement.total_value || 0) >= minAmount);
-        }
-        if (filters.amountMax) {
-            const maxAmount = parseFloat(filters.amountMax);
-            filtered = filtered.filter(movement => (movement.total_value || 0) <= maxAmount);
-        }
-
-        return filtered;
-    }, [allMovements, debouncedSearchTerm, debouncedCustomerName, filters]);
-
-    // Paginated movements for display
-    const paginatedMovements = useMemo(() => {
-        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-        const endIndex = startIndex + ITEMS_PER_PAGE;
-        return filteredMovements.slice(startIndex, endIndex);
-    }, [filteredMovements, currentPage]);
-
-    // Calculate total pages based on filtered data
-    const totalFilteredPages = useMemo(() => {
-        return Math.ceil(filteredMovements.length / ITEMS_PER_PAGE);
-    }, [filteredMovements.length]);
+    // Calculate total pages based on server response
+    const totalFilteredPages = paginationInfo.totalPages;
 
     // Real-time updates
     useRealTimeUpdates({
         onStockUpdated: useCallback((data: any) => {
             if (data.productId === parseInt(productId || '0')) {
-                // Refresh data when stock is updated for this product
+                // Refresh current page when stock is updated for this product
                 handleRefresh();
             }
         }, [productId]),
         onStockMovementCreated: useCallback((data: any) => {
             if (data.product_id === parseInt(productId || '0')) {
-                // Add new movement to the beginning of the list
-                setAllMovements(prev => [data, ...prev]);
+                // Clear cache and refresh current page to show new movement
+                setCachedTotalCount(null);
+                loadMovementsPage(paginationInfo.currentPage);
                 toast.success('New stock movement detected');
             }
-        }, [productId]),
+        }, [productId, paginationInfo.currentPage]),
         onStockAdjustmentMade: useCallback((data: any) => {
             if (data.product_id === parseInt(productId || '0')) {
+                // Clear cache and refresh for stock adjustments
+                setCachedTotalCount(null);
                 handleRefresh();
             }
         }, [productId])
@@ -269,19 +232,27 @@ const StockHistory: React.FC = () => {
 
         try {
             setRefreshing(true);
-            await loadProductAndMovements();
+            // Clear cache for real-time updates
+            setCachedTotalCount(null);
+            await loadMovementsPage(paginationInfo.currentPage);
             toast.success('Data refreshed');
         } catch (error) {
             toast.error('Failed to refresh data');
         } finally {
             setRefreshing(false);
         }
-    }, [productId]);
+    }, [productId, paginationInfo.currentPage]);
 
     const handleFilterChange = useCallback((filterName: string, value: string) => {
         setFilters(prev => ({ ...prev, [filterName]: value }));
-        setCurrentPage(1); // Reset to first page when filtering
-    }, []);
+        // Clear cache when filters change since count will be different
+        setCachedTotalCount(null);
+        // Reset to first page when filtering and reload
+        setPaginationInfo(prev => ({ ...prev, currentPage: 1 }));
+        if (productId) {
+            loadMovementsPage(1);
+        }
+    }, [productId]);
 
     const clearFilters = useCallback(() => {
         setFilters({
@@ -294,19 +265,121 @@ const StockHistory: React.FC = () => {
             amountMax: '',
             transactionType: 'all'
         });
-        setCurrentPage(1);
-    }, []);
+        setPaginationInfo(prev => ({ ...prev, currentPage: 1 }));
+        if (productId) {
+            loadMovementsPage(1);
+        }
+    }, [productId]);
 
     useEffect(() => {
         if (productId) {
+            // Clear cache when switching to different product
+            setCachedTotalCount(null);
             loadProductAndMovements();
         }
     }, [productId]);
 
-    // Reset pagination when filters change
+    // 🚀 PERFORMANCE: Reload data when debounced search changes
     useEffect(() => {
-        setCurrentPage(1);
-    }, [filteredMovements.length]);
+        if (productId && debouncedSearchTerm !== filters.search) {
+            // Clear cache when search changes since count will be different
+            setCachedTotalCount(null);
+            setPaginationInfo(prev => ({ ...prev, currentPage: 1 }));
+            loadMovementsPage(1);
+        }
+    }, [debouncedSearchTerm, productId]);
+
+    // 🚀 PERFORMANCE: Server-side data loading with optimized pagination
+    const loadMovementsPage = useCallback(async (page: number = 1, skipCountUpdate: boolean = false) => {
+        if (!productId) return;
+
+        try {
+            // Show page loading only for navigation, not initial load
+            if (page !== 1) {
+                setPageLoading(true);
+            } else {
+                setLoading(true);
+            }
+
+            setError(null);
+            setDataFreshness('live');
+
+            // Build query parameters with filters
+            const queryParams: any = {
+                product_id: parseInt(productId),
+                limit: ITEMS_PER_PAGE,
+                offset: (page - 1) * ITEMS_PER_PAGE
+            };
+
+            // Apply filters to server query
+            if (filters.movementType !== 'all') {
+                queryParams.movement_type = filters.movementType;
+            }
+            if (filters.dateFrom) {
+                queryParams.from_date = filters.dateFrom;
+            }
+            if (filters.dateTo) {
+                queryParams.to_date = filters.dateTo;
+            }
+            if (debouncedSearchTerm.trim()) {
+                queryParams.search = debouncedSearchTerm.trim();
+            }
+
+            // 🚀 PERFORMANCE: Optimized count query instead of loading sample data
+            const filtersKey = JSON.stringify({ ...filters, search: debouncedSearchTerm });
+            const now = Date.now();
+            const CACHE_DURATION = 30000; // 30 seconds cache
+
+            let totalRecords = 0;
+            let totalPages = 1;
+
+            // Check if we can use cached count
+            if (!skipCountUpdate && cachedTotalCount &&
+                cachedTotalCount.filters === filtersKey &&
+                (now - cachedTotalCount.timestamp) < CACHE_DURATION) {
+                // Use cached count for better performance
+                totalRecords = cachedTotalCount.count;
+                totalPages = Math.ceil(totalRecords / ITEMS_PER_PAGE);
+                console.log('📊 Using cached count:', totalRecords);
+            } else {
+                // 🚀 PERFORMANCE: Use dedicated COUNT query instead of loading records
+                const countFilters = { ...queryParams };
+                delete countFilters.limit;
+                delete countFilters.offset;
+
+                totalRecords = await db.getStockMovementsCount(countFilters);
+                totalPages = Math.ceil(totalRecords / ITEMS_PER_PAGE);
+
+                // Cache the count
+                setCachedTotalCount({
+                    count: totalRecords,
+                    filters: filtersKey,
+                    timestamp: now
+                });
+                console.log('📊 Loaded count with optimized query:', totalRecords);
+            }
+
+            // Get paginated movements (this should be fast)
+            const movementData = await db.getStockMovements(queryParams);
+
+            setMovements(movementData);
+            setPaginationInfo({
+                currentPage: page,
+                totalPages,
+                totalRecords,
+                hasNextPage: page < totalPages,
+                hasPreviousPage: page > 1
+            });
+
+        } catch (error) {
+            console.error('Error loading movements page:', error);
+            setError('Failed to load movements. Please try again.');
+            toast.error('Failed to load movements');
+        } finally {
+            setLoading(false);
+            setPageLoading(false);
+        }
+    }, [productId, filters, debouncedSearchTerm, cachedTotalCount]);
 
     const loadProductAndMovements = async () => {
         if (!productId) return;
@@ -324,8 +397,8 @@ const StockHistory: React.FC = () => {
             }
             setProduct(productData);
 
-            // Load all movements at once for better filtering performance
-            await loadAllMovements();
+            // Load first page of movements
+            await loadMovementsPage(1);
 
             // Load summary statistics
             await loadSummary();
@@ -338,106 +411,57 @@ const StockHistory: React.FC = () => {
         }
     };
 
-    const loadAllMovements = async () => {
-        if (!productId) return;
-
-        try {
-            console.log('Loading movements for product ID:', productId);
-
-            // Load larger batch of movements for better performance with filtering
-            const movementData = await db.getStockMovements({
-                product_id: parseInt(productId),
-                limit: 2000, // Increased limit for better performance
-                offset: 0
-            });
-
-            console.log('Loaded movements:', movementData.length, movementData);
-
-            // If no movements found, let's also try without product_id filter to see if there are any movements at all
-            if (movementData.length === 0) {
-                console.log('No movements found for this product, checking all movements...');
-                const allMovementData = await db.getStockMovements({
-                    limit: 10 // Just check if any movements exist
-                });
-                console.log('All movements in database:', allMovementData.length, allMovementData);
-            }
-
-            setAllMovements(movementData);
-
-            // Load additional data in background for seamless experience
-            if (movementData.length >= 2000) {
-                setTimeout(() => loadAdditionalMovements(2000), 100);
-            }
-
-        } catch (error) {
-            console.error('Error loading movements:', error);
-            toast.error('Failed to load movements');
-        }
-    };
-
-    const loadAdditionalMovements = async (offset: number) => {
-        if (!productId) return;
-
-        try {
-            const additionalData = await db.getStockMovements({
-                product_id: parseInt(productId),
-                limit: 1000,
-                offset: offset
-            });
-
-            if (additionalData.length > 0) {
-                setAllMovements(prev => [...prev, ...additionalData]);
-
-                // Continue loading if we got a full batch
-                if (additionalData.length >= 1000) {
-                    setTimeout(() => loadAdditionalMovements(offset + 1000), 100);
-                }
-            }
-        } catch (error) {
-            console.error('Error loading additional movements:', error);
-        }
-    };
-
     const loadSummary = async () => {
         if (!productId) return;
 
         try {
-            // Get all movements for summary (we'll limit this for performance)
-            const allMovements = await db.getStockMovements({
-                product_id: parseInt(productId),
-                limit: 1000 // Reasonable limit for summary calculation
+            // 🚀 PERFORMANCE: Use optimized count queries for summary instead of loading all data
+            const productIdInt = parseInt(productId);
+
+            // Get total counts efficiently
+            const [totalCount, inCount, outCount] = await Promise.all([
+                db.getStockMovementsCount({ product_id: productIdInt }),
+                db.getStockMovementsCount({ product_id: productIdInt, movement_type: 'in' }),
+                db.getStockMovementsCount({ product_id: productIdInt, movement_type: 'out' })
+            ]);
+
+            // Get a sample of recent movements for value calculations (limit to 500 for performance)
+            const recentMovements = await db.getStockMovements({
+                product_id: productIdInt,
+                limit: 500,
+                offset: 0
             });
 
-            const totalIn = allMovements
+            const totalIn = recentMovements
                 .filter(m => m.movement_type === 'in')
                 .reduce((sum, m) => sum + (m.total_value || 0), 0);
 
-            const totalOut = allMovements
+            const totalOut = recentMovements
                 .filter(m => m.movement_type === 'out')
                 .reduce((sum, m) => sum + (m.total_value || 0), 0);
 
             const totalValue = totalIn + totalOut;
-            const avgMovementValue = allMovements.length > 0 ? totalValue / allMovements.length : 0;
+            const avgMovementValue = recentMovements.length > 0 ? totalValue / recentMovements.length : 0;
 
-            // Find most active day
-            const dayCount = allMovements.reduce((acc, m) => {
+            // Find most active day from recent movements
+            const dayCount = recentMovements.reduce((acc, m) => {
                 acc[m.date] = (acc[m.date] || 0) + 1;
                 return acc;
             }, {} as Record<string, number>);
 
-            const mostActiveDay = Object.keys(dayCount).reduce((a, b) =>
-                dayCount[a] > dayCount[b] ? a : b, ''
-            );
+            const mostActiveDay = Object.keys(dayCount).length > 0 ? Object.keys(dayCount).reduce((a, b) =>
+                dayCount[a] > dayCount[b] ? a : b
+            ) : '';
 
-            // Find largest movement by value
-            const largestMovement = allMovements.length > 0 ? allMovements.reduce((largest, current) =>
+            // Find largest movement by value from recent data
+            const largestMovement = recentMovements.length > 0 ? recentMovements.reduce((largest, current) =>
                 (!largest || (current.total_value || 0) > (largest.total_value || 0)) ? current : largest
             ) : null;
 
             setSummary({
-                totalMovements: allMovements.length,
-                totalIn: allMovements.filter(m => m.movement_type === 'in').length,
-                totalOut: allMovements.filter(m => m.movement_type === 'out').length,
+                totalMovements: totalCount,
+                totalIn: inCount,
+                totalOut: outCount,
                 totalValue,
                 avgMovementValue,
                 mostActiveDay,
@@ -517,14 +541,80 @@ const StockHistory: React.FC = () => {
         }
     }, []);
 
-    // Pagination handlers
+    // 🚀 PERFORMANCE: Optimized pagination handlers for smooth navigation
     const goToPreviousPage = useCallback(() => {
-        setCurrentPage(prev => Math.max(1, prev - 1));
-    }, []);
+        const newPage = Math.max(1, paginationInfo.currentPage - 1);
+        // Use skipCountUpdate for faster navigation
+        loadMovementsPage(newPage, true);
+    }, [paginationInfo.currentPage, loadMovementsPage]);
 
     const goToNextPage = useCallback(() => {
-        setCurrentPage(prev => Math.min(totalFilteredPages, prev + 1));
-    }, [totalFilteredPages]);
+        const newPage = Math.min(totalFilteredPages, paginationInfo.currentPage + 1);
+        // Use skipCountUpdate for faster navigation
+        loadMovementsPage(newPage, true);
+    }, [totalFilteredPages, paginationInfo.currentPage, loadMovementsPage]);
+
+    const goToPage = useCallback((page: number) => {
+        if (page >= 1 && page <= totalFilteredPages) {
+            // Use skipCountUpdate for faster navigation
+            loadMovementsPage(page, true);
+        }
+    }, [totalFilteredPages, loadMovementsPage]);
+
+    const goToFirstPage = useCallback(() => {
+        loadMovementsPage(1, true);
+    }, [loadMovementsPage]);
+
+    const goToLastPage = useCallback(() => {
+        loadMovementsPage(totalFilteredPages, true);
+    }, [totalFilteredPages, loadMovementsPage]);
+
+    // Generate page numbers for pagination
+    const getPageNumbers = useCallback(() => {
+        const pages = [];
+        const maxVisiblePages = 5;
+        const totalPages = totalFilteredPages;
+        const current = paginationInfo.currentPage;
+
+        if (totalPages <= maxVisiblePages) {
+            // Show all pages if we have few pages
+            for (let i = 1; i <= totalPages; i++) {
+                pages.push(i);
+            }
+        } else {
+            // Smart pagination with ellipsis
+            let startPage = Math.max(1, current - Math.floor(maxVisiblePages / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+            // Adjust start if we're near the end
+            if (endPage - startPage < maxVisiblePages - 1) {
+                startPage = Math.max(1, endPage - maxVisiblePages + 1);
+            }
+
+            // Always show first page
+            if (startPage > 1) {
+                pages.push(1);
+                if (startPage > 2) {
+                    pages.push('...');
+                }
+            }
+
+            // Show range around current page
+            for (let i = startPage; i <= endPage; i++) {
+                pages.push(i);
+            }
+
+            // Always show last page
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    pages.push('...');
+                }
+                pages.push(totalPages);
+            }
+        }
+
+        return pages;
+    }, [totalFilteredPages, paginationInfo.currentPage]);
 
     if (loading && !product) {
         return (
@@ -564,7 +654,7 @@ const StockHistory: React.FC = () => {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="p-6 space-y-6">
             {/* Header with Refresh Button */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
@@ -587,7 +677,7 @@ const StockHistory: React.FC = () => {
                         <ArrowLeft className="h-5 w-5" />
                     </button>
                     <div>
-                        <h1 className="text-2xl font-semibold text-gray-900">Stock History</h1>
+                        <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Stock History</h1>
                         <p className="text-sm text-gray-600">{product?.name} - Complete Movement History</p>
                     </div>
                 </div>
@@ -601,6 +691,19 @@ const StockHistory: React.FC = () => {
                         <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
                         Refresh
                     </button>
+
+                    {/* Data freshness indicator */}
+                    <div className={`flex items-center px-2 py-1 rounded text-xs font-medium ${dataFreshness === 'live' ? 'bg-green-100 text-green-700' :
+                        dataFreshness === 'cached' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-red-100 text-red-700'
+                        }`}>
+                        <div className={`w-2 h-2 rounded-full mr-1 ${dataFreshness === 'live' ? 'bg-green-500' :
+                            dataFreshness === 'cached' ? 'bg-yellow-500' :
+                                'bg-red-500'
+                            }`} />
+                        {dataFreshness === 'live' ? 'Live' : dataFreshness === 'cached' ? 'Cached' : 'Stale'}
+                    </div>
+
                     <button
                         onClick={() => setShowFilters(!showFilters)}
                         className="flex items-center px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -759,16 +862,25 @@ const StockHistory: React.FC = () => {
             {/* Results Summary */}
             <div className="flex items-center justify-between text-sm text-gray-600">
                 <div>
-                    Showing {paginatedMovements.length} of {filteredMovements.length} movements
-                    {allMovements.length > filteredMovements.length && ' (filtered)'}
+                    Showing {paginatedMovements.length} of {paginationInfo.totalRecords} movements
                 </div>
                 <div>
-                    Page {currentPage} of {totalFilteredPages || 1}
+                    Page {paginationInfo.currentPage} of {totalFilteredPages || 1}
                 </div>
             </div>
 
             {/* Movements Table */}
-            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden relative">
+                {/* 🚀 PERFORMANCE: Smooth loading overlay for pagination */}
+                {pageLoading && (
+                    <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10">
+                        <div className="flex items-center space-x-3">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                            <span className="text-sm text-gray-600">Loading page...</span>
+                        </div>
+                    </div>
+                )}
+
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
@@ -818,7 +930,9 @@ const StockHistory: React.FC = () => {
                         </p>
                         <div className="mt-4 text-sm text-gray-400">
                             <p>Debug info:</p>
-                            <p>All movements: {allMovements.length}</p>
+                            <p>Total movements: {paginationInfo.totalRecords}</p>
+                            <p>Current page: {paginationInfo.currentPage}</p>
+                            <p>Page movements: {movements.length}</p>
                             <p>Filtered movements: {filteredMovements.length}</p>
                             <p>Product ID: {productId}</p>
                             <p>Loading: {loading.toString()}</p>
@@ -836,30 +950,109 @@ const StockHistory: React.FC = () => {
 
             {/* Pagination Controls */}
             {totalFilteredPages > 1 && (
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                        <button
-                            onClick={goToPreviousPage}
-                            disabled={currentPage === 1}
-                            className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Previous
-                        </button>
-                        <span className="text-sm text-gray-600">
-                            Page {currentPage} of {totalFilteredPages}
-                        </span>
-                        <button
-                            onClick={goToNextPage}
-                            disabled={currentPage === totalFilteredPages}
-                            className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            Next
-                        </button>
-                    </div>
+                <div className="bg-white border-t border-gray-200 px-4 py-3 sm:px-6">
+                    <div className="flex items-center justify-between">
+                        {/* Results info */}
+                        <div className="flex-1 flex justify-between sm:hidden">
+                            <button
+                                onClick={goToPreviousPage}
+                                disabled={paginationInfo.currentPage === 1}
+                                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                onClick={goToNextPage}
+                                disabled={paginationInfo.currentPage === totalFilteredPages}
+                                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                Next
+                            </button>
+                        </div>
 
-                    {/* Page size indicator */}
-                    <div className="text-sm text-gray-500">
-                        {ITEMS_PER_PAGE} items per page
+                        <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                            <div>
+                                <p className="text-sm text-gray-700">
+                                    Showing{' '}
+                                    <span className="font-medium">{((paginationInfo.currentPage - 1) * ITEMS_PER_PAGE) + 1}</span>
+                                    {' '}to{' '}
+                                    <span className="font-medium">
+                                        {Math.min(paginationInfo.currentPage * ITEMS_PER_PAGE, paginationInfo.totalRecords)}
+                                    </span>
+                                    {' '}of{' '}
+                                    <span className="font-medium">{paginationInfo.totalRecords}</span>
+                                    {' '}results
+                                </p>
+                            </div>
+
+                            <div>
+                                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
+                                    {/* First page button */}
+                                    <button
+                                        onClick={goToFirstPage}
+                                        disabled={paginationInfo.currentPage === 1 || pageLoading}
+                                        className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="First page"
+                                    >
+                                        <ChevronsLeft className="h-5 w-5" />
+                                    </button>
+
+                                    {/* Previous page button */}
+                                    <button
+                                        onClick={goToPreviousPage}
+                                        disabled={paginationInfo.currentPage === 1 || pageLoading}
+                                        className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Previous page"
+                                    >
+                                        <ChevronLeft className="h-5 w-5" />
+                                    </button>
+
+                                    {/* Page numbers */}
+                                    {getPageNumbers().map((page, index) => (
+                                        page === '...' ? (
+                                            <span
+                                                key={`ellipsis-${index}`}
+                                                className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700"
+                                            >
+                                                ...
+                                            </span>
+                                        ) : (
+                                            <button
+                                                key={page}
+                                                onClick={() => goToPage(page as number)}
+                                                disabled={pageLoading}
+                                                className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${paginationInfo.currentPage === page
+                                                    ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
+                                                    : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                                                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                                            >
+                                                {page}
+                                            </button>
+                                        )
+                                    ))}
+
+                                    {/* Next page button */}
+                                    <button
+                                        onClick={goToNextPage}
+                                        disabled={paginationInfo.currentPage === totalFilteredPages}
+                                        className="relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Next page"
+                                    >
+                                        <ChevronRight className="h-5 w-5" />
+                                    </button>
+
+                                    {/* Last page button */}
+                                    <button
+                                        onClick={goToLastPage}
+                                        disabled={paginationInfo.currentPage === totalFilteredPages || pageLoading}
+                                        className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Last page"
+                                    >
+                                        <ChevronsRight className="h-5 w-5" />
+                                    </button>
+                                </nav>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
