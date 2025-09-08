@@ -660,15 +660,27 @@ const StockHistory: React.FC = () => {
                 <div className="flex items-center space-x-4">
                     <button
                         onClick={() => {
+                            // 🚀 CRITICAL: Time the navigation click
+                            const navigationClickTime = performance.now();
+                            console.log('� [STOCK_HISTORY_CRITICAL] Back button clicked at:', navigationClickTime);
+                            console.log('�🚀 [STOCK_HISTORY] Navigating back to Stock Report with cache flag');
+
                             if (navigationState?.fromStockReport) {
                                 navigate('/reports/stock', {
                                     state: {
                                         preserveFilters: navigationState.preserveFilters,
-                                        preserveView: navigationState.preserveView
+                                        preserveView: navigationState.preserveView,
+                                        fromStockHistory: true, // 🚀 CRITICAL: Set flag for cache optimization
+                                        navigationStartTime: navigationClickTime // 🚀 CRITICAL: Pass timing info
                                     }
                                 });
                             } else {
-                                navigate('/reports/stock');
+                                navigate('/reports/stock', {
+                                    state: {
+                                        fromStockHistory: true, // 🚀 CRITICAL: Set flag for cache optimization
+                                        navigationStartTime: navigationClickTime // 🚀 CRITICAL: Pass timing info
+                                    }
+                                });
                             }
                         }}
                         className="p-2 hover:bg-gray-100 rounded-lg transition-colors"

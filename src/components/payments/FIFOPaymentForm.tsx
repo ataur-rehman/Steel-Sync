@@ -63,6 +63,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
     const [reference, setReference] = useState<string>('');
     const [notes, setNotes] = useState<string>('');
     const [loading, setLoading] = useState(false);
+    const [showOptionalFields, setShowOptionalFields] = useState(false);
 
     // Data state
     const [pendingInvoices, setPendingInvoices] = useState<PendingInvoice[]>([]);
@@ -241,7 +242,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                         <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
                             <CreditCard className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
                             <div className="min-w-0 flex-1">
-                                <h2 className="text-sm sm:text-lg font-semibold truncate">FIFO Payment Allocation</h2>
+                                <h2 className="text-sm sm:text-lg font-semibold truncate">Add Payment</h2>
                                 <p className="text-blue-100 text-xs sm:text-sm truncate">{customerName}</p>
                             </div>
                         </div>
@@ -301,6 +302,10 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-lg font-medium"
                                     placeholder="Enter payment amount"
                                     required
+                                    autoComplete="off"
+                                    autoCorrect="off"
+                                    autoCapitalize="off"
+                                    spellCheck="false"
                                 />
                             </div>
 
@@ -315,6 +320,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                                     disabled={loadingChannels}
                                     required
+                                    autoComplete="off"
                                 >
                                     <option value="">Select payment channel</option>
                                     {paymentChannels.map(channel => (
@@ -325,33 +331,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                 </select>
                             </div>
 
-                            {/* Reference */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Reference (Optional)
-                                </label>
-                                <input
-                                    type="text"
-                                    value={reference}
-                                    onChange={(e) => setReference(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                    placeholder="Transaction reference, cheque number, etc."
-                                />
-                            </div>
 
-                            {/* Notes */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
-                                    Notes (Optional)
-                                </label>
-                                <textarea
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    rows={2}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-                                    placeholder="Additional notes..."
-                                />
-                            </div>
 
                             {/* Submit Button */}
                             <button
@@ -367,7 +347,7 @@ const FIFOPaymentForm: React.FC<FIFOPaymentFormProps> = ({
                                 ) : (
                                     <>
                                         <CheckCircle className="w-4 h-4" />
-                                        <span>Process FIFO Payment</span>
+                                        <span>Process Payment</span>
                                     </>
                                 )}
                             </button>

@@ -703,7 +703,8 @@ const InvoiceForm: React.FC = () => {
           console.log(`✅ InvoiceForm: Refreshed ${productList.length} products directly from database`);
 
           // Show toast notification for user feedback
-          toast.success('Product list updated', { duration: 2000 });
+          // 🚫 EMERGENCY FIX: Disable notification to stop infinite loop
+          // toast.success('Product list updated', { duration: 2000 });
         } catch (error) {
           console.error('❌ InvoiceForm: Failed to refresh products:', error);
           toast.error('Failed to refresh product list');
@@ -737,7 +738,8 @@ const InvoiceForm: React.FC = () => {
           console.log(`✅ InvoiceForm: Refreshed stock for ${productList.length} products directly from database`);
 
           // Show toast notification for user feedback
-          toast.success('Stock levels updated', { duration: 2000 });
+          // 🚫 EMERGENCY FIX: Disable notification to stop infinite loop
+          // toast.success('Stock levels updated', { duration: 2000 });
         } catch (error) {
           console.error('❌ InvoiceForm: Failed to refresh stock:', error);
           toast.error('Failed to refresh stock levels');
@@ -855,7 +857,8 @@ const InvoiceForm: React.FC = () => {
       setFormData(prev => ({ ...prev, items: updatedItems }));
 
       console.log('Product data refreshed:', productList.map((p: Product) => `${p.name}: ${p.current_stock}`));
-      toast.success('Product stock data refreshed');
+      // 🚫 EMERGENCY FIX: Disable notification to stop infinite loop
+      // toast.success('Product stock data refreshed');
     } catch (error) {
       console.error('Failed to refresh product data:', error);
       toast.error('Failed to refresh product data');

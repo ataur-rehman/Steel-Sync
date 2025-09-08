@@ -368,6 +368,17 @@ const VendorManagement: React.FC = () => {
     is_active: true
   });
 
+  // Anti-autofill state - dynamic field names to prevent browser recognition
+  const [fieldNames] = useState(() => ({
+    name: `vendor_name_${Math.random().toString(36).substring(7)}_${Date.now()}`,
+    contact_person: `contact_person_${Math.random().toString(36).substring(7)}_${Date.now()}`,
+    phone: `phone_${Math.random().toString(36).substring(7)}_${Date.now()}`,
+    email: `email_${Math.random().toString(36).substring(7)}_${Date.now()}`,
+    address: `address_${Math.random().toString(36).substring(7)}_${Date.now()}`,
+    city: `city_${Math.random().toString(36).substring(7)}_${Date.now()}`,
+    payment_terms: `payment_terms_${Math.random().toString(36).substring(7)}_${Date.now()}`
+  }));
+
   const loadingRef = useRef(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1403,7 +1414,29 @@ const VendorManagement: React.FC = () => {
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            <form
+              onSubmit={handleSubmit}
+              className="p-6 space-y-4"
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck="false"
+              data-lpignore="true"
+              data-form-type="other"
+              key={Date.now()} // Force re-render to reset any cached autofill
+            >
+              {/* Maximum Anti-autofill Protection */}
+              <div style={{ display: 'none', visibility: 'hidden', position: 'absolute', left: '-9999px' }}>
+                <input type="text" name="fakeusername" tabIndex={-1} autoComplete="username" />
+                <input type="password" name="fakepassword" tabIndex={-1} autoComplete="current-password" />
+                <input type="email" name="fakeemail" tabIndex={-1} autoComplete="email" />
+                <input type="tel" name="fakephone" tabIndex={-1} autoComplete="tel" />
+                <input type="text" name="fakename" tabIndex={-1} autoComplete="name" />
+                <input type="text" name="fakeaddress" tabIndex={-1} autoComplete="address-line1" />
+                <input type="text" name="fakecity" tabIndex={-1} autoComplete="address-level2" />
+                <input type="text" name="fakecompany" tabIndex={-1} autoComplete="organization" />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Vendor Name */}
                 <div className="sm:col-span-2">
@@ -1414,9 +1447,24 @@ const VendorManagement: React.FC = () => {
                     type="text"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onFocus={(e) => {
+                      // Anti-autofill: Set readonly briefly then remove
+                      e.target.readOnly = true;
+                      setTimeout(() => { e.target.readOnly = false; }, 50);
+                    }}
                     className="input w-full"
                     required
                     placeholder="Enter vendor name"
+                    autoComplete="new-password" // Trick browsers
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    name={fieldNames.name}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    role="textbox"
                   />
                 </div>
 
@@ -1429,8 +1477,22 @@ const VendorManagement: React.FC = () => {
                     type="text"
                     value={formData.contact_person}
                     onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+                    onFocus={(e) => {
+                      e.target.readOnly = true;
+                      setTimeout(() => { e.target.readOnly = false; }, 50);
+                    }}
                     className="input w-full"
                     placeholder="Enter contact person"
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    name={fieldNames.contact_person}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    role="textbox"
                   />
                 </div>
 
@@ -1440,11 +1502,25 @@ const VendorManagement: React.FC = () => {
                     Phone Number
                   </label>
                   <input
-                    type="tel"
+                    type="text"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onFocus={(e) => {
+                      e.target.readOnly = true;
+                      setTimeout(() => { e.target.readOnly = false; }, 50);
+                    }}
                     className="input w-full"
                     placeholder="Enter phone number"
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    name={fieldNames.phone}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    role="textbox"
                   />
                 </div>
 
@@ -1454,11 +1530,25 @@ const VendorManagement: React.FC = () => {
                     Email Address
                   </label>
                   <input
-                    type="email"
+                    type="text"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    onFocus={(e) => {
+                      e.target.readOnly = true;
+                      setTimeout(() => { e.target.readOnly = false; }, 50);
+                    }}
                     className="input w-full"
                     placeholder="Enter email address"
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    name={fieldNames.email}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    role="textbox"
                   />
                 </div>
 
@@ -1470,9 +1560,23 @@ const VendorManagement: React.FC = () => {
                   <textarea
                     value={formData.address}
                     onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                    onFocus={(e) => {
+                      e.target.readOnly = true;
+                      setTimeout(() => { e.target.readOnly = false; }, 50);
+                    }}
                     className="input w-full"
                     rows={3}
                     placeholder="Enter full address"
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    name={fieldNames.address}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    role="textbox"
                   />
                 </div>
 
@@ -1485,8 +1589,22 @@ const VendorManagement: React.FC = () => {
                     type="text"
                     value={formData.city}
                     onChange={(e) => setFormData({ ...formData, city: e.target.value })}
+                    onFocus={(e) => {
+                      e.target.readOnly = true;
+                      setTimeout(() => { e.target.readOnly = false; }, 50);
+                    }}
                     className="input w-full"
                     placeholder="Enter city"
+                    autoComplete="new-password"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    name={fieldNames.city}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    role="textbox"
                   />
                 </div>
 
@@ -1499,6 +1617,12 @@ const VendorManagement: React.FC = () => {
                     value={formData.payment_terms}
                     onChange={(e) => setFormData({ ...formData, payment_terms: e.target.value })}
                     className="input w-full"
+                    autoComplete="new-password"
+                    name={fieldNames.payment_terms}
+                    data-lpignore="true"
+                    data-form-type="other"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
                   >
                     <option value="Cash on Delivery">Cash on Delivery</option>
                     <option value="Net 15">Net 15 Days</option>

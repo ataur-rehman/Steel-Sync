@@ -369,7 +369,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
 
     return (
         <div className="max-h-[80vh] overflow-y-auto">
-            <form onSubmit={handleSubmit} className="space-y-6 p-1">
+            <form onSubmit={handleSubmit} className="space-y-6 p-1" autoComplete="off">
                 {/* Essential Information */}
                 <div className="space-y-4">
 
@@ -399,7 +399,10 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 aria-invalid={!!errors.name}
                                 aria-describedby={errors.name ? "name-error" : undefined}
                                 autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
                                 spellCheck="false"
+                                data-form-type="other"
                             />
                             {errors.name && (
                                 <p id="name-error" className="text-red-600 text-sm mt-1" role="alert">
@@ -421,6 +424,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm"
                                 disabled={loading}
+                                autoComplete="off"
                             >
                                 <option value="Steel Products">Steel Products</option>
                                 <option value="Rods">Rods</option>
@@ -443,6 +447,7 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm"
                                 disabled={loading}
                                 required
+                                autoComplete="off"
                             >
                                 {UNIT_TYPES.map((config) => (
                                     <option key={config.type} value={config.type}>
@@ -477,6 +482,10 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                 aria-describedby={errors.rate_per_unit ? "rate-error" : undefined}
                                 onWheel={(e) => e.currentTarget.blur()}
                                 autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck="false"
+                                data-form-type="other"
                             />
                             {errors.rate_per_unit && (
                                 <p id="rate-error" className="text-red-600 text-sm mt-1" role="alert">
@@ -539,6 +548,11 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm${errors.current_stock ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
                                         placeholder={`e.g. ${unitConfig.examples[0] || '100'}`}
                                         disabled={loading}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck="false"
+                                        data-form-type="other"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
                                         <strong>{unitConfig.label}:</strong> {unitConfig.examples.join(', ')}
@@ -562,6 +576,11 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm${errors.min_stock_alert ? ' border-red-500 focus:ring-red-500 focus:border-red-500' : ''}`}
                                         placeholder={`e.g. ${unitConfig.examples[0] || '10'}`}
                                         disabled={loading}
+                                        autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
+                                        spellCheck="false"
+                                        data-form-type="other"
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
                                         <strong>{unitConfig.label}:</strong> {unitConfig.examples.join(', ')}
@@ -619,7 +638,10 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         aria-invalid={!!errors.size}
                                         aria-describedby={errors.size ? "size-error" : undefined}
                                         autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
                                         spellCheck="false"
+                                        data-form-type="other"
                                     />
                                     {errors.size && (
                                         <p id="size-error" className="text-red-600 text-sm mt-1" role="alert">
@@ -650,7 +672,10 @@ const ProductFormEnhanced: React.FC<ProductFormProps> = ({ product, onSuccess, o
                                         aria-invalid={!!errors.grade}
                                         aria-describedby={errors.grade ? "grade-error" : undefined}
                                         autoComplete="off"
+                                        autoCorrect="off"
+                                        autoCapitalize="off"
                                         spellCheck="false"
+                                        data-form-type="other"
                                     />
                                     {errors.grade && (
                                         <p id="grade-error" className="text-red-600 text-sm mt-1" role="alert">

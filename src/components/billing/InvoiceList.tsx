@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../services/database';
 import toast from 'react-hot-toast';
@@ -10,6 +10,33 @@ import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { formatDate, formatTime } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { useDebounce } from '../../hooks/useDebounce';
+
+// 🚀 PERFORMANCE: Performance measurement utilities
+const PERFORMANCE_KEY = 'invoiceList_performance';
+
+interface PerformanceMetrics {
+  renderTime: number;
+  dataLoadTime: number;
+  totalTime: number;
+  recordCount: number;
+  timestamp: number;
+}
+
+const logPerformance = (metrics: PerformanceMetrics) => {
+  console.log(`⚡ [INVOICE_LIST_PERF] Render: ${metrics.renderTime}ms | Load: ${metrics.dataLoadTime}ms | Total: ${metrics.totalTime}ms | Records: ${metrics.recordCount}`);
+
+  // Store in sessionStorage for comparison
+  const stored = sessionStorage.getItem(PERFORMANCE_KEY);
+  const history = stored ? JSON.parse(stored) : [];
+  history.push(metrics);
+
+  // Keep only last 10 measurements
+  if (history.length > 10) {
+    history.shift();
+  }
+
+  sessionStorage.setItem(PERFORMANCE_KEY, JSON.stringify(history));
+};
 import {
   Search,
   Filter,
@@ -95,6 +122,10 @@ const PAYMENT_METHOD_OPTIONS = [
 
 const InvoiceList: React.FC = () => {
   const navigate = useNavigate();
+
+  // 🚀 PERFORMANCE: Performance measurement refs
+  const renderStartTime = useRef<number>(Date.now());
+  const dataLoadStartTime = useRef<number>(0);
 
   // State management - KEEPING YOUR ORIGINAL STATE STRUCTURE
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -191,6 +222,9 @@ const InvoiceList: React.FC = () => {
   // OPTIMIZATION: Memoized loadData function for performance
   const loadData = useCallback(async () => {
     try {
+      // 🚀 PERFORMANCE: Start timing data load
+      dataLoadStartTime.current = Date.now();
+
       if (!loading) setIsFiltering(true); // Show filtering state if not initial load
       if (loading) setLoading(true);
       await db.initialize();
@@ -219,7 +253,8 @@ const InvoiceList: React.FC = () => {
           sortField,
           sortDirection
         ),
-        db.getAllCustomers()
+        // 🚀 PERFORMANCE: Only load customers when needed for filters
+        filters.customer_id ? db.getAllCustomers() : Promise.resolve([])
       ]);
 
       // Add timeout for very large datasets
@@ -229,10 +264,29 @@ const InvoiceList: React.FC = () => {
 
       const [paginatedResult, customerList] = await Promise.race([loadPromise, timeoutPromise]) as any;
 
+      // 🚀 PERFORMANCE: Measure data load time
+      const dataLoadTime = Date.now() - dataLoadStartTime.current;
+
       console.log('Loaded paginated invoices:', paginatedResult);
       setInvoices(paginatedResult.invoices);
       setTotalRecords(paginatedResult.total);
-      setCustomers(customerList);
+
+      // 🚀 PERFORMANCE: Only update customers if we loaded them
+      if (customerList.length > 0) {
+        setCustomers(customerList);
+      }
+
+      // 🚀 PERFORMANCE: Log metrics
+      const renderTime = Date.now() - renderStartTime.current;
+      const totalTime = renderTime;
+
+      logPerformance({
+        renderTime: renderTime - dataLoadTime,
+        dataLoadTime,
+        totalTime,
+        recordCount: paginatedResult.invoices.length,
+        timestamp: Date.now()
+      });
 
     } catch (error) {
       console.error('Failed to load data:', error);
@@ -541,20 +595,37 @@ const InvoiceList: React.FC = () => {
     return `Rs. ${rounded.toFixed(2)}`;
   }, []);
 
-  // PERFORMANCE: Memoize stats calculation with complete data
+  // PERFORMANCE: Memoize stats calculation with complete data - 🚀 OPTIMIZED
   const stats = useMemo(() => {
-    const totalInvoices = totalRecords; // Use server-provided total count
-    const totalRevenue = Number(invoices.reduce((sum: number, inv: any) => sum + Number(inv.grand_total || 0), 0).toFixed(2));
-    const paidInvoices = invoices.filter((inv: any) => getInvoiceStatus(inv) === 'paid').length;
-    const paidAmount = invoices.reduce((sum: number, inv: any) => sum + Number(inv.payment_amount || 0), 0);
-    const pendingAmount = Number(invoices.reduce((sum: number, inv: any) => sum + Number(inv.remaining_balance || 0), 0).toFixed(2));
+    // 🚀 PERFORMANCE: Use reduce with single pass for multiple calculations
+    const calculations = invoices.reduce((acc, inv) => {
+      const grandTotal = Number(inv.grand_total || 0);
+      const paymentAmount = Number(inv.payment_amount || 0);
+      const remainingBalance = Number(inv.remaining_balance || 0);
+      const status = getInvoiceStatus(inv);
+
+      acc.totalRevenue += grandTotal;
+      acc.paidAmount += paymentAmount;
+      acc.pendingAmount += remainingBalance;
+
+      if (status === 'paid') {
+        acc.paidInvoices++;
+      }
+
+      return acc;
+    }, {
+      totalRevenue: 0,
+      paidAmount: 0,
+      pendingAmount: 0,
+      paidInvoices: 0
+    });
 
     return {
-      totalInvoices,
-      totalRevenue,
-      paidInvoices,
-      paidAmount,
-      pendingAmount
+      totalInvoices: totalRecords, // Use server-provided total count
+      totalRevenue: Number(calculations.totalRevenue.toFixed(2)),
+      paidInvoices: calculations.paidInvoices,
+      paidAmount: calculations.paidAmount,
+      pendingAmount: Number(calculations.pendingAmount.toFixed(2))
     };
   }, [invoices, totalRecords]);
 
@@ -562,6 +633,11 @@ const InvoiceList: React.FC = () => {
   const formatDateDisplay = useCallback((dateString: string): string => {
     return formatDate(dateString);
   }, []);
+
+  // 🚀 PERFORMANCE: Track render timing
+  useEffect(() => {
+    renderStartTime.current = Date.now();
+  });
 
   if (loading) {
     return (
@@ -859,12 +935,11 @@ const InvoiceList: React.FC = () => {
       {currentInvoices.length > 0 ? (
         <>
           {viewMode === 'grid' ? (
-            /* Grid View */
+            /* Grid View with Memoized Cards */
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {currentInvoices.map((invoice) => {
                 const status = getInvoiceStatus(invoice);
                 const statusInfo = getStatusInfo(status);
-
 
                 return (
                   <div key={invoice.id} className="bg-white border border-gray-200 rounded-xl p-6 hover:shadow-lg transition-all duration-200 hover:border-blue-300">
@@ -1042,12 +1117,10 @@ const InvoiceList: React.FC = () => {
                         const status = getInvoiceStatus(invoice);
                         const statusInfo = getStatusInfo(status);
 
-
                         return (
                           <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-4 py-4">
                               <div className="flex items-center space-x-3">
-
                                 <div className="min-w-0">
                                   <div className="text-sm font-semibold text-gray-900">{formatInvoiceNumber(invoice.bill_number)}</div>
                                   {invoice.notes && (
@@ -1061,7 +1134,6 @@ const InvoiceList: React.FC = () => {
 
                             <td className="px-4 py-4">
                               <div className="flex items-center space-x-2">
-
                                 <div className="min-w-0">
                                   <div className="text-sm font-medium text-gray-900 truncate max-w-32" title={invoice.customer_name}>{invoice.customer_name}</div>
                                   {invoice.customer_phone && (
@@ -1085,7 +1157,6 @@ const InvoiceList: React.FC = () => {
                             <td className="px-4 py-4">
                               <div>
                                 <div className="text-sm font-medium text-gray-900">{formatCurrency(invoice.payment_amount)}</div>
-
                                 {invoice.remaining_balance > 0 && (
                                   <div className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mt-1 max-w-20 truncate">
                                     Due: {formatCurrency(invoice.remaining_balance)}
@@ -1096,9 +1167,7 @@ const InvoiceList: React.FC = () => {
 
                             <td className="px-4 py-4">
                               <div className="flex items-center">
-
                                 <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusInfo.color} max-w-20 truncate`}>
-
                                   {statusInfo.label}
                                 </span>
                               </div>
@@ -1131,9 +1200,17 @@ const InvoiceList: React.FC = () => {
                                 )}
 
                                 <button
+                                  onClick={() => printInvoice(invoice)}
+                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                                  title="Print Invoice"
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </button>
+
+                                <button
                                   onClick={() => viewInvoiceStockImpact(invoice.id)}
                                   className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                                  title="View Stock Impact"
+                                  title="Stock Impact"
                                 >
                                   <Package className="h-4 w-4" />
                                 </button>
@@ -1347,8 +1424,6 @@ const InvoiceList: React.FC = () => {
           <div className="space-y-4">
             {invoiceStockMovements.length > 0 ? (
               <div>
-
-
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">

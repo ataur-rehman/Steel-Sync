@@ -40,22 +40,6 @@ export const UNIT_TYPES: UnitTypeConfig[] = [
     examples: ['1600', '1600-60', '500-250']
   },
   {
-    type: 'kg',
-    label: 'Kilograms (Decimal)',
-    symbol: 'kg',
-    description: 'Weight in kg with decimal grams (e.g., 500.10 = 500kg 10g)',
-    format: 'kg-decimal',
-    examples: ['500.10', '1600.60', '100.250']
-  },
-  {
-    type: 'piece',
-    label: 'Pieces',
-    symbol: 'pcs',
-    description: 'Count of individual items',
-    format: 'simple',
-    examples: ['100', '500', '1200']
-  },
-  {
     type: 'bag',
     label: 'Bags',
     symbol: 'bags',

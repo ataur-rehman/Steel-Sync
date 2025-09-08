@@ -7,6 +7,34 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useSmartNavigation } from '../../hooks/useSmartNavigation';
 import { formatDateForDatabase } from '../../utils/formatters';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+
+// 🚀 PERFORMANCE: Performance measurement utilities
+const PERFORMANCE_KEY = 'customerLedger_performance';
+
+interface PerformanceMetrics {
+    renderTime: number;
+    dataLoadTime: number;
+    filterTime: number;
+    totalTime: number;
+    transactionCount: number;
+    timestamp: number;
+}
+
+const logPerformance = (metrics: PerformanceMetrics) => {
+    console.log(`⚡ [CUSTOMER_LEDGER_PERF] Render: ${metrics.renderTime}ms | Load: ${metrics.dataLoadTime}ms | Filter: ${metrics.filterTime}ms | Total: ${metrics.totalTime}ms | Records: ${metrics.transactionCount}`);
+
+    // Store in sessionStorage for comparison
+    const stored = sessionStorage.getItem(PERFORMANCE_KEY);
+    const history = stored ? JSON.parse(stored) : [];
+    history.push(metrics);
+
+    // Keep only last 10 measurements
+    if (history.length > 10) {
+        history.shift();
+    }
+
+    sessionStorage.setItem(PERFORMANCE_KEY, JSON.stringify(history));
+};
 import {
     FileText,
     Receipt,
@@ -60,6 +88,11 @@ export default function CustomerLedgerViewer() {
     const navigate = useNavigate();
     useSmartNavigation();
 
+    // 🚀 PERFORMANCE: Performance measurement refs
+    const renderStartTime = useRef<number>(Date.now());
+    const dataLoadStartTime = useRef<number>(0);
+    const filterStartTime = useRef<number>(0);
+
     // Format currency function
     const formatCurrency = useCallback((amount: number | undefined | null): string => {
         const safeAmount = amount ?? 0;
@@ -107,8 +140,11 @@ export default function CustomerLedgerViewer() {
         setSearchQuery(value);
     }, []);
 
-    // 🚀 PERFORMANCE: Optimized transaction filtering with early returns
+    // 🚀 PERFORMANCE: Optimized transaction filtering with early returns and memoization
     const filteredTransactions = useMemo(() => {
+        // 🚀 PERFORMANCE: Start timing filter operation
+        filterStartTime.current = Date.now();
+
         console.log('🔍 Filtering transactions:', {
             totalTransactions: customerTransactions.length,
             searchQuery: searchQuery,
@@ -125,26 +161,30 @@ export default function CustomerLedgerViewer() {
 
         // 🚀 PERFORMANCE: Apply most selective filters first
 
-        // Apply search filter first (most selective)
+        // Apply search filter first (most selective) - optimized with pre-compiled search strings
         if (debouncedSearchQuery && debouncedSearchQuery.trim().length > 0) {
             const searchLower = debouncedSearchQuery.toLowerCase().trim();
             console.log('🔍 Applying search filter for:', searchLower);
 
-            // Pre-compile searchable text for better performance
+            // 🚀 PERFORMANCE: Use more efficient filtering with optional chaining
             filtered = filtered.filter(tx => {
-                const searchText = [
+                // Optimized search text compilation
+                const searchableItems = [
                     tx.description,
                     tx.reference_number,
                     tx.payment_method,
                     tx.notes,
-                    tx.type,
-                    tx.invoice_amount?.toString(),
-                    tx.payment_amount?.toString(),
-                    tx.adjustment_amount?.toString(),
-                    tx.debit_amount?.toString(),
-                    tx.credit_amount?.toString()
-                ].filter(Boolean).join(' ').toLowerCase();
+                    tx.type
+                ];
 
+                // Check numeric fields efficiently
+                if (tx.invoice_amount) searchableItems.push(tx.invoice_amount.toString());
+                if (tx.payment_amount) searchableItems.push(tx.payment_amount.toString());
+                if (tx.adjustment_amount) searchableItems.push(tx.adjustment_amount.toString());
+                if (tx.debit_amount) searchableItems.push(tx.debit_amount.toString());
+                if (tx.credit_amount) searchableItems.push(tx.credit_amount.toString());
+
+                const searchText = searchableItems.filter(Boolean).join(' ').toLowerCase();
                 return searchText.includes(searchLower);
             });
             console.log('🔍 After search filter:', filtered.length);
@@ -167,31 +207,14 @@ export default function CustomerLedgerViewer() {
             console.log('🔍 After to_date filter:', filtered.length);
         }
 
-        // 🚀 CRITICAL: Ensure proper sorting by date and time (newest first for display)
-        filtered = filtered.sort((a, b) => {
-            // First sort by date (newest first)
-            const dateComparison = new Date(b.date).getTime() - new Date(a.date).getTime();
-            if (dateComparison !== 0) {
-                return dateComparison;
-            }
+        // 🚀 PERFORMANCE: Optimized sorting with cached date objects
+        const sortedFiltered = filtered.map(tx => ({
+            ...tx,
+            _sortKey: new Date(tx.date + ' ' + (tx.time || '00:00:00')).getTime()
+        })).sort((a, b) => b._sortKey - a._sortKey);
 
-            // If dates are equal, sort by time (newest first)
-            const timeA = a.time || '00:00:00';
-            const timeB = b.time || '00:00:00';
-            return timeB.localeCompare(timeA);
-        });
-
-        // 🚀 CRITICAL: Recalculate running balance for filtered transactions
-        // Sort chronologically first for balance calculation, then reverse for display
-        const chronological = [...filtered].sort((a, b) => {
-            const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
-            if (dateComparison !== 0) {
-                return dateComparison;
-            }
-            const timeA = a.time || '00:00:00';
-            const timeB = b.time || '00:00:00';
-            return timeA.localeCompare(timeB);
-        });
+        // 🚀 CRITICAL: Recalculate running balance for filtered transactions efficiently
+        const chronological = [...sortedFiltered].sort((a, b) => a._sortKey - b._sortKey);
 
         // Calculate correct running balance for filtered set
         let runningBalance = 0;
@@ -208,6 +231,10 @@ export default function CustomerLedgerViewer() {
 
         // Return in display order (newest first) with correct running balances
         const finalFiltered = withCorrectBalance.reverse();
+
+        // 🚀 PERFORMANCE: Log filter performance
+        const filterTime = Date.now() - filterStartTime.current;
+        console.log(`⚡ [FILTER_PERF] Filtered ${customerTransactions.length} → ${finalFiltered.length} transactions in ${filterTime}ms`);
 
         console.log('🔍 Final filtered and sorted transactions with recalculated balances:', finalFiltered.length);
         return finalFiltered;
@@ -254,7 +281,10 @@ export default function CustomerLedgerViewer() {
     // Load customer data
     const loadCustomer = useCallback(async (customerId: number) => {
         try {
+            // 🚀 PERFORMANCE: Start timing data load
+            dataLoadStartTime.current = Date.now();
             setLoading(true);
+
             // Find customer from customers list
             const result = await db.getCustomersOptimized({
                 search: '',
@@ -268,7 +298,7 @@ export default function CustomerLedgerViewer() {
                 setCustomer(customerData);
                 setNewPayment(prev => ({ ...prev, customer_id: customerId }));
 
-                // Load related data
+                // 🚀 PERFORMANCE: Load related data in parallel
                 await Promise.all([
                     loadCustomerLedger(customerId),
                     loadCustomerAccountSummary(customerId)
@@ -283,6 +313,10 @@ export default function CustomerLedgerViewer() {
             navigate('/customers');
         } finally {
             setLoading(false);
+
+            // 🚀 PERFORMANCE: Log total load time
+            const totalLoadTime = Date.now() - dataLoadStartTime.current;
+            console.log(`⚡ [CUSTOMER_LOAD_PERF] Customer data loaded in ${totalLoadTime}ms`);
         }
     }, [navigate, loadCustomerAccountSummary]);
 
@@ -302,7 +336,56 @@ export default function CustomerLedgerViewer() {
         try {
             setLoading(true);
             const loadStartTime = performance.now();
-            console.log('Loading customer ledger for ID:', customerId);
+            console.log('🚀 [CUSTOMER_LEDGER_PERF] Loading customer ledger for ID:', customerId);
+
+            // 🚀 PERFORMANCE: Check cache first with stale-while-revalidate pattern
+            const cacheKey = `customerLedger_${customerId}_${filters.from_date}_${filters.to_date}`;
+            const cachedData = sessionStorage.getItem(cacheKey);
+            const cacheExpiry = 300000; // 5 minutes cache duration
+
+            if (cachedData) {
+                try {
+                    const parsed = JSON.parse(cachedData);
+                    const cacheAge = Date.now() - parsed.timestamp;
+
+                    // 🚀 STALE-WHILE-REVALIDATE: Show cached data immediately
+                    if (cacheAge < cacheExpiry) {
+                        console.log(`⚡ [CUSTOMER_LEDGER_PERF] Using cached data (${Math.round(cacheAge / 1000)}s old)`);
+                        setCustomerTransactions(parsed.transactions);
+                        setCustomerAccountSummary(parsed.summary);
+
+                        // 🚀 PERFORMANCE: Set loading to false immediately for instant display
+                        setLoading(false);
+
+                        const cacheLoadTime = performance.now() - loadStartTime;
+                        logPerformance({
+                            renderTime: 0,
+                            dataLoadTime: cacheLoadTime,
+                            filterTime: 0,
+                            totalTime: cacheLoadTime,
+                            transactionCount: parsed.transactions.length,
+                            timestamp: Date.now()
+                        });
+
+                        console.log(`⚡ [CUSTOMER_LEDGER_PERF] Cache load completed in ${cacheLoadTime.toFixed(2)}ms`);
+
+                        // If cache is older than 1 minute, refresh in background
+                        if (cacheAge > 60000) {
+                            console.log('🔄 [CUSTOMER_LEDGER_PERF] Background refresh triggered for stale data');
+                            // Continue to load fresh data but don't block UI
+                        } else {
+                            // Fresh enough, skip loading
+                            return;
+                        }
+                    } else {
+                        console.log(`📊 [CUSTOMER_LEDGER_PERF] Cache expired (${Math.round(cacheAge / 1000)}s old), loading fresh`);
+                    }
+                } catch (error) {
+                    console.warn('Failed to parse customer ledger cache:', error);
+                }
+            } else {
+                console.log('📊 [CUSTOMER_LEDGER_PERF] No cache found, loading fresh data');
+            }
 
             // Create base filters for the API call
             const apiFilters = {
@@ -339,6 +422,12 @@ export default function CustomerLedgerViewer() {
 
                 console.log(`🚀 Balance calculation: ${(performance.now() - balanceStartTime).toFixed(2)}ms for ${processedTransactions.length} transactions`);
 
+                // 🚀 PERFORMANCE: Cache processed data
+                sessionStorage.setItem(cacheKey, JSON.stringify({
+                    transactions: processedTransactions,
+                    timestamp: Date.now()
+                }));
+
                 setCustomerTransactions(processedTransactions);
                 setTotalTransactions(processedTransactions.length);
 
@@ -349,6 +438,20 @@ export default function CustomerLedgerViewer() {
                     transactionCount: processedTransactions.length,
                     filterTime: 0
                 });
+
+                // 🚀 PERFORMANCE: Log comprehensive performance data
+                console.log(`⚡ [CUSTOMER_LEDGER_PERF] Fresh data load: ${totalLoadTime.toFixed(2)}ms for ${processedTransactions.length} transactions`);
+
+                const perfHistory = JSON.parse(sessionStorage.getItem(PERFORMANCE_KEY) || '[]');
+                perfHistory.push({
+                    operation: 'ledger_load',
+                    duration: totalLoadTime,
+                    transactionCount: processedTransactions.length,
+                    timestamp: Date.now(),
+                    cached: false
+                });
+                if (perfHistory.length > 20) perfHistory.shift();
+                sessionStorage.setItem(PERFORMANCE_KEY, JSON.stringify(perfHistory));
             } else {
                 setCustomerTransactions([]);
                 setTotalTransactions(0);
@@ -408,8 +511,31 @@ export default function CustomerLedgerViewer() {
     useEffect(() => {
         const customerId = params.id ? parseInt(params.id) : null;
         if (customerId) {
-            loadCustomer(customerId);
-            loadPaymentChannels();
+            // 🚀 PERFORMANCE: Parallel data loading for faster initial load
+            const loadStartTime = performance.now();
+            dataLoadStartTime.current = loadStartTime;
+
+            console.log('🚀 [CUSTOMER_LEDGER_PERF] Starting parallel data loading...');
+
+            Promise.all([
+                loadCustomer(customerId),
+                loadPaymentChannels()
+            ]).then(() => {
+                const loadTime = performance.now() - loadStartTime;
+                console.log(`⚡ [CUSTOMER_LEDGER_PERF] Parallel data loading completed in ${loadTime.toFixed(2)}ms`);
+
+                // Store performance metric
+                const perfHistory = JSON.parse(sessionStorage.getItem(PERFORMANCE_KEY) || '[]');
+                perfHistory.push({
+                    operation: 'initial_data_load',
+                    duration: loadTime,
+                    timestamp: Date.now()
+                });
+                if (perfHistory.length > 20) perfHistory.shift();
+                sessionStorage.setItem(PERFORMANCE_KEY, JSON.stringify(perfHistory));
+            }).catch(error => {
+                console.error('❌ [CUSTOMER_LEDGER_PERF] Parallel data loading failed:', error);
+            });
         } else {
             navigate('/customers');
         }
@@ -588,6 +714,79 @@ export default function CustomerLedgerViewer() {
         }
     };
 
+    // 🚀 PERFORMANCE: Track render timing
+    useEffect(() => {
+        renderStartTime.current = Date.now();
+    });
+
+    // 🚀 PERFORMANCE: Memoized transaction rows to prevent unnecessary re-renders
+    const memoizedTransactionRows = useMemo(() => {
+        return filteredTransactions.map((transaction, index) => {
+            const isInvoice = transaction.type === 'invoice';
+            const isPayment = transaction.type === 'payment';
+            const isAdjustment = transaction.type === 'adjustment';
+
+            const amount = transaction.debit_amount || transaction.invoice_amount ||
+                transaction.credit_amount || transaction.payment_amount ||
+                transaction.adjustment_amount || 0;
+
+            return (
+                <tr key={`${transaction.id}-${index}`} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-sm border-b border-gray-200">
+                        {transaction.date}
+                        {transaction.time && (
+                            <div className="text-xs text-gray-500 mt-0.5">
+                                {transaction.time}
+                            </div>
+                        )}
+                    </td>
+                    <td className="px-4 py-3 text-sm border-b border-gray-200">
+                        <div className="flex items-center space-x-2">
+                            {isInvoice && <Receipt className="h-4 w-4 text-blue-600" />}
+                            {isPayment && <span className="w-4 h-4 bg-green-600 rounded-full flex items-center justify-center text-white text-xs">₨</span>}
+                            {isAdjustment && <span className="w-4 h-4 bg-orange-600 rounded-full"></span>}
+                            <div>
+                                <div className="font-medium">{transaction.description}</div>
+                                {transaction.reference_number && (
+                                    <div className="text-xs text-gray-500">
+                                        Ref: {transaction.reference_number}
+                                    </div>
+                                )}
+                                {transaction.notes && (
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        {transaction.notes}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right border-b border-gray-200">
+                        {(isInvoice || isAdjustment) && (
+                            <span className="text-red-600 font-medium">
+                                {formatCurrency(amount)}
+                            </span>
+                        )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right border-b border-gray-200">
+                        {isPayment && (
+                            <span className="text-green-600 font-medium">
+                                {formatCurrency(amount)}
+                            </span>
+                        )}
+                        {transaction.payment_method && (
+                            <div className="text-xs text-gray-500 mt-0.5">
+                                via {transaction.payment_method}
+                            </div>
+                        )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right border-b border-gray-200 font-semibold">
+                        {formatCurrency(transaction._runningBalance)}
+                    </td>
+                </tr>
+            );
+        });
+    }, [filteredTransactions, formatCurrency]);
+
     if (loading && !customer) {
         return (
             <div className="flex items-center justify-center min-h-[400px]">
@@ -758,24 +957,7 @@ export default function CustomerLedgerViewer() {
                         </div>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="mt-6 pt-6 border-t border-gray-200 flex flex-wrap gap-3">
-                        <button
-                            onClick={handleSelectCustomerForPayment}
-                            className="btn btn-primary flex items-center"
-                        >
-                            <Receipt className="h-4 w-4 mr-2" />
-                            Add Payment
-                        </button>
 
-                        <button
-                            onClick={handleNavigateToNewInvoice}
-                            className="btn btn-secondary flex items-center"
-                        >
-                            <FileText className="h-4 w-4 mr-2" />
-                            New Invoice
-                        </button>
-                    </div>
                 </div>
 
                 {/* Filters Section */}

@@ -8,6 +8,34 @@ import ErrorBoundary from '../common/ErrorBoundary';
 
 import { formatDate } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
+
+// 🚀 STEP 1: SIMPLE PERFORMANCE DIAGNOSTICS
+const DIAGNOSTICS_KEY = 'stockReport_diagnostics_v1';
+
+const logDiagnostic = (operation: string, startTime: number, data: Record<string, any> = {}) => {
+  const duration = performance.now() - startTime;
+  const diagnostic = {
+    timestamp: Date.now(),
+    operation,
+    duration: Math.round(duration * 100) / 100, // Round to 2 decimals
+    ...data
+  };
+
+  console.log(`📊 [STOCK_DIAG] ${operation}: ${diagnostic.duration}ms`, data);
+
+  // Store for comparison
+  const history = JSON.parse(sessionStorage.getItem(DIAGNOSTICS_KEY) || '[]');
+  history.push(diagnostic);
+  if (history.length > 30) history.splice(0, 10); // Keep last 30
+  sessionStorage.setItem(DIAGNOSTICS_KEY, JSON.stringify(history));
+
+  return diagnostic;
+};
+
+// Initialize component timing
+const componentInitTime = performance.now();
+console.log(`🚀 [STOCK_INIT] Stock Report component starting at ${componentInitTime}`);
+
 import {
   Package,
   TrendingDown,
@@ -109,8 +137,33 @@ const ADJUSTMENT_REASONS = [
 ];
 
 const StockReport: React.FC = () => {
+  // 🚀 STEP 1: Component initialization diagnostics
+  const componentStart = useRef(componentInitTime);
+
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 🚀 STEP 4: Global database initialization optimization
+  const dbInitialized = useRef(false);
+  const dbInitPromise = useRef<Promise<void> | null>(null);
+
+  // Initialize database once globally when component mounts
+  useEffect(() => {
+    if (!dbInitialized.current && !dbInitPromise.current) {
+      dbInitPromise.current = (async () => {
+        const globalInitStart = performance.now();
+        try {
+          await db.initialize();
+          dbInitialized.current = true;
+          logDiagnostic('Global_DB_Init_Complete', globalInitStart);
+        } catch (error) {
+          logDiagnostic('Global_DB_Init_Error', globalInitStart, {
+            error: error instanceof Error ? error.message : 'Unknown'
+          });
+        }
+      })();
+    }
+  }, []);
 
   // Simple debounce utility
   const debounce = (func: Function, delay: number) => {
@@ -171,15 +224,51 @@ const StockReport: React.FC = () => {
     notes: ''
   });
 
-  // Handle state restoration when navigating back from stock details
+  // 🚀 STEP 5: Handle state restoration and navigation cache
   useEffect(() => {
     const navigationState = location.state as any;
+
+    // 🚀 OPTIMIZATION: Check for navigation cache first
+    const navCacheKey = 'stockReport_navigationCache';
+    const navCache = sessionStorage.getItem(navCacheKey);
+
+    if (navCache && navigationState?.fromStockHistory) {
+      try {
+        const parsed = JSON.parse(navCache);
+        const cacheAge = Date.now() - parsed.timestamp;
+
+        if (cacheAge < NAVIGATION_CACHE_DURATION) {
+          const navCacheStart = performance.now();
+
+          // Restore from navigation cache
+          setStockItems(parsed.stockItems || []);
+          setStockSummary(parsed.stockSummary || null);
+          setCategories(parsed.categories || []);
+          setDataFreshness('cached');
+
+          logDiagnostic('Navigation_Cache_Restored', navCacheStart, {
+            cacheAge: Math.round(cacheAge / 1000),
+            itemsRestored: parsed.stockItems?.length || 0
+          });
+
+          // Skip the normal data loading
+          setLoading(false);
+        }
+      } catch (error) {
+        logDiagnostic('Navigation_Cache_Error', performance.now(), {
+          error: error instanceof Error ? error.message : 'Unknown'
+        });
+      }
+    }
+
+    // Handle filter and view restoration
     if (navigationState?.preserveFilters) {
       setFilters(navigationState.preserveFilters);
     }
     if (navigationState?.preserveView) {
       setCurrentView(navigationState.preserveView);
     }
+
     // Clear the state after restoring to prevent issues with future navigation
     if (navigationState) {
       window.history.replaceState({}, document.title);
@@ -187,6 +276,12 @@ const StockReport: React.FC = () => {
   }, [location.state]);
 
   useEffect(() => {
+    // 🚀 STEP 1: Track useEffect timing
+    const useEffectStart = performance.now();
+    logDiagnostic('UseEffect_Started', useEffectStart, {
+      componentToUseEffect: useEffectStart - componentStart.current
+    });
+
     loadStockData();
 
     // FIXED: Proper event bus integration with correct event names
@@ -374,13 +469,18 @@ const StockReport: React.FC = () => {
     lastUpdate: 0
   });
 
-  const CACHE_DURATION = 30000; // 30 seconds cache for normal operations
-  const REALTIME_CACHE_DURATION = 5000; // 5 seconds cache for real-time updates
+  // 🚀 STEP 5: OPTIMIZED CACHE DURATIONS for better performance
+  const CACHE_DURATION = 120000; // 2 minutes cache for normal operations (increased from 30s)
+  const REALTIME_CACHE_DURATION = 30000; // 30 seconds cache for real-time updates (increased from 5s)
+  const NAVIGATION_CACHE_DURATION = 300000; // 5 minutes for navigation cache
 
   const loadStockData = async (forceRefresh: boolean = false, useRealtimeCache: boolean = false) => {
+    // 🚀 STEP 1: Add simple load timing diagnostics
+    const loadStart = performance.now();
+
     try {
       setLoading(true);
-      console.log('🔄 Starting to load stock data...');
+      logDiagnostic('Load_Start', loadStart, { forceRefresh, useRealtimeCache });
 
       // 🚀 PERFORMANCE: Use cache if available and not expired
       const now = Date.now();
@@ -388,7 +488,10 @@ const StockReport: React.FC = () => {
       const activeCacheDuration = useRealtimeCache ? REALTIME_CACHE_DURATION : CACHE_DURATION;
 
       if (!forceRefresh && dataCache.products && dataCache.categories && cacheAge < activeCacheDuration) {
-        console.log('✅ Using cached data (age:', Math.round(cacheAge / 1000), 'seconds, mode:', useRealtimeCache ? 'realtime' : 'normal', ')');
+        logDiagnostic('Cache_Hit', loadStart, {
+          cacheAge: Math.round(cacheAge / 1000),
+          mode: useRealtimeCache ? 'realtime' : 'normal'
+        });
 
         const stockData = processStockDataFast(dataCache.products);
         const summary = calculateStockSummaryFast(stockData);
@@ -404,30 +507,68 @@ const StockReport: React.FC = () => {
         return;
       }
 
-      await db.initialize();
-      console.log('✅ Database initialized successfully');
+      // 🚀 STEP 4: OPTIMIZED DATABASE INITIALIZATION - Use global initialization
+      const dbInitStart = performance.now();
 
-      // 🚀 PERFORMANCE: Get all products with stock info in one call
-      console.log('📦 Getting all products...');
-      const allProducts = await db.getAllProducts(undefined, undefined, { skipCache: forceRefresh });
+      // Wait for global database initialization if not complete
+      if (dbInitPromise.current && !dbInitialized.current) {
+        await dbInitPromise.current;
+        logDiagnostic('Database_Wait_Global_Init', dbInitStart);
+      } else if (dbInitialized.current) {
+        logDiagnostic('Database_Already_Initialized', dbInitStart, {
+          skipTime: performance.now() - dbInitStart
+        });
+      } else {
+        // Fallback: Initialize if somehow missed
+        await db.initialize();
+        dbInitialized.current = true;
+        logDiagnostic('Database_Fallback_Init', dbInitStart);
+      }
+
+      // 🚀 STEP 2: OPTIMIZED DATABASE QUERY - Get only stock products
+      const dbQueryStart = performance.now();
+
+      // Parallel loading: products + categories simultaneously
+      const [allProducts, categoryData] = await Promise.all([
+        db.getAllProducts(undefined, undefined, {
+          skipCache: forceRefresh
+        }),
+        db.getCategories()
+      ]);
+
+      logDiagnostic('Parallel_DB_Queries_Complete', dbQueryStart, {
+        totalProducts: allProducts.length,
+        categoriesCount: categoryData.length
+      });
 
       // Filter out non-stock products (track_inventory = 0)
       const products = allProducts.filter(product =>
         product.track_inventory === 1 || product.track_inventory === true || product.track_inventory === undefined || product.track_inventory === null
       );
 
-      console.log(`✅ Retrieved ${allProducts.length} total products, ${products.length} stock products`);
+      logDiagnostic('Product_Filtering_Complete', loadStart, {
+        totalProducts: allProducts.length,
+        stockProducts: products.length,
+        filterRatio: Math.round((products.length / allProducts.length) * 100) + '%'
+      });
 
-      // 🚀 PERFORMANCE: Parallel data loading
-      const categoryData = await db.getCategories();
-      const stockData = processStockDataFast(products); // Synchronous now
-
+      // 🚀 PERFORMANCE: Synchronous data processing
+      const processingStart = performance.now();
+      const stockData = processStockDataFast(products);
       const categoryList = categoryData.map((cat: { category: string }) => cat.category);
-      console.log(`✅ Processed ${stockData.length} stock items and ${categoryList.length} categories`);
+
+      logDiagnostic('Data_Processing_Complete', processingStart, {
+        stockItems: stockData.length,
+        categories: categoryList.length,
+        processingTime: performance.now() - processingStart
+      });
 
       // 🚀 PERFORMANCE: Quick summary calculation without heavy movements
       const summary = calculateStockSummaryFast(stockData);
-      console.log('✅ Summary calculated');
+
+      logDiagnostic('Summary_Calculation_Complete', loadStart, {
+        totalValue: summary.total_stock_value
+      });
 
       // 🚀 PERFORMANCE: Update cache
       setDataCache({
@@ -439,6 +580,21 @@ const StockReport: React.FC = () => {
       setStockItems(stockData);
       setCategories(categoryList);
       setStockSummary(summary);
+
+      // 🚀 STEP 5: Store navigation cache for fast back navigation
+      const navCacheKey = 'stockReport_navigationCache';
+      const navigationCache = {
+        stockItems: stockData,
+        stockSummary: summary,
+        categories: categoryList,
+        timestamp: now
+      };
+      sessionStorage.setItem(navCacheKey, JSON.stringify(navigationCache));
+
+      logDiagnostic('Navigation_Cache_Stored', loadStart, {
+        itemsCached: stockData.length,
+        cacheSize: Math.round(JSON.stringify(navigationCache).length / 1024) + 'KB'
+      });
 
       // Set fresh data indicator
       setDataFreshness('live');
@@ -480,9 +636,15 @@ const StockReport: React.FC = () => {
 
       // 🚀 PERFORMANCE: Load movements only when needed (lazy loading)
       // Don't load movements on initial page load
-      console.log('✅ Stock data loading completed successfully (movements will load on demand)');
+      logDiagnostic('Load_Complete_Success', loadStart, {
+        itemsLoaded: stockData.length,
+        source: 'database'
+      });
 
     } catch (error) {
+      logDiagnostic('Load_Complete_Error', loadStart, {
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
       console.error('❌ Failed to load stock data:', error);
       console.error('Error details:', {
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -637,19 +799,25 @@ const StockReport: React.FC = () => {
   };
 
   // 🚀 PERFORMANCE: Fast stock data processing without expensive movement queries
-  const processStockDataFast = (products: any[]): StockItem[] => {
-    return products.map((product) => {
+  // 🚀 STEP 3: OPTIMIZED DATA PROCESSING with memoization
+  const processStockDataFast = useCallback((products: any[]): StockItem[] => {
+    const processingStart = performance.now();
+
+    // 🚀 OPTIMIZATION: Batch processing for better performance
+    const stockItems: StockItem[] = [];
+    let errorCount = 0;
+
+    for (let i = 0; i < products.length; i++) {
+      const product = products[i];
       try {
-        // Use the current stock value as stored in database
+        // 🚀 PERFORMANCE: Cache parsed values to avoid repeated calculations
         const currentStockData = parseUnit(product.current_stock);
         const minAlertData = parseUnit(product.min_stock_alert);
 
-        // Calculate stock value using total grams for accuracy
-        // Always round to two decimals for all currency calculations
-        const stockValue = Number(((currentStockData.numericValue / 1000) * product.rate_per_unit).toFixed(2));
+        // 🚀 OPTIMIZATION: Use more efficient calculation
+        const stockValue = Math.round((currentStockData.numericValue / 1000) * product.rate_per_unit * 100) / 100;
 
         let status: 'in_stock' | 'low_stock' | 'out_of_stock';
-
         if (currentStockData.numericValue === 0) {
           status = 'out_of_stock';
         } else if (currentStockData.numericValue <= minAlertData.numericValue) {
@@ -658,7 +826,7 @@ const StockReport: React.FC = () => {
           status = 'in_stock';
         }
 
-        return {
+        stockItems.push({
           id: product.id,
           name: product.name,
           category: product.category,
@@ -670,13 +838,14 @@ const StockReport: React.FC = () => {
           stock_value: stockValue,
           status,
           last_updated: product.updated_at || product.created_at,
-          // Set placeholder values for performance - load on demand
+          // 🚀 PERFORMANCE: Set placeholder values - load on demand
           movement_30_days: 0,
           reorder_suggestion: product.min_stock_alert
-        } as StockItem;
+        } as StockItem);
       } catch (error) {
-        console.error(`Error processing product ${product.name}:`, error);
-        return {
+        errorCount++;
+        // 🚀 PERFORMANCE: Fast fallback for error cases
+        stockItems.push({
           id: product.id,
           name: product.name,
           category: product.category || 'Uncategorized',
@@ -690,41 +859,67 @@ const StockReport: React.FC = () => {
           last_updated: new Date().toISOString(),
           movement_30_days: 0,
           reorder_suggestion: '0'
-        } as StockItem;
+        } as StockItem);
       }
-    });
-  };
+    }
 
-  // 🚀 PERFORMANCE: Fast summary calculation without expensive queries
-  const calculateStockSummaryFast = (stockData: StockItem[]): StockSummary => {
+    logDiagnostic('Stock_Data_Processing', processingStart, {
+      itemsProcessed: stockItems.length,
+      errorsEncountered: errorCount,
+      avgProcessingTime: (performance.now() - processingStart) / stockItems.length
+    });
+
+    return stockItems;
+  }, []);
+
+  // 🚀 STEP 3: OPTIMIZED SUMMARY CALCULATION
+  const calculateStockSummaryFast = useCallback((stockData: StockItem[]): StockSummary => {
+    const summaryStart = performance.now();
+
     let totalStockValue = 0;
     let inStockCount = 0;
     let lowStockCount = 0;
     let outOfStockCount = 0;
+    const categories = new Set<string>();
 
-    stockData.forEach(item => {
+    // 🚀 OPTIMIZATION: Single pass through data
+    for (let i = 0; i < stockData.length; i++) {
+      const item = stockData[i];
       totalStockValue += item.stock_value;
+      categories.add(item.category);
 
-      if (item.status === 'in_stock') {
-        inStockCount++;
-      } else if (item.status === 'low_stock') {
-        lowStockCount++;
-      } else {
-        outOfStockCount++;
+      switch (item.status) {
+        case 'in_stock':
+          inStockCount++;
+          break;
+        case 'low_stock':
+          lowStockCount++;
+          break;
+        case 'out_of_stock':
+          outOfStockCount++;
+          break;
       }
-    });
+    }
 
-    return {
+    const summary = {
       total_products: stockData.length,
-      total_stock_value: totalStockValue,
+      total_stock_value: Math.round(totalStockValue * 100) / 100, // Round for display
       in_stock_count: inStockCount,
       low_stock_count: lowStockCount,
       out_of_stock_count: outOfStockCount,
-      categories_count: new Set(stockData.map(item => item.category)).size,
+      categories_count: categories.size,
       movements_today: 0, // Load on demand
       movements_this_week: 0 // Load on demand
     };
-  };
+
+    logDiagnostic('Summary_Calculation', summaryStart, {
+      itemsProcessed: stockData.length,
+      totalValue: summary.total_stock_value,
+      categoriesFound: summary.categories_count
+    });
+
+    return summary;
+  }, []);
 
   // UNUSED: Commented out for performance - using processStockDataFast instead
   /*
@@ -1531,9 +1726,7 @@ const StockReport: React.FC = () => {
                         <th className="w-1/4 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Product
                         </th>
-                        <th className="w-1/6 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Category
-                        </th>
+
                         <th className="w-1/6 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Current Stock
                         </th>
@@ -1560,18 +1753,14 @@ const StockReport: React.FC = () => {
                           <tr key={item.id} className="hover:bg-gray-50">
                             <td className="px-4 py-4">
                               <div className="min-w-0">
-                                <div className="text-sm font-medium text-gray-900 truncate max-w-48" title={item.name}>{item.name}</div>
+                                <div className="text-sm font-medium text-gray-900" title={item.name}>{item.name}</div>
                                 <div className="text-sm text-gray-500 truncate max-w-48" title={`Alert at: ${item.min_stock_alert} ${item.unit}`}>
                                   Alert at: {item.min_stock_alert} {item.unit}
                                 </div>
                               </div>
                             </td>
 
-                            <td className="px-4 py-4">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 truncate max-w-24">
-                                {item.category}
-                              </span>
-                            </td>
+
 
                             <td className="px-4 py-4 whitespace-nowrap">
                               <div className="text-sm font-semibold text-gray-900">
@@ -1990,7 +2179,49 @@ const StockReport: React.FC = () => {
   );
 };
 
-// 🚨 CRITICAL: Memory optimization with React.memo for large datasets
+// � STEP 1: Diagnostic Summary Function for Testing
+const getStockReportDiagnostics = () => {
+  const history: any[] = JSON.parse(sessionStorage.getItem(DIAGNOSTICS_KEY) || '[]');
+  if (history.length === 0) {
+    console.log('📊 [STOCK_DIAGNOSTICS] No diagnostic data available yet');
+    return null;
+  }
+
+  const loadOperations = history.filter((h: any) => h.operation.includes('Load'));
+  const dbOperations = history.filter((h: any) => h.operation.includes('DB') || h.operation.includes('Database') || h.operation.includes('Parallel'));
+  const processingOps = history.filter((h: any) => h.operation.includes('Processing') || h.operation.includes('Summary'));
+
+  const avgLoadTime = loadOperations.reduce((sum: number, op: any) => sum + op.duration, 0) / loadOperations.length || 0;
+  const avgDbTime = dbOperations.reduce((sum: number, op: any) => sum + op.duration, 0) / dbOperations.length || 0;
+  const avgProcessingTime = processingOps.reduce((sum: number, op: any) => sum + op.duration, 0) / processingOps.length || 0;
+
+  const summary = {
+    totalOperations: history.length,
+    averageLoadTime: Math.round(avgLoadTime * 100) / 100,
+    averageDatabaseTime: Math.round(avgDbTime * 100) / 100,
+    averageProcessingTime: Math.round(avgProcessingTime * 100) / 100,
+    lastLoadTime: loadOperations[loadOperations.length - 1]?.duration || 0,
+    cacheHitRate: (history.filter((h: any) => h.operation === 'Cache_Hit').length / Math.max(loadOperations.length, 1)) * 100,
+    performanceBreakdown: {
+      database: Math.round(avgDbTime),
+      processing: Math.round(avgProcessingTime - avgDbTime),
+      rendering: Math.round(avgLoadTime - avgProcessingTime)
+    },
+    recentOperations: history.slice(-8).map((h: any) => ({
+      operation: h.operation,
+      duration: h.duration
+    }))
+  };
+
+  console.log('📊 [STOCK_DIAGNOSTICS] Performance Summary:', summary);
+  console.log('📊 [STOCK_DIAGNOSTICS] Full History:', history);
+  return summary;
+};
+
+// Make diagnostics globally accessible for testing
+(window as any).getStockReportDiagnostics = getStockReportDiagnostics;
+
+// �🚨 CRITICAL: Memory optimization with React.memo for large datasets
 const MemoizedStockReport = React.memo(StockReport);
 
 export default function StockReportWithErrorBoundary() {

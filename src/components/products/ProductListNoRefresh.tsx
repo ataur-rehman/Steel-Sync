@@ -283,11 +283,21 @@ const ProductListNoRefresh: React.FC = () => {
     const [displayProducts, setDisplayProducts] = useState<Product[]>([]);
     const [searchError, setSearchError] = useState<string | null>(null);
 
-    // Enhanced product filtering function with validation
-    const filterProducts = useCallback((allProducts: Product[], searchTerm: string) => {
+    // Enhanced product filtering function with validation - SUPPORTS BOTH SEARCH AND CATEGORY
+    const filterProducts = useCallback((allProducts: Product[], searchTerm: string, categoryFilter: string) => {
+        let filteredProducts = allProducts;
+
+        // Apply category filter first
+        if (categoryFilter.trim()) {
+            filteredProducts = filteredProducts.filter(product =>
+                product.category === categoryFilter
+            );
+        }
+
+        // Apply search filter
         if (!searchTerm.trim()) {
             setSearchError(null);
-            return allProducts;
+            return filteredProducts;
         }
 
         // Validate search input
@@ -301,7 +311,7 @@ const ProductListNoRefresh: React.FC = () => {
         const sanitizedSearch = sanitizeSearchInput(searchTerm).toLowerCase();
         setSearchError(null);
 
-        return allProducts.filter(product =>
+        return filteredProducts.filter(product =>
             product.name?.toLowerCase().includes(sanitizedSearch) ||
             product.category?.toLowerCase().includes(sanitizedSearch) ||
             product.unit_type?.toLowerCase().includes(sanitizedSearch)
@@ -334,7 +344,7 @@ const ProductListNoRefresh: React.FC = () => {
                 return;
             }
 
-            const filtered = filterProducts(products, value);
+            const filtered = filterProducts(products, value, filters.category);
 
             // Final cancellation check before updating state
             if (!currentToken.isCancelled()) {
@@ -364,7 +374,7 @@ const ProductListNoRefresh: React.FC = () => {
             }
 
             // Immediately execute search with validation
-            const filtered = filterProducts(products, filters.search);
+            const filtered = filterProducts(products, filters.search, filters.category);
             setDisplayProducts(filtered);
             setPagination(prev => ({
                 ...prev,
@@ -416,8 +426,8 @@ const ProductListNoRefresh: React.FC = () => {
             setProducts(allProducts);
 
             // 🔥 CRITICAL FIX: Preserve active search filter after reload
-            if (filters.search) {
-                const filtered = filterProducts(allProducts, filters.search);
+            if (filters.search || filters.category) {
+                const filtered = filterProducts(allProducts, filters.search, filters.category);
                 setDisplayProducts(filtered);
                 setPagination(prev => ({
                     ...prev,
@@ -481,6 +491,20 @@ const ProductListNoRefresh: React.FC = () => {
             }
         };
     }, []);
+
+    // 🔧 FIX: Auto-apply filtering when filters change
+    useEffect(() => {
+        if (products.length > 0) {
+            const filtered = filterProducts(products, filters.search, filters.category);
+            setDisplayProducts(filtered);
+            setPagination(prev => ({
+                ...prev,
+                currentPage: 1,
+                totalItems: filtered.length,
+                totalPages: Math.ceil(filtered.length / prev.itemsPerPage)
+            }));
+        }
+    }, [products, filters.search, filters.category, filterProducts]);
 
     // ===== PHASE 3: PRODUCTION REAL-TIME UPDATES =====
     // Real-time event listeners for production-grade synchronization
@@ -666,17 +690,35 @@ const ProductListNoRefresh: React.FC = () => {
             return;
         }
 
+        // Update filters
         setFilters(prev => ({ ...prev, category: sanitizedValue }));
-        setPagination(prev => ({ ...prev, currentPage: 1 }));
-    }, [categories]);
+
+        // Apply filtering immediately
+        const filtered = filterProducts(products, filters.search, sanitizedValue);
+        setDisplayProducts(filtered);
+        setPagination(prev => ({
+            ...prev,
+            currentPage: 1,
+            totalItems: filtered.length,
+            totalPages: Math.ceil(filtered.length / prev.itemsPerPage)
+        }));
+    }, [categories, products, filters.search, filterProducts]);
 
     const resetFilters = useCallback(() => {
         setFilters({
             search: '',
             category: ''
         });
-        setPagination(prev => ({ ...prev, currentPage: 1 }));
-    }, []);
+
+        // Apply filtering immediately (show all products)
+        setDisplayProducts(products);
+        setPagination(prev => ({
+            ...prev,
+            currentPage: 1,
+            totalItems: products.length,
+            totalPages: Math.ceil(products.length / prev.itemsPerPage)
+        }));
+    }, [products]);
 
     // Pagination helpers - EXACT SAME AS ORIGINAL
     const handlePageChange = useCallback((page: number) => {
