@@ -9,6 +9,7 @@ import { formatDateTime, formatDate } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { TIronCalculator } from './TIronCalculator';
 import { ask } from '@tauri-apps/plugin-dialog';
+import { renderCustomerName, getCleanCustomerName } from '../../utils/customerNameUtils';
 
 import {
   Plus,
@@ -1505,7 +1506,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
             </div>
           </div>
           <div class="customer-info">
-            <div><strong>Customer:</strong> ${invoice.customer_name}</div>
+            <div><strong>Customer:</strong> ${getCleanCustomerName(invoice.customer_name)}</div>
             ${invoice.customer_phone ? `<div><strong>Phone:</strong> ${invoice.customer_phone}</div>` : ''}
             ${invoice.customer_address ? `<div><strong>Address:</strong> ${invoice.customer_address}</div>` : ''}
           </div>
@@ -1795,7 +1796,7 @@ const InvoiceDetails: React.FC<InvoiceDetailsProps> = ({ invoiceId, onClose, onU
                 <div className="space-y-2">
                   <div className="flex items-center space-x-2">
                     <User className="h-4 w-4 text-gray-500" />
-                    <span className="text-gray-900">{invoice.customer_name}</span>
+                    <span className="text-gray-900">{renderCustomerName(invoice.customer_name)}</span>
                   </div>
                   {invoice.customer_phone && (
                     <div className="flex items-center space-x-2">

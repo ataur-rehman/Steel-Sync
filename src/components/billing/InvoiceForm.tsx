@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { db } from '../../services/database';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
+import { renderCustomerName } from '../../utils/customerNameUtils';
 
 import toast from 'react-hot-toast';
 import { formatUnitString, parseUnit, hasSufficientStock, getStockAsNumber, getAlertLevelAsNumber, type UnitType } from '../../utils/unitUtils';
@@ -328,7 +329,7 @@ const MemoizedCustomerDropdown = React.memo(({
   const renderCustomer = useCallback((customer: any) => (
     <div className="flex items-center justify-between w-full">
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-gray-900 truncate">{customer.name}</div>
+        <div className="font-medium text-gray-900">{renderCustomerName(customer.name)}</div>
         <div className="text-sm text-gray-600 truncate">
           {customer.phone && <span className="mr-3">{customer.phone}</span>}
           {customer.address && <span className="text-gray-500">  {customer.address}</span>}
@@ -3155,6 +3156,7 @@ const loadRecentCustomers = async (setFilteredCustomers: any, setShowCustomerDro
         WHERE date >= datetime('now', '-30 days')  -- Recent activity (SQLite compatible)
         GROUP BY customer_id
       ) inv ON c.id = inv.customer_id
+      WHERE c.id != -1
       ORDER BY 
         CASE WHEN inv.invoice_count > 0 THEN inv.invoice_count ELSE 0 END DESC,
         last_activity DESC,
@@ -3175,6 +3177,7 @@ const loadRecentCustomers = async (setFilteredCustomers: any, setShowCustomerDro
       const fallbackCustomers = await db.executeSmartQuery(`
         SELECT id, name, phone, balance, address
         FROM customers 
+        WHERE id != -1
         ORDER BY name ASC 
         LIMIT 20
       `);
@@ -3198,7 +3201,7 @@ const searchCustomersPaginated = async (query: string, offset: number = 0, appen
     const searchResults = await db.executeSmartQuery(`
       SELECT id, name, phone, balance, address
       FROM customers 
-      WHERE name LIKE '%${query}%' OR phone LIKE '%${query}%' 
+      WHERE (name LIKE '%${query}%' OR phone LIKE '%${query}%') AND id != -1
       ORDER BY name, phone, id
       LIMIT ${BATCH_SIZE} OFFSET ${offset}
     `);

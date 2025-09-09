@@ -101,6 +101,7 @@ const OUTGOING_CATEGORIES = [
   'Return Refund',
   'Vendor Payment',
   'Bank Charges',
+  'Payment Given', // Money given to customers (reducing their credit)
   'Other Expense'
 ];
 
@@ -247,35 +248,60 @@ const DailyLedger: React.FC = () => {
         const eventBus = (window as any).eventBus;
         if (eventBus && eventBus.on) {
           const handleDailyLedgerUpdate = (data: any) => {
-            console.log('📊 Daily ledger refreshing due to ledger update:', data);
+            console.log('📊 Daily ledger immediate refresh due to ledger update:', data);
             if (data.date === selectedDate || !data.date) {
-              debouncedRefresh(selectedDate); // Use debounced refresh
+              // Force immediate refresh instead of debounced
+              console.log('🚀 Triggering immediate ledger refresh');
+              setLoading(true);
+              loadDayData(selectedDate);
             }
           };
 
           const handleInvoiceCreated = (data: any) => {
-            console.log('📊 Daily ledger refreshing due to invoice creation:', data);
+            console.log('📊 Daily ledger immediate refresh due to invoice creation:', data);
             const invoiceDate = formatDateForDatabase(new Date(data.created_at));
             if (invoiceDate === selectedDate) {
-              debouncedRefresh(selectedDate); // Use debounced refresh
+              // Force immediate refresh instead of debounced
+              console.log('🚀 Triggering immediate ledger refresh');
+              setLoading(true);
+              loadDayData(selectedDate);
             }
           };
 
           const handlePaymentReceived = (data: any) => {
-            console.log('📊 Daily ledger refreshing due to payment:', data);
+            console.log('📊 Daily ledger immediate refresh due to payment:', data);
             const today = formatDateForDatabase();
-            if (selectedDate === today) {
-              debouncedRefresh(selectedDate); // Use debounced refresh
+            if (selectedDate === today || data?.date === selectedDate) {
+              // Force immediate refresh instead of debounced
+              console.log('🚀 Triggering immediate ledger refresh');
+              setLoading(true);
+              loadDayData(selectedDate);
             }
           };
 
-          // Subscribe to relevant events
+          // Subscribe to relevant events for comprehensive real-time updates
           eventBus.on('DAILY_LEDGER_UPDATED', handleDailyLedgerUpdate);
           eventBus.on('daily_ledger:updated', handleDailyLedgerUpdate); // New event name
           eventBus.on('INVOICE_CREATED', handleInvoiceCreated);
           eventBus.on('invoice:created', handleInvoiceCreated); // New event name
           eventBus.on('PAYMENT_RECORDED', handlePaymentReceived);
           eventBus.on('payment:recorded', handlePaymentReceived); // New event name
+
+          // Additional events for comprehensive coverage
+          eventBus.on('CUSTOMER_BALANCE_UPDATED', handlePaymentReceived);
+          eventBus.on('LEDGER_ENTRY_CREATED', handleDailyLedgerUpdate);
+          eventBus.on('FIFO_PAYMENT_RECORDED', handlePaymentReceived); // For "Give Money to Customer"
+
+          // Force refresh on UI refresh requests
+          eventBus.on('UI_REFRESH_REQUESTED', (data: any) => {
+            if (data?.type?.includes('ledger') || data?.type?.includes('payment')) {
+              console.log('📊 Force refresh requested for ledger:', data);
+              setLoading(true);
+              loadDayData(selectedDate);
+            }
+          });
+
+          console.log('✅ Daily Ledger real-time event listeners configured');
 
           // Store cleanup function
           (window as any).dailyLedgerCleanup = () => {
@@ -285,6 +311,10 @@ const DailyLedger: React.FC = () => {
             eventBus.off('invoice:created', handleInvoiceCreated);
             eventBus.off('PAYMENT_RECORDED', handlePaymentReceived);
             eventBus.off('payment:recorded', handlePaymentReceived);
+            eventBus.off('CUSTOMER_BALANCE_UPDATED', handlePaymentReceived);
+            eventBus.off('LEDGER_ENTRY_CREATED', handleDailyLedgerUpdate);
+            eventBus.off('FIFO_PAYMENT_RECORDED', handlePaymentReceived);
+            eventBus.off('UI_REFRESH_REQUESTED');
           };
         }
       }
@@ -612,6 +642,7 @@ const DailyLedger: React.FC = () => {
           // since they affect overall daily cash flow
           if (entry.category === 'refunds' ||
             entry.category === 'Cash Refund' ||
+            entry.category === 'Payment Given' || // Money given to customers should always be visible
             entry.description?.includes('Cash refund') ||
             entry.reference_type === 'other') return true;
 
@@ -629,6 +660,7 @@ const DailyLedger: React.FC = () => {
           // CRITICAL FIX: Always include system entries (refunds, salary, etc.) regardless of payment channel filter
           if (entry.category === 'refunds' ||
             entry.category === 'Cash Refund' ||
+            entry.category === 'Payment Given' || // Money given to customers should always be visible
             entry.description?.includes('Cash refund') ||
             entry.reference_type === 'other' ||
             !entry.customer_id ||
@@ -957,6 +989,7 @@ const DailyLedger: React.FC = () => {
           'Marketing Expense',
           'Professional Services',
           'Bank Charges',
+          'Payment Given', // Money given to customers (reducing their credit)
           'Other Income',
           'Other Expense'
         ];

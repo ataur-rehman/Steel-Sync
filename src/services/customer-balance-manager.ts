@@ -376,7 +376,7 @@ export class CustomerBalanceManager {
             console.log('🔍 [REAL-TIME-BULK] Getting all customers with REAL-TIME validated balances...');
 
             const customers = await this.dbConnection.select(
-                'SELECT id, name, balance, phone, address, cnic, updated_at FROM customers ORDER BY name'
+                'SELECT id, name, balance, phone, address, cnic, updated_at FROM customers WHERE id != -1 ORDER BY name'
             );
 
             // Process customers in parallel for better performance but NO CACHING
@@ -432,7 +432,7 @@ export class CustomerBalanceManager {
             console.log('🔧 [STARTUP-VALIDATION] Validating all customer balances...');
 
             const customers = await this.dbConnection.select(
-                'SELECT id, name, balance FROM customers WHERE id IN (SELECT DISTINCT customer_id FROM customer_ledger_entries)'
+                'SELECT id, name, balance FROM customers WHERE id IN (SELECT DISTINCT customer_id FROM customer_ledger_entries) AND id != -1'
             );
 
             let fixedCount = 0;

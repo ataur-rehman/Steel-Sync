@@ -18,6 +18,7 @@ import { BUSINESS_EVENTS } from '../../utils/eventBus';
 import { initializeDashboardRealTimeUpdates } from '../../services/dashboardRealTimeUpdater';
 import { enhanceDatabaseWithRealTimeEvents, setupPeriodicDashboardRefresh } from '../../services/databaseEventEnhancer';
 import { eventBus } from '../../utils/eventBus';
+import { renderCustomerName } from '../../utils/customerNameUtils';
 // import StockMovementDebugger from '../debug/StockMovementDebugger';
 
 interface DashboardStats {
@@ -536,7 +537,7 @@ export default function Dashboard() {
                           </p>
                           <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 transition-colors flex-shrink-0" />
                         </div>
-                        <p className="text-sm text-gray-500 mt-1 truncate">{invoice.customer_name}</p>
+                        <p className="text-sm text-gray-500 mt-1">{renderCustomerName(invoice.customer_name)}</p>
                         <p className="text-xs text-gray-400 mt-1">
                           <span className="text-xs text-gray-500">
                             {formatDate(invoice.date)}

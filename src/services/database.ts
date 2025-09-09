@@ -4563,6 +4563,27 @@ export class DatabaseService {
               );
               console.log(`✅ Daily ledger entry created for regular customer payment: Rs.${cashPayment.toFixed(1)}`);
 
+              // 🚀 EMIT PAYMENT_RECORDED EVENT for real-time Daily Ledger updates
+              try {
+                eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, {
+                  customerId: invoiceData.customer_id,
+                  customerName: customerName,
+                  amount: cashPayment,
+                  paymentMethod: invoiceData.payment_method || 'cash',
+                  paymentChannel: paymentChannelData?.name || (invoiceData.payment_method || 'cash'),
+                  type: 'incoming',
+                  category: 'Payment Received',
+                  invoiceId: invoiceId,
+                  billNumber: billNumber,
+                  date: date,
+                  time: time,
+                  source: 'invoice_payment'
+                });
+                console.log('✅ PAYMENT_RECORDED event emitted for invoice payment');
+              } catch (eventError) {
+                console.warn('⚠️ Failed to emit PAYMENT_RECORDED event for invoice payment:', eventError);
+              }
+
               // Update payment channel daily ledger for regular customer payments
               if (paymentChannelData?.id) {
                 try {
@@ -4616,6 +4637,27 @@ export class DatabaseService {
                 ]
               );
               console.log(`✅ Daily ledger entry created for guest customer payment: Rs.${cashPayment.toFixed(1)}`);
+
+              // 🚀 EMIT PAYMENT_RECORDED EVENT for real-time Daily Ledger updates (guest customers)
+              try {
+                eventBus.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, {
+                  customerId: null, // Guest customer
+                  customerName: customerName + ' (Guest)',
+                  amount: cashPayment,
+                  paymentMethod: invoiceData.payment_method || 'cash',
+                  paymentChannel: paymentChannelData?.name || (invoiceData.payment_method || 'cash'),
+                  type: 'incoming',
+                  category: 'Payment Received',
+                  invoiceId: invoiceId,
+                  billNumber: billNumber,
+                  date: date,
+                  time: time,
+                  source: 'guest_invoice_payment'
+                });
+                console.log('✅ PAYMENT_RECORDED event emitted for guest invoice payment');
+              } catch (eventError) {
+                console.warn('⚠️ Failed to emit PAYMENT_RECORDED event for guest invoice payment:', eventError);
+              }
 
               // CRITICAL FIX: Update payment channel daily ledger for guest customer payments
               if (paymentChannelData?.id) {
@@ -7679,6 +7721,203 @@ export class DatabaseService {
   }
 
   /**
+   * Give money to customer (reduce their credit balance)
+   * This is used when giving cash/bank transfer to customers who have credit balance
+   */
+  async giveMoneyToCustomer(paymentData: {
+    customer_id: number;
+    amount: number;
+    payment_method: string;
+    payment_channel_id: number;
+    payment_channel_name: string;
+    reference?: string;
+    notes?: string;
+    created_by?: string;
+  }): Promise<any> {
+    try {
+      console.log('💸 GIVE MONEY TO CUSTOMER: Starting transaction...', paymentData);
+      const startTime = performance.now();
+
+      // Validate customer exists and has sufficient credit
+      const customer = await this.dbConnection.select(`
+        SELECT id, name, 
+               COALESCE((SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) 
+                         FROM customer_ledger_entries WHERE customer_id = ?), 0) as balance
+        FROM customers WHERE id = ?
+      `, [paymentData.customer_id, paymentData.customer_id]);
+
+      if (!customer.length) {
+        throw new Error('Customer not found');
+      }
+
+      const customerBalance = customer[0].balance;
+      const customerName = customer[0].name;
+
+      // In your system: negative balance = customer has credit, positive = customer owes money
+      const availableCredit = Math.abs(Math.min(0, customerBalance)); // Extract credit amount from negative balance
+
+      if (customerBalance > 0) {
+        throw new Error(`Customer has no credit balance. Customer owes Rs. ${customerBalance.toFixed(2)} to the business.`);
+      }
+
+      if (customerBalance === 0) {
+        throw new Error(`Customer has no credit balance. Customer balance is zero.`);
+      }
+
+      if (paymentData.amount > availableCredit) {
+        throw new Error(`Insufficient customer credit. Available: Rs. ${availableCredit.toFixed(2)}, Requested: Rs. ${paymentData.amount.toFixed(2)}`);
+      }
+
+      await this.dbConnection.execute('BEGIN IMMEDIATE TRANSACTION');
+
+      try {
+        const currentDateTime = getCurrentSystemDateTime();
+        const currentDate = currentDateTime.dbDate;
+        const currentTime = currentDateTime.dbTime;
+
+        // 1. Create DEBIT entry in customer ledger (reduces customer's credit)
+        console.log('💸 Step 1: Creating customer ledger debit entry...');
+        await this.dbConnection.execute(`
+          INSERT INTO customer_ledger_entries (
+            customer_id, customer_name, entry_type, transaction_type, amount, 
+            description, reference_id, reference_number, date, time, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          paymentData.customer_id,
+          customerName,
+          'debit', // Reduces customer balance
+          'payment',
+          paymentData.amount,
+          `Money given to customer via ${paymentData.payment_channel_name}`,
+          null, // No reference_id for direct cash giving
+          paymentData.reference || '',
+          currentDate,
+          currentTime,
+          paymentData.created_by || 'system',
+          new Date().toISOString()
+        ]);
+
+        // 2. Create OUTGOING entry in daily ledger (money leaving business)
+        console.log('💸 Step 2: Creating daily ledger outgoing entry...');
+        await this.dbConnection.execute(`
+          INSERT INTO ledger_entries (
+            type, category, amount, description, reference_id, reference_type, reference_number,
+            payment_method, payment_channel_id, payment_channel_name,
+            customer_id, customer_name, vendor_id, vendor_name,
+            date, time, created_by, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          'outgoing', // Money going out of business
+          'Payment Given', // Category for money given to customer
+          paymentData.amount,
+          `Money given to customer: ${customerName}`,
+          paymentData.customer_id,
+          'payment',
+          paymentData.reference || '',
+          paymentData.payment_method,
+          paymentData.payment_channel_id,
+          paymentData.payment_channel_name,
+          paymentData.customer_id,
+          customerName,
+          null, // No vendor
+          null, // No vendor
+          currentDate,
+          currentTime,
+          paymentData.created_by || 'system',
+          new Date().toISOString()
+        ]);
+
+        await this.dbConnection.execute('COMMIT');
+
+        const newCustomerBalance = customerBalance + paymentData.amount; // Add to negative balance to reduce credit
+        const endTime = performance.now();
+
+        console.log(`✅ Money given to customer successfully in ${(endTime - startTime).toFixed(2)}ms`);
+
+        const result = {
+          success: true,
+          customer_id: paymentData.customer_id,
+          customer_name: customerName,
+          amount_given: paymentData.amount,
+          previous_balance: customerBalance,
+          new_balance: newCustomerBalance,
+          payment_method: paymentData.payment_method,
+          payment_channel: paymentData.payment_channel_name,
+          reference: paymentData.reference,
+          date: currentDate,
+          time: currentTime
+        };
+
+        // Emit comprehensive update events for real-time UI updates
+        try {
+          const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
+          if (eventBusInstance) {
+            // Emit customer balance update
+            eventBusInstance.emit(BUSINESS_EVENTS.CUSTOMER_BALANCE_UPDATED, {
+              customerId: paymentData.customer_id,
+              customerName: customerName,
+              newBalance: newCustomerBalance,
+              amount: paymentData.amount,
+              type: 'money_given'
+            });
+
+            // Emit payment recorded event (Daily Ledger listens to this)
+            eventBusInstance.emit(BUSINESS_EVENTS.PAYMENT_RECORDED, {
+              customerId: paymentData.customer_id,
+              customerName: customerName,
+              amount: paymentData.amount,
+              paymentMethod: paymentData.payment_method,
+              paymentChannel: paymentData.payment_channel_name,
+              type: 'outgoing',
+              category: 'Payment Given',
+              date: currentDate,
+              time: currentTime
+            });
+
+            // Emit daily ledger update event (for immediate UI refresh)
+            eventBusInstance.emit('DAILY_LEDGER_UPDATED', {
+              date: currentDate,
+              type: 'payment_given',
+              amount: paymentData.amount,
+              customer: customerName
+            });
+
+            // Emit specific FIFO payment event
+            eventBusInstance.emit('FIFO_PAYMENT_RECORDED', {
+              customerId: paymentData.customer_id,
+              customerName: customerName,
+              amount: paymentData.amount,
+              type: 'money_given',
+              date: currentDate
+            });
+
+            // Emit UI refresh request for immediate updates
+            eventBusInstance.emit('UI_REFRESH_REQUESTED', {
+              type: 'payment_given_to_customer',
+              date: currentDate,
+              amount: paymentData.amount
+            });
+
+            console.log('✅ Comprehensive real-time events emitted for UI updates');
+          }
+        } catch (eventError) {
+          console.warn('⚠️ Failed to emit update events:', eventError);
+        }
+
+        return result;
+
+      } catch (error) {
+        await this.dbConnection.execute('ROLLBACK');
+        throw error;
+      }
+
+    } catch (error) {
+      console.error('❌ Failed to give money to customer:', error);
+      throw error;
+    }
+  }
+
+  /**
    * 🔍 PRODUCTION-GRADE: Get customer pending invoices in FIFO order
    * Optimized query for high-performance invoice retrieval with pagination support
    */
@@ -10118,7 +10357,7 @@ export class DatabaseService {
       const countParams: any[] = [];
 
       // Add WHERE conditions for search and balance filtering
-      let whereClause = ' WHERE 1=1';
+      let whereClause = ' WHERE c.id != -1'; // CRITICAL: Hide guest customer from customer list
 
       if (search) {
         whereClause += ` AND (c.name LIKE ? OR c.phone LIKE ? OR c.cnic LIKE ?)`;
@@ -16764,58 +17003,145 @@ export class DatabaseService {
   // Delete customer
   async deleteCustomer(id: number): Promise<void> {
     try {
-      console.log(`🗑️ Attempting to delete customer with ID: ${id}`);
+      console.log(`🗑️ PRODUCTION: Attempting to delete customer with ID: ${id}`);
+      const startTime = performance.now();
 
-      // Check if customer has any related records
-      console.log('🔍 Checking for related records...');
-      const checks = await Promise.all([
-        // Check invoice items through invoices table
-        this.dbConnection.select(`
-          SELECT COUNT(*) as count 
-          FROM invoice_items ii 
-          JOIN invoices i ON ii.invoice_id = i.id 
-          WHERE i.customer_id = ?
-        `, [id]),
-        // Check invoices
-        this.dbConnection.select('SELECT COUNT(*) as count FROM invoices WHERE customer_id = ?', [id]),
-        // Check customer ledger entries
-        this.dbConnection.select('SELECT COUNT(*) as count FROM customer_ledger_entries WHERE customer_id = ?', [id])
-      ]);
-
-      const [invoiceItemsResult, invoicesResult, ledgerResult] = checks;
-
-      const hasInvoiceItems = invoiceItemsResult && invoiceItemsResult[0]?.count > 0;
-      const hasInvoices = invoicesResult && invoicesResult[0]?.count > 0;
-      const hasLedgerEntries = ledgerResult && ledgerResult[0]?.count > 0;
-
-      console.log(`📊 Related records check:`, {
-        invoiceItems: invoiceItemsResult?.[0]?.count || 0,
-        invoices: invoicesResult?.[0]?.count || 0,
-        ledgerEntries: ledgerResult?.[0]?.count || 0
-      });
-
-      if (hasInvoiceItems || hasInvoices || hasLedgerEntries) {
-        const errorMsg = 'Cannot delete customer with existing transactions, invoices, or ledger entries. Please contact administrator to archive this customer instead.';
-        console.warn(`⚠️ ${errorMsg}`);
-        throw new Error(errorMsg);
+      // CRITICAL: Prevent deletion of guest customer
+      if (id === -1) {
+        throw new Error('Cannot delete the guest customer record (ID: -1). This is a system record required for proper operation.');
       }
 
-      // Delete customer
-      console.log(`🗑️ Deleting customer with ID: ${id}...`);
-      await this.dbConnection.execute('DELETE FROM customers WHERE id = ?', [id]);
+      // EFFICIENT: Single query to get customer and balance
+      const customer = await this.dbConnection.select(`
+        SELECT name, 
+               COALESCE((SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) 
+                         FROM customer_ledger_entries WHERE customer_id = ?), 0) as balance
+        FROM customers WHERE id = ?
+      `, [id, id]);
 
-      // REAL-TIME UPDATE: Emit customer delete event using EventBus
+      if (!customer.length) {
+        throw new Error('Customer not found');
+      }
+
+      const customerName = customer[0].name;
+      const balance = customer[0].balance;
+
+      // BUSINESS RULE: Balance must be under Rs. 100 to allow deletion
+      if (Math.abs(balance) >= 100) {
+        throw new Error(`Cannot delete customer with balance Rs. ${balance.toFixed(2)}. Balance must be under Rs. 100. Please settle the balance first.`);
+      }
+
+      console.log(`✅ Customer ${customerName} eligible for deletion (balance: Rs. ${balance.toFixed(2)})`);
+
+      // Ensure guest customer exists for foreign key constraints
+      await this.ensureGuestCustomerExists();
+
+      await this.dbConnection.execute('BEGIN IMMEDIATE TRANSACTION');
+
       try {
-        // Use imported eventBus first, fallback to window.eventBus
-        const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
-        if (eventBusInstance) {
-          eventBusInstance.emit('customer:deleted', { customerId: id });
-          // Also emit legacy event format for compatibility
-          eventBusInstance.emit('CUSTOMER_DELETED', { customerId: id });
-          console.log(`✅ CUSTOMER_DELETED event emitted for customer ID: ${id}`);
+        // CRITICAL: Handle all foreign key constraints in correct order
+        console.log('🔧 Step 1: Updating invoices to preserve history...');
+        const invoiceUpdateResult = await this.dbConnection.execute(`
+          UPDATE invoices 
+          SET customer_name = '[DELETED] ' || customer_name
+          WHERE customer_id = ? AND customer_name NOT LIKE '[DELETED]%'
+        `, [id]);
+
+        // CRITICAL: Preserve audit trail - Update customer ledger entries and transfer to guest customer
+        console.log('🔧 Step 2: Updating customer ledger entries to preserve audit trail...');
+        const ledgerUpdateResult = await this.dbConnection.execute(`
+          UPDATE customer_ledger_entries 
+          SET customer_name = '[DELETED] ' || customer_name,
+              customer_id = -1
+          WHERE customer_id = ? AND customer_name NOT LIKE '[DELETED]%'
+        `, [id]);
+
+        // CRITICAL: Preserve audit trail - Update payments and transfer to guest customer
+        console.log('🔧 Step 3: Updating customer payments to preserve audit trail...');
+        const paymentsUpdateResult = await this.dbConnection.execute(`
+          UPDATE payments 
+          SET customer_name = '[DELETED] ' || customer_name,
+              customer_id = -1
+          WHERE customer_id = ? AND customer_name NOT LIKE '[DELETED]%'
+        `, [id]);
+
+        // CRITICAL: Update daily ledger entries to preserve audit trail
+        console.log('🔧 Step 4: Updating daily ledger entries to preserve audit trail...');
+        const dailyLedgerUpdateResult = await this.dbConnection.execute(`
+          UPDATE ledger_entries 
+          SET customer_name = '[DELETED] ' || customer_name,
+              customer_id = -1
+          WHERE customer_id = ? AND customer_name NOT LIKE '[DELETED]%'
+        `, [id]);
+
+        // CRITICAL: Update stock movements to preserve audit trail
+        console.log('🔧 Step 5: Updating stock movements to preserve audit trail...');
+        const stockMovementsUpdateResult = await this.dbConnection.execute(`
+          UPDATE stock_movements 
+          SET customer_name = '[DELETED] ' || customer_name,
+              customer_id = -1
+          WHERE customer_id = ? AND customer_name NOT LIKE '[DELETED]%'
+        `, [id]);
+
+        console.log('🔧 Step 6: Transferring invoices to guest customer (preserve invoice data)...');
+        const invoiceTransferResult = await this.dbConnection.execute(`
+          UPDATE invoices 
+          SET customer_id = -1
+          WHERE customer_id = ?
+        `, [id]);
+
+        // Tables with ON DELETE SET NULL will handle themselves:
+        // - stock_movements.customer_id will be set to NULL automatically
+        // Note: ledger_entries.customer_id is now preserved with [DELETED] customer_name
+
+        console.log('🔧 Step 7: Deleting customer record...');
+        const customerDeleteResult = await this.dbConnection.execute('DELETE FROM customers WHERE id = ?', [id]);
+
+        await this.dbConnection.execute('COMMIT');
+
+        const endTime = performance.now();
+        console.log(`✅ PRODUCTION: Customer deleted successfully with audit trail preserved in ${(endTime - startTime).toFixed(2)}ms`);
+        console.log(`📊 Deletion summary:`, {
+          customerId: id,
+          customerName,
+          deletedBalance: balance,
+          invoicesUpdated: invoiceUpdateResult.changes || 0,
+          invoicesTransferred: invoiceTransferResult.changes || 0,
+          ledgerEntriesUpdated: ledgerUpdateResult.changes || 0,
+          paymentsUpdated: paymentsUpdateResult.changes || 0,
+          dailyLedgerEntriesUpdated: dailyLedgerUpdateResult.changes || 0,
+          stockMovementsUpdated: stockMovementsUpdateResult.changes || 0,
+          customerDeleted: customerDeleteResult.changes || 0,
+          executionTime: `${(endTime - startTime).toFixed(2)}ms`
+        });
+
+        // PERFORMANCE: Clear only affected caches
+        this.invalidateCustomerCache();
+
+        // REAL-TIME UPDATE: Emit customer delete event using EventBus
+        try {
+          const eventBusInstance = eventBus || (typeof window !== 'undefined' ? (window as any).eventBus : null);
+          if (eventBusInstance) {
+            eventBusInstance.emit('customer:deleted', {
+              customerId: id,
+              customerName,
+              deletedBalance: balance,
+              preservedInvoices: invoiceUpdateResult.changes || 0,
+              updatedPayments: paymentsUpdateResult.changes || 0,
+              transferredInvoices: invoiceTransferResult.changes || 0,
+              updatedStockMovements: stockMovementsUpdateResult.changes || 0
+            });
+            eventBusInstance.emit('CUSTOMER_DELETED', { customerId: id });
+            console.log(`✅ CUSTOMER_DELETED event emitted for customer ID: ${id}`);
+          }
+        } catch (eventError) {
+          console.warn('Could not emit CUSTOMER_DELETED event:', eventError);
         }
-      } catch (eventError) {
-        console.warn('Could not emit CUSTOMER_DELETED event:', eventError);
+
+      } catch (transactionError) {
+        await this.dbConnection.execute('ROLLBACK');
+        console.error('❌ Transaction failed, rolling back:', transactionError);
+        throw transactionError;
       }
 
       // PERFORMANCE: Invalidate customer cache for real-time updates
@@ -16825,6 +17151,54 @@ export class DatabaseService {
     } catch (error) {
       console.error('❌ Error deleting customer:', error);
       throw error;
+    }
+  }
+
+  /**
+   * PRODUCTION: Check if customer can be deleted (balance under Rs. 100)
+   */
+  async canDeleteCustomer(customerId: number): Promise<{
+    canDelete: boolean;
+    reason?: string;
+    balance: number;
+  }> {
+    try {
+      const customer = await this.dbConnection.select(`
+        SELECT name, 
+               COALESCE((SELECT SUM(CASE WHEN entry_type = 'debit' THEN amount ELSE -amount END) 
+                         FROM customer_ledger_entries WHERE customer_id = ?), 0) as balance
+        FROM customers WHERE id = ?
+      `, [customerId, customerId]);
+
+      if (!customer.length) {
+        return {
+          canDelete: false,
+          reason: 'Customer not found',
+          balance: 0
+        };
+      }
+
+      const balance = customer[0].balance;
+
+      if (Math.abs(balance) >= 100) {
+        return {
+          canDelete: false,
+          reason: `Cannot delete customer with balance Rs. ${balance.toFixed(2)}. Balance must be under Rs. 100.`,
+          balance
+        };
+      }
+
+      return {
+        canDelete: true,
+        balance
+      };
+
+    } catch (error) {
+      return {
+        canDelete: false,
+        reason: `Error checking customer: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        balance: 0
+      };
     }
   }
 

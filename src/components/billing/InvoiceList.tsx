@@ -10,6 +10,7 @@ import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { formatDate, formatTime } from '../../utils/formatters';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';
 import { useDebounce } from '../../hooks/useDebounce';
+import { renderCustomerName } from '../../utils/customerNameUtils';
 
 // 🚀 PERFORMANCE: Performance measurement utilities
 const PERFORMANCE_KEY = 'invoiceList_performance';
@@ -964,7 +965,7 @@ const InvoiceList: React.FC = () => {
                     <div className="mb-4">
                       <div className="flex items-center space-x-2 mb-1">
                         <User className="h-4 w-4 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-900">{invoice.customer_name}</span>
+                        <span className="text-sm font-medium text-gray-900">{renderCustomerName(invoice.customer_name)}</span>
                       </div>
                       {invoice.customer_phone && (
                         <div className="flex items-center space-x-2">
@@ -1135,7 +1136,7 @@ const InvoiceList: React.FC = () => {
                             <td className="px-4 py-4">
                               <div className="flex items-center space-x-2">
                                 <div className="min-w-0">
-                                  <div className="text-sm font-medium text-gray-900 truncate max-w-32" title={invoice.customer_name}>{invoice.customer_name}</div>
+                                  <div className="text-sm font-medium text-gray-900" title={invoice.customer_name}>{renderCustomerName(invoice.customer_name)}</div>
                                   {invoice.customer_phone && (
                                     <div className="text-xs text-gray-500 truncate max-w-28" title={invoice.customer_phone}>{invoice.customer_phone}</div>
                                   )}
@@ -1247,7 +1248,7 @@ const InvoiceList: React.FC = () => {
                             {formatInvoiceNumber(invoice.bill_number)}
                           </h3>
                           <p className="text-sm text-gray-500 mt-1 break-words" title={invoice.customer_name}>
-                            {invoice.customer_name}
+                            {renderCustomerName(invoice.customer_name)}
                           </p>
                         </div>
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ml-2 flex-shrink-0 ${statusInfo.color}`}>

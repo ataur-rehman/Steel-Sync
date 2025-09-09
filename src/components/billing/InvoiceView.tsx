@@ -8,6 +8,7 @@ import { formatInvoiceNumber } from '../../utils/numberFormatting';
 import { Printer, Edit, Trash2, DollarSign, Package, User } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SmartDetailHeader from '../common/SmartDetailHeader';
+import { renderCustomerName, getCleanCustomerName } from '../../utils/customerNameUtils';
 
 interface Invoice {
   id: number;
@@ -303,7 +304,7 @@ export default function InvoiceView() {
     <div className="min-h-screen bg-gray-50">
       <SmartDetailHeader
         title={`Invoice #${formatInvoiceNumber(invoice.bill_number)}`}
-        subtitle={`${invoice.customer_name} • ${formatDate(invoice.created_at)}`}
+        subtitle={`${getCleanCustomerName(invoice.customer_name)} • ${formatDate(invoice.created_at)}`}
         backToListPath="/billing/list"
         backToListLabel="Back to Invoices"
         backButtonMode="list"
@@ -374,7 +375,7 @@ export default function InvoiceView() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Name</label>
-                <p className="text-gray-900 font-semibold">{invoice.customer_name}</p>
+                <p className="text-gray-900 font-semibold">{renderCustomerName(invoice.customer_name)}</p>
               </div>
               {invoice.customer_phone && (
                 <div>
