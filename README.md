@@ -1,21 +1,24 @@
-# Steel Store Management System
+# Steel Sync
 
-✨ **Ittehad IMS** is a modern desktop application designed to streamline business operations for hardware and iron stores. From inventory and billing to customer/vendor management and financial reporting, the system provides a complete solution in one secure, responsive interface.
+✨ **Ittehad Steel Sync** is a modern desktop application designed to streamline business operations for hardware and iron stores. From inventory and billing to customer/vendor management and financial reporting, the system provides a complete solution in one secure, responsive interface.
 
 
 ## Project Overview
 
-The aim of Ittehad IMS is to digitize manual business processes in small-to-medium hardware and iron shops. Traditionally, these businesses rely on paper-based systems that are error-prone and inefficient. This application replaces them with a robust, desktop-based system built with React, TypeScript, and Tauri, ensuring reliability, speed, and ease of use. This system was developed as a freelance project for a local hardware business, tailored to their operational needs.
+The aim of Ittehad Steel Sync is to digitize manual business processes in small-to-medium hardware and iron shops. Traditionally, these businesses rely on paper-based systems that are error-prone and inefficient. This application replaces them with a robust, desktop-based system built with React, TypeScript, and Tauri, ensuring reliability, speed, and ease of use. This system was developed as a freelance project for a local hardware business, tailored to their operational needs.
 
 Users can manage products, vendors, customers, invoices, and payments, while also monitoring stock and financial performance through an interactive dashboard.
 
 
 ## Screenshots
+## Screenshots
   <div style="display: flex; justify-content: space-between; gap: 20px;">
 <img src="dashboard.png" alt="Dashboard" width="400" />
-<img src="invoiceForm.png" alt="Inovice Form" width="400" />
-<img src="inoviceDetail.png" alt="Invoice Detail" width="400" />
+<img src="invoiceForm.png" alt="Invoice" width="400" />
+<img src="invoiceDetail.png" alt="Invoice Detail" width="400" />
 <img src="dailyLedger.png" alt="Daily Ledger" width="400" />
+<img src="customerLedger.png" alt="Customers Page" width="400" />
+<img src="stockReport.png" alt="Stock Report" width="400" />
 </div>
 
 
@@ -49,7 +52,7 @@ Many small and medium-sized iron and hardware stores still rely on manual regist
 
 1. Clone the Repository
 
-git clone https://github.com/ataur-rehman/ittehad-iron-store.git
+git clone https://github.com/ataur-rehman/steel-sync.git
 
 2. Install Dependencies
 
