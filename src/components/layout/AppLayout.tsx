@@ -1,6 +1,6 @@
 // components/layout/AppLayout.tsx
 import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigation } from '../../hooks/useNavigation';
 import { settingsService } from '../../services/settingsService';
@@ -17,7 +17,6 @@ import {
   Activity,
   Truck,
   CreditCard,
-  Database,
   CloudUpload
 } from 'lucide-react';
 
@@ -31,15 +30,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [companyName, setCompanyName] = useState('Ittehad Iron Store');
 
   // Add error handling for useAuth
-  let user, logout;
+  let logout;
   try {
     const authContext = useAuth();
-    user = authContext.user;
     logout = authContext.logout;
   } catch (error) {
     console.error('useAuth error in AppLayout:', error);
     // Fallback to default values
-    user = null;
     logout = () => {
       console.warn('Logout attempted but auth context not available');
       window.location.reload();
@@ -48,7 +45,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const { navigateTo, getCurrentTab } = useNavigation();
   const location = useLocation();
-  const navigate = useNavigate();
 
   // Get current tab for highlighting
   const currentTab = getCurrentTab();

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useDatabase } from '../../hooks/useDatabase';
 
-import { ActivityType, ModuleType } from '../../services/activityLogger';
 import type { Product } from '../../types';
 import { toast } from 'react-hot-toast';
 import { formatUnitString, parseUnit } from '../../utils/unitUtils';

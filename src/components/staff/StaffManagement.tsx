@@ -157,10 +157,6 @@ const StaffManagement: React.FC = () => {
         toast.success('Staff member updated successfully');
       } else {
         // Create new staff
-        const result = await staffService.createStaff({
-          ...formData,
-          created_by: 'admin' // TODO: Get from current user session
-        });
 
         // Log activity
 

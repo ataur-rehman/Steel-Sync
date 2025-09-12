@@ -4,7 +4,6 @@ import { db } from '../../services/database';
 import { formatCurrency, formatTime } from '../../utils/formatters';
 import { formatReceivingNumber } from '../../utils/numberFormatting';
 
-import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { emitPaymentEvents } from '../../services/dashboardRealTimeUpdater';
 import { eventBus, BUSINESS_EVENTS } from '../../utils/eventBus';
 import { getCurrentSystemDateTime } from '../../utils/systemDateTime';

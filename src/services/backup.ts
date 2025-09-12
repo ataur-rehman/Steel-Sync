@@ -250,7 +250,7 @@ export class ProductionFileBackupService {
       const metadata: FileBackupMetadata = {
         id: backupId,
         filename,
-        originalFilename: 'store.db',
+        originalFilename: 'store-2025.db',
         size: backupResult.size,
         checksum: backupResult.checksum,
         createdAt: new Date(),
@@ -277,8 +277,6 @@ export class ProductionFileBackupService {
 
           // Track upload start time for speed calculation
           const uploadStartTime = Date.now();
-          let lastProgressTime = uploadStartTime;
-          let lastProgressBytes = 0;
 
           googleDriveFileId = await this.uploadToGoogleDrive(
             backupData,
@@ -798,7 +796,7 @@ export class ProductionFileBackupService {
       const metadata: FileBackupMetadata = {
         id: backupId,
         filename: driveFile.name,
-        originalFilename: 'store.db',
+        originalFilename: 'store-2025.db',
         size: driveFile.size,
         checksum: '', // Will be calculated during restore if needed
         createdAt: new Date(driveFile.createdTime),
@@ -1399,7 +1397,7 @@ export class ProductionFileBackupService {
             const driveBackup: FileBackupMetadata = {
               id: `drive-${driveFile.id}`,
               filename: driveFile.name,
-              originalFilename: 'store.db',
+              originalFilename: 'store-2025.db',
               size: driveFile.size,
               checksum: '', // We'll calculate this when downloading if needed
               createdAt: new Date(driveFile.createdTime),
@@ -1429,57 +1427,6 @@ export class ProductionFileBackupService {
     }
   }
 
-  /**
-   * Verify that a backup file contains the latest database content
-   * This ensures recent transactions (like new invoices) are included
-   */
-  private async verifyBackupContent(backupPath: string): Promise<void> {
-    console.log('🔍 [BACKUP-VERIFY] Checking backup contains latest data...');
-
-    try {
-      // Read the backup file
-      const backupData = await readFile(backupPath, { baseDir: BaseDirectory.AppData });
-
-      // Write to a temporary location for verification
-      const tempVerifyPath = `${this.BACKUP_DIR}/verify-temp.db`;
-      await writeFile(tempVerifyPath, backupData, { baseDir: BaseDirectory.AppData });
-
-      // Get the actual database path
-      const { path: originalDbPath } = await getSingleDatabasePath();
-
-      // Compare file sizes as a basic check
-      const originalData = await readFile(originalDbPath);
-
-      console.log(`📊 [BACKUP-VERIFY] Original DB size: ${originalData.length} bytes`);
-      console.log(`📊 [BACKUP-VERIFY] Backup size: ${backupData.length} bytes`);
-
-      // If backup is significantly smaller, it might be missing data
-      const sizeDifference = Math.abs(originalData.length - backupData.length);
-      const sizeDifferencePercent = (sizeDifference / originalData.length) * 100;
-
-      if (sizeDifferencePercent > 5) { // More than 5% difference
-        console.warn(`⚠️ [BACKUP-VERIFY] Significant size difference: ${sizeDifferencePercent.toFixed(2)}%`);
-        // Don't fail, just warn - size differences can be normal due to SQLite internals
-      }
-
-      // Verify the backup file is a valid SQLite database
-      const backupChecksum = await this.calculateChecksum(backupData);
-      console.log(`🔐 [BACKUP-VERIFY] Backup checksum: ${backupChecksum.substring(0, 16)}...`);
-
-      // Clean up temp file
-      try {
-        await invoke('delete_backup_file', { path: tempVerifyPath });
-      } catch (cleanupError) {
-        console.warn('⚠️ [BACKUP-VERIFY] Failed to cleanup temp file:', cleanupError);
-      }
-
-      console.log('✅ [BACKUP-VERIFY] Backup content verification completed');
-
-    } catch (error) {
-      console.error('❌ [BACKUP-VERIFY] Backup verification failed:', error);
-      throw new Error(`Backup verification error: ${error}`);
-    }
-  }
 
   /**
    * Show restore instructions and automatically close the application

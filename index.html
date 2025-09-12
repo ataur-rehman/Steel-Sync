@@ -14,11 +14,72 @@
 <body>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
-
-  <!-- Test Data Generators -->
-  <script type="module" src="/src/scripts/integrated-large-scale-test-data-generator.js"></script>
-  <script type="module" src="/src/scripts/safe-test-data-generator.js"></script>
-  <script type="module" src="/src/scripts/transaction-data-generator.js"></script>
+  
+  <!-- Disable Right Click Context Menu -->
+  <script>
+    // Disable right-click context menu
+    document.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      return false;
+    });
+    
+    // Disable developer tools shortcuts (BUT ALLOW Ctrl+C for copying)
+    document.addEventListener('keydown', function(e) {
+      // ✅ ALLOW Ctrl+C (Copy) - keyCode 67 without Shift
+      if (e.ctrlKey && !e.shiftKey && e.keyCode === 67) {
+        console.log('📋 Copy (Ctrl+C) allowed');
+        return true; // Allow copy operation
+      }
+      
+      // F12
+      if (e.keyCode === 123) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+Shift+I (Developer Tools)
+      if (e.ctrlKey && e.shiftKey && e.keyCode === 73) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+Shift+J (Console)
+      if (e.ctrlKey && e.shiftKey && e.keyCode === 74) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+U (View Source)
+      if (e.ctrlKey && e.keyCode === 85) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // Ctrl+Shift+C (Inspect Element) - BLOCKED, but Ctrl+C without Shift is allowed
+      if (e.ctrlKey && e.shiftKey && e.keyCode === 67) {
+        e.preventDefault();
+        return false;
+      }
+      
+      // ✅ ALLOW other common user shortcuts
+      // Ctrl+A (Select All), Ctrl+V (Paste), Ctrl+X (Cut), Ctrl+Z (Undo), Ctrl+Y (Redo)
+      if (e.ctrlKey && !e.shiftKey && [65, 86, 88, 90, 89].includes(e.keyCode)) {
+        return true; // Allow common editing shortcuts
+      }
+    });
+    
+    // Disable text selection (optional - uncomment if needed)
+    // document.addEventListener('selectstart', function(e) {
+    //   e.preventDefault();
+    //   return false;
+    // });
+    
+    // Disable drag (optional - uncomment if needed)
+    // document.addEventListener('dragstart', function(e) {
+    //   e.preventDefault();
+    //   return false;
+    // });
+  </script>
 </body>
 
 </html>

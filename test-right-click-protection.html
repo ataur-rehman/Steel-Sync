@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚫 Right-Click Protection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            min-height: 100vh;
+
+            /* Disable text selection */
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .test-section {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .success {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+
+        .info {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .warning {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        input,
+        textarea {
+            /* Allow text selection in input fields */
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            backdrop-filter: blur(5px);
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .kbd {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        .status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(34, 197, 94, 0.9);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        img {
+            /* Disable drag for images */
+            -webkit-user-drag: none;
+            -khtml-user-drag: none;
+            -moz-user-drag: none;
+            -o-user-drag: none;
+            user-drag: none;
+            pointer-events: none;
+
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .test-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .test-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .test-list li:last-child {
+            border-bottom: none;
+        }
+
+        .checkmark {
+            color: #22c55e;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="status">🚫 Right-Click Protection ACTIVE</div>
+
+    <div class="container">
+        <h1>🛡️ Right-Click Protection Test Suite</h1>
+        <p>This page demonstrates the right-click protection implemented in your Ittehad Iron Store application.</p>
+
+        <div class="test-section success">
+            <h2>✅ Protection Features Implemented</h2>
+            <ul class="test-list">
+                <li><span class="checkmark">✓</span> Right-click context menu disabled</li>
+                <li><span class="checkmark">✓</span> F12 Developer Tools blocked</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+Shift+I</span> (Inspect) blocked</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+Shift+J</span> (Console) blocked</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+Shift+C</span> (Inspect Element) blocked
+                </li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+U</span> (View Source) blocked</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+Shift+K</span> (Firefox Console) blocked
+                </li>
+                <li><span class="checkmark">✓</span> Text selection disabled (except inputs)</li>
+                <li><span class="checkmark">✓</span> Image dragging disabled</li>
+            </ul>
+        </div>
+
+        <div class="test-section info">
+            <h2>🧪 Test Instructions</h2>
+            <p>Try the following actions to verify protection is working:</p>
+            <ol>
+                <li><strong>Right-click anywhere</strong> - Context menu should NOT appear</li>
+                <li><strong>Press F12</strong> - Developer tools should NOT open</li>
+                <li><strong>Press Ctrl+Shift+I</strong> - Inspect should NOT work</li>
+                <li><strong>Press Ctrl+U</strong> - View source should NOT work</li>
+                <li><strong>Try to select this text</strong> - Text selection should be disabled</li>
+                <li><strong>Try to drag the image below</strong> - Dragging should be disabled</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>🖼️ Protected Image (Cannot be dragged or right-clicked)</h2>
+            <img src="data:image/svg+xml,%3Csvg width='200' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='200' height='100' fill='%234f46e5'/%3E%3Ctext x='100' y='55' font-family='Arial' font-size='14' fill='white' text-anchor='middle'%3EProtected Image%3C/text%3E%3C/svg%3E"
+                alt="Protected Image" />
+        </div>
+
+        <div class="test-section warning">
+            <h2>⚠️ Input Fields (Text Selection Allowed)</h2>
+            <p>Input fields maintain normal functionality for user experience:</p>
+            <input type="text" placeholder="You can select text in this input field" />
+            <textarea placeholder="You can also select text in this textarea" rows="3"></textarea>
+        </div>
+
+        <div class="test-section success">
+            <h2>🏢 Implementation Details</h2>
+            <ul class="test-list">
+                <li><span class="checkmark">✓</span> <strong>HTML Level:</strong> JavaScript event listeners in
+                    index.html</li>
+                <li><span class="checkmark">✓</span> <strong>React Level:</strong> useDisableRightClick hook in App.tsx
+                </li>
+                <li><span class="checkmark">✓</span> <strong>CSS Level:</strong> user-select and user-drag disabled in
+                    globals.css</li>
+                <li><span class="checkmark">✓</span> <strong>Keyboard Shortcuts:</strong> All common developer tool
+                    shortcuts blocked</li>
+                <li><span class="checkmark">✓</span> <strong>Accessibility:</strong> Input fields remain functional for
+                    users</li>
+            </ul>
+        </div>
+
+        <div class="test-section info">
+            <h2>📱 Browser Compatibility</h2>
+            <ul class="test-list">
+                <li><span class="checkmark">✓</span> Chrome/Chromium browsers</li>
+                <li><span class="checkmark">✓</span> Firefox</li>
+                <li><span class="checkmark">✓</span> Safari</li>
+                <li><span class="checkmark">✓</span> Edge</li>
+                <li><span class="checkmark">✓</span> Tauri desktop application</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Same protection script as implemented in your app
+
+        // Disable right-click context menu
+        document.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            return false;
+        });
+
+        // Disable keyboard shortcuts for developer tools
+        document.addEventListener('keydown', function (e) {
+            // F12
+            if (e.keyCode === 123) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+I (Developer Tools)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 73) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+J (Console)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 74) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+U (View Source)
+            if (e.ctrlKey && e.keyCode === 85) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+C (Inspect Element)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 67) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+K (Web Console - Firefox)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 75) {
+                e.preventDefault();
+                return false;
+            }
+        });
+
+        // Show protection status
+        console.log('%c🚫 Right-click protection is ACTIVE', 'color: #ef4444; font-size: 16px; font-weight: bold;');
+        console.log('%c🛡️ Developer tools access blocked', 'color: #f59e0b; font-size: 14px;');
+
+        // Demonstrate blocked right-click
+        let rightClickAttempts = 0;
+        document.addEventListener('contextmenu', function () {
+            rightClickAttempts++;
+            console.log(`🚫 Right-click attempt #${rightClickAttempts} blocked`);
+        });
+    </script>
+</body>
+
+</html>

@@ -11,7 +11,6 @@ import CustomerForm from './CustomerForm';
 import { formatCurrency } from '../../utils/calculations';
 import { useAutoRefresh } from '../../hooks/useRealTimeUpdates';
 import { BUSINESS_EVENTS } from '../../utils/eventBus';
-import ConfirmationModal from '../common/ConfirmationModal';
 import CustomerStatsDashboard from '../CustomerStatsDashboard';
 import FIFOPaymentForm from '../payments/FIFOPaymentForm';
 export default function CustomerList() {
@@ -40,10 +39,12 @@ export default function CustomerList() {
   const [sortBy, setSortBy] = useState<'name' | 'created_at' | 'balance'>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
-  // Delete confirmation state
+  // Delete confirmation state - UNIFIED MODAL
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [permanentDeleteLoading, setPermanentDeleteLoading] = useState(false);
+  const [showPermanentDeleteConfirm, setShowPermanentDeleteConfirm] = useState(false);
 
   // FIFO Payment state
   const [showFIFOPayment, setShowFIFOPayment] = useState(false);
@@ -141,6 +142,7 @@ export default function CustomerList() {
 
   const handleDeleteClick = (customer: Customer) => {
     setCustomerToDelete(customer);
+    setShowPermanentDeleteConfirm(false);
     setShowDeleteModal(true);
   };
 
@@ -165,6 +167,36 @@ export default function CustomerList() {
       toast.error(errorMessage);
     } finally {
       setDeleteLoading(false);
+    }
+  };
+
+  const handlePermanentDeleteClick = () => {
+    setShowPermanentDeleteConfirm(true);
+  };
+
+  const handlePermanentDeleteConfirm = async () => {
+    if (!customerToDelete) return;
+
+    setPermanentDeleteLoading(true);
+    try {
+      console.log(`🔥 PERMANENT DELETION: Attempting to permanently erase customer: ${customerToDelete.name} (ID: ${customerToDelete.id})`);
+
+      const result = await db.permanentlyEraseCustomer(customerToDelete.id, 'ERASE_ALL_DATA_PERMANENTLY');
+
+      const totalDeleted = Object.values(result.deletedRecords).reduce((sum, count) => sum + count, 0);
+      toast.success(`Customer "${customerToDelete.name}" permanently deleted. ${totalDeleted} records removed.`);
+      setShowDeleteModal(false);
+      setCustomerToDelete(null);
+      setShowPermanentDeleteConfirm(false);
+
+      // Force reload of customers
+      await loadCustomers();
+    } catch (error: any) {
+      console.error('❌ Permanent delete customer error:', error);
+      const errorMessage = error.message || 'Failed to permanently delete customer';
+      toast.error(errorMessage);
+    } finally {
+      setPermanentDeleteLoading(false);
     }
   };
 
@@ -640,20 +672,99 @@ export default function CustomerList() {
         />
       </Modal>
 
-      {/* Delete Confirmation Modal */}
-      <ConfirmationModal
+      {/* Unified Delete Modal - Simple & Clean */}
+      <Modal
         isOpen={showDeleteModal}
         onClose={() => {
           setShowDeleteModal(false);
           setCustomerToDelete(null);
+          setShowPermanentDeleteConfirm(false);
         }}
-        onConfirm={handleDeleteConfirm}
         title="Delete Customer"
-        message={`Are you sure you want to delete "${customerToDelete?.name}"? This action cannot be undone.`}
-        confirmText="Delete Customer"
-        isDestructive={true}
-        loading={deleteLoading}
-      />
+      >
+        <div className="space-y-6">
+          <div className="text-center">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Delete "{customerToDelete?.name}"?
+            </h3>
+            <p className="text-sm text-gray-600">
+              Choose how you want to delete this customer:
+            </p>
+          </div>
+
+          {/* Option 1: Regular Delete */}
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-orange-800">Regular Delete</h4>
+                <p className="text-sm text-orange-700">Mark as deleted, keep data for recovery</p>
+              </div>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleteLoading}
+                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 border border-transparent rounded-md hover:bg-orange-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {deleteLoading ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+
+          {/* Option 2: Permanent Delete */}
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="space-y-3">
+              <div>
+                <h4 className="font-medium text-red-800">Permanent Delete</h4>
+                <p className="text-sm text-red-700">Completely erase all data - cannot be undone</p>
+              </div>
+
+              {!showPermanentDeleteConfirm ? (
+                <button
+                  onClick={handlePermanentDeleteClick}
+                  className="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700"
+                >
+                  Permanent Delete
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-red-800">
+                    Are you absolutely sure? This will permanently erase all data for "{customerToDelete?.name}".
+                  </p>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => setShowPermanentDeleteConfirm(false)}
+                      className="flex-1 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handlePermanentDeleteConfirm}
+                      disabled={permanentDeleteLoading}
+                      className="flex-1 px-3 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:bg-gray-400"
+                    >
+                      {permanentDeleteLoading ? 'Deleting...' : 'Yes, Delete Forever'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Cancel Button */}
+          <div className="flex justify-center">
+            <button
+              onClick={() => {
+                setShowDeleteModal(false);
+                setCustomerToDelete(null);
+                setShowPermanentDeleteConfirm(false);
+              }}
+              className="px-6 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-md hover:bg-gray-50"
+              disabled={deleteLoading || permanentDeleteLoading}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* FIFO Payment Modal */}
       {showFIFOPayment && selectedPaymentCustomer && (

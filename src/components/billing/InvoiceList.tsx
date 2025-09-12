@@ -56,7 +56,6 @@ import {
   Printer,
   Package,
   Trash2,
-  DollarSign,
 
   Plus,
   SortAsc,
@@ -145,7 +144,7 @@ const InvoiceList: React.FC = () => {
   const [deleting, setDeleting] = useState(false);
 
   // ✅ ENHANCED: Payment handling option state
-  const [paymentHandlingOption, setPaymentHandlingOption] = useState<'credit' | 'delete'>('credit');
+  const [paymentHandlingOption, setPaymentHandlingOption] = useState<'delete'>('delete');
 
   // Invoice mode state
   const [invoiceMode, setInvoiceMode] = useState<'view' | 'edit'>('view');
@@ -508,7 +507,7 @@ const InvoiceList: React.FC = () => {
     setInvoiceToDelete(invoice);
 
     // Reset payment handling option to default when opening modal
-    setPaymentHandlingOption('credit');
+    setPaymentHandlingOption('delete');
 
     setShowDeleteConfirmation(true);
 
@@ -528,11 +527,7 @@ const InvoiceList: React.FC = () => {
 
       const paymentAmount = parseFloat(invoiceToDelete.payment_amount?.toString() || '0');
       if (paymentAmount > 0) {
-        if (paymentHandlingOption === 'credit') {
-          toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully. Payments of Rs.${paymentAmount.toFixed(2)} have been reversed as customer credit.`);
-        } else {
-          toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully. Payment records of Rs.${paymentAmount.toFixed(2)} have been removed completely.`);
-        }
+        toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully. Payment records of Rs.${paymentAmount.toFixed(2)} have been removed completely.`);
       } else {
         toast.success(`Invoice ${invoiceToDelete.bill_number} deleted successfully`);
       }
@@ -1148,7 +1143,7 @@ const InvoiceList: React.FC = () => {
                               <div>
                                 <div className="text-sm font-semibold text-gray-900">{formatCurrency(invoice.grand_total)}</div>
                                 {invoice.discount > 0 && (
-                                  <div className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full inline-block mt-1 max-w-20 truncate">
+                                  <div className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full inline-block mt-1">
                                     {invoice.discount}% discount
                                   </div>
                                 )}
@@ -1159,7 +1154,7 @@ const InvoiceList: React.FC = () => {
                               <div>
                                 <div className="text-sm font-medium text-gray-900">{formatCurrency(invoice.payment_amount)}</div>
                                 {invoice.remaining_balance > 0 && (
-                                  <div className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mt-1 max-w-20 truncate">
+                                  <div className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded-full inline-block mt-1">
                                     Due: {formatCurrency(invoice.remaining_balance)}
                                   </div>
                                 )}
@@ -1168,7 +1163,7 @@ const InvoiceList: React.FC = () => {
 
                             <td className="px-4 py-4">
                               <div className="flex items-center">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusInfo.color} max-w-20 truncate`}>
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusInfo.color} max-w-32`}>
                                   {statusInfo.label}
                                 </span>
                               </div>
@@ -1562,103 +1557,46 @@ const InvoiceList: React.FC = () => {
         />
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal - Compact & Responsive */}
       {showDeleteConfirmation && invoiceToDelete && (
         <Modal
           isOpen={showDeleteConfirmation}
           onClose={cancelDeleteInvoice}
           title="Delete Invoice"
         >
-          <div className="p-6">
-            <div className="flex items-center mb-4">
-              <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
-                <Trash2 className="h-6 w-6 text-red-600" />
+          <div className="p-4 max-w-md mx-auto">
+            <div className="text-center mb-4">
+              <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-red-100 mb-3">
+                <Trash2 className="h-5 w-5 text-red-600" />
               </div>
-            </div>
-
-            <div className="text-center">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <h3 className="text-lg font-medium text-gray-900 mb-1">
                 Delete Invoice {invoiceToDelete.bill_number}?
               </h3>
-
-              <p className="text-sm text-gray-500 mb-4">
-                This action cannot be undone. This will permanently delete the invoice and all its items.
-                The customer balance will be adjusted accordingly.
+              <p className="text-sm text-gray-500">
+                This action cannot be undone.
               </p>
-
-              <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
-                <div className="flex">
-                  <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
-                  <div className="text-sm text-yellow-700">
-                    <p className="font-medium">Invoice Details:</p>
-                    <p>Customer: {invoiceToDelete.customer_name}</p>
-                    <p>Amount: Rs. {invoiceToDelete.grand_total?.toLocaleString()}</p>
-                    <p>Outstanding: Rs. {invoiceToDelete.remaining_balance?.toLocaleString()}</p>
-                    {parseFloat(invoiceToDelete.payment_amount?.toString() || '0') > 0 && (
-                      <p className="text-orange-700 font-medium">
-                        ⚠️ Paid: Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* ✅ ENHANCED: Payment Handling Options - Only show when invoice has payments */}
-              {parseFloat(invoiceToDelete.payment_amount?.toString() || '0') > 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
-                  <h4 className="text-sm font-medium text-blue-900 mb-3 flex items-center">
-                    <DollarSign className="h-4 w-4 mr-1" />
-                    Payment Handling Options
-                  </h4>
-                  <div className="space-y-3">
-                    <label className="flex items-start space-x-3 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="paymentHandling"
-                        value="credit"
-                        checked={paymentHandlingOption === 'credit'}
-                        onChange={(e) => setPaymentHandlingOption(e.target.value as 'credit' | 'delete')}
-                        className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                      />
-                      <div className="text-sm">
-                        <div className="font-medium text-blue-900 flex items-center">
-                          💳 Reverse as Customer Credit
-                          <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">Recommended</span>
-                        </div>
-                        <div className="text-blue-700 mt-1">
-                          Add Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()} to customer balance for future use
-                        </div>
-                      </div>
-                    </label>
-
-                    <label className="flex items-start space-x-3 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="paymentHandling"
-                        value="delete"
-                        checked={paymentHandlingOption === 'delete'}
-                        onChange={(e) => setPaymentHandlingOption(e.target.value as 'credit' | 'delete')}
-                        className="mt-1 h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-                      />
-                      <div className="text-sm">
-                        <div className="font-medium text-blue-900 flex items-center">
-                          🗑️ Delete Payment Records
-                          <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-800 text-xs rounded-full">Caution</span>
-                        </div>
-                        <div className="text-blue-700 mt-1">
-                          Remove payment records completely (customer loses Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()})
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="flex justify-end space-x-3">
+            {/* Invoice Summary - Compact */}
+            <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <div><span className="text-gray-600">Customer:</span> {invoiceToDelete.customer_name}</div>
+                <div><span className="text-gray-600">Amount:</span> Rs. {invoiceToDelete.grand_total?.toLocaleString()}</div>
+                <div><span className="text-gray-600">Outstanding:</span> Rs. {invoiceToDelete.remaining_balance?.toLocaleString()}</div>
+                {parseFloat(invoiceToDelete.payment_amount?.toString() || '0') > 0 && (
+                  <div className="col-span-2 text-orange-700 font-medium">
+                    Paid: Rs. {parseFloat(invoiceToDelete.payment_amount?.toString() || '0').toLocaleString()}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Payment Handling - Compact */}
+            {/* Action Buttons - Compact */}
+            <div className="flex space-x-2">
               <button
                 onClick={cancelDeleteInvoice}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                className="flex-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
                 disabled={deleting}
               >
                 Cancel
@@ -1666,19 +1604,16 @@ const InvoiceList: React.FC = () => {
 
               <button
                 onClick={confirmDeleteInvoice}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 px-3 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 disabled:opacity-50"
                 disabled={deleting}
               >
                 {deleting ? (
                   <>
-                    <RefreshCw className="animate-spin h-4 w-4 mr-2" />
+                    <RefreshCw className="animate-spin h-4 w-4 mr-1" />
                     Deleting...
                   </>
                 ) : (
-                  <>
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete Invoice
-                  </>
+                  'Delete'
                 )}
               </button>
             </div>

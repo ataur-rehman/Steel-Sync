@@ -20,22 +20,22 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
     onCancel,
     existingItem
 }) => {
-    const [pieces, setPieces] = useState<number>(existingItem?.t_iron_pieces || 1);
-    const [lengthPerPiece, setLengthPerPiece] = useState<number>(existingItem?.t_iron_length_per_piece || product.length_per_piece || 12);
-    const [pricePerFoot, setPricePerFoot] = useState<number>(existingItem?.unit_price || product.rate_per_unit || 120);
+    const [pieces, setPieces] = useState<number>(existingItem?.t_iron_pieces ?? 1);
+    const [lengthPerPiece, setLengthPerPiece] = useState<number>(existingItem?.t_iron_length_per_piece ?? product.length_per_piece ?? 12);
+    const [pricePerFoot, setPricePerFoot] = useState<number>(existingItem?.unit_price ?? product.rate_per_unit ?? 120);
     const [unit, setUnit] = useState<'pcs' | 'L'>(existingItem?.t_iron_unit || 'pcs'); // Add unit selection
     const [calculation, setCalculation] = useState<any>(null);
     const [errors, setErrors] = useState<string[]>([]);
 
     useEffect(() => {
         // Calculate whenever inputs change
-        const totalFeet = pieces * lengthPerPiece;
-        const totalAmount = totalFeet * pricePerFoot;
+        const totalFeet = (pieces || 0) * (lengthPerPiece || 0);
+        const totalAmount = totalFeet * (pricePerFoot || 0);
 
         setCalculation({
-            pieces,
-            lengthPerPiece,
-            pricePerFoot,
+            pieces: pieces || 0,
+            lengthPerPiece: lengthPerPiece || 0,
+            pricePerFoot: pricePerFoot || 0,
             totalFeet,
             totalAmount,
             unit
@@ -43,9 +43,9 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
 
         // Simple validation
         const validationErrors: string[] = [];
-        if (pieces <= 0) validationErrors.push('Number of pieces must be greater than 0');
-        if (lengthPerPiece <= 0) validationErrors.push('Length per piece must be greater than 0');
-        if (pricePerFoot <= 0) validationErrors.push('Price per foot must be greater than 0');
+        if (!pieces || pieces <= 0) validationErrors.push('Number of pieces must be greater than 0');
+        if (!lengthPerPiece || lengthPerPiece <= 0) validationErrors.push('Length per piece must be greater than 0');
+        if (!pricePerFoot || pricePerFoot <= 0) validationErrors.push('Price per foot must be greater than 0');
 
         setErrors(validationErrors);
     }, [pieces, lengthPerPiece, pricePerFoot, unit]);
@@ -55,22 +55,22 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
             return;
         }
 
-        const totalFeet = pieces * lengthPerPiece;
-        const totalAmount = totalFeet * pricePerFoot;
+        const totalFeet = (pieces || 0) * (lengthPerPiece || 0);
+        const totalAmount = totalFeet * (pricePerFoot || 0);
 
         const calculatedItem = {
             product_id: product.id,
             product_name: product.name,
             quantity: totalFeet, // Total feet as quantity
-            unit_price: pricePerFoot, // Price per foot
+            unit_price: pricePerFoot || 0, // Price per foot
             total_price: totalAmount,
             unit: 'ft',
             // T-Iron specific calculation data
-            t_iron_pieces: pieces,
-            t_iron_length_per_piece: lengthPerPiece,
+            t_iron_pieces: pieces || 0,
+            t_iron_length_per_piece: lengthPerPiece || 0,
             t_iron_total_feet: totalFeet,
             t_iron_unit: unit, // Store the unit type (pcs or L)
-            product_description: `${pieces}${unit} × ${lengthPerPiece}ft/${unit} × Rs.${pricePerFoot}`,
+            product_description: `${pieces || 0}${unit} × ${lengthPerPiece || 0}ft/${unit} × Rs.${pricePerFoot || 0}`,
             is_non_stock_item: true,
             // Include existing item ID if editing
             ...(existingItem && {
@@ -147,10 +147,10 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                                 </label>
                                 <input
                                     type="number"
-                                    min="1"
+                                    min="0"
                                     step="1"
-                                    value={pieces}
-                                    onChange={(e) => setPieces(parseInt(e.target.value) || 1)}
+                                    value={pieces || ''}
+                                    onChange={(e) => setPieces(parseInt(e.target.value) || 0)}
                                     onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                                     placeholder="12"
@@ -163,10 +163,10 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                                 </label>
                                 <input
                                     type="number"
-                                    min="1"
+                                    min="0"
                                     step="0.1"
-                                    value={lengthPerPiece}
-                                    onChange={(e) => setLengthPerPiece(parseFloat(e.target.value) || 12)}
+                                    value={lengthPerPiece || ''}
+                                    onChange={(e) => setLengthPerPiece(parseFloat(e.target.value) || 0)}
                                     onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                                     placeholder="12"
@@ -179,10 +179,10 @@ export const TIronCalculator: React.FC<TIronCalculatorProps> = ({
                                 </label>
                                 <input
                                     type="number"
-                                    min="1"
+                                    min="0"
                                     step="0.01"
-                                    value={pricePerFoot}
-                                    onChange={(e) => setPricePerFoot(parseFloat(e.target.value) || 120)}
+                                    value={pricePerFoot || ''}
+                                    onChange={(e) => setPricePerFoot(parseFloat(e.target.value) || 0)}
                                     onWheel={(e) => e.currentTarget.blur()}
                                     className="w-full px-2 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                                     placeholder="120"

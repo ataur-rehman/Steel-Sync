@@ -75,7 +75,22 @@ const MovementRow = memo(({ movement, getMovementTypeInfo, formatCurrency }: any
                     }`}>
                     {movement.movement_type === 'in' ? '+' : movement.movement_type === 'out' ? '-' : '±'}
                     {(() => {
-                        const numericValue = Math.abs(movement.quantity);
+                        // 🚀 CRITICAL FIX: Handle NaN values gracefully (but allow legitimate zeros)
+                        let numericValue = Math.abs(movement.quantity);
+
+                        // Check for NaN only - zero is a valid quantity
+                        if (isNaN(numericValue)) {
+                            console.warn('⚠️ Invalid quantity in stock movement:', {
+                                id: movement.id,
+                                product: movement.product_name,
+                                quantity: movement.quantity,
+                                quantityType: typeof movement.quantity,
+                                reason: movement.reason,
+                                reference: movement.reference_number
+                            });
+                            return `⚠️ Invalid`;
+                        }
+
                         if ((movement.unit_type || 'kg-grams') === 'kg-grams') {
                             const kg = Math.floor(numericValue / 1000);
                             const grams = numericValue % 1000;
@@ -91,7 +106,22 @@ const MovementRow = memo(({ movement, getMovementTypeInfo, formatCurrency }: any
             <td className="px-6 py-4 whitespace-nowrap">
                 <div className="text-sm text-gray-900">
                     {(() => {
-                        const numericValue = movement.new_stock;
+                        // 🚀 CRITICAL FIX: Handle NaN values gracefully
+                        let numericValue = movement.new_stock;
+
+                        // Check for NaN and provide fallback
+                        if (isNaN(numericValue)) {
+                            console.warn('⚠️ Invalid new_stock in stock movement:', {
+                                id: movement.id,
+                                product: movement.product_name,
+                                new_stock: movement.new_stock,
+                                newStockType: typeof movement.new_stock,
+                                reason: movement.reason,
+                                reference: movement.reference_number
+                            });
+                            return `⚠️ Invalid`;
+                        }
+
                         if ((movement.unit_type || 'kg-grams') === 'kg-grams') {
                             const kg = Math.floor(numericValue / 1000);
                             const grams = numericValue % 1000;

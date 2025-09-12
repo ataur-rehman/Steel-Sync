@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📋 Copy-Enabled Protection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            min-height: 100vh;
+
+            /* ✅ ALLOW text selection for copying */
+            -webkit-user-select: text;
+            -moz-user-select: text;
+            -ms-user-select: text;
+            user-select: text;
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 30px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .test-section {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .success {
+            background: rgba(34, 197, 94, 0.2);
+            border-color: rgba(34, 197, 94, 0.3);
+        }
+
+        .info {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: rgba(59, 130, 246, 0.3);
+        }
+
+        .warning {
+            background: rgba(245, 158, 11, 0.2);
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        .copy-demo {
+            background: rgba(16, 185, 129, 0.3);
+            border: 2px dashed rgba(16, 185, 129, 0.5);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            cursor: text;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            backdrop-filter: blur(5px);
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .kbd {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        .status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(16, 185, 129, 0.9);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .test-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .test-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .test-list li:last-child {
+            border-bottom: none;
+        }
+
+        .checkmark {
+            color: #22c55e;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .cross {
+            color: #ef4444;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .copy-btn {
+            background: rgba(16, 185, 129, 0.8);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: rgba(16, 185, 129, 1);
+        }
+
+        .copy-feedback {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            background: rgba(16, 185, 129, 0.9);
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 12px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="status">📋 Copy-Enabled Protection ACTIVE</div>
+    <div class="copy-feedback" id="copyFeedback">Text copied to clipboard!</div>
+
+    <div class="container">
+        <h1>📋 Copy-Enabled Right-Click Protection</h1>
+        <p>This page demonstrates the updated protection that allows copying while blocking developer tools.</p>
+
+        <div class="test-section success">
+            <h2>✅ What's ALLOWED</h2>
+            <ul class="test-list">
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+C</span> - Copy text</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+A</span> - Select all text</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+V</span> - Paste text</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+X</span> - Cut text</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+Z</span> - Undo action</li>
+                <li><span class="checkmark">✓</span> <span class="kbd">Ctrl+Y</span> - Redo action</li>
+                <li><span class="checkmark">✓</span> Text selection with mouse</li>
+            </ul>
+        </div>
+
+        <div class="test-section warning">
+            <h2>🚫 What's BLOCKED</h2>
+            <ul class="test-list">
+                <li><span class="cross">✗</span> Right-click context menu</li>
+                <li><span class="cross">✗</span> <span class="kbd">F12</span> - Developer Tools</li>
+                <li><span class="cross">✗</span> <span class="kbd">Ctrl+Shift+I</span> - Inspect</li>
+                <li><span class="cross">✗</span> <span class="kbd">Ctrl+Shift+J</span> - Console</li>
+                <li><span class="cross">✗</span> <span class="kbd">Ctrl+Shift+C</span> - Inspect Element</li>
+                <li><span class="cross">✗</span> <span class="kbd">Ctrl+U</span> - View Source</li>
+                <li><span class="cross">✗</span> <span class="kbd">Ctrl+Shift+K</span> - Firefox Console</li>
+            </ul>
+        </div>
+
+        <div class="test-section info">
+            <h2>📋 Copy Test Area</h2>
+            <p>Try these copy operations to verify functionality:</p>
+
+            <div class="copy-demo">
+                <strong>Demo Text 1:</strong> This is sample text for copying. Select this text and press Ctrl+C to copy
+                it!
+                <button class="copy-btn"
+                    onclick="copyText('Demo Text 1: This is sample text for copying. Select this text and press Ctrl+C to copy it!')">Copy
+                    This Text</button>
+            </div>
+
+            <div class="copy-demo">
+                <strong>Demo Text 2:</strong> Invoice #12345 - Customer: ABC Steel Works - Amount: Rs. 25,000 - Date:
+                2025-09-13
+                <button class="copy-btn"
+                    onclick="copyText('Invoice #12345 - Customer: ABC Steel Works - Amount: Rs. 25,000 - Date: 2025-09-13')">Copy
+                    Invoice Info</button>
+            </div>
+
+            <div class="copy-demo">
+                <strong>Demo Text 3:</strong> Product: T-Iron 12ft - Quantity: 50 pieces - Rate: Rs. 120/ft - Total: Rs.
+                72,000
+                <button class="copy-btn"
+                    onclick="copyText('Product: T-Iron 12ft - Quantity: 50 pieces - Rate: Rs. 120/ft - Total: Rs. 72,000')">Copy
+                    Product Info</button>
+            </div>
+        </div>
+
+        <div class="test-section info">
+            <h2>🧪 Manual Test Instructions</h2>
+            <ol>
+                <li><strong>✅ Copy Test:</strong> Select any text above and press <span class="kbd">Ctrl+C</span> -
+                    should work!</li>
+                <li><strong>✅ Select All Test:</strong> Press <span class="kbd">Ctrl+A</span> - should select all text
+                </li>
+                <li><strong>✅ Paste Test:</strong> Click in input below and press <span class="kbd">Ctrl+V</span> -
+                    should paste</li>
+                <li><strong>🚫 Right-click Test:</strong> Right-click anywhere - should be blocked</li>
+                <li><strong>🚫 F12 Test:</strong> Press <span class="kbd">F12</span> - developer tools should NOT open
+                </li>
+                <li><strong>🚫 Inspect Test:</strong> Press <span class="kbd">Ctrl+Shift+I</span> - should be blocked
+                </li>
+            </ol>
+
+            <input type="text" placeholder="Paste copied text here to test Ctrl+V..." />
+            <textarea placeholder="Or paste in this textarea..." rows="3"></textarea>
+        </div>
+
+        <div class="test-section success">
+            <h2>🎯 Perfect Balance Achieved</h2>
+            <ul class="test-list">
+                <li><span class="checkmark">✓</span> <strong>User-Friendly:</strong> Normal copy/paste operations work
+                </li>
+                <li><span class="checkmark">✓</span> <strong>Secure:</strong> Developer tools remain blocked</li>
+                <li><span class="checkmark">✓</span> <strong>Practical:</strong> Users can copy invoices, product info,
+                    etc.</li>
+                <li><span class="checkmark">✓</span> <strong>Business-Ready:</strong> Ideal for business applications
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Updated protection script that allows copying
+
+        // Disable right-click context menu
+        document.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            return false;
+        });
+
+        // Disable keyboard shortcuts for developer tools (BUT ALLOW Ctrl+C for copying)
+        document.addEventListener('keydown', function (e) {
+            // ✅ ALLOW Ctrl+C (Copy) - keyCode 67 without Shift
+            if (e.ctrlKey && !e.shiftKey && e.keyCode === 67) {
+                console.log('📋 Copy (Ctrl+C) allowed');
+                return true; // Allow copy operation
+            }
+
+            // F12
+            if (e.keyCode === 123) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+I (Developer Tools)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 73) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+J (Console)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 74) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+U (View Source)
+            if (e.ctrlKey && e.keyCode === 85) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+C (Inspect Element) - BLOCKED, but Ctrl+C without Shift is allowed
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 67) {
+                e.preventDefault();
+                return false;
+            }
+
+            // Ctrl+Shift+K (Web Console - Firefox)
+            if (e.ctrlKey && e.shiftKey && e.keyCode === 75) {
+                e.preventDefault();
+                return false;
+            }
+
+            // ✅ ALLOW other common user shortcuts
+            // Ctrl+A (Select All), Ctrl+V (Paste), Ctrl+X (Cut), Ctrl+Z (Undo), Ctrl+Y (Redo)
+            if (e.ctrlKey && !e.shiftKey && [65, 86, 88, 90, 89].includes(e.keyCode)) {
+                return true; // Allow common editing shortcuts
+            }
+        });
+
+        // Show protection status
+        console.log('%c📋 Copy-enabled protection is ACTIVE', 'color: #10b981; font-size: 16px; font-weight: bold;');
+        console.log('%c✅ Ctrl+C (copy) is ALLOWED', 'color: #22c55e; font-size: 14px;');
+        console.log('%c🚫 Developer tools are BLOCKED', 'color: #ef4444; font-size: 14px;');
+
+        // Copy function for demo buttons
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(function () {
+                const feedback = document.getElementById('copyFeedback');
+                feedback.style.display = 'block';
+                setTimeout(() => {
+                    feedback.style.display = 'none';
+                }, 2000);
+                console.log('📋 Text copied: ' + text);
+            }).catch(function (err) {
+                console.log('❌ Copy failed: ' + err);
+            });
+        }
+
+        // Track copy attempts
+        document.addEventListener('copy', function (e) {
+            console.log('📋 User copied text successfully');
+        });
+    </script>
+</body>
+
+</html>

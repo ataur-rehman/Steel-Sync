@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { useAuth } from './hooks/useAuth';
 import { useSafeAuth } from './hooks/withAuth';
 import { SafeAuthProvider } from './components/auth/AuthErrorBoundary';
+import { DatabaseProvider } from './hooks/useDatabase';
 import AuthContextErrorHandler from './utils/authErrorHandler';
 import { NavigationProvider } from './hooks/useNavigation';
 import { settingsService } from './services/settingsService';
@@ -46,6 +47,7 @@ import { ProductionBackupDashboard } from './components/backup/ProductionBackupD
 import { EmergencyCleanup } from './components/debug/EmergencyCleanup';
 import { RestoreDiagnostic } from './components/debug/RestoreDiagnostic';
 import { SimpleBackupTest } from './components/debug/SimpleBackupTest';
+import { useDisableRightClick } from './hooks/useDisableRightClick';
 
 function LoginForm() {
   const { login } = useSafeAuth(); // Use safe auth hook to prevent crashes
@@ -594,7 +596,10 @@ function App() {
     AuthContextErrorHandler.install();
   }, []);
 
-  // 🛡️ GLOBAL SEARCH FIX - Prevents page refreshes on search inputs
+  // � Disable right-click context menu and developer tools shortcuts
+  useDisableRightClick();
+
+  // �🛡️ GLOBAL SEARCH FIX - Prevents page refreshes on search inputs
   // useGlobalSearchFix(); // TEMPORARILY DISABLED TO DEBUG REFRESH ISSUE
 
   return (
@@ -604,7 +609,9 @@ function App() {
       </div>
     }>
       <SafeAuthProvider>
-        <AppContent />
+        <DatabaseProvider>
+          <AppContent />
+        </DatabaseProvider>
         <Toaster
           position="top-right"
           toastOptions={{

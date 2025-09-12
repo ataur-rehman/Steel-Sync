@@ -251,7 +251,7 @@ export default function CustomerLedgerViewer() {
     });
 
     const [selectedPaymentChannel] = useState<any>(null);
-    const [customerInvoices, setCustomerInvoices] = useState<any[]>([]);
+    const [customerInvoices] = useState<any[]>([]);
     const [selectedInvoice, setSelectedInvoice] = useState<number | null>(null);
 
     // Filter change handler
@@ -472,23 +472,8 @@ export default function CustomerLedgerViewer() {
     };
 
     // Load customer invoices for payment
-    const loadCustomerInvoices = useCallback(async (customerId: number) => {
-        try {
-            const invoices = await db.getCustomerInvoices(customerId);
-            setCustomerInvoices(invoices);
-        } catch (error) {
-            console.error('Failed to load customer invoices:', error);
-            toast.error('Failed to load customer invoices');
-        }
-    }, []);
 
     // Handle payment for customer
-    const handleSelectCustomerForPayment = useCallback(() => {
-        if (customer) {
-            setShowAddPayment(true);
-            loadCustomerInvoices(customer.id);
-        }
-    }, [customer, loadCustomerInvoices]);
 
     // Handle navigate to new invoice
     const handleNavigateToNewInvoice = useCallback(() => {
@@ -720,72 +705,6 @@ export default function CustomerLedgerViewer() {
     });
 
     // 🚀 PERFORMANCE: Memoized transaction rows to prevent unnecessary re-renders
-    const memoizedTransactionRows = useMemo(() => {
-        return filteredTransactions.map((transaction, index) => {
-            const isInvoice = transaction.type === 'invoice';
-            const isPayment = transaction.type === 'payment';
-            const isAdjustment = transaction.type === 'adjustment';
-
-            const amount = transaction.debit_amount || transaction.invoice_amount ||
-                transaction.credit_amount || transaction.payment_amount ||
-                transaction.adjustment_amount || 0;
-
-            return (
-                <tr key={`${transaction.id}-${index}`} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 text-sm border-b border-gray-200">
-                        {transaction.date}
-                        {transaction.time && (
-                            <div className="text-xs text-gray-500 mt-0.5">
-                                {transaction.time}
-                            </div>
-                        )}
-                    </td>
-                    <td className="px-4 py-3 text-sm border-b border-gray-200">
-                        <div className="flex items-center space-x-2">
-                            {isInvoice && <Receipt className="h-4 w-4 text-blue-600" />}
-                            {isPayment && <span className="w-4 h-4 bg-green-600 rounded-full flex items-center justify-center text-white text-xs">₨</span>}
-                            {isAdjustment && <span className="w-4 h-4 bg-orange-600 rounded-full"></span>}
-                            <div>
-                                <div className="font-medium">{transaction.description}</div>
-                                {transaction.reference_number && (
-                                    <div className="text-xs text-gray-500">
-                                        Ref: {transaction.reference_number}
-                                    </div>
-                                )}
-                                {transaction.notes && (
-                                    <div className="text-xs text-gray-500 mt-1">
-                                        {transaction.notes}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right border-b border-gray-200">
-                        {(isInvoice || isAdjustment) && (
-                            <span className="text-red-600 font-medium">
-                                {formatCurrency(amount)}
-                            </span>
-                        )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right border-b border-gray-200">
-                        {isPayment && (
-                            <span className="text-green-600 font-medium">
-                                {formatCurrency(amount)}
-                            </span>
-                        )}
-                        {transaction.payment_method && (
-                            <div className="text-xs text-gray-500 mt-0.5">
-                                via {transaction.payment_method}
-                            </div>
-                        )}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right border-b border-gray-200 font-semibold">
-                        {formatCurrency(transaction._runningBalance)}
-                    </td>
-                </tr>
-            );
-        });
-    }, [filteredTransactions, formatCurrency]);
 
     if (loading && !customer) {
         return (

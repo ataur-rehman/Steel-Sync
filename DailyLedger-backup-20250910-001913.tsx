@@ -107,17 +107,87 @@ const OUTGOING_CATEGORIES = [
 ];
 
 // 🚨 CRITICAL: Memoized Transaction Row for performance with 500+ entries
+const TransactionRow = React.memo<{
+  entry: LedgerEntry;
+  type: 'incoming' | 'outgoing';
+  onEdit: (entry: LedgerEntry) => void;
+  onDelete: (id: string) => void;
+  formatCurrency: (amount: number) => string;
+  getCleanDisplayText: (entry: LedgerEntry) => { primaryText: string };
+}>(({ entry, type, onEdit, onDelete, formatCurrency, getCleanDisplayText }) => {
+  const { primaryText } = getCleanDisplayText(entry);
+  const isIncoming = type === 'incoming';
+
+  return (
+    <tr key={entry.id} className="hover:bg-gray-50">
+      <td className="px-3 py-2 text-gray-600 text-xs">{entry.time}</td>
+      <td className="px-3 py-2">
+        <div className="text-gray-900 font-medium text-sm">{primaryText}</div>
+        <div className="text-xs text-gray-500">
+          {entry.payment_channel_name || entry.payment_method || 'Cash'}
+        </div>
+      </td>
+      <td className="px-3 py-2 text-right">
+        <span className={`font-bold text-sm ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
+          {isIncoming ? '+' : '-'}{formatCurrency(entry.amount)}
+        </span>
+      </td>
+      <td className="px-3 py-2 text-center">
+        {entry.is_manual ? (
+          <div className="flex items-center justify-center space-x-1">
+            <button
+              onClick={() => onEdit(entry)}
+              className="text-blue-600 hover:text-blue-800 p-1"
+              title="Edit Transaction"
+            >
+              <Edit className="h-3 w-3" />
+            </button>
+            <button
+              onClick={() => onDelete(entry.id)}
+              className="text-red-600 hover:text-red-800 p-1"
+              title="Delete Transaction"
+            >
+              <Trash2 className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-400">System</span>
+        )}
+      </td>
+    </tr>
+  );
+});
 
 const DailyLedger: React.FC = () => {
   const location = useLocation();
 
   // 🚀 PERFORMANCE MEASUREMENT SYSTEM
+  const performanceRef = React.useRef({
+    loadStartTime: 0,
+    filterStartTime: 0,
+    renderStartTime: 0
+  });
 
   const logPerformance = React.useCallback((operation: string, startTime: number, additionalData?: any) => {
     const duration = Date.now() - startTime;
     const logMessage = `⚡ [DAILY_LEDGER_PERF] ${operation} completed in ${duration}ms`;
     console.log(logMessage, additionalData || '');
-    // NO CACHE: Performance data logged to console only, no sessionStorage
+
+    // Store in sessionStorage for comparison
+    const perfHistory = JSON.parse(sessionStorage.getItem('dailyLedger_performance') || '[]');
+    perfHistory.push({
+      operation,
+      duration,
+      timestamp: Date.now(),
+      ...additionalData
+    });
+
+    // Keep last 20 entries
+    if (perfHistory.length > 20) {
+      perfHistory.splice(0, perfHistory.length - 20);
+    }
+
+    sessionStorage.setItem('dailyLedger_performance', JSON.stringify(perfHistory));
   }, []);
 
   // Core state
@@ -161,7 +231,7 @@ const DailyLedger: React.FC = () => {
   // Initial opening balance setup for new users
   const [showOpeningBalanceSetup, setShowOpeningBalanceSetup] = useState(false);
   const [initialOpeningBalance, setInitialOpeningBalance] = useState(0);
-  const [, setIsFirstTimeUser] = useState(false);
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false);
 
   // Data
   const [customers, setCustomers] = useState<any[]>([]);
@@ -184,16 +254,22 @@ const DailyLedger: React.FC = () => {
   }, [selectedDate, selectedCustomerId, selectedPaymentChannels]);
 
   // �🚀 PERFORMANCE: Cache state to prevent race conditions
-
+  const [cacheLoaded, setCacheLoaded] = useState(false);
 
   // 🚨 CRITICAL FIX: Define event handlers with proper dependencies to avoid stale closures
   const handleDailyLedgerUpdate = useCallback((data: any) => {
     console.log('📊 Daily ledger immediate refresh due to ledger update:', data);
     if (data.date === selectedDate || !data.date) {
-      // Force immediate refresh - NO CACHE  
-      console.log('🚀 Triggering immediate ledger refresh - NO CACHE');
+      // CRITICAL: Clear cache before forcing refresh
+      const cacheKey = `dailyLedger_${selectedDate}_${selectedCustomerId || 'all'}_${selectedPaymentChannels.sort().join(',')}`;
+      sessionStorage.removeItem(cacheKey);
+      console.log('🗑️ Cache cleared for key:', cacheKey);
+
+      // Force immediate refresh with cache bypass
+      console.log('🚀 Triggering immediate ledger refresh with cleared cache');
       setLoading(true);
-      setTimeout(() => loadDayData(selectedDate), 0);
+      // Use function that will be defined later
+      setTimeout(() => loadDayData(selectedDate, true), 0);
     }
   }, [selectedDate, selectedCustomerId, selectedPaymentChannels]);
 
@@ -201,10 +277,15 @@ const DailyLedger: React.FC = () => {
     console.log('📊 Daily ledger immediate refresh due to invoice creation:', data);
     const invoiceDate = formatDateForDatabase(new Date(data.created_at));
     if (invoiceDate === selectedDate) {
-      // Force immediate refresh - NO CACHE
-      console.log('🚀 Triggering immediate ledger refresh - NO CACHE');
+      // CRITICAL: Clear cache before forcing refresh
+      const cacheKey = `dailyLedger_${selectedDate}_${selectedCustomerId || 'all'}_${selectedPaymentChannels.sort().join(',')}`;
+      sessionStorage.removeItem(cacheKey);
+      console.log('🗑️ Cache cleared for invoice creation:', cacheKey);
+
+      // Force immediate refresh with cache bypass
+      console.log('🚀 Triggering immediate ledger refresh with cleared cache');
       setLoading(true);
-      setTimeout(() => loadDayData(selectedDate), 0);
+      setTimeout(() => loadDayData(selectedDate, true), 0);
     }
   }, [selectedDate, selectedCustomerId, selectedPaymentChannels]);
 
@@ -216,10 +297,15 @@ const DailyLedger: React.FC = () => {
 
     const today = formatDateForDatabase();
     if (selectedDate === today || data?.date === selectedDate) {
-      // Force immediate refresh - NO CACHE
-      console.log('🚀 CRITICAL: Triggering immediate ledger refresh - NO CACHE');
+      // CRITICAL: Clear cache before forcing refresh
+      const cacheKey = `dailyLedger_${selectedDate}_${selectedCustomerId || 'all'}_${selectedPaymentChannels.sort().join(',')}`;
+      sessionStorage.removeItem(cacheKey);
+      console.log('🗑️ CRITICAL: Cache cleared for payment, key:', cacheKey);
+
+      // Force immediate refresh with cache bypass
+      console.log('🚀 CRITICAL: Triggering immediate ledger refresh with cleared cache');
       setLoading(true);
-      setTimeout(() => loadDayData(selectedDate), 0);
+      setTimeout(() => loadDayData(selectedDate, true), 0);
     } else {
       console.log('🚨 CRITICAL: Date mismatch - no refresh triggered');
       console.log('🚨 selectedDate:', selectedDate, 'event date:', data?.date, 'today:', today);
@@ -248,32 +334,13 @@ const DailyLedger: React.FC = () => {
         };
 
         if (eventBus && eventBus.on) {
-          const handleDailyLedgerUpdate = (data: any) => {
-            console.log('� NO-CACHE: Daily ledger update event received:', data);
-            const { selectedDate } = currentStateRef.current;
-            if (data.date === selectedDate || !data.date) {
-              console.log('� NO-CACHE: Date matched, triggering immediate refresh');
-              setLoading(true);
-              loadDayData(selectedDate); // Always force refresh since no cache
-            }
-          };
-
-          const handleInvoiceCreated = (data: any) => {
-            console.log('� NO-CACHE: Invoice created event received:', data);
-            const { selectedDate } = currentStateRef.current;
-            const invoiceDate = formatDateForDatabase(new Date(data.created_at));
-            if (invoiceDate === selectedDate) {
-              console.log('� NO-CACHE: Invoice date matched, triggering immediate refresh');
-              setLoading(true);
-              loadDayData(selectedDate); // Always force refresh since no cache
-            }
-          };
-
-          const handlePaymentReceived = (data: any) => {
+          // � CRITICAL: Use ONLY the useCallback handlers - NO inline functions
+          
+          // Subscribe to relevant events for comprehensive real-time updates
             console.log('� CRITICAL DEBUG: Payment event received in Daily Ledger:', data);
             console.log('🚨 BULLETPROOF DEBUG: Payment event received in Daily Ledger:', data);
             console.log('🚨 Event type:', typeof data, 'Event data:', JSON.stringify(data));
-            const { selectedDate } = currentStateRef.current;
+            const { selectedDate, selectedCustomerId, selectedPaymentChannels } = currentStateRef.current;
             console.log('🚨 Current selectedDate from ref:', selectedDate);
             console.log('🚨 Event date:', data?.date);
 
@@ -283,14 +350,22 @@ const DailyLedger: React.FC = () => {
             console.log('🚨 BULLETPROOF: Date comparison - data?.date === selectedDate?', data?.date === selectedDate);
 
             if (selectedDate === today || data?.date === selectedDate) {
-              console.log('� NO-CACHE: Payment date matched, triggering immediate refresh');
+              // CRITICAL: Clear cache before forcing refresh
+              const cacheKey = `dailyLedger_${selectedDate}_${selectedCustomerId || 'all'}_${selectedPaymentChannels.sort().join(',')}`;
+              sessionStorage.removeItem(cacheKey);
+              console.log('🗑️ CRITICAL: Cache cleared for payment, key:', cacheKey);
+
+              // Force immediate refresh with cache bypass
+              console.log('🚀 CRITICAL: Triggering immediate ledger refresh with cleared cache');
               setLoading(true);
-              loadDayData(selectedDate); // Always force refresh since no cache
+              loadDayData(selectedDate, true); // Force refresh
             } else {
-              console.log('🚨 NO-CACHE: Date mismatch - no refresh triggered');
+              console.log('🚨 CRITICAL: Date mismatch - no refresh triggered');
               console.log('🚨 selectedDate:', selectedDate, 'event date:', data?.date, 'today:', today);
             }
-          };          // Subscribe to relevant events for comprehensive real-time updates
+          };
+
+          // Subscribe to relevant events for comprehensive real-time updates
           eventBus.on('DAILY_LEDGER_UPDATED', handleDailyLedgerUpdate);
           eventBus.on('daily_ledger:updated', handleDailyLedgerUpdate); // New event name
           eventBus.on('INVOICE_CREATED', handleInvoiceCreated);
@@ -311,7 +386,7 @@ const DailyLedger: React.FC = () => {
             if (data?.type?.includes('ledger') || data?.type?.includes('payment')) {
               console.log('📊 Force refresh requested for ledger:', data);
               setLoading(true);
-              loadDayData(selectedDate); // Force refresh
+              loadDayData(selectedDate, true); // Force refresh
             }
           });
 
@@ -328,13 +403,7 @@ const DailyLedger: React.FC = () => {
             eventBus.off('CUSTOMER_BALANCE_UPDATED', handlePaymentReceived);
             eventBus.off('LEDGER_ENTRY_CREATED', handleDailyLedgerUpdate);
             eventBus.off('FIFO_PAYMENT_RECORDED', handlePaymentReceived);
-            eventBus.off('UI_REFRESH_REQUESTED', (data: any) => {
-              if (data?.type?.includes('ledger') || data?.type?.includes('payment')) {
-                console.log('📊 Force refresh requested for ledger:', data);
-                setLoading(true);
-                loadDayData(selectedDate); // Force refresh
-              }
-            });
+            eventBus.off('UI_REFRESH_REQUESTED');
           };
         }
       }
@@ -415,6 +484,21 @@ const DailyLedger: React.FC = () => {
     }
   };
 
+  // 🚨 CRITICAL: Debounced refresh to prevent UI lag with rapid events
+  const debouncedRefresh = useCallback(
+    (() => {
+      let timeoutId: NodeJS.Timeout;
+      return (date: string) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          console.log('🔄 [DailyLedger] Debounced refresh triggered');
+          loadDayData(date);
+        }, 300);
+      };
+    })(),
+    []
+  );
+
   // PERFORMANCE: Memoize filtered entries to prevent unnecessary re-renders
   const filteredEntries = useMemo(() => {
     let result = entries;
@@ -451,19 +535,135 @@ const DailyLedger: React.FC = () => {
   }, [filteredEntries]);
 
   // 🚀 PERFORMANCE: Memoized transaction entry component
+  const MemoizedTransactionEntry = React.memo(({
+    entry,
+    onEdit,
+    onDelete,
+    getCleanDisplayText,
+    formatCurrency
+  }: {
+    entry: LedgerEntry;
+    onEdit: (entry: LedgerEntry) => void;
+    onDelete: (entryId: string) => void;
+    getCleanDisplayText: (entry: LedgerEntry) => { primaryText: string; secondaryText: string };
+    formatCurrency: (amount: number) => string;
+  }) => {
+    const { primaryText } = getCleanDisplayText(entry);
+    const isIncoming = entry.type === 'incoming';
+
+    return (
+      <tr key={entry.id} className="hover:bg-gray-50">
+        <td className="px-3 py-2 text-gray-600 text-xs">{entry.time}</td>
+        <td className="px-3 py-2">
+          <div className="text-gray-900 font-medium text-sm">{primaryText}</div>
+          <div className="text-xs text-gray-500">
+            {entry.payment_channel_name || entry.payment_method || 'Cash'}
+          </div>
+        </td>
+        <td className="px-3 py-2 text-right">
+          <span className={`font-bold text-sm ${isIncoming ? 'text-green-600' : 'text-red-600'}`}>
+            {isIncoming ? '+' : '-'}{formatCurrency(entry.amount)}
+          </span>
+        </td>
+        <td className="px-3 py-2 text-center">
+          {entry.is_manual ? (
+            <div className="flex items-center justify-center space-x-1">
+              <button
+                onClick={() => onEdit(entry)}
+                className="text-blue-600 hover:text-blue-800 p-1"
+                title="Edit Transaction"
+              >
+                <Edit className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => onDelete(entry.id)}
+                className="text-red-600 hover:text-red-800 p-1"
+                title="Delete Transaction"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <span className="text-gray-400 text-xs">Auto</span>
+          )}
+        </td>
+      </tr>
+    );
+  });
 
   // 🚀 PERFORMANCE: Memoized currency formatter
+  const memoizedFormatCurrency = React.useCallback((amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2
+    }).format(amount);
+  }, []);
 
-  const loadDayData = async (date: string) => {
-    console.log('� NO-CACHE: Loading fresh data for', date);
-
-    const startTime = Date.now();
+  const loadDayData = async (date: string, forceRefresh: boolean = false) => {
+    // 🚀 PERFORMANCE: Start timing
+    performanceRef.current.loadStartTime = Date.now();
+    const startTime = performanceRef.current.loadStartTime;
 
     try {
       setLoading(true);
 
-      // � ZERO CACHE: Always load fresh data from database
-      console.log('🚨 NO-CACHE: Bypassing all cache, loading fresh data from database');      // 🚀 PERFORMANCE OPTIMIZATION: Parallel data loading
+      // 🚀 PERFORMANCE OPTIMIZATION: Check for cached data first with longer duration
+      const cacheKey = `dailyLedger_${date}_${selectedCustomerId || 'all'}_${selectedPaymentChannels.sort().join(',')}`;
+      const cachedData = sessionStorage.getItem(cacheKey);
+
+      // 🚨 CRITICAL: Skip cache if forceRefresh is true
+      if (cachedData && !forceRefresh) {
+        try {
+          const { entries: cachedEntries, summary: cachedSummary, timestamp } = JSON.parse(cachedData);
+          const cacheAge = Date.now() - timestamp;
+
+          // 🚀 STALE-WHILE-REVALIDATE: Show cached data immediately, then refresh in background
+          if (cacheAge < 300000) { // 5 minutes cache duration
+            console.log(`⚡ [DAILY_LEDGER_PERF] Using cached data (${Math.round(cacheAge / 1000)}s old)`);
+
+            setEntries(cachedEntries);
+            setSummary(cachedSummary);
+
+            // 🚀 PERFORMANCE: Set loading to false immediately for instant display
+            setLoading(false);
+
+            // 🚀 PERFORMANCE: Set cache loaded flag to prevent race condition
+            setCacheLoaded(true);
+
+            // 🚀 PERFORMANCE: Log cache performance
+            logPerformance('Day data load (cached)', startTime, {
+              entriesCount: cachedEntries.length,
+              cacheAge: Math.round(cacheAge / 1000),
+              date: date,
+              source: 'cache'
+            });
+
+            // If cache is older than 1 minute, refresh in background
+            if (cacheAge > 60000) {
+              console.log('🔄 [DAILY_LEDGER_PERF] Background refresh triggered for stale data');
+              // Continue to load fresh data but don't block UI
+            } else {
+              // 🚨 CRITICAL: Only skip if NOT force refresh
+              if (!forceRefresh) {
+                console.log('🚀 [DAILY_LEDGER_PERF] Cache loaded flag set - preventing data reload');
+                return;
+              } else {
+                console.log('🚨 FORCE REFRESH: Ignoring fresh cache and loading new data');
+                // CRITICAL: Clear existing state before force refresh
+                setEntries([]);
+                setSummary(null);
+              }
+            }
+          } else {
+            console.log(`📊 [DAILY_LEDGER_PERF] Cache expired (${Math.round(cacheAge / 1000)}s old), loading fresh`);
+          }
+        } catch (error) {
+          console.warn('Failed to parse cached data:', error);
+        }
+      } else {
+        console.log('📊 [DAILY_LEDGER_PERF] No cache found, loading fresh data');
+      }      // 🚀 PERFORMANCE OPTIMIZATION: Parallel data loading
       console.log('🔄 [DailyLedger] Starting parallel data load for date:', date);
 
       const [systemEntries] = await Promise.all([
@@ -685,12 +885,16 @@ const DailyLedger: React.FC = () => {
       const daySummary = await calculateSummary(allEntries, date);
       setSummary(daySummary);
 
-      // � NO-CACHE: Removed cache storage for instant real-time updates
-      console.log('🚨 NO-CACHE: Data loaded fresh from database, no caching applied');
+      // 🚀 PERFORMANCE: Store in cache for fast subsequent loads
+      const cacheData = {
+        entries: filteredEntries,
+        summary: daySummary,
+        timestamp: Date.now()
+      };
+      sessionStorage.setItem(cacheKey, JSON.stringify(cacheData));
 
       // 🚀 PERFORMANCE: Log complete operation performance
-      const loadTime = Date.now() - startTime;
-      console.log(`🚨 NO-CACHE: Fresh data loaded in ${loadTime}ms`, {
+      logPerformance('Day data load (complete)', startTime, {
         entriesLoaded: allEntries.length,
         entriesVisible: filteredEntries.length,
         date: date,
@@ -716,13 +920,22 @@ const DailyLedger: React.FC = () => {
     }
   };
 
-  // � NO-CACHE: Always load fresh data when date changes
+  // 🚀 PERFORMANCE: Reset cache flag when date changes
   useEffect(() => {
-    console.log('🚨 NO-CACHE: Date changed, loading fresh data for:', selectedDate);
-    if (selectedDate) {
+    setCacheLoaded(false);
+  }, [selectedDate]);
+
+  // BULLETPROOF SOLUTION: Pure database-only approach
+  // NO localStorage, NO migrations, NO dependencies - just pure database
+  useEffect(() => {
+    // Simple initialization - just load the current date data
+    if (selectedDate && !cacheLoaded) {
+      console.log('🔄 [DAILY_LEDGER_PERF] Loading data for selectedDate (no cache)');
       loadDayData(selectedDate);
+    } else if (cacheLoaded) {
+      console.log('🚀 [DAILY_LEDGER_PERF] Skipping data load - cache already loaded');
     }
-  }, [selectedDate]); // Always reload when date changes
+  }, [selectedDate, cacheLoaded]); // Only reload when date changes or cache state changes
 
   const generateSystemEntries = async (date: string): Promise<LedgerEntry[]> => {
     const systemEntries: LedgerEntry[] = [];

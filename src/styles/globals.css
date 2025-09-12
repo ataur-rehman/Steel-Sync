@@ -346,3 +346,80 @@ input[type='number'] {
   appearance: textfield;
   -moz-appearance: textfield;
 }
+
+/* 🚫 RIGHT-CLICK PROTECTION STYLES */
+/* ✅ ALLOW text selection globally so users can copy content */
+body {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Enhanced text selection for all content areas */
+input,
+textarea,
+[contenteditable="true"],
+.allow-select,
+p,
+span,
+div,
+td,
+th,
+label {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Disable drag and drop for images */
+img {
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+  pointer-events: none;
+}
+
+/* Allow interaction with clickable images */
+img.clickable,
+button img,
+a img {
+  pointer-events: auto;
+}
+
+/* Disable context menu styling */
+*::-webkit-scrollbar-corner {
+  display: none;
+}
+
+/* Hide browser developer tools hints */
+* {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Additional protection for sensitive content */
+.protected-content {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
+  -khtml-user-drag: none;
+  -moz-user-drag: none;
+  -o-user-drag: none;
+  user-drag: none;
+  pointer-events: none;
+}
+
+/* Allow interaction with protected content that needs to be clickable */
+.protected-content button,
+.protected-content input,
+.protected-content textarea,
+.protected-content select,
+.protected-content a {
+  pointer-events: auto;
+}

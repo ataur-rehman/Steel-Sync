@@ -121,7 +121,7 @@ async fn close_database_connections() -> Result<(), String> {
     };
     
     let db_dir = PathBuf::from(&app_data_dir).join(app_name);
-    let db_path = db_dir.join("store.db");
+    let db_path = db_dir.join("store-2025.db");
     
     if db_path.exists() {
         println!("[BACKUP] Attempting to close connections and checkpoint WAL for: {:?}", db_path);
@@ -196,9 +196,9 @@ async fn atomic_database_replace(backup_data: Vec<u8>) -> Result<(), String> {
     };
     
     let db_dir = PathBuf::from(&app_data_dir).join(app_name);
-    let db_path = db_dir.join("store.db");
-    let temp_path = db_dir.join("store.db.restore.tmp");
-    let backup_path = db_dir.join("store.db.backup.tmp");
+    let db_path = db_dir.join("store-2025.db");
+    let temp_path = db_dir.join("store-2025.db.restore.tmp");
+    let backup_path = db_dir.join("store-2025.db.backup.tmp");
     
     println!("[BACKUP] Database path: {:?}", db_path);
     println!("[BACKUP] Writing backup data to temporary file...");
@@ -333,7 +333,7 @@ async fn get_database_path() -> Result<String, String> {
             .map_err(|_| "Failed to get HOME directory".to_string())?
     };
     
-    let db_path = app_data_dir.join("store.db");
+    let db_path = app_data_dir.join("store-2025.db");
     Ok(db_path.to_string_lossy().to_string())
 }
 
@@ -350,12 +350,12 @@ async fn startup_database_restore(backup_data: Vec<u8>) -> Result<(), String> {
             .join(app_name)
     };
     
-    let db_path = app_data_dir.join("store.db");
+    let db_path = app_data_dir.join("store-2025.db");
     
     // At startup, database should not be locked
     if db_path.exists() {
         // Create safety backup
-        let backup_path = app_data_dir.join("store.db.pre-restore-backup");
+        let backup_path = app_data_dir.join("store-2025.db.pre-restore-backup");
         std::fs::copy(&db_path, &backup_path)
             .map_err(|e| format!("Failed to create safety backup: {}", e))?;
         println!("🛡️ [STARTUP-RESTORE] Created safety backup");
@@ -385,7 +385,7 @@ async fn create_consistent_backup(backup_file_name: String) -> Result<serde_json
             .join(app_name)
     };
     
-    let db_path = app_data_dir.join("store.db");
+    let db_path = app_data_dir.join("store-2025.db");
     let backup_dir = app_data_dir.join("backups");
     let backup_path = backup_dir.join(&backup_file_name);
     
@@ -819,7 +819,7 @@ fn main() {
     }
     
     // Define database path in app data directory
-    let db_path: PathBuf = app_data_dir.join("store.db");
+    let db_path: PathBuf = app_data_dir.join("store-2025.db");
     println!("[TAURI] SQLite DB Path: {}", db_path.display());
 
     // Ensure the database file exists by creating a connection

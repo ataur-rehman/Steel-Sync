@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { formatDate } from '../../utils/formatters';
-import { ActivityType, ModuleType } from '../../services/activityLogger';
 import { salaryHistoryService } from '../../services/salaryHistoryService';
 import type {
   SalaryPayment,

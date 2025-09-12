@@ -1,6 +1,5 @@
 import React from 'react';
 import { AuthProvider } from '../../hooks/useAuth';
-import { DatabaseProvider } from '../../hooks/useDatabase';
 
 interface AuthErrorBoundaryState {
   hasError: boolean;
@@ -19,11 +18,11 @@ class AuthErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(error: Error): AuthErrorBoundaryState {
     console.error('AuthErrorBoundary caught error:', error);
-    
+
     // Determine error type based on error message
     let errorType: AuthErrorBoundaryState['errorType'] = 'unknown';
     const errorMessage = error.message.toLowerCase();
-    
+
     if (errorMessage.includes('insertbefore') || errorMessage.includes('removechild')) {
       errorType = 'react-dom';
     } else if (errorMessage.includes('database') || errorMessage.includes('timeout')) {
@@ -31,7 +30,7 @@ class AuthErrorBoundary extends React.Component<
     } else if (errorMessage.includes('auth')) {
       errorType = 'auth';
     }
-    
+
     return { hasError: true, error, errorType };
   }
 
@@ -46,7 +45,7 @@ class AuthErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       const { error, errorType } = this.state;
-      
+
       // Specific handling for React DOM errors
       if (errorType === 'react-dom') {
         return (
@@ -91,7 +90,7 @@ class AuthErrorBoundary extends React.Component<
           </div>
         );
       }
-      
+
       // Database error handling
       if (errorType === 'database') {
         return (
@@ -130,7 +129,7 @@ class AuthErrorBoundary extends React.Component<
           </div>
         );
       }
-      
+
       // Default error handling
       return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -171,12 +170,12 @@ class AuthErrorBoundary extends React.Component<
 
 // Enhanced AuthProvider wrapper with error boundary
 export const SafeAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  console.log('🛡️ SafeAuthProvider rendering...', { children: !!children });
+
   return (
     <AuthErrorBoundary>
       <AuthProvider>
-        <DatabaseProvider>
-          {children}
-        </DatabaseProvider>
+        {children}
       </AuthProvider>
     </AuthErrorBoundary>
   );

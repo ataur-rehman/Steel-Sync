@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Iron Calculator Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .test-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        input:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+
+        .calculation {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+        }
+
+        .error {
+            background: #f8d7da;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #dc3545;
+            color: #721c24;
+        }
+
+        .success {
+            background: #d4edda;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #28a745;
+            color: #155724;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🧪 T-Iron Calculator Fix Test</h1>
+
+    <div class="test-container">
+        <h2>✅ Issue: Fixed "1" Cannot Be Removed</h2>
+        <p><strong>Problem:</strong> Users couldn't remove the "1" from T-Iron calculator fields</p>
+        <p><strong>Solution:</strong> Allow empty values and handle 0 values properly</p>
+
+        <div class="success">
+            <strong>✅ FIXED:</strong>
+            <ul>
+                <li>Removed min="1" restriction from input fields</li>
+                <li>Changed min="0" to allow empty fields</li>
+                <li>Updated onChange handlers to allow 0 values</li>
+                <li>Enhanced validation to handle empty/0 values</li>
+                <li>Updated calculations to handle null/undefined values</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="test-container">
+        <h2>🧮 T-Iron Calculator Simulation</h2>
+        <p>Test the behavior that would now work in the actual application:</p>
+
+        <div class="input-group">
+            <label for="pieces">Number of Pieces (can now be cleared!)</label>
+            <input type="number" id="pieces" min="0" step="1" value="1" placeholder="Enter pieces...">
+        </div>
+
+        <div class="input-group">
+            <label for="length">Length per Piece (ft) (can now be cleared!)</label>
+            <input type="number" id="length" min="0" step="0.1" value="12" placeholder="Enter length...">
+        </div>
+
+        <div class="input-group">
+            <label for="price">Price per Foot (Rs.) (can now be cleared!)</label>
+            <input type="number" id="price" min="0" step="0.01" value="120" placeholder="Enter price...">
+        </div>
+
+        <div id="result" class="calculation">
+            <strong>Calculation:</strong> <span id="calc-display">1 pcs × 12 ft × Rs. 120 = Rs. 1440</span>
+        </div>
+
+        <div id="validation" class="success">
+            <strong>Status:</strong> <span id="status">Ready to add to invoice</span>
+        </div>
+
+        <button class="btn" id="addBtn">Add to Invoice</button>
+    </div>
+
+    <div class="test-container">
+        <h2>🔍 Test Instructions</h2>
+        <ol>
+            <li><strong>Clear Field Test:</strong> Try to clear any of the input fields above - you should now be able
+                to remove all digits including "1"</li>
+            <li><strong>Zero Value Test:</strong> Enter "0" in any field - it should be accepted</li>
+            <li><strong>Empty Field Test:</strong> Leave fields empty - validation will show appropriate errors</li>
+            <li><strong>Calculation Test:</strong> Enter valid values - calculation should update in real-time</li>
+        </ol>
+
+        <div class="success">
+            <strong>✅ Expected Behavior (FIXED):</strong>
+            <ul>
+                <li>You can now completely clear any input field</li>
+                <li>Fields accept 0 values</li>
+                <li>Proper validation prevents invalid calculations</li>
+                <li>Empty fields show helpful placeholder text</li>
+                <li>No forced "1" values that cannot be removed</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Simulate the fixed T-Iron calculator behavior
+        const piecesInput = document.getElementById('pieces');
+        const lengthInput = document.getElementById('length');
+        const priceInput = document.getElementById('price');
+        const calcDisplay = document.getElementById('calc-display');
+        const status = document.getElementById('status');
+        const addBtn = document.getElementById('addBtn');
+        const validation = document.getElementById('validation');
+
+        function updateCalculation() {
+            const pieces = parseFloat(piecesInput.value) || 0;
+            const length = parseFloat(lengthInput.value) || 0;
+            const price = parseFloat(priceInput.value) || 0;
+
+            const totalFeet = pieces * length;
+            const totalAmount = totalFeet * price;
+
+            calcDisplay.textContent = `${pieces} pcs × ${length} ft × Rs. ${price} = Rs. ${totalAmount.toLocaleString()}`;
+
+            // Validation (same logic as the fix)
+            const errors = [];
+            if (!pieces || pieces <= 0) errors.push('Pieces must be > 0');
+            if (!length || length <= 0) errors.push('Length must be > 0');
+            if (!price || price <= 0) errors.push('Price must be > 0');
+
+            if (errors.length > 0) {
+                status.textContent = errors.join(' | ');
+                validation.className = 'error';
+                addBtn.disabled = true;
+            } else {
+                status.textContent = 'Ready to add to invoice';
+                validation.className = 'success';
+                addBtn.disabled = false;
+            }
+        }
+
+        // Event listeners (simulating the fixed behavior)
+        piecesInput.addEventListener('input', updateCalculation);
+        lengthInput.addEventListener('input', updateCalculation);
+        priceInput.addEventListener('input', updateCalculation);
+
+        addBtn.addEventListener('click', () => {
+            if (!addBtn.disabled) {
+                alert('✅ T-Iron item would be added to invoice successfully!');
+            }
+        });
+
+        // Initial calculation
+        updateCalculation();
+    </script>
+</body>
+
+</html>
